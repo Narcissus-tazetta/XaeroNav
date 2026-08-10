@@ -8,14 +8,14 @@ import java.util.concurrent.atomic.AtomicReference;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
-import net.prason.xaeronav.pathfinding.world.WorldSnapshot;
+import net.prason.xaeronav.pathfinding.world.ChunkView;
 
 /**
  * design doc §4-5/§4-6。ワーカースレッドでA*を実行する。新しいリクエストが来たら
  * 実行中(または未着手)の古いジョブをキャンセルし、常に最新のリクエストだけが結果を返す。
  *
- * <p>{@link WorldSnapshot}の構築（メインスレッドでのブロック読み取り）は呼び出し側の責務。
- * このクラスはスナップショット構築後のA*実行と、そのキャンセル制御のみを担当する。
+ * <p>{@link ChunkView}の構築（メインスレッドでのチャンク参照集め）は呼び出し側の責務。
+ * このクラスはA*の実行と、そのキャンセル制御のみを担当する。
  */
 public final class PathfindingExecutor {
 
@@ -27,7 +27,7 @@ public final class PathfindingExecutor {
 
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
-    public CompletableFuture<PathResult> submit(WorldSnapshot snapshot, BlockPos start, BlockPos goal) {
+    public CompletableFuture<PathResult> submit(ChunkView view, BlockPos start, BlockPos goal, int maxExpandedNodes) {
         PathfindingJob job = new PathfindingJob();
         PathfindingJob previous = currentJob.getAndSet(job);
         if (previous != null) {
@@ -37,7 +37,8 @@ public final class PathfindingExecutor {
         CompletableFuture<PathResult> future = new CompletableFuture<>();
         executor.submit(() -> {
             try {
-                AStarPathfinder pathfinder = new AStarPathfinder(snapshot);
+                AStarPathfinder pathfinder = new AStarPathfinder(view, maxExpandedNodes,
+                        AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS);
                 PathResult result = pathfinder.search(start, goal, job::isCancelled);
                 if (job.isCancelled()) {
                     future.cancel(false);

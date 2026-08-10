@@ -1,3 +1,16 @@
 {
-  "itemGroup.xaeronav": "XaeroNav"
+  "itemGroup.xaeronav": "XaeroNav",
+  "gui.xaeronav_goto_waypoint": "Navigate Here",
+  "gui.xaeronav_goto_here": "Navigate Here",
+
+  "hud.xaeronav.searching": "Finding a route...",
+  "hud.xaeronav.no_route": "No route found",
+  "hud.xaeronav.arriving": "Arriving",
+  "hud.xaeronav.straight": "Continue straight",
+  "hud.xaeronav.turn_left": "Turn left in %d blocks",
+  "hud.xaeronav.turn_right": "Turn right in %d blocks",
+  "hud.xaeronav.remaining": "%1$s blocks left · about %2$s",
+  "hud.xaeronav.minutes_seconds": "%1$d min %2$d sec",
+  "hud.xaeronav.seconds": "%d sec",
+  "hud.xaeronav.incomplete": "Route continues past the searched area"
 }

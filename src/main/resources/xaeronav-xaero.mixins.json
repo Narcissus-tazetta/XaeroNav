@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "net.prason.xaeronav.mixin.xaero",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "GuiMapMixin",
+    "GuiMapRightClickMixin",
+    "MinimapFBORendererMixin",
+    "WaypointReaderMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

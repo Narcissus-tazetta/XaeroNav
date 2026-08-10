@@ -5,15 +5,20 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.slf4j.Logger;
+
+import com.mojang.logging.LogUtils;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.elytra.ElytraPath;
 import net.prason.xaeronav.pathfinding.elytra.ElytraPathfinder;
+import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
-import net.prason.xaeronav.pathfinding.world.WorldSnapshot;
 
 /**
  * design doc §5。徒歩用の{@link PathfindingState}とは別系統（連続座標・単発計算）。
@@ -23,6 +28,8 @@ import net.prason.xaeronav.pathfinding.world.WorldSnapshot;
 public final class ElytraNavState {
 
     public static final ElytraNavState INSTANCE = new ElytraNavState();
+
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     private static final int MARGIN_BLOCKS = 32;
 
@@ -37,6 +44,8 @@ public final class ElytraNavState {
     private final AtomicLong generation = new AtomicLong();
 
     private volatile ElytraPath currentPath;
+    // 経路を出した次元。座標だけを覚えていると、次元をまたいだあとも同じ線を描き続けてしまう
+    private volatile ResourceKey<Level> pathDimension;
 
     private ElytraNavState() {
     }
@@ -48,6 +57,14 @@ public final class ElytraNavState {
     public void clear() {
         generation.incrementAndGet();
         currentPath = null;
+        pathDimension = null;
+    }
+
+    public void onClientTick() {
+        Level level = Minecraft.getInstance().level;
+        if (currentPath != null && (level == null || level.dimension() != pathDimension)) {
+            clear();
+        }
     }
 
     public void requestPath(BlockPos goalBlock) {
@@ -62,17 +79,22 @@ public final class ElytraNavState {
         Vec3 goal = Vec3.atCenterOf(goalBlock);
         BlockPos startBlock = player.blockPosition();
 
-        SearchBounds bounds = SearchBounds.around(startBlock, goalBlock, MARGIN_BLOCKS, MARGIN_BLOCKS);
-        // 飛行判定に掘削は無関係なのでdiggingEnabled=falseにして軽量にスナップショットする
-        WorldSnapshot snapshot = WorldSnapshot.capture(level, player, bounds, false);
+        SearchBounds bounds = SearchBounds.around(level, startBlock, goalBlock, MARGIN_BLOCKS, MARGIN_BLOCKS,
+                mc.options.getEffectiveRenderDistance() * 16);
+        // 飛行判定に掘削は無関係なのでdiggingEnabled=falseにしておく
+        ChunkView view = ChunkView.capture(level, player, bounds, false);
 
         long myGeneration = generation.incrementAndGet();
-        CompletableFuture.supplyAsync(() -> new ElytraPathfinder(snapshot).findPath(start, goal), executor)
-                .thenAccept(result -> {
+        pathDimension = level.dimension();
+        CompletableFuture.supplyAsync(() -> new ElytraPathfinder(view).findPath(start, goal), executor)
+                .whenComplete((result, error) -> {
+                    if (error != null) {
+                        LOGGER.error("XaeroNav: エリトラ経路の計算に失敗しました", error);
+                        return;
+                    }
                     if (generation.get() == myGeneration) {
                         currentPath = result;
                     }
-                })
-                .exceptionally(ex -> null);
+                });
     }
 }

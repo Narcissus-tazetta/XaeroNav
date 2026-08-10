@@ -6,6 +6,7 @@ import java.util.List;
 import org.apache.commons.lang3.tuple.Pair;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
+import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 
 /**
  * design doc §6 Phase3項目15。TOML設定ファイル（{@code config/xaeronav-client.toml}）としてクライアント側に生成される。
@@ -27,7 +28,9 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue searchVerticalMargin;
     private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
     private final ModConfigSpec.IntValue recalcIntervalTicks;
+    private final ModConfigSpec.IntValue maxExpandedNodes;
     private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
+    private final ModConfigSpec.BooleanValue hudEnabled;
 
     private XaeroNavConfig(ModConfigSpec.Builder builder) {
         builder.comment("XaeroNav 経路探索設定").push("pathfinding");
@@ -49,13 +52,25 @@ public final class XaeroNavConfig {
                 .defineInRange("deviationThresholdBlocks", 3.0, 1.0, 16.0);
 
         recalcIntervalTicks = builder
-                .comment("保険としての定期再計算間隔（tick、design doc §4-6）")
+                .comment("経路の再確認間隔（tick）。プレイヤーが動いていない間はこの間隔で経路上のブロック変化だけを調べる")
                 .defineInRange("recalcIntervalTicks", 40, 20, 1200);
+
+        maxExpandedNodes = builder
+                .comment("1回の探索で展開するノード数の上限。大きいほど遠くまで正確な経路が出るがCPUを使う",
+                        "探索はワーカースレッドで走るのでフレームレートには直接影響しない")
+                .defineInRange("maxExpandedNodes", AStarPathfinder.DEFAULT_MAX_EXPANDED_NODES, 1_000, 500_000);
 
         forbiddenBlocks = builder
                 .comment("掘削禁止ブロックの追加リスト（例: \"minecraft:chest\"）。デフォルト禁止リストへの追加分")
                 .defineListAllowEmpty("additionalForbiddenBlocks", Collections.emptyList(),
                         () -> "minecraft:stone", o -> o instanceof String);
+
+        builder.pop();
+        builder.comment("XaeroNav 表示設定").push("display");
+
+        hudEnabled = builder
+                .comment("画面上部に案内（次の曲がり角・残りの道のり・所要時間）を表示するか")
+                .define("hudEnabled", true);
 
         builder.pop();
     }
@@ -80,7 +95,15 @@ public final class XaeroNavConfig {
         return recalcIntervalTicks.get();
     }
 
+    public int maxExpandedNodes() {
+        return maxExpandedNodes.get();
+    }
+
     public List<? extends String> additionalForbiddenBlocks() {
         return forbiddenBlocks.get();
+    }
+
+    public boolean hudEnabled() {
+        return hudEnabled.get();
     }
 }

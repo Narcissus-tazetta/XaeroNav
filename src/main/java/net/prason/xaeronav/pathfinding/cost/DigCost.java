@@ -1,10 +1,8 @@
 package net.prason.xaeronav.pathfinding.cost;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -14,29 +12,31 @@ import net.minecraft.world.level.block.state.BlockState;
  *
  * <p>硬度・ツール速度は独自テーブルではなく、Minecraft本体が実際に使っている
  * {@link BlockState#getDestroySpeed} / {@link ItemStack#getDestroySpeed} をそのまま使う。
- * これにより硬度早見表やエンチャント補正を手で再実装せずに済み、バニラの挙動と常に一致する。
+ * これにより硬度早見表を手で再実装せずに済み、バニラの挙動と常に一致する。
+ * 例外は効率強化で、これだけはプレイヤー側の属性なので{@link ItemStack}からは取れず、
+ * ここで{@code Player#getDigSpeed}と同じ式を再現している。
  *
- * <p><b>呼び出しはメインスレッド限定。</b>{@code player}/{@code level}はライブオブジェクトであり、
- * ワーカースレッドから触ると競合例外の原因になる（design doc §4-5）。ワールドスナップショット構築時に
- * ここで計算した結果（tick数のdouble）だけをスナップショットへ格納し、以降はワーカースレッドが
- * そのdoubleだけを読む。
+ * <p>{@code BlockState#getDestroySpeed}は事前計算済みのフィールドを返すだけでlevelを参照しないため、
+ * {@link EmptyBlockGetter}を渡してワーカースレッドから呼べる。ホットバーは
+ * {@code ChunkView}がメインスレッドで複製したものを受け取る（ライブの{@code Inventory}を
+ * ワーカースレッドから触ると競合するため、design doc §4-5）。
  */
 public final class DigCost {
 
     private DigCost() {
     }
 
-    public static double compute(Player player, BlockGetter level, BlockPos pos, BlockState state) {
+    public static double compute(ItemStack[] hotbar, int[] hotbarEfficiency, BlockState state) {
         if (ForbiddenBlocks.isForbidden(state)) {
             return ActionCosts.INFEASIBLE;
         }
 
-        float hardness = state.getDestroySpeed(level, pos);
+        float hardness = state.getDestroySpeed(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
         if (hardness < 0f) {
             return ActionCosts.INFEASIBLE;
         }
 
-        double bestEffort = bestToolEffort(player.getInventory(), state);
+        double bestEffort = bestToolEffort(hotbar, hotbarEfficiency, state);
         if (Double.isInfinite(bestEffort)) {
             return ActionCosts.INFEASIBLE;
         }
@@ -48,10 +48,10 @@ public final class DigCost {
      * ホットバー内の各アイテム（+素手）について「divisor / 速度」を計算し最小値を返す。
      * hardnessは全候補で共通なので、比較にhardnessを含める必要はない。
      */
-    private static double bestToolEffort(Inventory inventory, BlockState state) {
-        double best = effort(ItemStack.EMPTY, state);
-        for (int slot = 0; slot < Inventory.getSelectionSize(); slot++) {
-            double e = effort(inventory.getItem(slot), state);
+    private static double bestToolEffort(ItemStack[] hotbar, int[] hotbarEfficiency, BlockState state) {
+        double best = effort(ItemStack.EMPTY, 0, state);
+        for (int slot = 0; slot < hotbar.length; slot++) {
+            double e = effort(hotbar[slot], hotbarEfficiency[slot], state);
             if (e < best) {
                 best = e;
             }
@@ -59,10 +59,16 @@ public final class DigCost {
         return best;
     }
 
-    private static double effort(ItemStack stack, BlockState state) {
-        float speed = stack.getDestroySpeed(state);
-        if (speed <= 0f) {
+    private static double effort(ItemStack stack, int efficiencyLevel, BlockState state) {
+        double speed = stack.getDestroySpeed(state);
+        if (speed <= 0.0) {
             return ActionCosts.INFEASIBLE;
+        }
+        // 効率強化は道具側の速度ではなくプレイヤーのMINING_EFFICIENCY属性として加算されるため、
+        // ItemStack#getDestroySpeedには含まれない。加算条件（素の速度が1を超えるとき、
+        // ＝その道具で掘れる対象のとき）もPlayer#getDigSpeedに合わせる
+        if (speed > 1.0 && efficiencyLevel > 0) {
+            speed += (double) efficiencyLevel * efficiencyLevel + 1.0;
         }
         boolean correctTool = !state.requiresCorrectToolForDrops() || stack.isCorrectToolForDrops(state);
         double divisor = correctTool ? 30.0 : 100.0;

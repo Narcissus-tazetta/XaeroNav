@@ -11,9 +11,11 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.prason.xaeronav.client.ClientTickHandler;
+import net.prason.xaeronav.client.NavHud;
 import net.prason.xaeronav.client.PathRenderer;
 import net.prason.xaeronav.client.XaeroNavCommands;
 import net.prason.xaeronav.config.XaeroNavConfig;
@@ -27,6 +29,17 @@ public final class XaeroNav {
     public XaeroNav(IEventBus modEventBus, ModContainer modContainer) {
         LOGGER.info("XaeroNav initialized");
         modContainer.registerConfig(ModConfig.Type.CLIENT, XaeroNavConfig.SPEC);
+        modEventBus.addListener(XaeroNav::onConfigReloaded);
+    }
+
+    /**
+     * 掘削禁止ブロックだけはIDからBlockへの解決結果を保持するので、設定ファイルの再読み込みに
+     * 自分で追随する必要がある（他の設定値は参照のたびに読むので何もしなくてよい）。
+     */
+    private static void onConfigReloaded(ModConfigEvent.Reloading event) {
+        if (event.getConfig().getSpec() == XaeroNavConfig.SPEC) {
+            ForbiddenBlocks.reloadFromConfig(XaeroNavConfig.INSTANCE.additionalForbiddenBlocks());
+        }
     }
 
     // クライアント専用クラス（Minecraft/RenderLevelStageEvent等）への参照はFMLClientSetupEvent内に
@@ -37,6 +50,7 @@ public final class XaeroNav {
         public static void onClientSetup(FMLClientSetupEvent event) {
             ForbiddenBlocks.reloadFromConfig(XaeroNavConfig.INSTANCE.additionalForbiddenBlocks());
             NeoForge.EVENT_BUS.register(new PathRenderer());
+            NeoForge.EVENT_BUS.register(new NavHud());
             NeoForge.EVENT_BUS.register(new ClientTickHandler());
             NeoForge.EVENT_BUS.register(new XaeroNavCommands());
         }

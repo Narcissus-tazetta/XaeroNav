@@ -26,10 +26,14 @@ public final class ForbiddenBlocks {
     private static final Set<Block> DEFAULTS = Set.of(
             Blocks.CHEST, Blocks.TRAPPED_CHEST, Blocks.BARREL,
             Blocks.FURNACE, Blocks.BLAST_FURNACE, Blocks.SMOKER,
-            Blocks.SPAWNER, Blocks.CRAFTING_TABLE
+            Blocks.SPAWNER, Blocks.CRAFTING_TABLE,
+            // レッドストーンでしか開かない＝手で通り抜けられないが、壊して通る経路を出すものでもない
+            Blocks.IRON_DOOR, Blocks.IRON_TRAPDOOR
     );
 
-    private static final Set<Block> extra = new HashSet<>();
+    // 掘削コスト計算はワーカースレッドから走るため、更新は必ず新しいSetへの差し替えで行う
+    // （その場で変更するとイテレーション中の探索スレッドと競合する）。
+    private static volatile Set<Block> extra = Set.of();
 
     private ForbiddenBlocks() {
     }
@@ -39,24 +43,29 @@ public final class ForbiddenBlocks {
         return DEFAULTS.contains(block) || extra.contains(block) || state.is(BlockTags.LOGS);
     }
 
-    public static void addForbidden(Block block) {
-        extra.add(block);
+    public static synchronized void addForbidden(Block block) {
+        Set<Block> updated = new HashSet<>(extra);
+        updated.add(block);
+        extra = Set.copyOf(updated);
     }
 
-    public static void removeForbidden(Block block) {
-        extra.remove(block);
+    public static synchronized void removeForbidden(Block block) {
+        Set<Block> updated = new HashSet<>(extra);
+        updated.remove(block);
+        extra = Set.copyOf(updated);
     }
 
     /** 設定ファイルの{@code additionalForbiddenBlocks}（例: "minecraft:chest"）を反映する。 */
-    public static void reloadFromConfig(Collection<? extends String> ids) {
-        extra.clear();
+    public static synchronized void reloadFromConfig(Collection<? extends String> ids) {
+        Set<Block> updated = new HashSet<>();
         for (String id : ids) {
             ResourceLocation location = ResourceLocation.tryParse(id);
             if (location == null || !BuiltInRegistries.BLOCK.containsKey(location)) {
                 LOGGER.warn("XaeroNav config: 未知のブロックIDを無視しました: {}", id);
                 continue;
             }
-            extra.add(BuiltInRegistries.BLOCK.get(location));
+            updated.add(BuiltInRegistries.BLOCK.get(location));
         }
+        extra = Set.copyOf(updated);
     }
 }

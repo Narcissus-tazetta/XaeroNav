@@ -1,3 +1,16 @@
 {
-  "itemGroup.xaeronav": "XaeroNav"
+  "itemGroup.xaeronav": "XaeroNav",
+  "gui.xaeronav_goto_waypoint": "ここへ経路探索",
+  "gui.xaeronav_goto_here": "ここへ経路探索",
+
+  "hud.xaeronav.searching": "経路を計算中…",
+  "hud.xaeronav.no_route": "経路が見つかりません",
+  "hud.xaeronav.arriving": "まもなく到着",
+  "hud.xaeronav.straight": "このまま直進",
+  "hud.xaeronav.turn_left": "%dブロック先を左へ",
+  "hud.xaeronav.turn_right": "%dブロック先を右へ",
+  "hud.xaeronav.remaining": "残り%1$sブロック · 約%2$s",
+  "hud.xaeronav.minutes_seconds": "%1$d分%2$d秒",
+  "hud.xaeronav.seconds": "%d秒",
+  "hud.xaeronav.incomplete": "この先は未探索（進むと続きが出ます）"
 }

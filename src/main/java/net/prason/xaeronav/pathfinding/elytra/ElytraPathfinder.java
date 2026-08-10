@@ -10,11 +10,11 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
 
-import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
-import net.prason.xaeronav.pathfinding.world.BlockSnapshotData;
+import net.prason.xaeronav.pathfinding.world.CellData;
+import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
-import net.prason.xaeronav.pathfinding.world.WorldSnapshot;
 
 /**
  * design doc §5。徒歩用のマス単位A*とは別アルゴリズム。3段構え：
@@ -32,10 +32,10 @@ public final class ElytraPathfinder {
     private static final double COARSE_GRID_STEP = 6.0;
     private static final int MAX_EXPANDED_NODES = 20_000;
 
-    private final WorldSnapshot snapshot;
+    private final ChunkView view;
 
-    public ElytraPathfinder(WorldSnapshot snapshot) {
-        this.snapshot = snapshot;
+    public ElytraPathfinder(ChunkView view) {
+        this.view = view;
     }
 
     public ElytraPath findPath(Vec3 start, Vec3 goal) {
@@ -43,7 +43,7 @@ public final class ElytraPathfinder {
             return new ElytraPath(List.of(start, goal), true);
         }
 
-        double raiseY = Math.min(maxTerrainHeightAlong(start, goal) + TERRAIN_MARGIN, snapshot.bounds().maxY());
+        double raiseY = Math.min(maxTerrainHeightAlong(start, goal) + TERRAIN_MARGIN, view.bounds().maxY());
         Vec3 up1 = new Vec3(start.x, Math.max(start.y, raiseY), start.z);
         Vec3 up2 = new Vec3(goal.x, Math.max(goal.y, raiseY), goal.z);
         List<Vec3> raised = List.of(start, up1, up2, goal);
@@ -75,9 +75,8 @@ public final class ElytraPathfinder {
     }
 
     private boolean isSolid(Vec3 p) {
-        BlockSnapshotData cell = snapshot.get(BlockPos.containing(p));
-        // 範囲外は安全側に倒して障害物扱いにする
-        return cell == null || !cell.passableEmpty();
+        // 範囲外・未ロードチャンクはABSENTになり、passableEmptyがfalseなので自動的に障害物扱いになる
+        return !CellData.passableEmpty(view.cell(Mth.floor(p.x), Mth.floor(p.y), Mth.floor(p.z)));
     }
 
     private double maxTerrainHeightAlong(Vec3 a, Vec3 b) {
@@ -92,12 +91,12 @@ public final class ElytraPathfinder {
     }
 
     private double columnHeight(double x, double z) {
-        SearchBounds bounds = snapshot.bounds();
-        int bx = (int) Math.floor(x);
-        int bz = (int) Math.floor(z);
+        SearchBounds bounds = view.bounds();
+        int bx = Mth.floor(x);
+        int bz = Mth.floor(z);
         for (int y = bounds.maxY(); y >= bounds.minY(); y--) {
-            BlockSnapshotData cell = snapshot.get(new BlockPos(bx, y, bz));
-            if (cell != null && !cell.passableEmpty()) {
+            long cell = view.cell(bx, y, bz);
+            if (CellData.present(cell) && !CellData.passableEmpty(cell)) {
                 return y + 1;
             }
         }
@@ -210,7 +209,7 @@ public final class ElytraPathfinder {
                         }
                         Vec3 from = current.node().toVec3();
                         Vec3 to = neighbor.toVec3();
-                        if (!snapshot.isInBounds(BlockPos.containing(to)) || intersectsTerrain(from, to)) {
+                        if (!view.isInBounds(Mth.floor(to.x), Mth.floor(to.y), Mth.floor(to.z)) || intersectsTerrain(from, to)) {
                             continue;
                         }
                         double tentativeG = currentG + from.distanceTo(to);

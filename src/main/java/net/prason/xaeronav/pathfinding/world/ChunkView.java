@@ -1,0 +1,207 @@
+package net.prason.xaeronav.pathfinding.world;
+
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
+import net.prason.xaeronav.pathfinding.cost.DigCost;
+
+/**
+ * 探索範囲のブロックを読むためのビュー（design doc §4-5）。
+ *
+ * <p>ブロックデータ自体は<b>コピーしない</b>。{@link #capture}がメインスレッドで集めるのは
+ * 「読み込み済みチャンクへの参照」だけで、実際の{@link BlockState}はワーカースレッドが
+ * チャンクから直接読む。{@code BlockState}は不変のグローバルシングルトンなので、
+ * 参照さえ固定してしまえばワーカースレッドから読んでも安全になる。
+ *
+ * <p>形状・硬度の問い合わせ（{@code getCollisionShape}/{@code isFaceSturdy}/{@code getDestroySpeed}）は
+ * {@code BlockState}側のキャッシュを読むだけでlevelを参照しないため、これもワーカースレッドから呼べる。
+ * 唯一の例外が{@code Block#hasDynamicShape()}がtrueのブロックで、これらは形状の解決に実際のlevelを
+ * 要求するため、安全側に倒して「進入も設置もできない障害物」として扱う。
+ *
+ * <p><b>スレッド契約:</b> {@link #capture}はメインスレッドから呼ぶこと。生成後のインスタンスは
+ * 単一のワーカースレッドが占有する（直前チャンクとセルのキャッシュを可変フィールドに持つため、
+ * 複数スレッドで共有してはならない）。
+ */
+public final class ChunkView {
+
+    // セルキャッシュの「未計算」を表す番兵。上位32bitは掘削tick数のfloatビット列で、
+    // 全ビットが立つ＝NaNになる値は生成されないため、この値と衝突しない。
+    private static final long NOT_CACHED = -1L;
+
+    /** 探索1回でセルは数万〜数十万件になる。伸ばしながら作るとその途中で毎回全件の詰め直しが起きる。 */
+    private static final int CELL_CACHE_CAPACITY = 1 << 15;
+
+    private final Long2ObjectMap<LevelChunk> chunks;
+    private final SearchBounds bounds;
+    /** メインスレッドで複製したホットバー。掘削コスト計算をワーカースレッドで行うために必要。 */
+    private final ItemStack[] hotbar;
+    /** ホットバー各スロットの効率強化レベル。エンチャントの解決にはレジストリが要るのでメインスレッドで取る。 */
+    private final int[] hotbarEfficiency;
+    private final boolean diggingEnabled;
+    private final int minBuildHeight;
+    private final int maxBuildHeight;
+    private final int minSection;
+
+    private final Long2LongOpenHashMap cells = new Long2LongOpenHashMap(CELL_CACHE_CAPACITY, 0.75f);
+
+    /**
+     * ブロック状態ごとの判定結果。{@link BlockState}は不変のグローバルシングルトンなので、
+     * 同じ状態のセルは座標が違っても結果が同じになる。洞窟1つに実際に現れる状態は数十種類しかないのに、
+     * 当たり判定の解決とホットバー全スロットの採掘速度比較はセルごとに走っていた。
+     */
+    private final Reference2LongOpenHashMap<BlockState> states = new Reference2LongOpenHashMap<>();
+
+    // 経路探索のブロック参照は同一チャンク内に強く局在するので、直前のチャンクを覚えておくだけで
+    // 大半のアクセスでハッシュ表引きを省略できる。null（未ロード）もそのまま覚えて再引きを防ぐ。
+    private LevelChunk cachedChunk;
+    private long cachedChunkKey = ChunkPos.INVALID_CHUNK_POS;
+
+    private ChunkView(Long2ObjectMap<LevelChunk> chunks, SearchBounds bounds, ItemStack[] hotbar,
+                      int[] hotbarEfficiency, boolean diggingEnabled,
+                      int minBuildHeight, int maxBuildHeight, int minSection) {
+        this.chunks = chunks;
+        this.bounds = bounds;
+        this.hotbar = hotbar;
+        this.hotbarEfficiency = hotbarEfficiency;
+        this.diggingEnabled = diggingEnabled;
+        this.minBuildHeight = minBuildHeight;
+        this.maxBuildHeight = maxBuildHeight;
+        this.minSection = minSection;
+        this.cells.defaultReturnValue(NOT_CACHED);
+        // 実在するブロック状態はPRESENTが必ず立つので、0（＝ABSENT）を未計算の番兵に使える
+        this.states.defaultReturnValue(CellData.ABSENT);
+    }
+
+    /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
+    public static ChunkView capture(Level level, Player player, SearchBounds bounds, boolean diggingEnabled) {
+        int minChunkX = bounds.minX() >> 4;
+        int maxChunkX = bounds.maxX() >> 4;
+        int minChunkZ = bounds.minZ() >> 4;
+        int maxChunkZ = bounds.maxZ() >> 4;
+
+        Long2ObjectOpenHashMap<LevelChunk> chunks =
+                new Long2ObjectOpenHashMap<>((maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1));
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                // 未ロードのチャンクはそもそも読めない。ここで拾わないことで、経路は自然に
+                // 読み込み済み範囲の縁で打ち切られる（進入不可のセルとして扱われるため）。
+                LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
+                if (chunk != null) {
+                    chunks.put(ChunkPos.asLong(chunkX, chunkZ), chunk);
+                }
+            }
+        }
+
+        Holder<Enchantment> efficiency = level.registryAccess()
+                .registryOrThrow(Registries.ENCHANTMENT)
+                .getHolderOrThrow(Enchantments.EFFICIENCY);
+        ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
+        int[] hotbarEfficiency = new int[hotbar.length];
+        for (int slot = 0; slot < hotbar.length; slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            hotbar[slot] = stack.copy();
+            hotbarEfficiency[slot] = stack.getEnchantmentLevel(efficiency);
+        }
+
+        return new ChunkView(chunks, bounds, hotbar, hotbarEfficiency, diggingEnabled,
+                level.getMinBuildHeight(), level.getMaxBuildHeight(), level.getMinSection());
+    }
+
+    /**
+     * 指定座標のセルデータを返す。初回アクセス時に計算してキャッシュする。
+     * 探索範囲外・未ロードチャンクは{@link CellData#ABSENT}。
+     */
+    public long cell(int x, int y, int z) {
+        long key = BlockPos.asLong(x, y, z);
+        long cached = cells.get(key);
+        if (cached != NOT_CACHED) {
+            return cached;
+        }
+        long computed = computeCell(x, y, z);
+        cells.put(key, computed);
+        return computed;
+    }
+
+    public long cell(BlockPos pos) {
+        return cell(pos.getX(), pos.getY(), pos.getZ());
+    }
+
+    public boolean isInBounds(int x, int y, int z) {
+        return bounds.contains(x, y, z);
+    }
+
+    public SearchBounds bounds() {
+        return bounds;
+    }
+
+    private long computeCell(int x, int y, int z) {
+        if (!bounds.contains(x, y, z)) {
+            return CellData.ABSENT;
+        }
+        BlockState state = blockStateAt(x, y, z);
+        if (state == null) {
+            return CellData.ABSENT;
+        }
+        long cached = states.getLong(state);
+        if (cached != CellData.ABSENT) {
+            return cached;
+        }
+        long computed = computeState(state);
+        states.put(state, computed);
+        return computed;
+    }
+
+    private long computeState(BlockState state) {
+        long flags = CellData.flagsOf(state);
+        double digTicks;
+        if (CellData.occupiableWithoutDigging(flags)) {
+            digTicks = 0.0;
+        } else if (CellData.lava(flags) || CellData.unresolvedShape(flags) || !diggingEnabled) {
+            // 液体は掘削対象ではないので、進入不可を素手のdigTicksとして表現する。
+            // diggingEnabled=falseの場合も同様に「掘って進入」という選択肢自体を消す。
+            digTicks = ActionCosts.INFEASIBLE;
+        } else {
+            // 落下ブロック連鎖のコストはここでは足さない(AStarPathfinder側が必須セル群の最上部から
+            // 一度だけスキャンする。ここで各セル個別に連鎖加算すると隣接する必須セル同士で二重計上になる)。
+            digTicks = DigCost.compute(hotbar, hotbarEfficiency, state);
+        }
+        return CellData.withDigTicks(flags, digTicks);
+    }
+
+    private BlockState blockStateAt(int x, int y, int z) {
+        if (y < minBuildHeight || y >= maxBuildHeight) {
+            return null;
+        }
+        LevelChunk chunk = chunkAt(x >> 4, z >> 4);
+        if (chunk == null) {
+            return null;
+        }
+        return chunk.getSections()[(y >> 4) - minSection].getBlockState(x & 15, y & 15, z & 15);
+    }
+
+    private LevelChunk chunkAt(int chunkX, int chunkZ) {
+        long key = ChunkPos.asLong(chunkX, chunkZ);
+        if (key == cachedChunkKey) {
+            return cachedChunk;
+        }
+        LevelChunk chunk = chunks.get(key);
+        cachedChunkKey = key;
+        cachedChunk = chunk;
+        return chunk;
+    }
+}
