@@ -5,5 +5,7 @@ public enum PathRisk {
     NONE,
     LAVA_ADJACENT,
     WATER_INFLOW,
-    VOID_BELOW
+    VOID_BELOW,
+    /** 息継ぎできないまま潜り続ける区間。空気が尽きて溺れる（{@code PathSafetyChecker#drowningRuns}）。 */
+    DROWNING
 }

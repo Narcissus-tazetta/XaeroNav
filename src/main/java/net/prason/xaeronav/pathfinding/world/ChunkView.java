@@ -198,8 +198,10 @@ public final class ChunkView {
         double digTicks;
         if (CellData.occupiableWithoutDigging(flags)) {
             digTicks = 0.0;
-        } else if (CellData.lava(flags) || CellData.unresolvedShape(flags) || !diggingEnabled) {
+        } else if (CellData.lava(flags) || CellData.hazard(flags) || CellData.unresolvedShape(flags)
+                || !diggingEnabled) {
             // 液体は掘削対象ではないので、進入不可を素手のdigTicksとして表現する。
+            // 危険セル（炎・パウダースノー・ポータル等）も掘って通す対象にはしない。
             // diggingEnabled=falseの場合も同様に「掘って進入」という選択肢自体を消す。
             digTicks = ActionCosts.INFEASIBLE;
         } else {
