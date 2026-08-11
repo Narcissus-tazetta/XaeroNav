@@ -164,10 +164,6 @@ public final class ChunkView {
         return computed;
     }
 
-    public long cell(BlockPos pos) {
-        return cell(pos.getX(), pos.getY(), pos.getZ());
-    }
-
     public boolean isInBounds(int x, int y, int z) {
         return bounds.contains(x, y, z);
     }

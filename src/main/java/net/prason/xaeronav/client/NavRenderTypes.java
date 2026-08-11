@@ -19,9 +19,9 @@ import net.minecraft.client.renderer.RenderType;
  * <p>深度は書かない（{@code COLOR_WRITE}）。書いてしまうと、この後に描かれる半透明の地形が
  * 経路の向こう側で欠ける。
  */
-public final class NavRenderTypes {
+final class NavRenderTypes {
 
-    public static final RenderType OCCLUDED_QUADS = RenderType.create(
+    static final RenderType OCCLUDED_QUADS = RenderType.create(
             "xaeronav_occluded_quads", DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 1536, false, true,
             RenderType.CompositeState.builder()
                     .setShaderState(RenderStateShard.POSITION_COLOR_SHADER)
@@ -31,7 +31,7 @@ public final class NavRenderTypes {
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
 
-    public static final RenderType OCCLUDED_LINES = RenderType.create(
+    static final RenderType OCCLUDED_LINES = RenderType.create(
             "xaeronav_occluded_lines", DefaultVertexFormat.POSITION_COLOR_NORMAL, VertexFormat.Mode.LINES, 1536,
             RenderType.CompositeState.builder()
                     .setShaderState(RenderStateShard.RENDERTYPE_LINES_SHADER)

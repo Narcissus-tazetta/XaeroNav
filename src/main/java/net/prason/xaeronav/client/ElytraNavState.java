@@ -25,9 +25,9 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
  * MVPでは§5-3の通りユーザーが明示的に{@code /xaeronav flyto}で選択する方式とし、
  * 徒歩系のような逸脱検知・定期再計算（§4-6）は行わない。
  */
-public final class ElytraNavState {
+final class ElytraNavState {
 
-    public static final ElytraNavState INSTANCE = new ElytraNavState();
+    static final ElytraNavState INSTANCE = new ElytraNavState();
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -57,24 +57,24 @@ public final class ElytraNavState {
     private ElytraNavState() {
     }
 
-    public ElytraPath currentPath() {
+    ElytraPath currentPath() {
         return currentPath;
     }
 
-    public void clear() {
+    void clear() {
         generation.incrementAndGet();
         currentPath = null;
         pathDimension = null;
     }
 
-    public void onClientTick() {
+    void onClientTick() {
         Level level = Minecraft.getInstance().level;
         if (currentPath != null && (level == null || level.dimension() != pathDimension)) {
             clear();
         }
     }
 
-    public void requestPath(BlockPos goalBlock) {
+    void requestPath(BlockPos goalBlock) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
