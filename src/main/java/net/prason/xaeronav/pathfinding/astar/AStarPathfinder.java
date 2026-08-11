@@ -91,6 +91,11 @@ public final class AStarPathfinder {
     private int goalX;
     private int goalY;
     private int goalZ;
+    // trueなら「y >= surfaceY のセルならどこでもゴール」として探索する（design doc外・地上優先ナビ用）。
+    // 目的地の真下から一直線に掘るのではなく、周囲のどこからでも地上に出られる経路を許すために
+    // 固定の1点ではなく高さだけを条件にする。
+    private boolean surfaceGoal;
+    private int surfaceY;
 
     public AStarPathfinder(ChunkView view) {
         this(view, DEFAULT_MAX_EXPANDED_NODES, DEFAULT_TIME_LIMIT_MILLIS);
@@ -110,10 +115,29 @@ public final class AStarPathfinder {
      * 暫定経路を返す（design doc §4-4）。
      */
     public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled) {
+        this.surfaceGoal = false;
         this.goalX = goal.getX();
         this.goalY = goal.getY();
         this.goalZ = goal.getZ();
+        return runSearch(start, cancelled);
+    }
 
+    /**
+     * 「y &gt;= surfaceY のセルならどこでもゴール」として探索する。地下から地上への移動を、
+     * 出発地の真上を一直線に掘る1点ゴールではなく、周囲のどこからでも地上に出られる経路として
+     * 探すためのもの（design doc外・地上優先ナビ用、{@link net.prason.xaeronav.client.PathfindingState}参照）。
+     *
+     * <p>ヒューリスティックは各ノード自身の(x, z)を目的地の(x, z)として扱う（水平距離0扱い）ことで、
+     * 垂直成分だけの下限値になる。実際の残りコストには水平移動が乗ることがあるので下限であり続け、
+     * A*の最適性は保たれる（探索が広がりやすくなるだけ）。
+     */
+    public PathResult searchToSurface(BlockPos start, int surfaceY, BooleanSupplier cancelled) {
+        this.surfaceGoal = true;
+        this.surfaceY = surfaceY;
+        return runSearch(start, cancelled);
+    }
+
+    private PathResult runSearch(BlockPos start, BooleanSupplier cancelled) {
         PathNode startNode = node(start.getX(), start.getY(), start.getZ());
         startNode.cost = 0.0;
         startNode.combinedCost = startNode.estimatedCostToGoal;
@@ -132,13 +156,18 @@ public final class AStarPathfinder {
 
             PathNode current = open.removeLowest();
             expanded++;
-            if (current.x == goalX && current.y == goalY && current.z == goalZ) {
+            if (reachedGoal(current)) {
                 return buildResult(startNode, current, true, expanded);
             }
             expand(current);
         }
 
         return buildResult(startNode, selectFallback(startNode), false, expanded);
+    }
+
+    private boolean reachedGoal(PathNode node) {
+        return surfaceGoal ? node.y >= surfaceY
+                : node.x == goalX && node.y == goalY && node.z == goalZ;
     }
 
     /**
@@ -198,7 +227,10 @@ public final class AStarPathfinder {
         if (existing != null) {
             return existing;
         }
-        PathNode created = new PathNode(x, y, z, Heuristic.estimate(x, y, z, goalX, goalY, goalZ));
+        double heuristic = surfaceGoal
+                ? Heuristic.estimate(x, y, z, x, surfaceY, z)
+                : Heuristic.estimate(x, y, z, goalX, goalY, goalZ);
+        PathNode created = new PathNode(x, y, z, heuristic);
         nodes.put(key, created);
         return created;
     }

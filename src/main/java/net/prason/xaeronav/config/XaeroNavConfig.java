@@ -29,6 +29,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue searchVerticalMargin;
     private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
     private final ModConfigSpec.DoubleValue arrivalRadiusBlocks;
+    private final ModConfigSpec.IntValue groundLevelY;
     private final ModConfigSpec.IntValue recalcIntervalTicks;
     private final ModConfigSpec.IntValue maxExpandedNodes;
     private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
@@ -62,9 +63,16 @@ public final class XaeroNavConfig {
                 .defineInRange("deviationThresholdBlocks", 4.0, 1.0, 16.0);
 
         arrivalRadiusBlocks = builder
-                .comment("目的地からこの水平距離(ブロック)まで近づいたら到着とみなす",
-                        "高さが違うだけの目的地（地図クリックやウェイポイントのY）でも、真上・真下まで来ていれば到着とする")
+                .comment("目的地からこの距離(ブロック)以内に来たら到着とみなす（水平・垂直とも）",
+                        "掘っても辿り着けない目的地では、実際に辿り着けた地点を基準にする")
                 .defineInRange("arrivalRadiusBlocks", 3.0, 1.0, 16.0);
+
+        groundLevelY = builder
+                .comment("この高さ(Y座標)以上を地上とみなす",
+                        "地下から地上の目的地へ向かうとき、目的地の真下を一直線に掘るのではなく、",
+                        "まず最寄りの地上（この高さ以上のどこか）へ出る経路を探してから、改めて目的地へ向かう",
+                        "既定値60は海面の少し下")
+                .defineInRange("groundLevelY", 60, -64, 320);
 
         recalcIntervalTicks = builder
                 .comment("経路の再確認間隔（tick）。プレイヤーが動いていない間はこの間隔で経路上のブロック変化だけを調べる")
@@ -116,6 +124,10 @@ public final class XaeroNavConfig {
 
     public double arrivalRadiusBlocks() {
         return arrivalRadiusBlocks.get();
+    }
+
+    public int groundLevelY() {
+        return groundLevelY.get();
     }
 
     public int recalcIntervalTicks() {

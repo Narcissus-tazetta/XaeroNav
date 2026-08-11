@@ -2,6 +2,7 @@ package net.prason.xaeronav.client;
 
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -63,8 +64,9 @@ public final class PathfindingState {
     private volatile PathResult currentResult;
     private volatile boolean computing;
     private volatile boolean arrived;
-    // 目的地のYと自分のYの差。同じ場所の上下階で「到着」したときに、どちらへ何マスかを伝える
-    private volatile int arrivalVerticalOffset;
+    // trueの間は、currentResultは本来の目的地ではなく「地上へ出るまで」の中継経路を表す
+    // （design doc外・地上優先ナビ。recalculate/onClientTick参照）。
+    private volatile boolean climbingToSurface;
 
     // 直近の探索に使った入力。以下はクライアントスレッドからのみ触る。
     private BlockPos lastStart;
@@ -95,7 +97,7 @@ public final class PathfindingState {
         this.currentResult = null;
         this.lastStart = null;
         this.arrived = false;
-        this.arrivalVerticalOffset = 0;
+        this.climbingToSurface = false;
         this.arrivedTicks = 0;
     }
 
@@ -117,9 +119,9 @@ public final class PathfindingState {
         return arrived;
     }
 
-    /** 到着地点から見た目的地の高さの差（正なら目的地の方が上）。 */
-    public int arrivalVerticalOffset() {
-        return arrivalVerticalOffset;
+    /** 表示中の経路が、本来の目的地ではなく「まず地上へ出るまで」の中継経路か。 */
+    public boolean climbingToSurface() {
+        return climbingToSurface;
     }
 
     public void onClientTick() {
@@ -137,15 +139,6 @@ public final class PathfindingState {
             return;
         }
         if (arrived) {
-            double radius = XaeroNavConfig.INSTANCE.arrivalRadiusBlocks();
-            if (arrivalVerticalOffset != 0
-                    && horizontalDistanceSq(mc.player, currentGoal) > 4.0 * radius * radius) {
-                // 高さ違いの到着は、目的地の真上・真下を通りかかっただけのこともある。
-                // そのまま離れていくなら案内へ戻す
-                arrived = false;
-                recalculate();
-                return;
-            }
             arrivedTicks++;
             if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS) {
                 clear();
@@ -155,6 +148,13 @@ public final class PathfindingState {
         // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
         // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
         if (mc.screen != null) {
+            return;
+        }
+        if (climbingToSurface && !computing
+                && mc.player.blockPosition().getY() >= XaeroNavConfig.INSTANCE.groundLevelY()) {
+            // 地上に出た。ここから先は本来の目的地に向けて経路を引き直す
+            // （recalculate()が現在地を見てclimbingToSurfaceを自然にfalseへ戻す）
+            recalculate();
             return;
         }
 
@@ -199,34 +199,30 @@ public final class PathfindingState {
     }
 
     /**
-     * 目的地に着いたかどうか。水平距離だけで判断し、高さの違いは「どれだけ上／下か」として伝える。
+     * 目的地に着いたかどうか。水平・垂直とも{@code arrivalRadiusBlocks}以内に来たら到着とする。
      *
-     * <p>目的地のYがずれているだけの座標（地図クリックやウェイポイント）は珍しくない。そこへ
-     * 立てる経路が無いことと、目的地へ着いていないことは別なので、真上・真下まで来ているのに
-     * 「経路が見つかりません」と出し続けるのはやめる。
+     * <p>掘っても辿り着けない座標が目的地のこともある（{@link net.prason.xaeronav.pathfinding.world.StanceFinder}
+     * が寄せた地点までしか経路が伸びない）。その場合は実際に辿れる経路の終端を基準に到着を判定する。
+     * 地上へ出るまでの中継経路（{@link #climbingToSurface}）はこの対象に含めない — 中継地点は
+     * 目的地ではないので、着いてもここでは「到着」にしない（{@link #onClientTick}側で次の区間へ引き継ぐ）。
      */
     private boolean checkArrival(Player player, BlockPos currentGoal) {
         double radius = XaeroNavConfig.INSTANCE.arrivalRadiusBlocks();
         if (near(player, currentGoal, radius)) {
-            arrive(0);
+            arrive();
             return true;
         }
-        int verticalOffset = currentGoal.getY() - player.blockPosition().getY();
-        List<PathStep> steps = currentResult != null ? currentResult.steps() : List.of();
-        if (currentResult != null && currentResult.complete() && !steps.isEmpty()) {
-            // 辿れる経路の終わりまで来た。目的地のYが立てない高さだった場合、ここが実際の到着地点になる
-            if (near(player, steps.get(steps.size() - 1).pos(), radius)) {
-                arrive(verticalOffset);
-                return true;
-            }
-            // 上下階へ回り込む経路がまだ在るなら案内を続ける
+        if (climbingToSurface) {
             return false;
         }
-        if (computing || horizontalDistanceSq(player, currentGoal) > radius * radius) {
-            return false;
+        PathResult result = currentResult;
+        List<PathStep> steps = result != null ? result.steps() : List.of();
+        if (result != null && result.complete() && !steps.isEmpty()
+                && near(player, steps.get(steps.size() - 1).pos(), radius)) {
+            arrive();
+            return true;
         }
-        arrive(verticalOffset);
-        return true;
+        return false;
     }
 
     private static boolean near(Player player, BlockPos pos, double radius) {
@@ -240,12 +236,11 @@ public final class PathfindingState {
         return dx * dx + dz * dz;
     }
 
-    private void arrive(int verticalOffset) {
+    private void arrive() {
         // 走っている探索の結果で経路が復活しないように世代を進める
         generation.incrementAndGet();
         computing = false;
         currentResult = null;
-        arrivalVerticalOffset = verticalOffset;
         arrivedTicks = 0;
         arrived = true;
         Player player = Minecraft.getInstance().player;
@@ -291,10 +286,23 @@ public final class PathfindingState {
         BlockPos start = player.blockPosition();
         lastStart = start;
 
+        int groundLevel = XaeroNavConfig.INSTANCE.groundLevelY();
+        // 目的地が地上（groundLevel以上）で自分は地下にいるなら、目的地の真下を一直線に掘るのではなく、
+        // まず「どこでもいいから地上に出る」経路を探す。近くに使える洞窟・崖があればそちらを、
+        // 無ければ通常の掘削を、状況に応じて選ばせるため（design doc外・地上優先ナビ）。
+        // 地上に出たあとの次の再計算では自分のYがgroundLevel以上になっているので自然にfalseへ戻る
+        climbingToSurface = start.getY() < groundLevel && currentGoal.getY() >= groundLevel;
+
         // 探索範囲は描画距離で切る。読み込み済みチャンクの外は読めないので、そこまで広げても
         // 未ロード扱いのセルを舐めるだけになる。同時に、描画距離を下げているマシンでは
         // 探索の負荷も自動的に下がる。
-        SearchBounds bounds = SearchBounds.around(level, start, currentGoal,
+        // 地上優先ナビ中は、水平方向は自分の周囲だけに絞る（ゴールが1点ではなく「y>=groundLevelの
+        // どこでも」なので、遠い本来の目的地の箱に広げる意味が無い）。垂直方向はgroundLevelまで
+        // 確実に届くよう、同じ列でgroundLevelにある仮想ゴールとして範囲を組み立てる
+        BlockPos boundsGoal = climbingToSurface
+                ? new BlockPos(start.getX(), groundLevel, start.getZ())
+                : currentGoal;
+        SearchBounds bounds = SearchBounds.around(level, start, boundsGoal,
                 XaeroNavConfig.INSTANCE.searchHorizontalMargin(), XaeroNavConfig.INSTANCE.searchVerticalMargin(),
                 mc.options.getEffectiveRenderDistance() * 16);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
@@ -302,21 +310,23 @@ public final class PathfindingState {
 
         long myGeneration = generation.incrementAndGet();
         computing = true;
-        executor.submit(view, start, currentGoal, XaeroNavConfig.INSTANCE.maxExpandedNodes())
-                .whenComplete((result, error) -> {
-                    if (generation.get() != myGeneration) {
-                        // 追い越された古いリクエスト。computingは今走っているリクエストのものなので触らない
-                        return;
-                    }
-                    computing = false;
-                    if (error != null) {
-                        // キャンセルは正常な終わり方（新しいリクエストに置き換わった）
-                        if (!(error instanceof CancellationException)) {
-                            LOGGER.error("XaeroNav: 経路探索に失敗しました", error);
-                        }
-                        return;
-                    }
-                    currentResult = PathSafetyChecker.annotate(view, result);
-                });
+        CompletableFuture<PathResult> future = climbingToSurface
+                ? executor.submitToSurface(view, start, groundLevel, XaeroNavConfig.INSTANCE.maxExpandedNodes())
+                : executor.submit(view, start, currentGoal, XaeroNavConfig.INSTANCE.maxExpandedNodes());
+        future.whenComplete((result, error) -> {
+            if (generation.get() != myGeneration) {
+                // 追い越された古いリクエスト。computingは今走っているリクエストのものなので触らない
+                return;
+            }
+            computing = false;
+            if (error != null) {
+                // キャンセルは正常な終わり方（新しいリクエストに置き換わった）
+                if (!(error instanceof CancellationException)) {
+                    LOGGER.error("XaeroNav: 経路探索に失敗しました", error);
+                }
+                return;
+            }
+            currentResult = PathSafetyChecker.annotate(view, result);
+        });
     }
 }

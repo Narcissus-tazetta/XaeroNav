@@ -4,6 +4,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
@@ -29,6 +30,24 @@ public final class PathfindingExecutor {
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
     public CompletableFuture<PathResult> submit(ChunkView view, BlockPos start, BlockPos goal, int maxExpandedNodes) {
+        return submit(maxExpandedNodes, view, (pathfinder, cancelled) ->
+                // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
+                // 寄せ直しなので、メインスレッドへ戻さずここで行う
+                pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
+                        cancelled));
+    }
+
+    /**
+     * 地下から地上へ出る経路を、目的地の真下ではなく「y &gt;= surfaceY のどこか」を探して求める
+     * （design doc外・地上優先ナビ。{@link net.prason.xaeronav.client.PathfindingState}参照）。
+     */
+    public CompletableFuture<PathResult> submitToSurface(ChunkView view, BlockPos start, int surfaceY,
+                                                          int maxExpandedNodes) {
+        return submit(maxExpandedNodes, view, (pathfinder, cancelled) ->
+                pathfinder.searchToSurface(StanceFinder.resolveStart(view, start), surfaceY, cancelled));
+    }
+
+    private CompletableFuture<PathResult> submit(int maxExpandedNodes, ChunkView view, SearchCall run) {
         PathfindingJob job = new PathfindingJob();
         PathfindingJob previous = currentJob.getAndSet(job);
         if (previous != null) {
@@ -40,11 +59,7 @@ public final class PathfindingExecutor {
             try {
                 AStarPathfinder pathfinder = new AStarPathfinder(view, maxExpandedNodes,
                         AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS);
-                // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
-                // 寄せ直しなので、メインスレッドへ戻さずここで行う
-                PathResult result = pathfinder.search(
-                        StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
-                        job::isCancelled);
+                PathResult result = run.search(pathfinder, job::isCancelled);
                 if (job.isCancelled()) {
                     future.cancel(false);
                 } else {
@@ -55,6 +70,11 @@ public final class PathfindingExecutor {
             }
         });
         return future;
+    }
+
+    @FunctionalInterface
+    private interface SearchCall {
+        PathResult search(AStarPathfinder pathfinder, BooleanSupplier cancelled);
     }
 
     public void shutdown() {

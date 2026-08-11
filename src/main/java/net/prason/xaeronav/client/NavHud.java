@@ -49,12 +49,6 @@ public final class NavHud {
         PathResult result = PathfindingState.INSTANCE.currentResult();
         if (PathfindingState.INSTANCE.arrived()) {
             add(Component.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
-            int offset = PathfindingState.INSTANCE.arrivalVerticalOffset();
-            if (offset != 0) {
-                // 目的地のYだけがずれている場合。上下どちらへ何マスかが分かれば自分で辿り着ける
-                add(Component.translatable(offset > 0 ? "hud.xaeronav.goal_above" : "hud.xaeronav.goal_below",
-                        Math.abs(offset)), SECONDARY_COLOR);
-            }
         } else if (result == null || result.steps().isEmpty()) {
             add(PathfindingState.INSTANCE.computing()
                     ? Component.translatable("hud.xaeronav.searching")
@@ -62,6 +56,11 @@ public final class NavHud {
             add(Component.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
         } else {
+            if (PathfindingState.INSTANCE.climbingToSurface()) {
+                // 本来の目的地ではなく、まず地上へ出るまでの中継経路であることを示す。
+                // 出さないと、なぜ目的地と違う方向へ案内されるのか分からなくなる
+                add(Component.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
+            }
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
             add(instruction(guidance), PRIMARY_COLOR);
             add(Component.translatable("hud.xaeronav.remaining",
