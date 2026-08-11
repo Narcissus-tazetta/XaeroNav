@@ -26,7 +26,7 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # コンパイル + フォーマット確認(spotlessCheck) + テストをまとめて実行する。
       # spotlessCheckはjavaプラグインのcheckタスクに自動で組み込まれるため、
