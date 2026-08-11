@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Gradleプラグイン・JUnit・（Xaeroを除く）依存の更新。
+  # NeoForgeとMinecraftのバージョンはgradle.propertiesにあるのでDependabotの対象外 —
+  # あれはMOD側で意図して選ぶ値で、自動で上げてよいものではない。
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

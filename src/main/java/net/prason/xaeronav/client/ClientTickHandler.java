@@ -9,6 +9,7 @@ public final class ClientTickHandler {
 
     @SubscribeEvent
     public void onClientTick(ClientTickEvent.Post event) {
+        XaeroNavKeys.handleInput();
         PathfindingState.INSTANCE.onClientTick();
         ElytraNavState.INSTANCE.onClientTick();
         NavPace.INSTANCE.onClientTick();
