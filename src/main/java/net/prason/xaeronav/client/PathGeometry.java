@@ -41,8 +41,20 @@ final class PathGeometry {
     final double[] pointX;
     final double[] pointY;
     final double[] pointZ;
+    /**
+     * まとめる前の、ステップごとの描画位置（要素数は「ステップ数 + 1」）。
+     * 通り過ぎた区間を落とすとき、まとめられた長い区間を途中で切るために要る。
+     */
+    private final double[] stepX;
+    private final double[] stepY;
+    private final double[] stepZ;
     /** 区間ごとのRGB（区間数 × 3）。 */
     final float[] segmentColor;
+    /**
+     * 区間の終端にあたるステップ番号。通り過ぎた区間を描かないために使う（区間は一直線ごとに
+     * まとめられているので、ステップ番号から区間を引くにはこの対応が要る）。
+     */
+    final int[] segmentEndStep;
 
     final int[] highlightX;
     final int[] highlightY;
@@ -60,6 +72,7 @@ final class PathGeometry {
 
     private PathGeometry(PathResult source, boolean playerInWater, double playerFeetY,
                          double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
+                         int[] segmentEndStep, double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
                          int nextDigFrom, int nextDigTo, int fadeFromSegment) {
         this.source = source;
@@ -68,7 +81,11 @@ final class PathGeometry {
         this.pointX = pointX;
         this.pointY = pointY;
         this.pointZ = pointZ;
+        this.stepX = stepX;
+        this.stepY = stepY;
+        this.stepZ = stepZ;
         this.segmentColor = segmentColor;
+        this.segmentEndStep = segmentEndStep;
         this.highlightX = highlightX;
         this.highlightY = highlightY;
         this.highlightZ = highlightZ;
@@ -84,6 +101,32 @@ final class PathGeometry {
 
     int highlightCount() {
         return highlightColor.length / 3;
+    }
+
+    /** {@code step}をまだ通り過ぎていない最初の区間。すべて通り過ぎていれば区間数を返す。 */
+    int firstSegmentFrom(int step) {
+        for (int i = 0; i < segmentEndStep.length; i++) {
+            if (segmentEndStep[i] > step) {
+                return i;
+            }
+        }
+        return segmentEndStep.length;
+    }
+
+    /**
+     * {@code step}にいるプレイヤーに対応する、経路上の描き始めの点。
+     * {@link #firstSegmentFrom}が返した区間の内側にある（区間は一直線なので端点の間に載る）。
+     */
+    double cutX(int step) {
+        return stepX[step + 1];
+    }
+
+    double cutY(int step) {
+        return stepY[step + 1];
+    }
+
+    double cutZ(int step) {
+        return stepZ[step + 1];
     }
 
     boolean matches(PathResult result, boolean playerInWater, double playerFeetY) {
@@ -114,6 +157,7 @@ final class PathGeometry {
         double[] outY = new double[count + 1];
         double[] outZ = new double[count + 1];
         float[][] outColor = new float[count][];
+        int[] outEndStep = new int[count];
         outX[0] = rawX[0];
         outY[0] = rawY[0];
         outZ[0] = rawZ[0];
@@ -132,6 +176,8 @@ final class PathGeometry {
                 outX[points - 1] = rawX[i];
                 outY[points - 1] = rawY[i];
                 outZ[points - 1] = rawZ[i];
+                // 点の添字はステップの添字より1つ大きい（先頭の点はプレイヤーの現在地）
+                outEndStep[segments - 1] = i - 1;
                 continue;
             }
             outX[points] = rawX[i];
@@ -139,6 +185,7 @@ final class PathGeometry {
             outZ[points] = rawZ[i];
             points++;
             outColor[segments] = color;
+            outEndStep[segments] = i - 1;
             segments++;
             if (inTail && fadeFromSegment == Integer.MAX_VALUE) {
                 fadeFromSegment = segments - 1;
@@ -189,7 +236,8 @@ final class PathGeometry {
 
         return new PathGeometry(result, playerInWater, playerFeetY,
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
-                flatSegmentColor, hx, hy, hz, hColor, nextDigFrom, nextDigTo,
+                flatSegmentColor, Arrays.copyOf(outEndStep, segments), rawX, rawY, rawZ,
+                hx, hy, hz, hColor, nextDigFrom, nextDigTo,
                 Math.min(fadeFromSegment, segments));
     }
 

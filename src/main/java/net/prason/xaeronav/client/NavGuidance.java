@@ -11,8 +11,8 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
  * 提示中の経路から「残りの道のり」「所要時間」「次にどちらへ曲がるか」を求める（カーナビの案内相当）。
  *
  * <p>曲がり角の位置と各地点までの累積は経路だけで決まるので、経路ごとに1度だけ組み立てて使い回す
- * （{@link Route}）。プレイヤーが進むたびに変わるのは「いま経路のどこにいるか」だけで、そこから先の
- * 問い合わせは累積の引き算で済む。
+ * （{@link Route}）。プレイヤーが進むたびに変わるのは「いま経路のどこにいるか」（{@link PathProgress}）
+ * だけで、そこから先の問い合わせは累積の引き算で済む。
  */
 final class NavGuidance {
 
@@ -40,17 +40,6 @@ final class NavGuidance {
     private static final int ARRIVAL_BLOCKS = 3;
 
     /**
-     * いま経路のどこにいるかを探す範囲（ステップ数）。全体から最も近い点を選ぶと、経路が自分自身の
-     * 近くを通る地形（洞窟の折り返し階段など）で遠くの区間に飛び移り、案内が急に変わる。
-     * 直前に対応づけた位置の周りだけを見て、前へ進む対応づけを優先する。
-     */
-    private static final int MATCH_WINDOW_AHEAD = 32;
-    private static final int MATCH_WINDOW_BEHIND = 8;
-
-    /** 窓の中に近い点が無ければ経路から外れたとみなし、全体を探し直す（ブロック）。 */
-    private static final double MATCH_FALLBACK_DISTANCE = 8.0;
-
-    /**
      * 実測の速さで所要時間を割り直すときの倍率の範囲。止まる直前の遅さや、乗り物での一瞬の速さを
      * そのまま掛けると桁が変わってしまう。
      */
@@ -71,7 +60,6 @@ final class NavGuidance {
     }
 
     private static Route route;
-    private static int matchedIndex;
     private static NavGuidance cached;
     private static BlockPos cachedPos;
 
@@ -92,7 +80,6 @@ final class NavGuidance {
     static NavGuidance forPath(PathResult result, BlockPos playerPos) {
         if (route == null || route.source != result) {
             route = new Route(result);
-            matchedIndex = 0;
             cached = null;
         }
         if (cached != null && playerPos.equals(cachedPos)) {
@@ -104,8 +91,7 @@ final class NavGuidance {
     }
 
     private static NavGuidance build(Route route, BlockPos playerPos) {
-        matchedIndex = route.match(playerPos, matchedIndex);
-        int from = matchedIndex;
+        int from = PathProgress.INSTANCE.indexFor(route.source);
         int last = route.source.steps().size() - 1;
 
         double blocks = route.blocks[last] - route.blocks[from];
@@ -210,32 +196,6 @@ final class NavGuidance {
             }
             double assumed = moved / movement;
             return movement * Math.clamp(assumed / actual, PACE_FACTOR_MIN, PACE_FACTOR_MAX) + action;
-        }
-
-        /** いま経路のどこにいるか。前回の対応づけの周りを優先して探す。 */
-        private int match(BlockPos playerPos, int previous) {
-            List<PathStep> steps = source.steps();
-            int from = Math.max(0, previous - MATCH_WINDOW_BEHIND);
-            int to = Math.min(steps.size() - 1, previous + MATCH_WINDOW_AHEAD);
-            int best = nearest(steps, playerPos, from, to);
-            if (steps.get(best).pos().distSqr(playerPos)
-                    > MATCH_FALLBACK_DISTANCE * MATCH_FALLBACK_DISTANCE) {
-                best = nearest(steps, playerPos, 0, steps.size() - 1);
-            }
-            return best;
-        }
-
-        private static int nearest(List<PathStep> steps, BlockPos playerPos, int from, int to) {
-            int best = from;
-            double bestDistance = Double.MAX_VALUE;
-            for (int i = from; i <= to; i++) {
-                double distance = steps.get(i).pos().distSqr(playerPos);
-                if (distance < bestDistance) {
-                    bestDistance = distance;
-                    best = i;
-                }
-            }
-            return best;
         }
     }
 

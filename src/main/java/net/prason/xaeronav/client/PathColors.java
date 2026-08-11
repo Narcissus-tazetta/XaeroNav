@@ -14,6 +14,8 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
 public final class PathColors {
 
     public static final float[] ELYTRA = {0.9f, 0.95f, 1.0f};
+    /** 経路が分からない区間を繋ぐ直線。実際に辿れる経路と取り違えないよう、彩度を落とした色にする。 */
+    public static final float[] STRAIGHT = {0.85f, 0.85f, 0.9f};
     public static final float[] BRIDGE = {0.4f, 0.9f, 0.9f};
     public static final float[] LAVA_ADJACENT = {1.0f, 0.1f, 0.1f};
     public static final float[] VOID_BELOW = {0.8f, 0.1f, 0.8f};

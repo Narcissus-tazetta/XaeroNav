@@ -9,6 +9,7 @@ import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.StanceFinder;
 
 /**
  * design doc §4-5/§4-6。ワーカースレッドでA*を実行する。新しいリクエストが来たら
@@ -39,7 +40,11 @@ public final class PathfindingExecutor {
             try {
                 AStarPathfinder pathfinder = new AStarPathfinder(view, maxExpandedNodes,
                         AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS);
-                PathResult result = pathfinder.search(start, goal, job::isCancelled);
+                // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
+                // 寄せ直しなので、メインスレッドへ戻さずここで行う
+                PathResult result = pathfinder.search(
+                        StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
+                        job::isCancelled);
                 if (job.isCancelled()) {
                     future.cancel(false);
                 } else {

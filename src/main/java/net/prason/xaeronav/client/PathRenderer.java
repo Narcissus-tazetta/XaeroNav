@@ -13,6 +13,7 @@ import net.minecraft.tags.FluidTags;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.elytra.ElytraPath;
 
@@ -51,12 +52,30 @@ public final class PathRenderer {
     /** 打ち切られた経路の末端の、いちばん先での濃さの割合。0にすると切れ目が見えなくなる。 */
     private static final float FADE_TAIL_MIN_RATIO = 0.15f;
 
+    /** 概算の直線（点線）の1本の長さと間隔（ブロック）。 */
+    private static final double DASH_LENGTH = 1.0;
+    private static final double DASH_GAP = 1.0;
+
+    /**
+     * 概算の直線を出し始める距離（ブロック）。経路の末端が目的地に着いている場合に、
+     * 同じ場所へ向かう点線を重ねて描かないための下限。
+     */
+    private static final double STRAIGHT_MIN_DISTANCE = 3.0;
+
+    private static final float STRAIGHT_ALPHA = 0.8f;
+    private static final float STRAIGHT_OCCLUDED_ALPHA = 0.3f;
+
     private PathGeometry geometry;
 
     // 筒の断面4頂点。区間ごとに作り直さず使い回す（描画スレッド専用）。
     private final double[] ringX = new double[4];
     private final double[] ringY = new double[4];
     private final double[] ringZ = new double[4];
+
+    // 経路がまだ無いときに点線を引き始めるプレイヤーの足元（描画スレッド専用）。
+    private double playerX;
+    private double playerY;
+    private double playerZ;
 
     @SubscribeEvent
     public void onRenderLevelStage(RenderLevelStageEvent event) {
@@ -70,12 +89,14 @@ public final class PathRenderer {
 
         PathResult groundResult = PathfindingState.INSTANCE.currentResult();
         ElytraPath elytraPath = ElytraNavState.INSTANCE.currentPath();
+        BlockPos goal = PathfindingState.INSTANCE.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
         boolean hasElytra = elytraPath != null && elytraPath.waypoints().size() >= 2;
+        boolean hasStraight = goal != null && XaeroNavConfig.INSTANCE.straightLineEnabled();
         if (!hasGround) {
             geometry = null;
         }
-        if (!hasGround && !hasElytra) {
+        if (!hasGround && !hasElytra && !hasStraight) {
             return;
         }
 
@@ -90,22 +111,83 @@ public final class PathRenderer {
         double cullRadius = mc.options.getEffectiveRenderDistance() * 16.0;
         double cullRadiusSq = cullRadius * cullRadius;
 
+        BlockPos playerPos = mc.player.blockPosition();
+        boolean playerInWater = mc.level.getFluidState(playerPos).is(FluidTags.WATER);
+        double playerFeetY = playerPos.getY() + 0.55;
+        playerX = mc.player.getX();
+        playerY = playerInWater ? playerFeetY : mc.player.getY() + 0.55;
+        playerZ = mc.player.getZ();
+
+        PathGeometry current = null;
         if (hasGround) {
-            BlockPos playerPos = mc.player.blockPosition();
-            boolean playerInWater = mc.level.getFluidState(playerPos).is(FluidTags.WATER);
-            double playerFeetY = playerPos.getY() + 0.55;
-            PathGeometry current = geometry;
+            current = geometry;
             if (current == null || !current.matches(groundResult, playerInWater, playerFeetY)) {
                 current = PathGeometry.build(mc.level, groundResult, playerPos, playerInWater, playerFeetY);
                 geometry = current;
             }
-            renderGroundPath(bufferSource, pose, current, cameraPos, cullRadiusSq);
+            renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);
         }
         if (hasElytra) {
             renderElytraPath(bufferSource, pose, elytraPath, cameraPos, cullRadiusSq);
         }
+        if (hasStraight) {
+            renderStraightLine(bufferSource, pose, current, goal, cullRadius);
+        }
 
         poseStack.popPose();
+    }
+
+    /**
+     * 経路が分からない区間を、目的地までの点線の直線で示す。未読み込みチャンクの先や、
+     * 目的地のYが立てない高さの場合、実際に辿れる経路はそこで終わる。そのまま線を切ると
+     * 「どちらへ向かえばいいのか」まで消えてしまうので、残りは直線で繋ぐ。
+     *
+     * <p>始点は経路の末端（無ければプレイヤー自身）。壁越しにも薄く出す — この線は地形を
+     * 辿るものではなく方角と距離を示すものなので、遮蔽で消えると意味がなくなる。
+     */
+    private void renderStraightLine(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
+                                     PathGeometry geometry, BlockPos goal, double cullRadius) {
+        double fromX = playerX;
+        double fromY = playerY;
+        double fromZ = playerZ;
+        if (geometry != null) {
+            int last = geometry.pointX.length - 1;
+            fromX = geometry.pointX[last];
+            fromY = geometry.pointY[last];
+            fromZ = geometry.pointZ[last];
+        }
+        double dx = goal.getX() + 0.5 - fromX;
+        double dy = goal.getY() + 0.55 - fromY;
+        double dz = goal.getZ() + 0.5 - fromZ;
+        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (length < STRAIGHT_MIN_DISTANCE) {
+            return;
+        }
+        dx /= length;
+        dy /= length;
+        dz /= length;
+        // 描画距離の外は地形ごと描かれないので、そこまで点を積んでも見えない
+        double drawn = Math.min(length, cullRadius);
+
+        VertexConsumer occludedQuads = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
+        drawDashes(occludedQuads, pose, fromX, fromY, fromZ, dx, dy, dz, drawn, STRAIGHT_OCCLUDED_ALPHA);
+        bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
+
+        VertexConsumer quadBuffer = bufferSource.getBuffer(RenderType.debugQuads());
+        drawDashes(quadBuffer, pose, fromX, fromY, fromZ, dx, dy, dz, drawn, STRAIGHT_ALPHA);
+        bufferSource.endBatch(RenderType.debugQuads());
+    }
+
+    private void drawDashes(VertexConsumer buffer, PoseStack.Pose pose,
+                            double fromX, double fromY, double fromZ,
+                            double dirX, double dirY, double dirZ, double length, float alpha) {
+        for (double start = 0.0; start < length; start += DASH_LENGTH + DASH_GAP) {
+            double end = Math.min(start + DASH_LENGTH, length);
+            drawTube(buffer, pose,
+                    fromX + dirX * start, fromY + dirY * start, fromZ + dirZ * start,
+                    fromX + dirX * end, fromY + dirY * end, fromZ + dirZ * end,
+                    PathColors.STRAIGHT[0], PathColors.STRAIGHT[1], PathColors.STRAIGHT[2], alpha);
+        }
     }
 
     /**
@@ -113,16 +195,21 @@ public final class PathRenderer {
      * 2枚が重なって濃く、壁の向こう側では薄い方だけが残る。
      */
     private void renderGroundPath(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
-                                   PathGeometry geometry, Vec3 camera, double cullRadiusSq) {
+                                   PathGeometry geometry, PathResult result, Vec3 camera, double cullRadiusSq) {
         int segments = geometry.segmentCount();
         int highlights = geometry.highlightCount();
+        // 通り過ぎた区間は描かない。経路は歩いても引き直さないので、これが無いと自分の後ろへ
+        // 延々と線が伸びたままになる。線はあくまで経路の上に載せ、プレイヤーへ引き寄せない
+        // （横にずれているときに自分から線が生えるように見えてしまう）
+        int matched = PathProgress.INSTANCE.indexFor(result);
+        int first = geometry.firstSegmentFrom(matched);
 
         VertexConsumer occludedQuads = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
-        for (int i = 0; i < segments; i++) {
+        for (int i = first; i < segments; i++) {
             if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
                 continue;
             }
-            drawSegment(occludedQuads, pose, geometry, i, OCCLUDED_TUBE_ALPHA);
+            drawSegment(occludedQuads, pose, geometry, i, OCCLUDED_TUBE_ALPHA, i == first ? matched : -1);
         }
         for (int i = 0; i < highlights; i++) {
             if (!highlightVisible(geometry, i, camera, cullRadiusSq)) {
@@ -145,11 +232,11 @@ public final class PathRenderer {
         }
 
         VertexConsumer quadBuffer = bufferSource.getBuffer(RenderType.debugQuads());
-        for (int i = 0; i < segments; i++) {
+        for (int i = first; i < segments; i++) {
             if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
                 continue;
             }
-            drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA);
+            drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA, i == first ? matched : -1);
         }
         int visibleHighlights = 0;
         for (int i = 0; i < highlights; i++) {
@@ -174,10 +261,17 @@ public final class PathRenderer {
         }
     }
 
+    /**
+     * {@code cutStep}が0以上なら、区間をそのステップの位置で切って先だけを描く。まとめられた
+     * 長い直線区間は端点までしか点を持たないので、これが無いと区間ごと消えるか丸ごと残るかの
+     * 二択になり、線の始まりが数十ブロック先へ飛ぶ。
+     */
     private void drawSegment(VertexConsumer buffer, PoseStack.Pose pose, PathGeometry geometry, int index,
-                             float alpha) {
+                             float alpha, int cutStep) {
         drawTube(buffer, pose,
-                geometry.pointX[index], geometry.pointY[index], geometry.pointZ[index],
+                cutStep >= 0 ? geometry.cutX(cutStep) : geometry.pointX[index],
+                cutStep >= 0 ? geometry.cutY(cutStep) : geometry.pointY[index],
+                cutStep >= 0 ? geometry.cutZ(cutStep) : geometry.pointZ[index],
                 geometry.pointX[index + 1], geometry.pointY[index + 1], geometry.pointZ[index + 1],
                 geometry.segmentColor[index * 3], geometry.segmentColor[index * 3 + 1],
                 geometry.segmentColor[index * 3 + 2], alpha * fadeRatio(geometry, index));

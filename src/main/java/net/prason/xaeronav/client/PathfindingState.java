@@ -1,5 +1,6 @@
 package net.prason.xaeronav.client;
 
+import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -10,8 +11,10 @@ import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathSafetyChecker;
@@ -33,6 +36,21 @@ public final class PathfindingState {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    /** 到着表示を出しておく長さ（tick）。過ぎたら目的地ごと片付ける。 */
+    private static final int ARRIVAL_DISPLAY_TICKS = 100;
+
+    /** 経路から外れたときの再計算の下限間隔（tick）。外れている間ずっと探索を投げ続けないための頭打ち。 */
+    private static final int MIN_RECALC_INTERVAL_TICKS = 10;
+
+    /** 打ち切られた経路の末端がこの距離まで近づいたら、その先を計算し直す（ブロック）。 */
+    private static final double EXTEND_DISTANCE_BLOCKS = 32.0;
+
+    /** 経路が出せなかったあと、再挑戦するまでに動く距離（ブロック）。 */
+    private static final double RETRY_MOVE_BLOCKS = 4.0;
+
+    /** 経路が出せず、その場から動いてもいない場合の再挑戦間隔（tick）。 */
+    private static final int NO_ROUTE_RETRY_TICKS = 200;
+
     private final PathfindingExecutor executor = new PathfindingExecutor();
     // clear()・新規setGoal()のたびに増分する。非同期結果を適用する直前にこれと照合し、
     // 一致しなければ「もう古くなったリクエストの結果」として捨てる(clear後に古い結果が
@@ -44,12 +62,15 @@ public final class PathfindingState {
     private volatile ResourceKey<Level> goalDimension;
     private volatile PathResult currentResult;
     private volatile boolean computing;
+    private volatile boolean arrived;
+    // 目的地のYと自分のYの差。同じ場所の上下階で「到着」したときに、どちらへ何マスかを伝える
+    private volatile int arrivalVerticalOffset;
 
     // 直近の探索に使った入力。以下はクライアントスレッドからのみ触る。
     private BlockPos lastStart;
-    private BlockPos lastGoal;
     private int ticksSinceRecalc;
     private int ticksSinceValidation;
+    private int arrivedTicks;
 
     private PathfindingState() {
     }
@@ -59,6 +80,7 @@ public final class PathfindingState {
         if (level == null) {
             return;
         }
+        clear();
         this.goal = goal;
         this.goalDimension = level.dimension();
         recalculate();
@@ -72,7 +94,9 @@ public final class PathfindingState {
         this.goalDimension = null;
         this.currentResult = null;
         this.lastStart = null;
-        this.lastGoal = null;
+        this.arrived = false;
+        this.arrivalVerticalOffset = 0;
+        this.arrivedTicks = 0;
     }
 
     public BlockPos goal() {
@@ -88,11 +112,19 @@ public final class PathfindingState {
         return computing;
     }
 
+    /** 目的地に着いたか。着いた瞬間から{@link #ARRIVAL_DISPLAY_TICKS}の間だけtrueになる。 */
+    public boolean arrived() {
+        return arrived;
+    }
+
+    /** 到着地点から見た目的地の高さの差（正なら目的地の方が上）。 */
+    public int arrivalVerticalOffset() {
+        return arrivalVerticalOffset;
+    }
+
     public void onClientTick() {
         BlockPos currentGoal = goal;
-        if (currentGoal == null || computing) {
-            // 計算中は逸脱検知・定期実行のトリガーを一旦止める。さもないと非同期結果が
-            // 返ってくるまでの数tickの間、毎tick探索を投げ直してしまう。
+        if (currentGoal == null) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -104,55 +136,145 @@ public final class PathfindingState {
             clear();
             return;
         }
+        if (arrived) {
+            double radius = XaeroNavConfig.INSTANCE.arrivalRadiusBlocks();
+            if (arrivalVerticalOffset != 0
+                    && horizontalDistanceSq(mc.player, currentGoal) > 4.0 * radius * radius) {
+                // 高さ違いの到着は、目的地の真上・真下を通りかかっただけのこともある。
+                // そのまま離れていくなら案内へ戻す
+                arrived = false;
+                recalculate();
+                return;
+            }
+            arrivedTicks++;
+            if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS) {
+                clear();
+            }
+            return;
+        }
         // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
         // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
         if (mc.screen != null) {
+            return;
+        }
+
+        PathProgress.INSTANCE.update(currentResult, mc.player.position());
+        if (checkArrival(mc.player, currentGoal)) {
+            return;
+        }
+        if (computing) {
+            // 計算中は再計算のトリガーを一旦止める。さもないと非同期結果が返ってくるまでの
+            // 数tickの間、毎tick探索を投げ直してしまう。
             return;
         }
         ticksSinceRecalc++;
         ticksSinceValidation++;
 
         PathResult result = currentResult;
-        if (result != null && !mc.player.onGround() && !mc.player.isInWater()) {
-            // ジャンプ・落下中は見た目の座標が経路から一時的にずれるだけで実際には逸脱していないことが多い。
-            // 空中にいる間は再計算をせず、着地するまで今の経路を維持する。
-            // 泳いでいる間もonGroundは常にfalseなので、水中は例外にしないと経路が更新されなくなる。
+        if (result == null || result.steps().isEmpty()) {
+            retryWithoutRoute(mc.player.blockPosition());
             return;
         }
-
-        BlockPos start = mc.player.blockPosition();
-        if (start.equals(lastStart) && currentGoal.equals(lastGoal)) {
-            // 始点も終点も同じなら探索し直しても同じ結果になる。ただしワールドの方が変わっていれば
-            // 経路は無効になりうるので、経路上のセルだけを定期的に確認する。
-            if (result != null && ticksSinceValidation >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
-                ticksSinceValidation = 0;
-                if (!PathValidator.stillValid(mc.level, result)) {
-                    recalculate();
-                }
+        // 経路の帯からはみ出したときだけ引き直す。1〜2マス横にずれた程度で作り直すと、
+        // そのたびに違う経路が出てきて線が落ち着かない（歩いているだけで案内が変わる）
+        if (PathProgress.INSTANCE.distance() > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
+            if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS) {
+                recalculate();
             }
             return;
         }
-        if (result != null && hasDeviated(start, result)) {
+        if (ticksSinceRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()
+                && !result.complete() && nearPathEnd(mc.player.position(), result)) {
+            // 打ち切られた末端に近づいた。ここから先は新しく読み込まれたチャンクを使って伸ばせる
             recalculate();
             return;
         }
-        if (ticksSinceRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
+        if (ticksSinceValidation >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
+            // プレイヤーが動かなくてもワールドは変わりうる。経路上のセルだけを定期的に見る
+            ticksSinceValidation = 0;
+            if (!PathValidator.stillValid(mc.level, result)) {
+                recalculate();
+            }
+        }
+    }
+
+    /**
+     * 目的地に着いたかどうか。水平距離だけで判断し、高さの違いは「どれだけ上／下か」として伝える。
+     *
+     * <p>目的地のYがずれているだけの座標（地図クリックやウェイポイント）は珍しくない。そこへ
+     * 立てる経路が無いことと、目的地へ着いていないことは別なので、真上・真下まで来ているのに
+     * 「経路が見つかりません」と出し続けるのはやめる。
+     */
+    private boolean checkArrival(Player player, BlockPos currentGoal) {
+        double radius = XaeroNavConfig.INSTANCE.arrivalRadiusBlocks();
+        if (near(player, currentGoal, radius)) {
+            arrive(0);
+            return true;
+        }
+        int verticalOffset = currentGoal.getY() - player.blockPosition().getY();
+        List<PathStep> steps = currentResult != null ? currentResult.steps() : List.of();
+        if (currentResult != null && currentResult.complete() && !steps.isEmpty()) {
+            // 辿れる経路の終わりまで来た。目的地のYが立てない高さだった場合、ここが実際の到着地点になる
+            if (near(player, steps.get(steps.size() - 1).pos(), radius)) {
+                arrive(verticalOffset);
+                return true;
+            }
+            // 上下階へ回り込む経路がまだ在るなら案内を続ける
+            return false;
+        }
+        if (computing || horizontalDistanceSq(player, currentGoal) > radius * radius) {
+            return false;
+        }
+        arrive(verticalOffset);
+        return true;
+    }
+
+    private static boolean near(Player player, BlockPos pos, double radius) {
+        return horizontalDistanceSq(player, pos) <= radius * radius
+                && Math.abs(pos.getY() - player.blockPosition().getY()) <= radius;
+    }
+
+    private static double horizontalDistanceSq(Player player, BlockPos pos) {
+        double dx = player.getX() - (pos.getX() + 0.5);
+        double dz = player.getZ() - (pos.getZ() + 0.5);
+        return dx * dx + dz * dz;
+    }
+
+    private void arrive(int verticalOffset) {
+        // 走っている探索の結果で経路が復活しないように世代を進める
+        generation.incrementAndGet();
+        computing = false;
+        currentResult = null;
+        arrivalVerticalOffset = verticalOffset;
+        arrivedTicks = 0;
+        arrived = true;
+        Player player = Minecraft.getInstance().player;
+        if (player != null) {
+            player.playSound(SoundEvents.NOTE_BLOCK_BELL.value(), 0.4f, 1.5f);
+        }
+    }
+
+    /**
+     * 経路が出せなかったときの再挑戦。届かない目的地（海の向こう・未読み込み）では毎回上限まで
+     * 探索して失敗するので、間隔を空けないと同じ計算を数秒おきに繰り返すだけになる。
+     */
+    private void retryWithoutRoute(BlockPos start) {
+        if (ticksSinceRecalc < XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
+            return;
+        }
+        boolean moved = lastStart == null
+                || lastStart.distSqr(start) >= RETRY_MOVE_BLOCKS * RETRY_MOVE_BLOCKS;
+        if (moved || ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS) {
             recalculate();
         }
     }
 
-    private boolean hasDeviated(BlockPos playerPos, PathResult result) {
-        if (result.steps().isEmpty()) {
-            return false;
-        }
-        double deviation = XaeroNavConfig.INSTANCE.deviationThresholdBlocks();
-        double threshold = deviation * deviation;
-        for (PathStep step : result.steps()) {
-            if (step.pos().distSqr(playerPos) <= threshold) {
-                return false;
-            }
-        }
-        return true;
+    private boolean nearPathEnd(Vec3 position, PathResult result) {
+        PathStep last = result.steps().get(result.steps().size() - 1);
+        double dx = last.pos().getX() + 0.5 - position.x;
+        double dy = last.pos().getY() - position.y;
+        double dz = last.pos().getZ() + 0.5 - position.z;
+        return dx * dx + dy * dy + dz * dz <= EXTEND_DISTANCE_BLOCKS * EXTEND_DISTANCE_BLOCKS;
     }
 
     private void recalculate() {
@@ -168,7 +290,6 @@ public final class PathfindingState {
 
         BlockPos start = player.blockPosition();
         lastStart = start;
-        lastGoal = currentGoal;
 
         // 探索範囲は描画距離で切る。読み込み済みチャンクの外は読めないので、そこまで広げても
         // 未ロード扱いのセルを舐めるだけになる。同時に、描画距離を下げているマシンでは
@@ -176,7 +297,8 @@ public final class PathfindingState {
         SearchBounds bounds = SearchBounds.around(level, start, currentGoal,
                 XaeroNavConfig.INSTANCE.searchHorizontalMargin(), XaeroNavConfig.INSTANCE.searchVerticalMargin(),
                 mc.options.getEffectiveRenderDistance() * 16);
-        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled());
+        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
+                XaeroNavConfig.INSTANCE.bridgingEnabled());
 
         long myGeneration = generation.incrementAndGet();
         computing = true;

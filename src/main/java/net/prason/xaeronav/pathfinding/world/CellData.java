@@ -11,6 +11,7 @@ import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.WebBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.pathfinder.PathComputationType;
@@ -42,6 +43,7 @@ public final class CellData {
     private static final long UNRESOLVED_SHAPE = 1L << 6;
     private static final long CLIMBABLE = 1L << 7;
     private static final long OPENABLE = 1L << 8;
+    private static final long COBWEB = 1L << 9;
 
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
 
@@ -99,6 +101,9 @@ public final class CellData {
         if (state.getBlock() instanceof FallingBlock) {
             flags |= FALLING_BLOCK;
         }
+        if (state.getBlock() instanceof WebBlock) {
+            flags |= COBWEB;
+        }
         return flags;
     }
 
@@ -151,6 +156,14 @@ public final class CellData {
     /** ワーカースレッドから形状を評価できなかったブロックか。掘削対象にしてはならない。 */
     public static boolean unresolvedShape(long cell) {
         return (cell & UNRESOLVED_SHAPE) != 0L;
+    }
+
+    /**
+     * 蜘蛛の巣か。当たり判定が無いので{@link #passableEmpty}としては空気と区別がつかないが、
+     * 実際には移動量に0.25が掛かる（{@code WebBlock#entityInside} → {@code Entity#move}）。
+     */
+    public static boolean cobweb(long cell) {
+        return (cell & COBWEB) != 0L;
     }
 
     /** 梯子・ツタ・足場など、掴んで上下できるか。 */

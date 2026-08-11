@@ -81,8 +81,8 @@ public final class ElytraNavState {
 
         SearchBounds bounds = SearchBounds.around(level, startBlock, goalBlock, MARGIN_BLOCKS, MARGIN_BLOCKS,
                 mc.options.getEffectiveRenderDistance() * 16);
-        // 飛行判定に掘削は無関係なのでdiggingEnabled=falseにしておく
-        ChunkView view = ChunkView.capture(level, player, bounds, false);
+        // 飛行判定に掘削もブロック設置も無関係なのでどちらもfalseにしておく
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false);
 
         long myGeneration = generation.incrementAndGet();
         pathDimension = level.dimension();

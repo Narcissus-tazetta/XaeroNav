@@ -5,12 +5,16 @@
 
   "hud.xaeronav.searching": "Finding a route...",
   "hud.xaeronav.no_route": "No route found",
+  "hud.xaeronav.direct_distance": "%d blocks away in a straight line",
   "hud.xaeronav.arriving": "Arriving",
+  "hud.xaeronav.arrived": "Arrived!",
+  "hud.xaeronav.goal_above": "Destination is %d blocks above",
+  "hud.xaeronav.goal_below": "Destination is %d blocks below",
   "hud.xaeronav.straight": "Continue straight",
   "hud.xaeronav.turn_left": "Turn left in %d blocks",
   "hud.xaeronav.turn_right": "Turn right in %d blocks",
   "hud.xaeronav.remaining": "%1$s blocks left · about %2$s",
   "hud.xaeronav.minutes_seconds": "%1$d min %2$d sec",
   "hud.xaeronav.seconds": "%d sec",
-  "hud.xaeronav.incomplete": "Route continues past the searched area"
+  "hud.xaeronav.incomplete": "Route continues past the searched area (follow the dotted line)"
 }

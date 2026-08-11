@@ -264,9 +264,23 @@ public final class AStarPathfinder {
             return;
         }
         boolean inWater = CellData.water(view.cell(x, y, z));
-        double baseCost = inWater ? ActionCosts.WALK_ONE_IN_WATER : ActionCosts.SPRINT_ONE_BLOCK;
-        relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
+        relax(from, x, y, z, stepCost(x, y, z) + submerged(bodyCost, x, y + 1, z),
                 inWater ? MoveKind.SWIM : MoveKind.TRAVERSE);
+    }
+
+    /**
+     * 進入先を1マス通り抜けるのにかかる時間。水と蜘蛛の巣はどちらも当たり判定を持たないので
+     * 「通れる」だけを見ると走って抜けられるように見えるが、実際には桁が違うほど遅い。
+     * 蜘蛛の巣は足元と頭のどちらか一方でも掛かっていれば減速する。
+     */
+    private double stepCost(int x, int y, int z) {
+        if (CellData.water(view.cell(x, y, z))) {
+            return ActionCosts.WALK_ONE_IN_WATER;
+        }
+        if (CellData.cobweb(view.cell(x, y, z)) || CellData.cobweb(view.cell(x, y + 1, z))) {
+            return ActionCosts.SPRINT_ONE_IN_COBWEB;
+        }
+        return ActionCosts.SPRINT_ONE_BLOCK;
     }
 
     /**
@@ -291,8 +305,7 @@ public final class AStarPathfinder {
             return;
         }
         boolean inWater = CellData.water(view.cell(x, y, z));
-        double baseCost = inWater ? ActionCosts.WALK_ONE_IN_WATER : ActionCosts.SPRINT_ONE_BLOCK;
-        relax(from, x, y, z, baseCost * ActionCosts.DIAGONAL_DISTANCE + submerged(bodyCost, x, y + 1, z),
+        relax(from, x, y, z, stepCost(x, y, z) * ActionCosts.DIAGONAL_DISTANCE + submerged(bodyCost, x, y + 1, z),
                 inWater ? MoveKind.SWIM : MoveKind.DIAGONAL);
     }
 
@@ -466,6 +479,9 @@ public final class AStarPathfinder {
      * 渡るのは泳いで渡れる場所にわざわざ足場を作ることになるので、下に水が見えたらこの移動を作らない。
      */
     private void addBridge(PathNode from, int dx, int dz, int obstacleY) {
+        if (!view.canPlaceBlocks()) {
+            return;
+        }
         int x = from.x + dx;
         int y = from.y;
         int z = from.z + dz;
@@ -474,7 +490,17 @@ public final class AStarPathfinder {
         if (CellData.standable(floorCell) || !CellData.passableEmpty(floorCell)) {
             return;
         }
-        if (obstacleY != NOTHING_BELOW && CellData.water(view.cell(x, obstacleY, z))) {
+        if (obstacleY != NOTHING_BELOW) {
+            long obstacle = view.cell(x, obstacleY, z);
+            // 読めなかったセル（未ロード・探索範囲外）で走査が止まっただけの場所は、その下に何が
+            // あるか分からない。水面の上に足場を敷けと言い出すのはこの取り違えから起きる
+            if (!CellData.present(obstacle) || CellData.water(obstacle)) {
+                return;
+            }
+        }
+        // 水・溶岩に接する場所へは置かない。水は流れ込んで足場ごと押し流され、溶岩は論外。
+        // 実際にやろうとすると難しいだけの指示になる
+        if (hasAdjacentFluid(x, y - 1, z)) {
             return;
         }
         double bodyCost = standingBodyCost(x, y, z, null);
@@ -484,6 +510,18 @@ public final class AStarPathfinder {
         double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + submerged(bodyCost, x, y + 1, z);
         relax(from, x, y, z, cost, MoveKind.BRIDGE);
+    }
+
+    /** ブロックを置くセルの周り（真上を除く5面）に水・溶岩があるか。 */
+    private boolean hasAdjacentFluid(int x, int y, int z) {
+        return isFluid(x, y - 1, z)
+                || isFluid(x + 1, y, z) || isFluid(x - 1, y, z)
+                || isFluid(x, y, z + 1) || isFluid(x, y, z - 1);
+    }
+
+    private boolean isFluid(int x, int y, int z) {
+        long cell = view.cell(x, y, z);
+        return CellData.water(cell) || CellData.lava(cell);
     }
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {

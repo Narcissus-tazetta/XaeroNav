@@ -10,12 +10,16 @@ import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.client.ElytraNavState;
 import net.prason.xaeronav.client.MapDots;
 import net.prason.xaeronav.client.PathColors;
 import net.prason.xaeronav.client.PathfindingState;
+import net.prason.xaeronav.client.StraightDots;
+import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.elytra.ElytraPath;
 import xaero.map.graphics.CustomRenderTypes;
@@ -45,17 +49,27 @@ public abstract class GuiMapMixin {
                                     @Local(name = "flooredCameraZ") int flooredCameraZ) {
         PathResult groundResult = PathfindingState.INSTANCE.currentResult();
         ElytraPath elytraPath = ElytraNavState.INSTANCE.currentPath();
+        BlockPos goal = PathfindingState.INSTANCE.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
         boolean hasElytra = elytraPath != null && !elytraPath.waypoints().isEmpty();
-        if (hasGround || hasElytra) {
+        boolean hasStraight = goal != null && XaeroNavConfig.INSTANCE.straightLineEnabled();
+        if (hasGround || hasElytra || hasStraight) {
             VertexConsumer overlayBuffer = renderTypeBuffers.getBuffer(CustomRenderTypes.MAP_COLOR_OVERLAY);
             var pose = matrixStack.last().pose();
-            if (hasGround) {
-                MapDots dots = MapDots.forPath(groundResult);
+            MapDots dots = hasGround ? MapDots.forPath(groundResult) : null;
+            if (dots != null) {
                 for (int i = 0; i < dots.count; i++) {
                     drawDot(pose, overlayBuffer, dots.x[i], dots.z[i], flooredCameraX, flooredCameraZ,
                             dots.color[i * 3], dots.color[i * 3 + 1], dots.color[i * 3 + 2]);
                 }
+            }
+            if (hasStraight) {
+                BlockPos from = dots != null && dots.count > 0
+                        ? new BlockPos(dots.x[dots.count - 1], 0, dots.z[dots.count - 1])
+                        : Minecraft.getInstance().player.blockPosition();
+                StraightDots.forEach(from.getX(), from.getZ(), goal.getX(), goal.getZ(),
+                        (x, z) -> drawDot(pose, overlayBuffer, x, z, flooredCameraX, flooredCameraZ,
+                                PathColors.STRAIGHT[0], PathColors.STRAIGHT[1], PathColors.STRAIGHT[2]));
             }
             if (hasElytra) {
                 for (Vec3 waypoint : elytraPath.waypoints()) {

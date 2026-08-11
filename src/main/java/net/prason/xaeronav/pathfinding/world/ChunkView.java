@@ -10,6 +10,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.Enchantments;
@@ -53,6 +54,7 @@ public final class ChunkView {
     /** ホットバー各スロットの効率強化レベル。エンチャントの解決にはレジストリが要るのでメインスレッドで取る。 */
     private final int[] hotbarEfficiency;
     private final boolean diggingEnabled;
+    private final boolean canPlaceBlocks;
     private final int minBuildHeight;
     private final int maxBuildHeight;
     private final int minSection;
@@ -72,13 +74,14 @@ public final class ChunkView {
     private long cachedChunkKey = ChunkPos.INVALID_CHUNK_POS;
 
     private ChunkView(Long2ObjectMap<LevelChunk> chunks, SearchBounds bounds, ItemStack[] hotbar,
-                      int[] hotbarEfficiency, boolean diggingEnabled,
+                      int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
                       int minBuildHeight, int maxBuildHeight, int minSection) {
         this.chunks = chunks;
         this.bounds = bounds;
         this.hotbar = hotbar;
         this.hotbarEfficiency = hotbarEfficiency;
         this.diggingEnabled = diggingEnabled;
+        this.canPlaceBlocks = canPlaceBlocks;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
         this.minSection = minSection;
@@ -88,7 +91,8 @@ public final class ChunkView {
     }
 
     /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
-    public static ChunkView capture(Level level, Player player, SearchBounds bounds, boolean diggingEnabled) {
+    public static ChunkView capture(Level level, Player player, SearchBounds bounds, boolean diggingEnabled,
+                                     boolean bridgingEnabled) {
         int minChunkX = bounds.minX() >> 4;
         int maxChunkX = bounds.maxX() >> 4;
         int minChunkZ = bounds.minZ() >> 4;
@@ -112,14 +116,37 @@ public final class ChunkView {
                 .getHolderOrThrow(Enchantments.EFFICIENCY);
         ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
         int[] hotbarEfficiency = new int[hotbar.length];
+        boolean canPlaceBlocks = false;
         for (int slot = 0; slot < hotbar.length; slot++) {
             ItemStack stack = player.getInventory().getItem(slot);
             hotbar[slot] = stack.copy();
             hotbarEfficiency[slot] = stack.getEnchantmentLevel(efficiency);
+            canPlaceBlocks |= isBuildingBlock(stack);
         }
 
         return new ChunkView(chunks, bounds, hotbar, hotbarEfficiency, diggingEnabled,
+                bridgingEnabled && canPlaceBlocks,
                 level.getMinBuildHeight(), level.getMaxBuildHeight(), level.getMinSection());
+    }
+
+    /**
+     * 空洞を渡る足場として置けるか。上に立てる（{@code standable}）ことに加えて、置いた先が空中でも
+     * 留まることを求める — 砂・砂利は置いた瞬間に落ちるので足場にならない。
+     */
+    private static boolean isBuildingBlock(ItemStack stack) {
+        if (!(stack.getItem() instanceof BlockItem blockItem)) {
+            return false;
+        }
+        long flags = CellData.flagsOf(blockItem.getBlock().defaultBlockState());
+        return CellData.standable(flags) && !CellData.fallingBlock(flags) && !CellData.unresolvedShape(flags);
+    }
+
+    /**
+     * 足場を置く移動（Bridge）を提示してよいか。ホットバーに置けるブロックが1つも無いなら、
+     * どれだけ近道でも「ここにブロックを置け」という案内は実行できない指示にしかならない。
+     */
+    public boolean canPlaceBlocks() {
+        return canPlaceBlocks;
     }
 
     /**

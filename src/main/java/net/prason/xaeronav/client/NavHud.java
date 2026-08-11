@@ -6,6 +6,7 @@ import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
@@ -46,10 +47,20 @@ public final class NavHud {
         lines.clear();
         colors.clear();
         PathResult result = PathfindingState.INSTANCE.currentResult();
-        if (result == null || result.steps().isEmpty()) {
+        if (PathfindingState.INSTANCE.arrived()) {
+            add(Component.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
+            int offset = PathfindingState.INSTANCE.arrivalVerticalOffset();
+            if (offset != 0) {
+                // 目的地のYだけがずれている場合。上下どちらへ何マスかが分かれば自分で辿り着ける
+                add(Component.translatable(offset > 0 ? "hud.xaeronav.goal_above" : "hud.xaeronav.goal_below",
+                        Math.abs(offset)), SECONDARY_COLOR);
+            }
+        } else if (result == null || result.steps().isEmpty()) {
             add(PathfindingState.INSTANCE.computing()
                     ? Component.translatable("hud.xaeronav.searching")
                     : Component.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
+            add(Component.translatable("hud.xaeronav.direct_distance",
+                    straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
         } else {
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
             add(instruction(guidance), PRIMARY_COLOR);
@@ -75,6 +86,17 @@ public final class NavHud {
             case LEFT -> Component.translatable("hud.xaeronav.turn_left", guidance.turnDistance);
             case RIGHT -> Component.translatable("hud.xaeronav.turn_right", guidance.turnDistance);
         };
+    }
+
+    /** 目的地までの直線距離。経路が出せないときでも、せめて遠いのか近いのかは分かるようにする。 */
+    private static int straightDistance(Minecraft mc, BlockPos goal) {
+        if (goal == null) {
+            return 0;
+        }
+        double dx = goal.getX() + 0.5 - mc.player.getX();
+        double dy = goal.getY() - mc.player.getY();
+        double dz = goal.getZ() + 0.5 - mc.player.getZ();
+        return (int) Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz));
     }
 
     private static Component time(int seconds) {

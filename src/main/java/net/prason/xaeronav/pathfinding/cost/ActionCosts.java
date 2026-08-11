@@ -12,6 +12,12 @@ public final class ActionCosts {
     public static final double SPRINT_ONE_BLOCK = 20.0 / 5.612;
     public static final double WALK_ONE_IN_WATER = 20.0 / 2.2;
 
+    /**
+     * 蜘蛛の巣の中を1マス進む。{@code WebBlock#entityInside}が移動量そのものに0.25を掛けるため
+     * （{@code Entity#move}）、走っていても素の1/4しか進まない。
+     */
+    public static final double SPRINT_ONE_IN_COBWEB = SPRINT_ONE_BLOCK / 0.25;
+
     private static final double WALK_OFF_BLOCK = WALK_ONE_BLOCK * 0.8;
     private static final double CENTER_AFTER_FALL = WALK_ONE_BLOCK - WALK_OFF_BLOCK;
 
