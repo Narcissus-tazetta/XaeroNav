@@ -52,6 +52,16 @@ public final class PathfindingState {
     /** 経路が出せず、その場から動いてもいない場合の再挑戦間隔（tick）。 */
     private static final int NO_ROUTE_RETRY_TICKS = 200;
 
+    /**
+     * 地上優先ナビ（{@link #shouldClimbToSurface}）に入る深さの下限（ブロック）。
+     * 地上のすぐ下は、洞窟の入口も崖もたいてい目と鼻の先にあるので、中継区間を挟むより
+     * そのまま目的地を目指した方が短い。数マスのために案内を2段階にする価値はない。
+     */
+    private static final int MIN_UNDERGROUND_DEPTH = 5;
+
+    /** 地上へ出る経路が見つからなかった地点から、もう一度試すまでに動く距離（ブロック）。 */
+    private static final double SURFACE_RETRY_MOVE_BLOCKS = 16.0;
+
     private final PathfindingExecutor executor = new PathfindingExecutor();
     // clear()・新規setGoal()のたびに増分する。非同期結果を適用する直前にこれと照合し、
     // 一致しなければ「もう古くなったリクエストの結果」として捨てる(clear後に古い結果が
@@ -61,12 +71,12 @@ public final class PathfindingState {
     private volatile BlockPos goal;
     // 目的地を設定した次元。座標だけを覚えていると、ネザーへ移動したあとも同じ座標を目指してしまう
     private volatile ResourceKey<Level> goalDimension;
-    private volatile PathResult currentResult;
+    private volatile DisplayedPath displayed;
     private volatile boolean computing;
     private volatile boolean arrived;
-    // trueの間は、currentResultは本来の目的地ではなく「地上へ出るまで」の中継経路を表す
-    // （design doc外・地上優先ナビ。recalculate/onClientTick参照）。
-    private volatile boolean climbingToSurface;
+    // 地上へ出る経路が出せなかった地点。掘削を切っている・密閉された場所では中継区間そのものが
+    // 成立しないので、その付近では地上優先ナビを諦めて本来の目的地へ直接向かう
+    private volatile BlockPos surfaceLegFailedAt;
 
     // 直近の探索に使った入力。以下はクライアントスレッドからのみ触る。
     private BlockPos lastStart;
@@ -94,10 +104,10 @@ public final class PathfindingState {
         this.computing = false;
         this.goal = null;
         this.goalDimension = null;
-        this.currentResult = null;
+        this.displayed = null;
         this.lastStart = null;
         this.arrived = false;
-        this.climbingToSurface = false;
+        this.surfaceLegFailedAt = null;
         this.arrivedTicks = 0;
     }
 
@@ -106,7 +116,8 @@ public final class PathfindingState {
     }
 
     public PathResult currentResult() {
-        return currentResult;
+        DisplayedPath shown = displayed;
+        return shown == null ? null : shown.result();
     }
 
     /** 探索がまだ走っているか。まだ経路が無いのが計算中だからなのかを案内表示が区別するために使う。 */
@@ -121,7 +132,8 @@ public final class PathfindingState {
 
     /** 表示中の経路が、本来の目的地ではなく「まず地上へ出るまで」の中継経路か。 */
     public boolean climbingToSurface() {
-        return climbingToSurface;
+        DisplayedPath shown = displayed;
+        return shown != null && shown.toSurface();
     }
 
     public void onClientTick() {
@@ -150,16 +162,20 @@ public final class PathfindingState {
         if (mc.screen != null) {
             return;
         }
-        if (climbingToSurface && !computing
+        // 経路とモードは一組で差し替わるので、1tickの判断は同じスナップショットの上で行う
+        DisplayedPath shown = displayed;
+        if (shown != null && shown.toSurface() && !computing
                 && mc.player.blockPosition().getY() >= XaeroNavConfig.INSTANCE.groundLevelY()) {
             // 地上に出た。ここから先は本来の目的地に向けて経路を引き直す
-            // （recalculate()が現在地を見てclimbingToSurfaceを自然にfalseへ戻す）
+            // （新しい経路が届くまでは中継経路のまま表示し続ける。先にモードだけ戻すと、
+            // 中継経路の終端＝いまの足元が「経路の終わり」と見なされて誤って到着になる）
             recalculate();
             return;
         }
 
-        PathProgress.INSTANCE.update(currentResult, mc.player.position());
-        if (checkArrival(mc.player, currentGoal)) {
+        PathResult result = shown == null ? null : shown.result();
+        PathProgress.INSTANCE.update(result, mc.player.position());
+        if (checkArrival(mc.player, currentGoal, shown)) {
             return;
         }
         if (computing) {
@@ -170,8 +186,13 @@ public final class PathfindingState {
         ticksSinceRecalc++;
         ticksSinceValidation++;
 
-        PathResult result = currentResult;
         if (result == null || result.steps().isEmpty()) {
+            if (shown != null && shown.toSurface() && ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS) {
+                // 中継区間が空で返ってきた＝地上へ出る道が無い。そのまま待っても状況は変わらないので、
+                // 本来の目的地へ直接引き直す（recalculate()側でこの付近の地上優先ナビは抑止される）
+                recalculate();
+                return;
+            }
             retryWithoutRoute(mc.player.blockPosition());
             return;
         }
@@ -203,21 +224,21 @@ public final class PathfindingState {
      *
      * <p>掘っても辿り着けない座標が目的地のこともある（{@link net.prason.xaeronav.pathfinding.world.StanceFinder}
      * が寄せた地点までしか経路が伸びない）。その場合は実際に辿れる経路の終端を基準に到着を判定する。
-     * 地上へ出るまでの中継経路（{@link #climbingToSurface}）はこの対象に含めない — 中継地点は
+     * 地上へ出るまでの中継経路（{@link DisplayedPath#toSurface}）はこの対象に含めない — 中継地点は
      * 目的地ではないので、着いてもここでは「到着」にしない（{@link #onClientTick}側で次の区間へ引き継ぐ）。
      */
-    private boolean checkArrival(Player player, BlockPos currentGoal) {
+    private boolean checkArrival(Player player, BlockPos currentGoal, DisplayedPath shown) {
         double radius = XaeroNavConfig.INSTANCE.arrivalRadiusBlocks();
         if (near(player, currentGoal, radius)) {
             arrive();
             return true;
         }
-        if (climbingToSurface) {
+        if (shown == null || shown.toSurface()) {
             return false;
         }
-        PathResult result = currentResult;
-        List<PathStep> steps = result != null ? result.steps() : List.of();
-        if (result != null && result.complete() && !steps.isEmpty()
+        PathResult result = shown.result();
+        List<PathStep> steps = result.steps();
+        if (result.complete() && !steps.isEmpty()
                 && near(player, steps.get(steps.size() - 1).pos(), radius)) {
             arrive();
             return true;
@@ -240,7 +261,7 @@ public final class PathfindingState {
         // 走っている探索の結果で経路が復活しないように世代を進める
         generation.incrementAndGet();
         computing = false;
-        currentResult = null;
+        displayed = null;
         arrivedTicks = 0;
         arrived = true;
         Player player = Minecraft.getInstance().player;
@@ -287,11 +308,7 @@ public final class PathfindingState {
         lastStart = start;
 
         int groundLevel = XaeroNavConfig.INSTANCE.groundLevelY();
-        // 目的地が地上（groundLevel以上）で自分は地下にいるなら、目的地の真下を一直線に掘るのではなく、
-        // まず「どこでもいいから地上に出る」経路を探す。近くに使える洞窟・崖があればそちらを、
-        // 無ければ通常の掘削を、状況に応じて選ばせるため（design doc外・地上優先ナビ）。
-        // 地上に出たあとの次の再計算では自分のYがgroundLevel以上になっているので自然にfalseへ戻る
-        climbingToSurface = start.getY() < groundLevel && currentGoal.getY() >= groundLevel;
+        boolean climbing = shouldClimbToSurface(level, start, currentGoal, groundLevel);
 
         // 探索範囲は描画距離で切る。読み込み済みチャンクの外は読めないので、そこまで広げても
         // 未ロード扱いのセルを舐めるだけになる。同時に、描画距離を下げているマシンでは
@@ -299,7 +316,7 @@ public final class PathfindingState {
         // 地上優先ナビ中は、水平方向は自分の周囲だけに絞る（ゴールが1点ではなく「y>=groundLevelの
         // どこでも」なので、遠い本来の目的地の箱に広げる意味が無い）。垂直方向はgroundLevelまで
         // 確実に届くよう、同じ列でgroundLevelにある仮想ゴールとして範囲を組み立てる
-        BlockPos boundsGoal = climbingToSurface
+        BlockPos boundsGoal = climbing
                 ? new BlockPos(start.getX(), groundLevel, start.getZ())
                 : currentGoal;
         SearchBounds bounds = SearchBounds.around(level, start, boundsGoal,
@@ -310,7 +327,7 @@ public final class PathfindingState {
 
         long myGeneration = generation.incrementAndGet();
         computing = true;
-        CompletableFuture<PathResult> future = climbingToSurface
+        CompletableFuture<PathResult> future = climbing
                 ? executor.submitToSurface(view, start, groundLevel, XaeroNavConfig.INSTANCE.maxExpandedNodes())
                 : executor.submit(view, start, currentGoal, XaeroNavConfig.INSTANCE.maxExpandedNodes());
         future.whenComplete((result, error) -> {
@@ -326,7 +343,52 @@ public final class PathfindingState {
                 }
                 return;
             }
-            currentResult = PathSafetyChecker.annotate(view, result);
+            if (climbing && result.steps().isEmpty()) {
+                // 地上へ出る道が1本も出せなかった。この付近では中継を諦める（掘削を切っている、
+                // 密閉された場所など）。ここで諦めないと、目的地への経路はあるのに案内が出ない
+                surfaceLegFailedAt = start;
+            }
+            displayed = new DisplayedPath(PathSafetyChecker.annotate(view, result), climbing);
         });
+    }
+
+    /**
+     * 「まず地上へ出る」区間を挟むべきか（design doc外・地上優先ナビ）。
+     *
+     * <p>目的地が地上にあるとき、目的地の1点だけを狙う探索は最短距離ゆえに真下からの垂直の穴掘りを
+     * 選びやすい。地下からの出発に限り、先に「y &gt;= groundLevelならどこでもゴール」の探索を挟むことで、
+     * 近くの洞窟や崖があればそちらを、無ければ掘削を、状況に応じて選ばせる。
+     *
+     * <p>判断にYだけを使わないのは、Yが低いことと地下にいることが別だから。川底・谷底・海岸は
+     * 既定の{@code groundLevelY}(60)より下にいくらでもあり、そこを歩くたびに中継区間が挟まると、
+     * 案内が目的地と関係ない方向へ振れる。空が見えているならそこはもう地上として扱う。
+     */
+    private boolean shouldClimbToSurface(Level level, BlockPos start, BlockPos goal, int groundLevel) {
+        if (goal.getY() < groundLevel || start.getY() > groundLevel - MIN_UNDERGROUND_DEPTH) {
+            return false;
+        }
+        // 空の無い次元・天井のある次元（ジ・エンド／ネザー）では、そもそも「地上」が存在しない。
+        // ネザーで地上優先ナビに入ると、岩盤天井へ向かって掘り進む案内になってしまう
+        if (!level.dimensionType().hasSkyLight() || level.dimensionType().hasCeiling()) {
+            return false;
+        }
+        // 頭の上に空が見えているなら地上。屋根の下・洞窟の中にいるときだけ中継区間を挟む
+        if (level.canSeeSky(start.above())) {
+            return false;
+        }
+        BlockPos failedAt = surfaceLegFailedAt;
+        return failedAt == null
+                || failedAt.distSqr(start) > SURFACE_RETRY_MOVE_BLOCKS * SURFACE_RETRY_MOVE_BLOCKS;
+    }
+
+    /**
+     * 表示中の経路と、それが本来の目的地への経路なのか「まず地上へ出るまで」の中継経路なのか。
+     *
+     * <p>2つを別々のフィールドに置くと、経路を差し替える瞬間に片方だけが新しい状態になる。
+     * 実際、モードを探索の開始時に、経路を完了時に更新していたときは、地上に出た直後の1tickだけ
+     * 「中継経路 + 目的地モード」になり、中継経路の終端（＝いまの足元）が目的地の代わりとして
+     * 到着判定に掛かって、着いていないのに「到着！」で案内が終了していた。
+     */
+    private record DisplayedPath(PathResult result, boolean toSurface) {
     }
 }

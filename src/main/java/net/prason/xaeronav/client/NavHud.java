@@ -56,13 +56,14 @@ public final class NavHud {
             add(Component.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
         } else {
-            if (PathfindingState.INSTANCE.climbingToSurface()) {
+            boolean climbing = PathfindingState.INSTANCE.climbingToSurface();
+            if (climbing) {
                 // 本来の目的地ではなく、まず地上へ出るまでの中継経路であることを示す。
                 // 出さないと、なぜ目的地と違う方向へ案内されるのか分からなくなる
                 add(Component.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
             }
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
-            add(instruction(guidance), PRIMARY_COLOR);
+            add(instruction(guidance, climbing), PRIMARY_COLOR);
             add(Component.translatable("hud.xaeronav.remaining",
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
             if (!guidance.complete) {
@@ -78,9 +79,13 @@ public final class NavHud {
         colors.add(color);
     }
 
-    private static Component instruction(NavGuidance guidance) {
+    private static Component instruction(NavGuidance guidance, boolean climbing) {
         return switch (guidance.turn) {
-            case ARRIVE -> Component.translatable("hud.xaeronav.arriving");
+            // 中継区間の終わりは地上への出口であって目的地ではない。ここで「まもなく到着」と出すと、
+            // 目的地はまだ遠いのに着いたと思わせてしまう
+            case ARRIVE -> Component.translatable(climbing
+                    ? "hud.xaeronav.surface_ahead"
+                    : "hud.xaeronav.arriving");
             case STRAIGHT -> Component.translatable("hud.xaeronav.straight");
             case LEFT -> Component.translatable("hud.xaeronav.turn_left", guidance.turnDistance);
             case RIGHT -> Component.translatable("hud.xaeronav.turn_right", guidance.turnDistance);

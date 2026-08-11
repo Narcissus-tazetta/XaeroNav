@@ -9,6 +9,7 @@
   "hud.xaeronav.arriving": "Arriving",
   "hud.xaeronav.arrived": "Arrived!",
   "hud.xaeronav.climbing_to_surface": "Heading to the surface first",
+  "hud.xaeronav.surface_ahead": "Surface exit ahead",
   "hud.xaeronav.straight": "Continue straight",
   "hud.xaeronav.turn_left": "Turn left in %d blocks",
   "hud.xaeronav.turn_right": "Turn right in %d blocks",

@@ -9,6 +9,7 @@
   "hud.xaeronav.arriving": "まもなく到着",
   "hud.xaeronav.arrived": "到着！",
   "hud.xaeronav.climbing_to_surface": "まず地上へ向かっています",
+  "hud.xaeronav.surface_ahead": "まもなく地上",
   "hud.xaeronav.straight": "このまま直進",
   "hud.xaeronav.turn_left": "%dブロック先を左へ",
   "hud.xaeronav.turn_right": "%dブロック先を右へ",

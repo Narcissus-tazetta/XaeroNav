@@ -128,8 +128,9 @@ public final class AStarPathfinder {
      * 探すためのもの（design doc外・地上優先ナビ用、{@link net.prason.xaeronav.client.PathfindingState}参照）。
      *
      * <p>ヒューリスティックは各ノード自身の(x, z)を目的地の(x, z)として扱う（水平距離0扱い）ことで、
-     * 垂直成分だけの下限値になる。実際の残りコストには水平移動が乗ることがあるので下限であり続け、
-     * A*の最適性は保たれる（探索が広がりやすくなるだけ）。
+     * 「あと何マス上がるか」だけの下限値になる。実際の残りコストには水平移動が乗ることがあるので
+     * 下限であり続け、A*の最適性は保たれる（水平方向には実質Dijkstraになり、探索が広がりやすくなる）。
+     * すでに{@code surfaceY}以上にあるノードはそれ自体がゴールなので0にする（{@link #node}）。
      */
     public PathResult searchToSurface(BlockPos start, int surfaceY, BooleanSupplier cancelled) {
         this.surfaceGoal = true;
@@ -227,8 +228,10 @@ public final class AStarPathfinder {
         if (existing != null) {
             return existing;
         }
+        // 地上ゴールでは、すでにsurfaceY以上のセルはそれ自体がゴール（残コスト0）。
+        // 素通しでsurfaceYを渡すと、そこから下りる分を残コストとして数えてしまい過大評価になる
         double heuristic = surfaceGoal
-                ? Heuristic.estimate(x, y, z, x, surfaceY, z)
+                ? Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z)
                 : Heuristic.estimate(x, y, z, goalX, goalY, goalZ);
         PathNode created = new PathNode(x, y, z, heuristic);
         nodes.put(key, created);
