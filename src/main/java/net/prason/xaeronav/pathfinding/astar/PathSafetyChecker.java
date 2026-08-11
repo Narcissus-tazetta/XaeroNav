@@ -7,7 +7,7 @@ import java.util.function.LongPredicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.prason.xaeronav.pathfinding.world.CellData;
-import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.CellSource;
 
 /**
  * design doc §3-4。コスト計算はあくまで事前見積もりなので、経路を提示する直前に
@@ -29,7 +29,7 @@ public final class PathSafetyChecker {
     private PathSafetyChecker() {
     }
 
-    public static PathResult annotate(ChunkView view, PathResult result) {
+    public static PathResult annotate(CellSource view, PathResult result) {
         List<PathStep> steps = result.steps();
         boolean[] drowning = drowningRuns(view, steps);
         List<PathStep> annotated = new ArrayList<>(steps.size());
@@ -53,7 +53,7 @@ public final class PathSafetyChecker {
      * <p>1歩ずつ見ても分からない危険なので、連続する潜水区間の長さで判定する。短い潜水は
      * 息継ぎで足りるし、水面を泳ぐ区間（足は水中でも頭は水面上）はいくら長くても溺れない。
      */
-    private static boolean[] drowningRuns(ChunkView view, List<PathStep> steps) {
+    private static boolean[] drowningRuns(CellSource view, List<PathStep> steps) {
         boolean[] flagged = new boolean[steps.size()];
         int runStart = -1;
         for (int i = 0; i <= steps.size(); i++) {
@@ -73,12 +73,12 @@ public final class PathSafetyChecker {
         return flagged;
     }
 
-    private static boolean headUnderwater(ChunkView view, PathStep step) {
+    private static boolean headUnderwater(CellSource view, PathStep step) {
         BlockPos pos = step.pos();
         return CellData.water(view.cell(pos.getX(), pos.getY() + 1, pos.getZ()));
     }
 
-    private static PathRisk assessRisk(ChunkView view, PathStep step) {
+    private static PathRisk assessRisk(CellSource view, PathStep step) {
         if (step.bridging()) {
             // 置いた足場は渡っている間ずっと身体の真下にある。下が空虚なのは設置区間では前提なので見ない
             return hasAdjacent(view, step.placedBlockPos(), CellData::lava) ? PathRisk.LAVA_ADJACENT : PathRisk.NONE;
@@ -91,7 +91,7 @@ public final class PathSafetyChecker {
         return step.digging() ? assessDigRisk(view, step.digCells()) : PathRisk.NONE;
     }
 
-    private static PathRisk assessJumpRisk(ChunkView view, List<BlockPos> bodyCells) {
+    private static PathRisk assessJumpRisk(CellSource view, List<BlockPos> bodyCells) {
         for (BlockPos cell : bodyCells) {
             if (hasAdjacent(view, cell, CellData::lava)) {
                 return PathRisk.LAVA_ADJACENT;
@@ -110,7 +110,7 @@ public final class PathSafetyChecker {
      * さらに頭上の落下ブロック連鎖）をチェックする。到着地点1マスだけを見ると、頭上側だけが
      * 溶岩隣接、といったケースを見逃す。
      */
-    private static PathRisk assessDigRisk(ChunkView view, List<BlockPos> digCells) {
+    private static PathRisk assessDigRisk(CellSource view, List<BlockPos> digCells) {
         for (BlockPos cell : digCells) {
             if (hasAdjacent(view, cell, CellData::lava)) {
                 return PathRisk.LAVA_ADJACENT;
@@ -129,7 +129,7 @@ public final class PathSafetyChecker {
         return PathRisk.NONE;
     }
 
-    private static boolean hasAdjacent(ChunkView view, BlockPos pos, LongPredicate test) {
+    private static boolean hasAdjacent(CellSource view, BlockPos pos, LongPredicate test) {
         for (Direction dir : DIRECTIONS) {
             long neighbor = view.cell(pos.getX() + dir.getStepX(), pos.getY() + dir.getStepY(), pos.getZ() + dir.getStepZ());
             if (test.test(neighbor)) {
@@ -139,7 +139,7 @@ public final class PathSafetyChecker {
         return false;
     }
 
-    private static boolean isVoidBelow(ChunkView view, BlockPos pos) {
+    private static boolean isVoidBelow(CellSource view, BlockPos pos) {
         for (int depth = 1; depth <= VOID_SCAN_DEPTH; depth++) {
             // 見るのは本当の空虚だけ。水も梯子も落下を止めてくれるので、
             // occupiableWithoutDiggingで見ると水面の上を掘るたびに「下は奈落」と言い出す

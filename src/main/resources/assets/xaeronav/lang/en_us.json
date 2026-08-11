@@ -22,5 +22,13 @@
   "hud.xaeronav.remaining": "%1$s blocks left · about %2$s",
   "hud.xaeronav.minutes_seconds": "%1$d min %2$d sec",
   "hud.xaeronav.seconds": "%d sec",
-  "hud.xaeronav.incomplete": "Route continues past the searched area (follow the dotted line)"
+  "hud.xaeronav.incomplete": "Route continues past the searched area (follow the dotted line)",
+
+  "key.categories.xaeronav": "XaeroNav",
+  "key.xaeronav.goto_looking_at": "Navigate to the block you are looking at",
+  "key.xaeronav.clear": "Clear route",
+  "key.xaeronav.toggle_hud": "Toggle guidance HUD",
+  "hud.xaeronav.hud_on": "XaeroNav: guidance HUD on",
+  "hud.xaeronav.hud_off": "XaeroNav: guidance HUD off",
+  "hud.xaeronav.no_block_in_view": "XaeroNav: no block in view"
 }

@@ -47,17 +47,20 @@ public final class CellData {
      */
     public static final long ABSENT = 0L;
 
-    private static final long PRESENT = 1L;
-    private static final long PASSABLE_EMPTY = 1L << 1;
-    private static final long WATER = 1L << 2;
-    private static final long LAVA = 1L << 3;
-    private static final long STANDABLE = 1L << 4;
-    private static final long FALLING_BLOCK = 1L << 5;
-    private static final long UNRESOLVED_SHAPE = 1L << 6;
-    private static final long CLIMBABLE = 1L << 7;
-    private static final long OPENABLE = 1L << 8;
-    private static final long COBWEB = 1L << 9;
-    private static final long HAZARD = 1L << 10;
+    // フラグはパッケージ内公開に留める。同じパッケージのテスト（FakeCells）が
+    // BlockStateを介さずにセルを組み立てられるようにするため —
+    // flagsOf(BlockState)はMinecraftのレジストリ起動を要求するので単体テストからは呼べない。
+    static final long PRESENT = 1L;
+    static final long PASSABLE_EMPTY = 1L << 1;
+    static final long WATER = 1L << 2;
+    static final long LAVA = 1L << 3;
+    static final long STANDABLE = 1L << 4;
+    static final long FALLING_BLOCK = 1L << 5;
+    static final long UNRESOLVED_SHAPE = 1L << 6;
+    static final long CLIMBABLE = 1L << 7;
+    static final long OPENABLE = 1L << 8;
+    static final long COBWEB = 1L << 9;
+    static final long HAZARD = 1L << 10;
 
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
 

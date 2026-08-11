@@ -59,9 +59,7 @@ final class NavGuidance {
         ARRIVE
     }
 
-    private static Route route;
-    private static NavGuidance cached;
-    private static BlockPos cachedPos;
+    private static final PathCache<Route> ROUTES = new PathCache<>();
 
     final int remainingBlocks;
     final int remainingSeconds;
@@ -78,16 +76,7 @@ final class NavGuidance {
     }
 
     static NavGuidance forPath(PathResult result, BlockPos playerPos) {
-        if (route == null || route.source != result) {
-            route = new Route(result);
-            cached = null;
-        }
-        if (cached != null && playerPos.equals(cachedPos)) {
-            return cached;
-        }
-        cached = build(route, playerPos);
-        cachedPos = playerPos;
-        return cached;
+        return ROUTES.get(result, Route::new).guidanceAt(playerPos);
     }
 
     private static NavGuidance build(Route route, BlockPos playerPos) {
@@ -139,6 +128,11 @@ final class NavGuidance {
         private final boolean[] turnLeft;
         private final int turnCount;
 
+        // プレイヤーが1マス動くまで案内は変わらない。HUDは毎フレーム描かれるので、
+        // 同じマスにいる間の問い合わせは作り直さない
+        private BlockPos cachedPos;
+        private NavGuidance cached;
+
         private Route(PathResult source) {
             this.source = source;
             List<PathStep> steps = source.steps();
@@ -167,6 +161,14 @@ final class NavGuidance {
                 turnStep[i] = turns.get(i)[0];
                 turnLeft[i] = turns.get(i)[1] < 0;
             }
+        }
+
+        private NavGuidance guidanceAt(BlockPos playerPos) {
+            if (cached == null || !playerPos.equals(cachedPos)) {
+                cached = build(this, playerPos);
+                cachedPos = playerPos;
+            }
+            return cached;
         }
 
         /** {@code from}以降で最初の曲がり角。無ければ-1。 */

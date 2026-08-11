@@ -22,5 +22,13 @@
   "hud.xaeronav.remaining": "残り%1$sブロック · 約%2$s",
   "hud.xaeronav.minutes_seconds": "%1$d分%2$d秒",
   "hud.xaeronav.seconds": "%d秒",
-  "hud.xaeronav.incomplete": "この先は未探索（点線の方向へ進むと続きが出ます）"
+  "hud.xaeronav.incomplete": "この先は未探索（点線の方向へ進むと続きが出ます）",
+
+  "key.categories.xaeronav": "XaeroNav",
+  "key.xaeronav.goto_looking_at": "見ているブロックへ経路探索",
+  "key.xaeronav.clear": "経路をクリア",
+  "key.xaeronav.toggle_hud": "案内表示の切り替え",
+  "hud.xaeronav.hud_on": "XaeroNav: 案内表示 オン",
+  "hud.xaeronav.hud_off": "XaeroNav: 案内表示 オフ",
+  "hud.xaeronav.no_block_in_view": "XaeroNav: 視線の先にブロックがありません"
 }

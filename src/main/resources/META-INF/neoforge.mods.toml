@@ -1,12 +1,14 @@
 modLoader="javafml"
 loaderVersion="${neoforge_loader_version_range}"
 license="${mod_license}"
+issueTrackerURL="${mod_issue_tracker_url}"
 
 [[mods]]
 modId="${mod_id}"
 version="${mod_version}"
 displayName="${mod_name}"
 authors="${mod_authors}"
+displayURL="${mod_display_url}"
 description='''${mod_description}'''
 
 [[mixins]]
@@ -31,14 +33,21 @@ side="BOTH"
 
 # Xaeroの世界地図・ミニマップへの経路描画・右クリックメニュー追加はオプション連携（design doc §2-5）。
 # 未導入でもこのMOD自体はクラッシュせず、ワールド内描画（PathRenderer）だけで動作する。
+#
+# versionRangeの下限は、mixinの注入先（GuiMap#render / MinimapFBORenderer#renderChunksToFBO の
+# endBatch呼び出し、GuiMap#getRightClickOptions、WaypointReader#getRightClickOptions）を
+# 実際に確認したバージョン。これより古い版では注入先の形が違い、required=falseのmixin configが
+# 黙って無効になるだけで、ユーザーには「地図に経路が出ない」としか見えない。
 [[dependencies.${mod_id}]]
 modId="xaeroworldmap"
 type="optional"
+versionRange="[${xaero_worldmap_version},)"
 ordering="AFTER"
 side="CLIENT"
 
 [[dependencies.${mod_id}]]
 modId="xaerominimap"
 type="optional"
+versionRange="[${xaero_minimap_version},)"
 ordering="AFTER"
 side="CLIENT"

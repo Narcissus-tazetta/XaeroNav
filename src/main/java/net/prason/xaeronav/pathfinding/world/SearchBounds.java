@@ -14,10 +14,6 @@ public record SearchBounds(int minX, int minY, int minZ, int maxX, int maxY, int
                 && z >= minZ && z <= maxZ;
     }
 
-    public boolean contains(BlockPos pos) {
-        return contains(pos.getX(), pos.getY(), pos.getZ());
-    }
-
     /**
      * 始点と終点を含むバウンディングボックスに水平マージンを足し、さらに始点を中心とする
      * {@code maxRadius}の正方形で切り取る。

@@ -13,9 +13,9 @@ import net.minecraft.client.player.LocalPlayer;
  * <p>止まっている間は測り直さない。0で割ることになるうえ、少し立ち止まっただけで到着時間が
  * 無限に膨らむのは案内として役に立たない。止まっている間は直前の速さを保つ。
  */
-public final class NavPace {
+final class NavPace {
 
-    public static final NavPace INSTANCE = new NavPace();
+    static final NavPace INSTANCE = new NavPace();
 
     /**
      * 1tickぶんの寄与の重み。およそ3秒で半分が入れ替わる。プレイヤーの動きは
@@ -44,7 +44,7 @@ public final class NavPace {
     private NavPace() {
     }
 
-    public void onClientTick() {
+    void onClientTick() {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
             tracking = false;
@@ -76,7 +76,7 @@ public final class NavPace {
     }
 
     /** 直近の実測速度（ブロック/tick）。 */
-    public double blocksPerTick() {
+    double blocksPerTick() {
         return blocksPerTick;
     }
 }

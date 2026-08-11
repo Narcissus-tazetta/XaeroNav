@@ -37,8 +37,7 @@ public final class NavHud {
 
     // 溺れる区間があるかは経路が変わったときにしか変わらない。HUDは毎フレーム描かれるので、
     // 全ステップの走査を経路1本につき1度で済ませる
-    private PathResult scannedResult;
-    private boolean drowningAhead;
+    private final PathCache<Boolean> drowningAhead = new PathCache<>();
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
@@ -90,11 +89,8 @@ public final class NavHud {
     }
 
     private boolean drowningAhead(PathResult result) {
-        if (result != scannedResult) {
-            scannedResult = result;
-            drowningAhead = result.steps().stream().anyMatch(step -> step.risk() == PathRisk.DROWNING);
-        }
-        return drowningAhead;
+        return drowningAhead.get(result,
+                path -> path.steps().stream().anyMatch(step -> step.risk() == PathRisk.DROWNING));
     }
 
     private static Component instruction(NavGuidance guidance, boolean climbing) {

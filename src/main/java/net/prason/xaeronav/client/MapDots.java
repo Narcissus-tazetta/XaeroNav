@@ -15,34 +15,26 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
  * <p>地図はXZ平面への投影なので、Yだけが違う連続ステップ（階段・掘り下げ）は同じ矩形になる。
  * 連続する重複を落としても見た目は変わらない。
  */
-public final class MapDots {
+final class MapDots {
 
-    private static volatile MapDots cache;
+    /** 世界地図とミニマップはどちらも描画スレッドから描くので、共有して構わない。 */
+    private static final PathCache<MapDots> CACHE = new PathCache<>();
 
-    private final PathResult source;
-
-    public final int[] x;
-    public final int[] z;
+    final int[] x;
+    final int[] z;
     /** 点ごとのRGB（点数 × 3）。 */
-    public final float[] color;
-    public final int count;
+    final float[] color;
+    final int count;
 
-    private MapDots(PathResult source, int[] x, int[] z, float[] color, int count) {
-        this.source = source;
+    private MapDots(int[] x, int[] z, float[] color, int count) {
         this.x = x;
         this.z = z;
         this.color = color;
         this.count = count;
     }
 
-    public static MapDots forPath(PathResult result) {
-        MapDots cached = cache;
-        if (cached != null && cached.source == result) {
-            return cached;
-        }
-        MapDots built = build(result);
-        cache = built;
-        return built;
+    static MapDots forPath(PathResult result) {
+        return CACHE.get(result, MapDots::build);
     }
 
     private static MapDots build(PathResult result) {
@@ -67,7 +59,7 @@ public final class MapDots {
             count++;
         }
 
-        return new MapDots(result, Arrays.copyOf(x, count), Arrays.copyOf(z, count),
+        return new MapDots(Arrays.copyOf(x, count), Arrays.copyOf(z, count),
                 Arrays.copyOf(color, count * 3), count);
     }
 }

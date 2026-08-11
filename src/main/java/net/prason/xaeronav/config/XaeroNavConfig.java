@@ -148,6 +148,15 @@ public final class XaeroNavConfig {
         return hudEnabled.get();
     }
 
+    /**
+     * HUDの表示を切り替えて設定ファイルへ書き戻す（キーバインドから使う）。
+     * 書き戻すのは、切ったつもりがゲームを再起動すると戻っている、を避けるため。
+     */
+    public void setHudEnabled(boolean value) {
+        hudEnabled.set(value);
+        hudEnabled.save();
+    }
+
     public boolean straightLineEnabled() {
         return straightLineEnabled.get();
     }
