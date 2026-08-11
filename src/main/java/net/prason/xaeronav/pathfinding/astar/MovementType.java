@@ -11,5 +11,7 @@ public enum MovementType {
     /** 水中の移動（水面を泳ぐ・潜る・水底を歩く）。足場が無くても成立する点が他と違う。 */
     SWIM,
     /** 梯子・ツタの昇降。水中と同じく足場を要求しない。 */
-    CLIMB
+    CLIMB,
+    /** 1マスの隙間を飛び越える区間（{@code AStarPathfinder#addJumpGap}）。他と違い掘削も設置も伴わない。 */
+    JUMP
 }

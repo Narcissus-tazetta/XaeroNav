@@ -30,6 +30,15 @@ public final class ActionCosts {
 
     public static final double ASCEND_ONE_BLOCK = Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK);
 
+    /**
+     * 1マスの隙間を飛び越えるのに要するtick数。踏み切ってから着地するまでは滞空時間そのもので、
+     * 頂点1.25マスの上昇と下降が対称なので、その往復として求める（約12.5tick）。
+     *
+     * <p>走って2マス進む（約7tick）より高くつくため、平地では選ばれない。迂回が4マス以上に
+     * なるときだけ跳ぶ、という現実に近い判断になる。
+     */
+    public static final double JUMP_ACROSS_GAP = 2.0 * FallPhysics.ticksToFall(1.25);
+
     public static final double DESCEND_ONE_BLOCK = fallCost(1);
 
     /**

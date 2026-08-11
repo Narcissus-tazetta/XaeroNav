@@ -27,7 +27,8 @@ enum MoveKind {
     ASCEND(MovementType.ASCEND),
     DESCEND(MovementType.DESCEND),
     FALL(MovementType.DESCEND),
-    FALL_TO_WATER(MovementType.SWIM);
+    FALL_TO_WATER(MovementType.SWIM),
+    JUMP(MovementType.JUMP);
 
     private final MovementType movementType;
 
@@ -50,6 +51,11 @@ enum MoveKind {
                     new BlockPos(fromX, fromY + 2, fromZ));
             // 落下は着地点から踏み切り地点の頭上までの縦一列を通り抜ける
             case FALL, FALL_TO_WATER -> column(x, y, fromY + 1, z);
+            // 跳び越える隙間の2マスも身体が通る。ここが塞がれたら経路は成立しない
+            // （両端は2マス離れているので、中点は必ず整数になる）
+            case JUMP -> List.of(new BlockPos(x, y, z), new BlockPos(x, y + 1, z),
+                    new BlockPos((fromX + x) / 2, y, (fromZ + z) / 2),
+                    new BlockPos((fromX + x) / 2, y + 1, (fromZ + z) / 2));
             default -> List.of(new BlockPos(x, y, z), new BlockPos(x, y + 1, z));
         };
     }

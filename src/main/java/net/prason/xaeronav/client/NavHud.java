@@ -12,6 +12,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.pathfinding.astar.PathRisk;
 
 /**
  * 画面上部の案内表示。「次にどちらへ曲がるか」「残りの道のり・所要時間」を出す。
@@ -31,8 +32,13 @@ public final class NavHud {
     private static final int SECONDARY_COLOR = 0xFFB0B0B0;
     private static final int WARNING_COLOR = 0xFFFFC24D;
 
-    private final List<Component> lines = new ArrayList<>(3);
-    private final List<Integer> colors = new ArrayList<>(3);
+    private final List<Component> lines = new ArrayList<>(4);
+    private final List<Integer> colors = new ArrayList<>(4);
+
+    // 溺れる区間があるかは経路が変わったときにしか変わらない。HUDは毎フレーム描かれるので、
+    // 全ステップの走査を経路1本につき1度で済ませる
+    private PathResult scannedResult;
+    private boolean drowningAhead;
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
@@ -56,15 +62,20 @@ public final class NavHud {
             add(Component.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
         } else {
-            if (PathfindingState.INSTANCE.climbingToSurface()) {
+            boolean climbing = PathfindingState.INSTANCE.climbingToSurface();
+            if (climbing) {
                 // 本来の目的地ではなく、まず地上へ出るまでの中継経路であることを示す。
                 // 出さないと、なぜ目的地と違う方向へ案内されるのか分からなくなる
                 add(Component.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
             }
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
-            add(instruction(guidance), PRIMARY_COLOR);
+            add(instruction(guidance, climbing), PRIMARY_COLOR);
             add(Component.translatable("hud.xaeronav.remaining",
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
+            if (drowningAhead(result)) {
+                // 線の色だけでは「息が続かない」ことまでは伝わらない。潜る前に分かる必要がある
+                add(Component.translatable("hud.xaeronav.drowning"), WARNING_COLOR);
+            }
             if (!guidance.complete) {
                 add(Component.translatable("hud.xaeronav.incomplete"), WARNING_COLOR);
             }
@@ -78,9 +89,21 @@ public final class NavHud {
         colors.add(color);
     }
 
-    private static Component instruction(NavGuidance guidance) {
+    private boolean drowningAhead(PathResult result) {
+        if (result != scannedResult) {
+            scannedResult = result;
+            drowningAhead = result.steps().stream().anyMatch(step -> step.risk() == PathRisk.DROWNING);
+        }
+        return drowningAhead;
+    }
+
+    private static Component instruction(NavGuidance guidance, boolean climbing) {
         return switch (guidance.turn) {
-            case ARRIVE -> Component.translatable("hud.xaeronav.arriving");
+            // 中継区間の終わりは地上への出口であって目的地ではない。ここで「まもなく到着」と出すと、
+            // 目的地はまだ遠いのに着いたと思わせてしまう
+            case ARRIVE -> Component.translatable(climbing
+                    ? "hud.xaeronav.surface_ahead"
+                    : "hud.xaeronav.arriving");
             case STRAIGHT -> Component.translatable("hud.xaeronav.straight");
             case LEFT -> Component.translatable("hud.xaeronav.turn_left", guidance.turnDistance);
             case RIGHT -> Component.translatable("hud.xaeronav.turn_right", guidance.turnDistance);

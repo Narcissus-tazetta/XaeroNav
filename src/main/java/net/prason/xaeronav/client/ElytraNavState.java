@@ -31,7 +31,14 @@ public final class ElytraNavState {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    private static final int MARGIN_BLOCKS = 32;
+    private static final int HORIZONTAL_MARGIN_BLOCKS = 32;
+
+    /**
+     * 垂直方向のマージン。飛行経路に必要な高さは出発点・目的地のYではなく、途中の山の高さで決まる。
+     * 水平と同じ32マスにすると尾根を越える高度が探索箱の外になり、越えられるはずの山を
+     * 「越えられないので迂回」と判断してしまう。上限はビルド高度で頭打ちになる。
+     */
+    private static final int VERTICAL_MARGIN_BLOCKS = 192;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "xaeronav-elytra");
@@ -79,7 +86,8 @@ public final class ElytraNavState {
         Vec3 goal = Vec3.atCenterOf(goalBlock);
         BlockPos startBlock = player.blockPosition();
 
-        SearchBounds bounds = SearchBounds.around(level, startBlock, goalBlock, MARGIN_BLOCKS, MARGIN_BLOCKS,
+        SearchBounds bounds = SearchBounds.around(level, startBlock, goalBlock,
+                HORIZONTAL_MARGIN_BLOCKS, VERTICAL_MARGIN_BLOCKS,
                 mc.options.getEffectiveRenderDistance() * 16);
         // 飛行判定に掘削もブロック設置も無関係なのでどちらもfalseにしておく
         ChunkView view = ChunkView.capture(level, player, bounds, false, false);

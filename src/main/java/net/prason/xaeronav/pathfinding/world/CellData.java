@@ -5,16 +5,29 @@ import net.minecraft.core.Direction;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.EmptyBlockGetter;
+import net.minecraft.world.level.block.BaseFireBlock;
+import net.minecraft.world.level.block.BigDripleafBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CampfireBlock;
 import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.EndGatewayBlock;
+import net.minecraft.world.level.block.EndPortalBlock;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.MagmaBlock;
+import net.minecraft.world.level.block.NetherPortalBlock;
+import net.minecraft.world.level.block.PowderSnowBlock;
+import net.minecraft.world.level.block.SculkShriekerBlock;
+import net.minecraft.world.level.block.SweetBerryBushBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.WebBlock;
+import net.minecraft.world.level.block.WitherRoseBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.pathfinder.PathComputationType;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * 1ブロック分の探索用データを{@code long}に詰めた表現（design doc §4-5）。
@@ -44,8 +57,28 @@ public final class CellData {
     private static final long CLIMBABLE = 1L << 7;
     private static final long OPENABLE = 1L << 8;
     private static final long COBWEB = 1L << 9;
+    private static final long HAZARD = 1L << 10;
 
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
+
+    /**
+     * 移動速度の倍率（{@link #travelSpeedFactor}）を100倍した値を置く位置。
+     * 0は「未設定＝等速」を表す（{@link #ABSENT}のセルもここが0になるので辻褄が合う）。
+     */
+    private static final int SPEED_FACTOR_SHIFT = 16;
+    private static final long SPEED_FACTOR_MASK = 0xFFL << SPEED_FACTOR_SHIFT;
+
+    /** 当たり判定の境界がセルの端に接しているかを見るときの許容誤差。 */
+    private static final double EDGE_EPSILON = 1.0E-7;
+
+    /**
+     * 「滑る床」とみなす摩擦の下限。普通のブロックは0.6、氷・氷塊・青氷だけが0.98以上になる。
+     * スライムブロック(0.8)は跳ねるだけで速くはならないので、この間に線を引いて外す。
+     */
+    private static final float SLIPPERY_FRICTION = 0.9f;
+
+    /** 氷の上を進むときの速度倍率（{@link #travelSpeedFactor}）。 */
+    private static final float ICE_SPEED_FACTOR = 1.2f;
 
     private CellData() {
     }
@@ -61,6 +94,14 @@ public final class CellData {
      * 探索に使う完全なセルデータは{@link #withDigTicks}で組み立てること。
      */
     public static long flagsOf(BlockState state) {
+        // 危険の判定を先に置くのは、パウダースノーのように「形状が動的（革のブーツで変わる）」でも
+        // あり「入ると危険」でもあるブロックを、より意味の近いHAZARDとして扱うため。
+        // どちらも進入不可という結論は同じなので、探索の挙動は変わらない
+        if (harmful(state)) {
+            // 触れた時点で事故になるセル。進入も足場も許さず、掘って通す対象にもしない
+            return PRESENT | HAZARD;
+        }
+
         if (state.getBlock().hasDynamicShape()) {
             // 形状の解決に実際のlevelを要求するブロック。ワーカースレッドからは正しく評価できないので、
             // 通ることも立つことも掘ることもできない障害物として扱う。
@@ -72,7 +113,8 @@ public final class CellData {
         boolean lava = fluid.is(FluidTags.LAVA);
         // waterloggedな階段・ハーフブロック・フェンスは「流体は水」でありながら当たり判定を持つ。
         // 流体だけを見てWATERを立てると、固体を泳いで通り抜ける経路ができてしまう
-        boolean collisionEmpty = state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).isEmpty();
+        VoxelShape collision = state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
+        boolean collisionEmpty = collision.isEmpty();
         boolean openable = openableByHand(state);
         // 開いたドア・フェンスゲート・トラップドアは薄い板の当たり判定が残るので当たり判定は空にならない。
         // バニラのモブ経路探索と同じ判定（levelを参照しないのでワーカースレッドから呼べる）でくぐれるかを見る
@@ -95,7 +137,7 @@ public final class CellData {
         if (state.is(BlockTags.CLIMBABLE)) {
             flags |= CLIMBABLE;
         }
-        if (state.isFaceSturdy(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, Direction.UP)) {
+        if (state.isFaceSturdy(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, Direction.UP) || walkableTop(collision)) {
             flags |= STANDABLE;
         }
         if (state.getBlock() instanceof FallingBlock) {
@@ -104,7 +146,85 @@ public final class CellData {
         if (state.getBlock() instanceof WebBlock) {
             flags |= COBWEB;
         }
-        return flags;
+        return flags | speedFactorBits(state);
+    }
+
+    /**
+     * 上に立てる床か。{@link BlockState#isFaceSturdy}だけでは足りない。
+     *
+     * <p>{@code isFaceSturdy}は「セル境界(y=1)の上面が完全な1×1か」を見るため、実際には普通に
+     * 歩ける床の多くが外れてしまう — 階段・ハーフブロック・農地・土の道・葉・ホッパー・大釜が
+     * すべて「立てない」になり、村の道も家の階段も通れなくなる（足場が無い場所へは移動そのものが
+     * 生成されないので、コストがずれるのではなく経路が消える）。
+     *
+     * <p>そこで当たり判定が水平方向に1マスを覆っているかで判定する。合わせて「自分のセルより上へ
+     * はみ出さない」ことを求め、柵・塀・フェンスゲート（高さ1.5）を除く — これらは上に立てはするが、
+     * 下から普通のジャンプ（1.25マス）では登れないので、登る移動を作らせてはいけない。
+     */
+    private static boolean walkableTop(VoxelShape collision) {
+        if (collision.isEmpty()) {
+            return false;
+        }
+        AABB bounds = collision.bounds();
+        return bounds.minX <= EDGE_EPSILON && bounds.maxX >= 1.0 - EDGE_EPSILON
+                && bounds.minZ <= EDGE_EPSILON && bounds.maxZ >= 1.0 - EDGE_EPSILON
+                && bounds.maxY <= 1.0 + EDGE_EPSILON;
+    }
+
+    /**
+     * 触れた時点で事故になるブロック。当たり判定が無く探索器からは「空気と同じ」に見えるものが
+     * 多いが、入れば燃える・凍える・別次元へ飛ばされる。
+     *
+     * <p>掘って通す対象にもしない。掘っている間ずっと隣に立ち続けることになるので、
+     * 迂回した方が安全でたいてい安い。
+     */
+    private static boolean harmful(BlockState state) {
+        Block block = state.getBlock();
+        return block instanceof BaseFireBlock                       // 火・魂の火。当たり判定が無い
+                || block instanceof MagmaBlock                      // 完全な足場なので放っておくと最短経路に選ばれる
+                || block instanceof SweetBerryBushBlock             // 棘のダメージ＋大幅な減速
+                || block instanceof WitherRoseBlock                 // 接触で衰弱
+                || block instanceof PowderSnowBlock                 // 落ちると凍える。雪原では地面と見分けがつかない
+                || block instanceof SculkShriekerBlock              // 踏むとウォーデンを呼ぶ
+                || block instanceof BigDripleafBlock                // 乗ると傾いて下へ落とされる
+                || (block instanceof CampfireBlock && state.getValue(CampfireBlock.LIT))
+                // 通り抜けた瞬間に別次元へ送られる。エンドポータルは戻る手段も無い
+                || block instanceof NetherPortalBlock
+                || block instanceof EndPortalBlock
+                || block instanceof EndGatewayBlock
+                || state.is(Blocks.LAVA_CAULDRON)
+                || state.is(Blocks.POWDER_SNOW_CAULDRON);
+    }
+
+    /** このブロックの上を進むときの速度倍率を100倍して詰める。等速（1.0）なら詰めない。 */
+    private static long speedFactorBits(BlockState state) {
+        float factor = travelSpeedFactor(state);
+        if (factor == 1.0f) {
+            return 0L;
+        }
+        // 0に丸めると「未設定＝等速」と区別が付かなくなるので、下は1（0.01倍）で止める
+        long scaled = Math.max(1L, Math.round(factor * 100.0f));
+        return (scaled << SPEED_FACTOR_SHIFT) & SPEED_FACTOR_MASK;
+    }
+
+    /**
+     * このブロックの上を進むときの速度倍率（1.0で等速）。
+     *
+     * <p>遅くなる側は{@code Block#getSpeedFactor}をそのまま使う（ソウルサンド・蜂蜜ブロックの0.4）。
+     *
+     * <p>速くなる側は氷だけを見る。氷の速さは速度係数ではなく摩擦（既定0.6に対して0.98〜0.989）から
+     * 来ていて、走るだけの定常速度はほぼ変わらない一方、走り幅跳びを続けると着地のたびの減速が
+     * 小さいぶん明確に速くなる。加速の途中経過まで正しく再現するには区間の長さを見る必要があるので、
+     * ここは「氷はいくらか速い」という一定倍率の近似にとどめる。値は素の疾走(5.6m/s)と
+     * 平地の走り幅跳び(7.1m/s)の間に収まる控えめな側に置いてある。
+     */
+    private static float travelSpeedFactor(BlockState state) {
+        Block block = state.getBlock();
+        float speedFactor = block.getSpeedFactor();
+        if (speedFactor < 1.0f) {
+            return speedFactor;
+        }
+        return block.getFriction() >= SLIPPERY_FRICTION ? ICE_SPEED_FACTOR : 1.0f;
     }
 
     /** レッドストーンを使わず手で開け閉めできるドア・フェンスゲート・トラップドアか。 */
@@ -169,6 +289,23 @@ public final class CellData {
     /** 梯子・ツタ・足場など、掴んで上下できるか。 */
     public static boolean climbable(long cell) {
         return (cell & CLIMBABLE) != 0L;
+    }
+
+    /**
+     * 入ると害があるセルか（炎・マグマ・パウダースノー・ウィザーローズ・ポータルなど）。
+     * 進入も足場も不可で、掘削もできない（{@code ChunkView}が掘削コストを無限大にする）。
+     */
+    public static boolean hazard(long cell) {
+        return (cell & HAZARD) != 0L;
+    }
+
+    /**
+     * このセルの上を進むときの速度倍率（1.0で等速。ソウルサンド・蜂蜜ブロックは0.4、氷は1.2）。
+     * バニラは足元のセルの係数を使い、それが1.0なら1つ下のブロックを見る（{@code Entity#getBlockSpeedFactor}）。
+     */
+    public static double speedFactor(long cell) {
+        long raw = (cell & SPEED_FACTOR_MASK) >>> SPEED_FACTOR_SHIFT;
+        return raw == 0L ? 1.0 : raw / 100.0;
     }
 
     /** 閉じているが手で開けて通れるか（ドア・フェンスゲート・トラップドア）。壊す対象ではない。 */

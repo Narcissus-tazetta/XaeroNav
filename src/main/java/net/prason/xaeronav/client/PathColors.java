@@ -20,8 +20,11 @@ public final class PathColors {
     public static final float[] LAVA_ADJACENT = {1.0f, 0.1f, 0.1f};
     public static final float[] VOID_BELOW = {0.8f, 0.1f, 0.8f};
     public static final float[] WATER_INFLOW = {0.1f, 0.7f, 1.0f};
+    /** 息継ぎできない潜水区間。同じ水色でも{@link #SWIM}とは明確に違う暗さにする。 */
+    public static final float[] DROWNING = {0.1f, 0.15f, 0.55f};
     public static final float[] DIGGING = {1.0f, 0.55f, 0.1f};
     public static final float[] SWIM = {0.1f, 0.4f, 1.0f};
+    public static final float[] JUMP = {0.95f, 0.6f, 0.9f};
     public static final float[] CLIMB = {0.7f, 0.5f, 1.0f};
     public static final float[] ASCEND = {1.0f, 0.9f, 0.2f};
     public static final float[] DESCEND = {0.3f, 0.6f, 1.0f};
@@ -40,6 +43,9 @@ public final class PathColors {
         if (step.risk() == PathRisk.WATER_INFLOW) {
             return WATER_INFLOW;
         }
+        if (step.risk() == PathRisk.DROWNING) {
+            return DROWNING;
+        }
         if (step.bridging()) {
             return BRIDGE;
         }
@@ -48,6 +54,9 @@ public final class PathColors {
         }
         if (step.movement() == MovementType.SWIM) {
             return SWIM;
+        }
+        if (step.movement() == MovementType.JUMP) {
+            return JUMP;
         }
         if (step.movement() == MovementType.CLIMB) {
             return CLIMB;

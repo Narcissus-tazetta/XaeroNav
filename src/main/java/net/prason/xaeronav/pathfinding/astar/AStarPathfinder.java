@@ -128,8 +128,9 @@ public final class AStarPathfinder {
      * 探すためのもの（design doc外・地上優先ナビ用、{@link net.prason.xaeronav.client.PathfindingState}参照）。
      *
      * <p>ヒューリスティックは各ノード自身の(x, z)を目的地の(x, z)として扱う（水平距離0扱い）ことで、
-     * 垂直成分だけの下限値になる。実際の残りコストには水平移動が乗ることがあるので下限であり続け、
-     * A*の最適性は保たれる（探索が広がりやすくなるだけ）。
+     * 「あと何マス上がるか」だけの下限値になる。実際の残りコストには水平移動が乗ることがあるので
+     * 下限であり続け、A*の最適性は保たれる（水平方向には実質Dijkstraになり、探索が広がりやすくなる）。
+     * すでに{@code surfaceY}以上にあるノードはそれ自体がゴールなので0にする（{@link #node}）。
      */
     public PathResult searchToSurface(BlockPos start, int surfaceY, BooleanSupplier cancelled) {
         this.surfaceGoal = true;
@@ -227,8 +228,10 @@ public final class AStarPathfinder {
         if (existing != null) {
             return existing;
         }
+        // 地上ゴールでは、すでにsurfaceY以上のセルはそれ自体がゴール（残コスト0）。
+        // 素通しでsurfaceYを渡すと、そこから下りる分を残コストとして数えてしまい過大評価になる
         double heuristic = surfaceGoal
-                ? Heuristic.estimate(x, y, z, x, surfaceY, z)
+                ? Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z)
                 : Heuristic.estimate(x, y, z, goalX, goalY, goalZ);
         PathNode created = new PathNode(x, y, z, heuristic);
         nodes.put(key, created);
@@ -244,6 +247,7 @@ public final class AStarPathfinder {
             addDescend(current, dx, dz);
             addSwim(current, dx, dz);
             addClimb(current, dx, dz);
+            addJumpGap(current, dx, dz);
         }
         for (int i = 0; i < DIAGONAL_DX.length; i++) {
             addDiagonalTraverse(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
@@ -306,19 +310,26 @@ public final class AStarPathfinder {
      * 蜘蛛の巣は足元と頭のどちらか一方でも掛かっていれば減速する。
      */
     private double stepCost(int x, int y, int z) {
-        if (CellData.water(view.cell(x, y, z))) {
+        long feet = view.cell(x, y, z);
+        if (CellData.water(feet)) {
             return ActionCosts.WALK_ONE_IN_WATER;
         }
-        if (CellData.cobweb(view.cell(x, y, z)) || CellData.cobweb(view.cell(x, y + 1, z))) {
+        if (CellData.cobweb(feet) || CellData.cobweb(view.cell(x, y + 1, z))) {
             return ActionCosts.SPRINT_ONE_IN_COBWEB;
         }
-        return ActionCosts.SPRINT_ONE_BLOCK;
+        // ソウルサンド・蜂蜜は遅く、氷は速い。バニラと同じく、足元のセルに倍率が無ければ
+        // 実際に踏んでいる1つ下のブロックを見る（{@code Entity#getBlockSpeedFactor}）
+        double speedFactor = CellData.speedFactor(feet);
+        if (speedFactor == 1.0) {
+            speedFactor = CellData.speedFactor(view.cell(x, y - 1, z));
+        }
+        return ActionCosts.SPRINT_ONE_BLOCK / speedFactor;
     }
 
     /**
      * 同一高度での斜め移動（design doc §4-1）。カーディナル4方向のみだと、斜めに続く地形で
      * 本来なら1手で行ける区間を2手のジグザグで迂回することになり不必要に遠回りになる。
-     * 角の2セル（{@link #cornerClear}）が両方とも掘削なしで通行可能な場合のみ許可し、
+     * 角の2セル（{@link #clearWithoutDigging}）が両方とも掘削なしで通行可能な場合のみ許可し、
      * 体が壁の角をすり抜ける経路を生成しないようにする。
      */
     private void addDiagonalTraverse(PathNode from, int dx, int dz) {
@@ -329,7 +340,7 @@ public final class AStarPathfinder {
         if (!CellData.standable(view.cell(x, y - 1, z))) {
             return;
         }
-        if (!cornerClear(from.x + dx, y, from.z) || !cornerClear(from.x, y, from.z + dz)) {
+        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
             return;
         }
         double bodyCost = standingBodyCost(x, y, z, null);
@@ -341,8 +352,8 @@ public final class AStarPathfinder {
                 inWater ? MoveKind.SWIM : MoveKind.DIAGONAL);
     }
 
-    /** 斜め移動の角が掘削なしで通行可能か（体2マス分）。角は掘削対象にしない。 */
-    private boolean cornerClear(int x, int y, int z) {
+    /** 立った姿勢が占める2セルを、掘らずにそのまま通り抜けられるか。 */
+    private boolean clearWithoutDigging(int x, int y, int z) {
         return CellData.occupiableWithoutDigging(view.cell(x, y, z))
                 && CellData.occupiableWithoutDigging(view.cell(x, y + 1, z));
     }
@@ -387,6 +398,42 @@ public final class AStarPathfinder {
         double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER : ActionCosts.DESCEND_ONE_BLOCK;
         relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
                 intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
+    }
+
+    /**
+     * 1マスの隙間を飛び越える（同一高度、カーディナル方向のみ）。
+     *
+     * <p>これが無いと、誰でも何も考えずに跨げる1マスの割れ目（小川・洞窟の裂け目・峡谷の枝）で、
+     * ブロックを置いて渡るか大きく迂回することになる。
+     *
+     * <p>2マス以上の跳躍は扱わない。助走とタイミングが要り、外せば落ちる。落ちる先が峡谷なら
+     * 死ぬのだから、案内が「ここを飛べ」と言ってよい範囲は、誰がやっても失敗しない1マスまで。
+     *
+     * <p>空中では掘れないので、通り抜ける空間は掘削なしで通れることを求める。頭上も見る —
+     * ジャンプは1.25マス上がるので、天井があると跳べずに隙間へ落ちる。
+     */
+    private void addJumpGap(PathNode from, int dx, int dz) {
+        int gapX = from.x + dx;
+        int gapZ = from.z + dz;
+        int y = from.y;
+        if (CellData.standable(view.cell(gapX, y - 1, gapZ))) {
+            // 隙間ではなく床がある。歩いて行けるならTraverseの方が安い
+            return;
+        }
+        int x = from.x + 2 * dx;
+        int z = from.z + 2 * dz;
+        if (!CellData.standable(view.cell(x, y - 1, z))) {
+            return;
+        }
+        if (!clearWithoutDigging(gapX, y, gapZ) || !clearWithoutDigging(x, y, z)) {
+            return;
+        }
+        // 踏み切り地点と跳び越える隙間の頭上。ここが塞がっていると跳躍そのものが成立しない
+        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))
+                || !CellData.occupiableWithoutDigging(view.cell(gapX, y + 2, gapZ))) {
+            return;
+        }
+        relax(from, x, y, z, ActionCosts.JUMP_ACROSS_GAP, MoveKind.JUMP);
     }
 
     /**
@@ -618,12 +665,20 @@ public final class AStarPathfinder {
      */
     private double columnCost(int x, int bottomY, int topY, int z, List<BlockPos> cells) {
         double total = 0.0;
+        boolean doorCharged = false;
         for (int y = bottomY; y <= topY; y++) {
+            // ドアは上下2セルに分かれているが、開ける動作は1回。両方に開閉コストを払うと
+            // 1枚のドアが2枚分の重さになり、ドアのある正しい通り道を避けるようになる
+            boolean openable = CellData.openable(view.cell(x, y, z));
+            if (openable && doorCharged) {
+                continue;
+            }
             double cost = occupyCost(x, y, z, cells);
             if (Double.isInfinite(cost)) {
                 return ActionCosts.INFEASIBLE;
             }
             total += cost;
+            doorCharged |= openable;
         }
         return total + fallingChainCost(x, topY + 1, z, cells);
     }

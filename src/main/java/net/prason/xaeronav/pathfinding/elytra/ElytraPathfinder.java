@@ -27,7 +27,12 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
  */
 public final class ElytraPathfinder {
 
-    private static final double SAMPLE_INTERVAL = 7.5;
+    /**
+     * 高度上げのために地形の高さを見る間隔（マス）。1マス刻みにするのは、間隔を空けると
+     * 尖った峰や1マス幅の柱を跨いで見落とすため。
+     */
+    private static final double TERRAIN_SCAN_INTERVAL = 1.0;
+
     private static final double TERRAIN_MARGIN = 15.0;
     private static final double COARSE_GRID_STEP = 6.0;
     private static final int MAX_EXPANDED_NODES = 20_000;
@@ -63,25 +68,83 @@ public final class ElytraPathfinder {
         return true;
     }
 
+    /**
+     * 線分が通るセルを1つ残らず調べる（Amanatides–Wooのボクセル走査）。
+     *
+     * <p>一定間隔で点を打つ方式では、サンプルとサンプルの間にある壁や尾根をまるごと跨いで
+     * 見落とす。徒歩なら「進んでみたら塞がっていた」で済むが、エリトラは秒速30〜40マスで
+     * 飛ぶので、見落とした壁は激突と同義になる。判定の粗さがそのまま事故になる場所なので、
+     * ここは間引かずに全セルを見る。
+     */
     private boolean intersectsTerrain(Vec3 a, Vec3 b) {
-        double dist = a.distanceTo(b);
-        int samples = Math.max(1, (int) Math.ceil(dist / SAMPLE_INTERVAL));
-        for (int i = 0; i <= samples; i++) {
-            if (isSolid(a.lerp(b, (double) i / samples))) {
+        int x = Mth.floor(a.x);
+        int y = Mth.floor(a.y);
+        int z = Mth.floor(a.z);
+        int lastX = Mth.floor(b.x);
+        int lastY = Mth.floor(b.y);
+        int lastZ = Mth.floor(b.z);
+
+        double dx = b.x - a.x;
+        double dy = b.y - a.y;
+        double dz = b.z - a.z;
+        int stepX = (int) Math.signum(dx);
+        int stepY = (int) Math.signum(dy);
+        int stepZ = (int) Math.signum(dz);
+        // 線分の長さを1としたときの、次のセル境界までの距離とセル1つ分の距離
+        double nextX = boundaryFraction(a.x, stepX, dx);
+        double nextY = boundaryFraction(a.y, stepY, dy);
+        double nextZ = boundaryFraction(a.z, stepZ, dz);
+        double spanX = stepX == 0 ? Double.POSITIVE_INFINITY : 1.0 / Math.abs(dx);
+        double spanY = stepY == 0 ? Double.POSITIVE_INFINITY : 1.0 / Math.abs(dy);
+        double spanZ = stepZ == 0 ? Double.POSITIVE_INFINITY : 1.0 / Math.abs(dz);
+
+        while (true) {
+            if (isSolid(x, y, z)) {
                 return true;
             }
+            if (x == lastX && y == lastY && z == lastZ) {
+                return false;
+            }
+            // 最も近い境界を1つだけ跨ぐ。1を超えたらもう線分の外
+            if (nextX <= nextY && nextX <= nextZ) {
+                if (nextX > 1.0) {
+                    return false;
+                }
+                x += stepX;
+                nextX += spanX;
+            } else if (nextY <= nextZ) {
+                if (nextY > 1.0) {
+                    return false;
+                }
+                y += stepY;
+                nextY += spanY;
+            } else {
+                if (nextZ > 1.0) {
+                    return false;
+                }
+                z += stepZ;
+                nextZ += spanZ;
+            }
         }
-        return false;
     }
 
-    private boolean isSolid(Vec3 p) {
+    /** 進行方向にある最初のセル境界までの距離（線分の長さを1とした比率）。 */
+    private static double boundaryFraction(double position, int step, double delta) {
+        if (step == 0) {
+            return Double.POSITIVE_INFINITY;
+        }
+        double offsetInCell = position - Math.floor(position);
+        return (step > 0 ? 1.0 - offsetInCell : offsetInCell) / Math.abs(delta);
+    }
+
+    private boolean isSolid(int x, int y, int z) {
         // 範囲外・未ロードチャンクはABSENTになり、passableEmptyがfalseなので自動的に障害物扱いになる
-        return !CellData.passableEmpty(view.cell(Mth.floor(p.x), Mth.floor(p.y), Mth.floor(p.z)));
+        return !CellData.passableEmpty(view.cell(x, y, z));
     }
 
     private double maxTerrainHeightAlong(Vec3 a, Vec3 b) {
-        double dist = a.distanceTo(b);
-        int samples = Math.max(1, (int) Math.ceil(dist / SAMPLE_INTERVAL));
+        double horizontal = Math.sqrt((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z));
+        int samples = Math.max(1, (int) Math.ceil(horizontal / TERRAIN_SCAN_INTERVAL));
         double maxY = Math.max(a.y, b.y);
         for (int i = 0; i <= samples; i++) {
             Vec3 p = a.lerp(b, (double) i / samples);
