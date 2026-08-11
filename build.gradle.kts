@@ -1,6 +1,7 @@
 plugins {
     id("java-library")
     id("net.neoforged.moddev") version "2.0.140"
+    id("com.diffplug.spotless") version "8.9.0"
 }
 
 fun propOrNull(key: String) = project.findProperty(key) as String?
@@ -78,4 +79,26 @@ tasks.named<ProcessResources>("processResources").configure {
 
 tasks.matching { it.name == "runClient" }.configureEach {
     dependsOn("prepareClientRun")
+}
+
+// フォーマットの取り締まりはここまで: 既存の書式（4スペース）を丸ごと書き換える整形器は
+// 導入しない。差分が全ファイルに及んで意味のあるレビューができなくなる方が、崩れた書式が
+// たまに残るより害が大きい。ここで見るのは「直しても議論の余地がない」項目だけ
+// （未使用importの残骸、行末の余分な空白、ファイル末尾の改行漏れ）。
+spotless {
+    java {
+        target("src/*/java/**/*.java")
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+        leadingTabsToSpaces(4)
+    }
+}
+
+testing {
+    suites {
+        named<JvmTestSuite>("test") {
+            useJUnitJupiter("6.1.3")
+        }
+    }
 }
