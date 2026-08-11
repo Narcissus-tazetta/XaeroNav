@@ -9,14 +9,14 @@ import java.util.function.BooleanSupplier;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
-import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
 
 /**
  * design doc §4-5/§4-6。ワーカースレッドでA*を実行する。新しいリクエストが来たら
  * 実行中(または未着手)の古いジョブをキャンセルし、常に最新のリクエストだけが結果を返す。
  *
- * <p>{@link ChunkView}の構築（メインスレッドでのチャンク参照集め）は呼び出し側の責務。
+ * <p>{@link CellSource}の構築（メインスレッドでのチャンク参照集め）は呼び出し側の責務。
  * このクラスはA*の実行と、そのキャンセル制御のみを担当する。
  */
 public final class PathfindingExecutor {
@@ -29,7 +29,7 @@ public final class PathfindingExecutor {
 
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
-    public CompletableFuture<PathResult> submit(ChunkView view, BlockPos start, BlockPos goal, int maxExpandedNodes) {
+    public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, int maxExpandedNodes) {
         return submit(maxExpandedNodes, view, (pathfinder, cancelled) ->
                 // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
                 // 寄せ直しなので、メインスレッドへ戻さずここで行う
@@ -41,13 +41,13 @@ public final class PathfindingExecutor {
      * 地下から地上へ出る経路を、目的地の真下ではなく「y &gt;= surfaceY のどこか」を探して求める
      * （design doc外・地上優先ナビ。{@link net.prason.xaeronav.client.PathfindingState}参照）。
      */
-    public CompletableFuture<PathResult> submitToSurface(ChunkView view, BlockPos start, int surfaceY,
+    public CompletableFuture<PathResult> submitToSurface(CellSource view, BlockPos start, int surfaceY,
                                                           int maxExpandedNodes) {
         return submit(maxExpandedNodes, view, (pathfinder, cancelled) ->
                 pathfinder.searchToSurface(StanceFinder.resolveStart(view, start), surfaceY, cancelled));
     }
 
-    private CompletableFuture<PathResult> submit(int maxExpandedNodes, ChunkView view, SearchCall run) {
+    private CompletableFuture<PathResult> submit(int maxExpandedNodes, CellSource view, SearchCall run) {
         PathfindingJob job = new PathfindingJob();
         PathfindingJob previous = currentJob.getAndSet(job);
         if (previous != null) {
@@ -75,13 +75,5 @@ public final class PathfindingExecutor {
     @FunctionalInterface
     private interface SearchCall {
         PathResult search(AStarPathfinder pathfinder, BooleanSupplier cancelled);
-    }
-
-    public void shutdown() {
-        PathfindingJob job = currentJob.get();
-        if (job != null) {
-            job.cancel();
-        }
-        executor.shutdownNow();
     }
 }

@@ -34,6 +34,13 @@ neoForge {
         }
     }
 
+    // 単体テストからMinecraftの素の値型（BlockPos・Vec3・Mth）を使えるようにする。
+    // これが無いとtestCompileClasspathにMinecraftが載らず、経路探索コアのテストは
+    // 1行も書けない（既存テストがHeuristic等のMinecraft非依存クラスに限られていたのはこのため）。
+    // なお、ここで載るのはクラスパスだけで、Blocks/BuiltInRegistriesに触るにはBootstrapが要る。
+    // テストはレジストリを起動しなくても動く範囲に留めること。
+    addModdingDependenciesTo(sourceSets["test"])
+
     runs {
         configureEach {
             systemProperty("neoforge.enabledGameTestNamespaces", prop("mod_id"))
@@ -47,15 +54,29 @@ neoForge {
     }
 }
 
+// artifactIdは "-forge-" ではなく "-neoforge-"。chocolateminecraft.comのmavenには両方存在し、
+// "-forge-"版はNeoForge実行時に「Forge用/古いNeoForge用のため読み込めません」で無視される。
+val xaeroModules = listOf(
+    "xaero.lib:xaerolib-neoforge-${prop("minecraft_version")}:${prop("xaerolib_version")}",
+    "xaero.map:xaeroworldmap-neoforge-${prop("minecraft_version")}:${prop("xaero_worldmap_version")}",
+    "xaero.minimap:xaerominimap-neoforge-${prop("minecraft_version")}:${prop("xaero_minimap_version")}"
+)
+
+// Xaeroを開発実行（runClient）へ載せるか。`./gradlew runClient -Pwith_xaero=false` で外せる。
+// このMODはXaero未導入でもワールド内描画だけで動く設計なので、その前提を実際に確かめる手段を残す
+// （xaeronav-xaero.mixins.jsonはrequired=falseなので、Xaeroが無ければ地図連携だけが黙って無効になる）。
+val withXaero = propOrNull("with_xaero")?.toBoolean() ?: true
+
 dependencies {
     annotationProcessor("org.spongepowered:mixin:0.8.7:processor")
 
-    // Phase 0検証用: 実際のクラス構造確認後、compileOnly + runtimeOnly(optional mod)等に調整する
-    // artifactIdは "-forge-" ではなく "-neoforge-"。chocolateminecraft.comのmavenには両方存在し、
-    // "-forge-"版はNeoForge実行時に「Forge用/古いNeoForge用のため読み込めません」で無視される。
-    implementation("xaero.lib:xaerolib-neoforge-1.21.1:1.7.1")
-    implementation("xaero.map:xaeroworldmap-neoforge-1.21.1:1.44.2")
-    implementation("xaero.minimap:xaerominimap-neoforge-1.21.1:26.4.2")
+    // Xaeroはmods.toml上optionalな連携先。コンパイルにだけ必要で、配布物にも実行時依存にも含めない。
+    // implementationにするとruntimeClasspathへ載り、「Xaeroが無くても動く」が一度も検証されないまま
+    // 開発が進んでしまう。
+    xaeroModules.forEach { compileOnly(it) }
+    if (withXaero) {
+        xaeroModules.forEach { add("additionalRuntimeClasspath", it) }
+    }
 }
 
 tasks.named<ProcessResources>("processResources").configure {
@@ -67,7 +88,11 @@ tasks.named<ProcessResources>("processResources").configure {
         "mod_version" to prop("mod_version"),
         "mod_authors" to prop("mod_authors"),
         "mod_description" to prop("mod_description"),
-        "mod_license" to prop("mod_license")
+        "mod_license" to prop("mod_license"),
+        "mod_display_url" to prop("mod_display_url"),
+        "mod_issue_tracker_url" to prop("mod_issue_tracker_url"),
+        "xaero_worldmap_version" to prop("xaero_worldmap_version"),
+        "xaero_minimap_version" to prop("xaero_minimap_version")
     )
 
     inputs.properties(replaceProperties)

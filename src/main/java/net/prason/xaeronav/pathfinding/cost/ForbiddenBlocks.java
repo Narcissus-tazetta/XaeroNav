@@ -43,18 +43,6 @@ public final class ForbiddenBlocks {
         return DEFAULTS.contains(block) || extra.contains(block) || state.is(BlockTags.LOGS);
     }
 
-    public static synchronized void addForbidden(Block block) {
-        Set<Block> updated = new HashSet<>(extra);
-        updated.add(block);
-        extra = Set.copyOf(updated);
-    }
-
-    public static synchronized void removeForbidden(Block block) {
-        Set<Block> updated = new HashSet<>(extra);
-        updated.remove(block);
-        extra = Set.copyOf(updated);
-    }
-
     /** 設定ファイルの{@code additionalForbiddenBlocks}（例: "minecraft:chest"）を反映する。 */
     public static synchronized void reloadFromConfig(Collection<? extends String> ids) {
         Set<Block> updated = new HashSet<>();

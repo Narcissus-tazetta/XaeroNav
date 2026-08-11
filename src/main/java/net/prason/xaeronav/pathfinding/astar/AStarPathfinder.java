@@ -11,11 +11,11 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.CellData;
-import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.CellSource;
 
 /**
  * design doc §4。Traverse/Diagonal/Ascend/Descend/Bridgeを扱う。
- * ワーカースレッドから呼ぶ想定 — {@link ChunkView}以外のMinecraft状態には一切触れない。
+ * ワーカースレッドから呼ぶ想定 — {@link CellSource}以外のMinecraft状態には一切触れない。
  *
  * <p>探索の内側ではオブジェクトを作らない。座標は{@code int}のまま扱い、隣接ノードの評価結果は
  * その場でノードへ反映する。{@link BlockPos}や身体通過セルのリストを作るのは、最終経路を
@@ -73,7 +73,7 @@ public final class AStarPathfinder {
     private static final int[] DIAGONAL_DX = {1, 1, -1, -1};
     private static final int[] DIAGONAL_DZ = {1, -1, 1, -1};
 
-    private final ChunkView view;
+    private final CellSource view;
     private final int maxExpandedNodes;
     private final long timeLimitMillis;
 
@@ -97,11 +97,11 @@ public final class AStarPathfinder {
     private boolean surfaceGoal;
     private int surfaceY;
 
-    public AStarPathfinder(ChunkView view) {
+    public AStarPathfinder(CellSource view) {
         this(view, DEFAULT_MAX_EXPANDED_NODES, DEFAULT_TIME_LIMIT_MILLIS);
     }
 
-    public AStarPathfinder(ChunkView view, int maxExpandedNodes, long timeLimitMillis) {
+    public AStarPathfinder(CellSource view, int maxExpandedNodes, long timeLimitMillis) {
         this.view = view;
         this.maxExpandedNodes = maxExpandedNodes;
         this.timeLimitMillis = timeLimitMillis;
@@ -275,7 +275,7 @@ public final class AStarPathfinder {
 
     /**
      * {@code topY}から下へ、空気ではない最初のセルのYを返す。水・地面・梯子のどれで止まったかは
-     * 呼び出し側がそのセルを見て判断する（{@link ChunkView}がキャッシュしているので引き直しは安い）。
+     * 呼び出し側がそのセルを見て判断する（{@link CellSource}がキャッシュしているので引き直しは安い）。
      */
     private int firstNonAirBelow(int x, int topY, int z) {
         for (int i = 0; i < COLUMN_SCAN_DEPTH; i++) {
