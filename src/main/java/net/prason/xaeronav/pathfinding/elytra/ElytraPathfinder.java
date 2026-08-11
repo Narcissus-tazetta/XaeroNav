@@ -13,7 +13,7 @@ import java.util.Set;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.world.CellData;
-import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 
 /**
@@ -37,9 +37,9 @@ public final class ElytraPathfinder {
     private static final double COARSE_GRID_STEP = 6.0;
     private static final int MAX_EXPANDED_NODES = 20_000;
 
-    private final ChunkView view;
+    private final CellSource view;
 
-    public ElytraPathfinder(ChunkView view) {
+    public ElytraPathfinder(CellSource view) {
         this.view = view;
     }
 

@@ -23,7 +23,7 @@ public final class StanceFinder {
     }
 
     /** そこにプレイヤーが立てる（＝A*の移動の終点になりうる）か。 */
-    public static boolean isStance(ChunkView view, int x, int y, int z) {
+    public static boolean isStance(CellSource view, int x, int y, int z) {
         long feet = view.cell(x, y, z);
         if (!CellData.occupiableWithoutDigging(feet)
                 || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
@@ -38,7 +38,7 @@ public final class StanceFinder {
      * 探索の始点。足場が無ければ真下の着地点まで下ろす。落下中やトロッコでの移動中でも
      * 「このあと自分が立つ場所」から先の経路が出るようにするためのもの。
      */
-    public static BlockPos resolveStart(ChunkView view, BlockPos start) {
+    public static BlockPos resolveStart(CellSource view, BlockPos start) {
         int x = start.getX();
         int z = start.getZ();
         if (isStance(view, x, start.getY(), z)) {
@@ -66,7 +66,7 @@ public final class StanceFinder {
      * 掘って辿り着ける地中の目的地（そこまでの坑道を出すのが正しい）と、足場が無くて
      * どうやっても立てない空中の目的地を区別するため。
      */
-    public static BlockPos resolveGoal(ChunkView view, BlockPos goal) {
+    public static BlockPos resolveGoal(CellSource view, BlockPos goal) {
         int x = goal.getX();
         int y = goal.getY();
         int z = goal.getZ();
@@ -85,7 +85,7 @@ public final class StanceFinder {
     }
 
     /** そこへ到着する移動が作れるか。身体の通るセルは掘って空けられるので、塞がっていてもよい。 */
-    private static boolean isReachable(ChunkView view, int x, int y, int z) {
+    private static boolean isReachable(CellSource view, int x, int y, int z) {
         long feet = view.cell(x, y, z);
         if (!occupiableOrDiggable(feet) || !occupiableOrDiggable(view.cell(x, y + 1, z))) {
             return false;

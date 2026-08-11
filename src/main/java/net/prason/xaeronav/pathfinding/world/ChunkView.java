@@ -38,7 +38,7 @@ import net.prason.xaeronav.pathfinding.cost.DigCost;
  * 単一のワーカースレッドが占有する（直前チャンクとセルのキャッシュを可変フィールドに持つため、
  * 複数スレッドで共有してはならない）。
  */
-public final class ChunkView {
+public final class ChunkView implements CellSource {
 
     // セルキャッシュの「未計算」を表す番兵。上位32bitは掘削tick数のfloatビット列で、
     // 全ビットが立つ＝NaNになる値は生成されないため、この値と衝突しない。
@@ -141,18 +141,13 @@ public final class ChunkView {
         return CellData.standable(flags) && !CellData.fallingBlock(flags) && !CellData.unresolvedShape(flags);
     }
 
-    /**
-     * 足場を置く移動（Bridge）を提示してよいか。ホットバーに置けるブロックが1つも無いなら、
-     * どれだけ近道でも「ここにブロックを置け」という案内は実行できない指示にしかならない。
-     */
+    @Override
     public boolean canPlaceBlocks() {
         return canPlaceBlocks;
     }
 
-    /**
-     * 指定座標のセルデータを返す。初回アクセス時に計算してキャッシュする。
-     * 探索範囲外・未ロードチャンクは{@link CellData#ABSENT}。
-     */
+    /** 初回アクセス時に計算してキャッシュする。 */
+    @Override
     public long cell(int x, int y, int z) {
         long key = BlockPos.asLong(x, y, z);
         long cached = cells.get(key);
@@ -164,10 +159,12 @@ public final class ChunkView {
         return computed;
     }
 
+    @Override
     public boolean isInBounds(int x, int y, int z) {
         return bounds.contains(x, y, z);
     }
 
+    @Override
     public SearchBounds bounds() {
         return bounds;
     }

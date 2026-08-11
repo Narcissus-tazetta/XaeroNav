@@ -34,6 +34,13 @@ neoForge {
         }
     }
 
+    // 単体テストからMinecraftの素の値型（BlockPos・Vec3・Mth）を使えるようにする。
+    // これが無いとtestCompileClasspathにMinecraftが載らず、経路探索コアのテストは
+    // 1行も書けない（既存テストがHeuristic等のMinecraft非依存クラスに限られていたのはこのため）。
+    // なお、ここで載るのはクラスパスだけで、Blocks/BuiltInRegistriesに触るにはBootstrapが要る。
+    // テストはレジストリを起動しなくても動く範囲に留めること。
+    addModdingDependenciesTo(sourceSets["test"])
+
     runs {
         configureEach {
             systemProperty("neoforge.enabledGameTestNamespaces", prop("mod_id"))
