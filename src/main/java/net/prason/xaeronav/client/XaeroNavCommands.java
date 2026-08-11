@@ -33,7 +33,8 @@ public final class XaeroNavCommands {
                                     BlockPos pos = BlockPosArgument.getBlockPos(ctx, "pos");
                                     PathfindingState.INSTANCE.setGoal(pos);
                                     ctx.getSource().sendSuccess(
-                                            () -> Component.literal("XaeroNav: 目的地を設定(徒歩) " + pos.toShortString()), false);
+                                            () -> Component.translatable("commands.xaeronav.goal_walk",
+                                                    pos.toShortString()), false);
                                     return 1;
                                 })))
                 .then(Commands.literal("flyto")
@@ -42,7 +43,8 @@ public final class XaeroNavCommands {
                                     BlockPos pos = BlockPosArgument.getBlockPos(ctx, "pos");
                                     ElytraNavState.INSTANCE.requestPath(pos);
                                     ctx.getSource().sendSuccess(
-                                            () -> Component.literal("XaeroNav: 目的地を設定(エリトラ) " + pos.toShortString()), false);
+                                            () -> Component.translatable("commands.xaeronav.goal_elytra",
+                                                    pos.toShortString()), false);
                                     warnMissingFlightGear(ctx.getSource());
                                     return 1;
                                 })))
@@ -51,7 +53,7 @@ public final class XaeroNavCommands {
                             PathfindingState.INSTANCE.clear();
                             ElytraNavState.INSTANCE.clear();
                             ctx.getSource().sendSuccess(
-                                    () -> Component.literal("XaeroNav: 経路をクリア"), false);
+                                    () -> Component.translatable("commands.xaeronav.cleared"), false);
                             return 1;
                         })));
     }
@@ -68,11 +70,10 @@ public final class XaeroNavCommands {
         }
         ItemStack chest = player.getItemBySlot(EquipmentSlot.CHEST);
         if (!chest.is(Items.ELYTRA) || !ElytraItem.isFlyEnabled(chest)) {
-            source.sendFailure(Component.literal("XaeroNav: 飛べるエリトラを装備していません"));
+            source.sendFailure(Component.translatable("commands.xaeronav.no_elytra"));
         }
         if (!player.getInventory().contains(stack -> stack.is(Items.FIREWORK_ROCKET))) {
-            source.sendFailure(Component.literal(
-                    "XaeroNav: ロケット花火がありません。上昇できないので、滑空で下れる範囲しか辿れません"));
+            source.sendFailure(Component.translatable("commands.xaeronav.no_fireworks"));
         }
     }
 }

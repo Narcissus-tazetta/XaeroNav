@@ -317,8 +317,8 @@ public final class AStarPathfinder {
         if (CellData.cobweb(feet) || CellData.cobweb(view.cell(x, y + 1, z))) {
             return ActionCosts.SPRINT_ONE_IN_COBWEB;
         }
-        // ソウルサンド・蜂蜜ブロックは移動速度そのものに係数が掛かる。バニラと同じく、足元のセルに
-        // 係数が無ければ実際に踏んでいる1つ下のブロックを見る（{@code Entity#getBlockSpeedFactor}）
+        // ソウルサンド・蜂蜜は遅く、氷は速い。バニラと同じく、足元のセルに倍率が無ければ
+        // 実際に踏んでいる1つ下のブロックを見る（{@code Entity#getBlockSpeedFactor}）
         double speedFactor = CellData.speedFactor(feet);
         if (speedFactor == 1.0) {
             speedFactor = CellData.speedFactor(view.cell(x, y - 1, z));

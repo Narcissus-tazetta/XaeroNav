@@ -62,14 +62,23 @@ public final class CellData {
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
 
     /**
-     * 移動速度係数（{@code Block#getSpeedFactor}）を100倍した値を置く位置。
-     * 0は「未設定＝係数1.0」を表す（{@link #ABSENT}のセルもここが0になるので辻褄が合う）。
+     * 移動速度の倍率（{@link #travelSpeedFactor}）を100倍した値を置く位置。
+     * 0は「未設定＝等速」を表す（{@link #ABSENT}のセルもここが0になるので辻褄が合う）。
      */
     private static final int SPEED_FACTOR_SHIFT = 16;
     private static final long SPEED_FACTOR_MASK = 0xFFL << SPEED_FACTOR_SHIFT;
 
     /** 当たり判定の境界がセルの端に接しているかを見るときの許容誤差。 */
     private static final double EDGE_EPSILON = 1.0E-7;
+
+    /**
+     * 「滑る床」とみなす摩擦の下限。普通のブロックは0.6、氷・氷塊・青氷だけが0.98以上になる。
+     * スライムブロック(0.8)は跳ねるだけで速くはならないので、この間に線を引いて外す。
+     */
+    private static final float SLIPPERY_FRICTION = 0.9f;
+
+    /** 氷の上を進むときの速度倍率（{@link #travelSpeedFactor}）。 */
+    private static final float ICE_SPEED_FACTOR = 1.2f;
 
     private CellData() {
     }
@@ -187,16 +196,35 @@ public final class CellData {
                 || state.is(Blocks.POWDER_SNOW_CAULDRON);
     }
 
-    /** {@code Block#getSpeedFactor}（ソウルサンド・蜂蜜ブロックの0.4など）を100倍して詰める。 */
+    /** このブロックの上を進むときの速度倍率を100倍して詰める。等速（1.0）なら詰めない。 */
     private static long speedFactorBits(BlockState state) {
-        float factor = state.getBlock().getSpeedFactor();
-        if (factor >= 1.0f) {
-            // 1.0（既定）と1.0超は「遅くならない」として同じ扱いでよい。0のままにしておく
+        float factor = travelSpeedFactor(state);
+        if (factor == 1.0f) {
             return 0L;
         }
         // 0に丸めると「未設定＝等速」と区別が付かなくなるので、下は1（0.01倍）で止める
         long scaled = Math.max(1L, Math.round(factor * 100.0f));
         return (scaled << SPEED_FACTOR_SHIFT) & SPEED_FACTOR_MASK;
+    }
+
+    /**
+     * このブロックの上を進むときの速度倍率（1.0で等速）。
+     *
+     * <p>遅くなる側は{@code Block#getSpeedFactor}をそのまま使う（ソウルサンド・蜂蜜ブロックの0.4）。
+     *
+     * <p>速くなる側は氷だけを見る。氷の速さは速度係数ではなく摩擦（既定0.6に対して0.98〜0.989）から
+     * 来ていて、走るだけの定常速度はほぼ変わらない一方、走り幅跳びを続けると着地のたびの減速が
+     * 小さいぶん明確に速くなる。加速の途中経過まで正しく再現するには区間の長さを見る必要があるので、
+     * ここは「氷はいくらか速い」という一定倍率の近似にとどめる。値は素の疾走(5.6m/s)と
+     * 平地の走り幅跳び(7.1m/s)の間に収まる控えめな側に置いてある。
+     */
+    private static float travelSpeedFactor(BlockState state) {
+        Block block = state.getBlock();
+        float speedFactor = block.getSpeedFactor();
+        if (speedFactor < 1.0f) {
+            return speedFactor;
+        }
+        return block.getFriction() >= SLIPPERY_FRICTION ? ICE_SPEED_FACTOR : 1.0f;
     }
 
     /** レッドストーンを使わず手で開け閉めできるドア・フェンスゲート・トラップドアか。 */
@@ -272,7 +300,7 @@ public final class CellData {
     }
 
     /**
-     * このセルの上を歩くときの速度係数（1.0で等速、ソウルサンド・蜂蜜ブロックは0.4）。
+     * このセルの上を進むときの速度倍率（1.0で等速。ソウルサンド・蜂蜜ブロックは0.4、氷は1.2）。
      * バニラは足元のセルの係数を使い、それが1.0なら1つ下のブロックを見る（{@code Entity#getBlockSpeedFactor}）。
      */
     public static double speedFactor(long cell) {
