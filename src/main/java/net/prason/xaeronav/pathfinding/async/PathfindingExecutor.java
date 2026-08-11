@@ -76,12 +76,4 @@ public final class PathfindingExecutor {
     private interface SearchCall {
         PathResult search(AStarPathfinder pathfinder, BooleanSupplier cancelled);
     }
-
-    public void shutdown() {
-        PathfindingJob job = currentJob.get();
-        if (job != null) {
-            job.cancel();
-        }
-        executor.shutdownNow();
-    }
 }

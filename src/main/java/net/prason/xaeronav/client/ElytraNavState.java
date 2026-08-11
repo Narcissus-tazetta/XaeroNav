@@ -82,6 +82,9 @@ final class ElytraNavState {
             return;
         }
 
+        // 徒歩経路が出たままだと、行き先の違う2本の線が同時に描かれる（PathfindingState側と対）
+        PathfindingState.INSTANCE.clear();
+
         Vec3 start = player.position();
         Vec3 goal = Vec3.atCenterOf(goalBlock);
         BlockPos startBlock = player.blockPosition();

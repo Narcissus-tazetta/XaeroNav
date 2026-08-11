@@ -93,6 +93,9 @@ public final class PathfindingState {
             return;
         }
         clear();
+        // 徒歩とエリトラは別々の目的地を持てるが、案内としては一度に1つだけ意味を成す。
+        // 消さずに切り替えると、行き先の違う2本の線が同時に描かれる
+        ElytraNavState.INSTANCE.clear();
         this.goal = goal;
         this.goalDimension = level.dimension();
         recalculate();
@@ -342,6 +345,13 @@ public final class PathfindingState {
                     LOGGER.error("XaeroNav: 経路探索に失敗しました", error);
                 }
                 return;
+            }
+            if (!result.complete() && LOGGER.isDebugEnabled()) {
+                // 経路が目的地まで届かなかった理由は、探索の打ち切りか本当に道が無いかのどちらか。
+                // 展開ノード数を出しておかないと、maxExpandedNodesを上げ下げした効果を確かめる
+                // 手段がなく、「なぜ線が途中で切れるのか」に答えられない
+                LOGGER.debug("XaeroNav: 経路が未到達のまま終了しました (展開ノード数={}, 上限={}, ステップ数={})",
+                        result.expandedNodes(), XaeroNavConfig.INSTANCE.maxExpandedNodes(), result.steps().size());
             }
             if (climbing && result.steps().isEmpty()) {
                 // 地上へ出る道が1本も出せなかった。この付近では中継を諦める（掘削を切っている、
