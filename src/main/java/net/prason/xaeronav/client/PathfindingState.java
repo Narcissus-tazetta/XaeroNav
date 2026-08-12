@@ -25,6 +25,7 @@ import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
+import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.xaero.XaeroMapReader;
@@ -174,14 +175,24 @@ public final class PathfindingState {
         if (shown == null || shown.mode() != PathMode.WAYPOINT) {
             return 0;
         }
-        CoarseRoute route = coarseRoute;
-        return route == null ? 0 : route.waypoints().size();
+        return currentRouteWaypoints().size();
     }
 
     /** 長距離ルートの中間目標列（Xaero地図への点線描画用）。無ければ空リスト。 */
     public List<BlockPos> coarseRouteWaypoints() {
+        return currentRouteWaypoints();
+    }
+
+    /**
+     * {@link #coarseRoute}を今の目的地に照らして読む。目的地が変わった経緯（直行圏内に戻った・
+     * 新しい目的地に切り替わった等）を1つずつ潰すのではなく、読み出し側で常に「今の目的地に対する
+     * ルートか」を照合する形にしておくことで、キャッシュの破棄漏れが今後増えても地図に古い点線が
+     * 残らない（実際のナビゲーション先はすでに新しい目的地を向いているので、ここが古い値を返しても
+     * 実害は「表示だけ」だが、それ自体が過去に踏んだ罠なので構造で防ぐ）。
+     */
+    private List<BlockPos> currentRouteWaypoints() {
         CoarseRoute route = coarseRoute;
-        return route == null ? List.of() : route.waypoints();
+        return route == null || !route.goal().equals(goal) ? List.of() : route.waypoints();
     }
 
     public void onClientTick() {
@@ -468,32 +479,49 @@ public final class PathfindingState {
     /**
      * 詳細探索のゴールを決める。目的地が描画距離の外にあり、Xaeroの地図データがあるときだけ
      * 長距離ルートの中間目標（届く範囲で最も遠い未通過点）を挟む。地図が無い・範囲外・
-     * 中間目標が一つも届く範囲に無い、のいずれでも本来の目的地へ直接向かう従来動作にフォールバックする
-     * （発動条件が一つでも欠けたら長距離ルートには入らない）。
+     * 引き直してもなお中間目標が一つも届く範囲に無い、のいずれでも本来の目的地へ直接向かう
+     * 従来動作にフォールバックする（発動条件が一つでも欠けたら長距離ルートには入らない）。
      */
     private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius) {
         if (horizontalDistance(start, currentGoal) <= renderRadius || !XaeroPresence.mapPresent()) {
             return new DetailTarget(currentGoal, -1);
         }
+        DetailTarget target = reachableWaypointTarget(start, currentGoal,
+                cachedOrFreshRoute(start, currentGoal), renderRadius);
+        if (target != null) {
+            return target;
+        }
+        // キャッシュ済みのwaypointが1つも描画距離内に届かない＝大きく迂回して経路から外れた。
+        // 目的地は変わっていないのでキャッシュは効くはずだが、地形は不変でも自分の位置は変わるので、
+        // 今の位置を始点に引き直す（地形が変わらない限り引き直さない、という原則の唯一の例外）
+        target = reachableWaypointTarget(start, currentGoal, freshRoute(start, currentGoal), renderRadius);
+        return target != null ? target : new DetailTarget(currentGoal, -1);
+    }
+
+    private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal) {
         CoarseRoute cached = coarseRoute;
-        List<BlockPos> waypoints;
-        if (cached != null && cached.goal().equals(currentGoal)) {
-            waypoints = cached.waypoints();
-        } else {
-            CoarseRouter.Route route = computeCoarseRoute(start, currentGoal);
-            waypoints = route.waypoints();
-            if (!waypoints.isEmpty() && route.reachedGoal()) {
-                // 粗い終点はチャンク中心±8ブロックで高さも代表値なので、そのままでは到着できない。
-                // 最後だけ本来の目的地に差し替える
-                waypoints = replaceLast(waypoints, currentGoal);
-            }
-            coarseRoute = new CoarseRoute(currentGoal, waypoints);
+        return cached != null && cached.goal().equals(currentGoal) ? cached.waypoints() : freshRoute(start, currentGoal);
+    }
+
+    private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal) {
+        CoarseRouter.Route route = computeCoarseRoute(start, currentGoal);
+        List<BlockPos> waypoints = route.waypoints();
+        if (!waypoints.isEmpty() && route.reachedGoal()) {
+            // 粗い終点はチャンク中心±8ブロックで高さも代表値なので、そのままでは到着できない。
+            // 最後だけ本来の目的地に差し替える
+            waypoints = replaceLast(waypoints, currentGoal);
         }
-        if (waypoints.isEmpty()) {
-            return new DetailTarget(currentGoal, -1);
-        }
-        // 中間目標は順番に1つずつではなく、詳細探索が届く範囲で最も遠い未通過点を選ぶ。
-        // waypoint間隔は詳細探索が一度に届く距離より十分短いので、1つずつ渡すと探索能力を捨てる
+        coarseRoute = new CoarseRoute(currentGoal, waypoints);
+        return waypoints;
+    }
+
+    /**
+     * 中間目標は順番に1つずつではなく、詳細探索が届く範囲で最も遠い未通過点を選ぶ。
+     * waypoint間隔は詳細探索が一度に届く距離より十分短いので、1つずつ渡すと探索能力を捨てる。
+     * 1つも届かなければ{@code null}（呼び出し側が引き直すかどうかを判断する）。
+     */
+    private DetailTarget reachableWaypointTarget(BlockPos start, BlockPos currentGoal,
+                                                  List<BlockPos> waypoints, int renderRadius) {
         BlockPos farthestReachable = null;
         int farthestIndex = -1;
         for (int i = 0; i < waypoints.size(); i++) {
@@ -503,9 +531,33 @@ public final class PathfindingState {
                 farthestIndex = i;
             }
         }
-        return farthestReachable != null
-                ? new DetailTarget(farthestReachable, farthestIndex)
-                : new DetailTarget(currentGoal, -1);
+        if (farthestReachable == null) {
+            return null;
+        }
+        // 本来の目的地（replaceLastで置き換わった最終waypoint）はユーザー指定座標そのものなので
+        // 層2で寄せる対象ではない。それ以外の中間waypointだけ実際に立てる座標へ解決する
+        BlockPos resolvedTarget = farthestReachable.equals(currentGoal)
+                ? farthestReachable
+                : resolveWaypointOnSurface(farthestReachable);
+        return new DetailTarget(resolvedTarget, farthestIndex);
+    }
+
+    /**
+     * 層1のwaypoint（チャンク中心+代表高さ）を、層2のブロック解像度データで実際に立てる座標へ
+     * 寄せる。X,Zは変えずYだけ調整する（2D地図の点線・進捗表示はwaypointの生座標のままなので、
+     * Yしか変えなければ無改修でも整合する）。データが無ければ元のwaypointをそのまま返す
+     * （長距離ルートの他の発動条件と同じく、層2が使えない場合は素の層1へフォールバックする）。
+     */
+    private static BlockPos resolveWaypointOnSurface(BlockPos waypoint) {
+        int chunkX = waypoint.getX() >> 4;
+        int chunkZ = waypoint.getZ() >> 4;
+        XaeroMapReader.RegionStats stats = XaeroMapReader.surveyRegions(chunkX, chunkZ, 1, 1);
+        if (stats.pendingLoad() > 0) {
+            XaeroMapReader.requestLoad(chunkX, chunkZ, 1, 1);
+        }
+        SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(chunkX * 16, chunkZ * 16, 16, 16);
+        BlockPos resolved = grid.resolveStandable(waypoint.getX(), waypoint.getZ());
+        return resolved != null ? resolved : waypoint;
     }
 
     /**

@@ -255,8 +255,8 @@ public final class XaeroNavCommands {
         int pendingRegions = regionStats.pendingLoad();
 
         SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(minBlockX, minBlockZ, sizeX, sizeZ);
-        BlockPos resolvedFrom = resolveOnGrid(grid, from);
-        BlockPos resolvedTo = resolveOnGrid(grid, to);
+        BlockPos resolvedFrom = grid.resolveStandable(from.getX(), from.getZ());
+        BlockPos resolvedTo = grid.resolveStandable(to.getX(), to.getZ());
         if (resolvedFrom == null || resolvedTo == null) {
             long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
             source.sendFailure(Component.translatable(
@@ -273,24 +273,6 @@ public final class XaeroNavCommands {
         source.sendSuccess(() -> Component.translatable(
                 result.complete() ? "commands.xaeronav.corridor_leg_reached" : "commands.xaeronav.corridor_leg_partial",
                 index, total, result.steps().size(), elapsedMillis, pendingRegions), false);
-    }
-
-    /**
-     * waypointのx,zはそのままに、層2が読んだ実際の地表高さへYを合わせる。データが無ければ{@code null}。
-     *
-     * <p>陸は地面の1つ上（立つ場所）へ、水は水面そのもの（{@link SurfaceCellSource#cell}が
-     * 水面の高さをWATERセルとして扱う——{@code y == surfaceHeight}はまだ水、その1つ上から空気）へ寄せる。
-     * ここを陸と同じ「+1」で揃えると、水上のwaypointが水面の1つ上＝空気へ解決され、
-     * 「泳いで渡る区間」のはずが水面から浮いた場所から探索を始めることになる。
-     */
-    private static BlockPos resolveOnGrid(SurfaceGrid grid, BlockPos pos) {
-        byte kind = grid.kindAt(pos.getX(), pos.getZ());
-        if (kind == CoarseMap.WATER) {
-            short surface = grid.surfaceHeightAt(pos.getX(), pos.getZ());
-            return surface == SurfaceGrid.UNKNOWN_HEIGHT ? null : new BlockPos(pos.getX(), surface, pos.getZ());
-        }
-        short ground = grid.groundHeightAt(pos.getX(), pos.getZ());
-        return ground == SurfaceGrid.UNKNOWN_HEIGHT ? null : new BlockPos(pos.getX(), ground + 1, pos.getZ());
     }
 
     /**

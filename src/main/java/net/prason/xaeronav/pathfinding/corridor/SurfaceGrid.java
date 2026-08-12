@@ -1,5 +1,6 @@
 package net.prason.xaeronav.pathfinding.corridor;
 
+import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 
 /**
@@ -64,5 +65,20 @@ public final class SurfaceGrid {
 
     private int index(int x, int z) {
         return (z - minZ) * sizeX + (x - minX);
+    }
+
+    /**
+     * この列(x,z)で実際に立てる高さへ解決する。陸は地面の1つ上、水は水面そのもの
+     * （{@code SurfaceCellSource#cell}が水面をWATERセルとして扱うため、+1すると空気に解決されてしまう）。
+     * データが無ければ{@code null}。
+     */
+    public BlockPos resolveStandable(int x, int z) {
+        byte kind = kindAt(x, z);
+        if (kind == CoarseMap.WATER) {
+            short surface = surfaceHeightAt(x, z);
+            return surface == UNKNOWN_HEIGHT ? null : new BlockPos(x, surface, z);
+        }
+        short ground = groundHeightAt(x, z);
+        return ground == UNKNOWN_HEIGHT ? null : new BlockPos(x, ground + 1, z);
     }
 }
