@@ -51,7 +51,7 @@
   "commands.xaeronav.route_summary_partial": "XaeroNav 長距離ルート: 中間目標 %1$d 個、目的地まで届かず（最も近づけた地点まで）、計算 %2$d ms",
   "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s",
 
-  "commands.xaeronav.corridor_no_data": "  区間 %1$d/%2$d: 地図データが無い（確認 %3$d ms）",
-  "commands.xaeronav.corridor_leg_reached": "  区間 %1$d/%2$d: 到達（%3$d ステップ、%4$d ms）",
-  "commands.xaeronav.corridor_leg_partial": "  区間 %1$d/%2$d: 未到達（%3$d ステップ、%4$d ms）"
+  "commands.xaeronav.corridor_no_data": "  区間 %1$d/%2$d: 地図データが無い（確認 %3$d ms、未読み込みリージョン %4$d 件）",
+  "commands.xaeronav.corridor_leg_reached": "  区間 %1$d/%2$d: 到達（%3$d ステップ、%4$d ms、未読み込みリージョン %5$d 件）",
+  "commands.xaeronav.corridor_leg_partial": "  区間 %1$d/%2$d: 未到達（%3$d ステップ、%4$d ms、未読み込みリージョン %5$d 件）"
 }

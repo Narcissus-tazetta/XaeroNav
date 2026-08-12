@@ -238,13 +238,29 @@ public final class XaeroNavCommands {
         int sizeZ = maxBlockZ - minBlockZ + 1;
 
         long startNanos = System.nanoTime();
+        // readSurfaceDetailedはcreate=falseで読むため、この廊下のリージョンがXaeroのメモリにまだ
+        // 無ければ黙ってNO_DATA扱いになる。訪問済みでも今メモリに無いだけのことは珍しくなく
+        // （プレイヤーが今その付近にいない・地図を開いていない）、それを「地形に阻まれた」と誤読
+        // させないよう、未読み込みリージョンがあれば読み込みを要求しつつその数を報告に混ぜる
+        int minChunkX = minBlockX >> 4;
+        int maxChunkX = maxBlockX >> 4;
+        int minChunkZ = minBlockZ >> 4;
+        int maxChunkZ = maxBlockZ >> 4;
+        int chunksX = maxChunkX - minChunkX + 1;
+        int chunksZ = maxChunkZ - minChunkZ + 1;
+        XaeroMapReader.RegionStats regionStats = XaeroMapReader.surveyRegions(minChunkX, minChunkZ, chunksX, chunksZ);
+        if (regionStats.pendingLoad() > 0) {
+            XaeroMapReader.requestLoad(minChunkX, minChunkZ, chunksX, chunksZ);
+        }
+        int pendingRegions = regionStats.pendingLoad();
+
         SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(minBlockX, minBlockZ, sizeX, sizeZ);
         BlockPos resolvedFrom = resolveOnGrid(grid, from);
         BlockPos resolvedTo = resolveOnGrid(grid, to);
         if (resolvedFrom == null || resolvedTo == null) {
             long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
             source.sendFailure(Component.translatable(
-                    "commands.xaeronav.corridor_no_data", index, total, elapsedMillis));
+                    "commands.xaeronav.corridor_no_data", index, total, elapsedMillis, pendingRegions));
             return;
         }
         SearchBounds bounds = new SearchBounds(minBlockX, resolvedFrom.getY() - CORRIDOR_VERTICAL_MARGIN_BLOCKS, minBlockZ,
@@ -256,7 +272,7 @@ public final class XaeroNavCommands {
 
         source.sendSuccess(() -> Component.translatable(
                 result.complete() ? "commands.xaeronav.corridor_leg_reached" : "commands.xaeronav.corridor_leg_partial",
-                index, total, result.steps().size(), elapsedMillis), false);
+                index, total, result.steps().size(), elapsedMillis, pendingRegions), false);
     }
 
     /**
