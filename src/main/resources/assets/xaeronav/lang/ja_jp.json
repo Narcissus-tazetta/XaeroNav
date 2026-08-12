@@ -40,5 +40,12 @@
   "commands.xaeronav.mapdata_land": "陸",
   "commands.xaeronav.mapdata_water": "水",
   "commands.xaeronav.mapdata_lava": "溶岩",
-  "commands.xaeronav.mapdata_none": "データ無し"
+  "commands.xaeronav.mapdata_none": "データ無し",
+
+  "commands.xaeronav.route_too_far": "XaeroNav: 目的地が遠すぎます（診断コマンドの範囲上限を超えています）",
+  "commands.xaeronav.route_none": "XaeroNav: ルートが見つかりません（計算 %d ms）",
+  "commands.xaeronav.route_same_chunk": "XaeroNav: 現在地と同じチャンクです（中間目標なし）",
+  "commands.xaeronav.route_summary_reached": "XaeroNav 長距離ルート: 中間目標 %1$d 個、目的地まで到達、計算 %2$d ms",
+  "commands.xaeronav.route_summary_partial": "XaeroNav 長距離ルート: 中間目標 %1$d 個、目的地まで届かず（最も近づけた地点まで）、計算 %2$d ms",
+  "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s"
 }

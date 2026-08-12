@@ -1,5 +1,7 @@
 package net.prason.xaeronav.client;
 
+import java.util.List;
+
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 
@@ -17,6 +19,7 @@ import net.minecraft.world.item.Items;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
+import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 
@@ -67,7 +70,71 @@ public final class XaeroNavCommands {
                         .executes(ctx -> reportMapData(ctx.getSource(), DEFAULT_MAPDATA_RADIUS_CHUNKS))
                         .then(Commands.argument("radiusChunks", IntegerArgumentType.integer(1, 512))
                                 .executes(ctx -> reportMapData(ctx.getSource(),
-                                        IntegerArgumentType.getInteger(ctx, "radiusChunks"))))));
+                                        IntegerArgumentType.getInteger(ctx, "radiusChunks")))))
+                .then(Commands.literal("route")
+                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                .executes(ctx -> reportRoute(ctx.getSource(),
+                                        BlockPosArgument.getBlockPos(ctx, "pos"))))));
+    }
+
+    /** {@link #reportRoute}が読む範囲を、始点と終点の周りにどれだけ広げるか（チャンク）。 */
+    private static final int ROUTE_PADDING_CHUNKS = 32;
+
+    /** 一辺がこれを超える範囲は読まない。粗い地図とはいえ、無制限だと配列確保だけで固まる。 */
+    private static final int ROUTE_MAX_SPAN_CHUNKS = 1024;
+
+    /**
+     * 段階Aの目視確認用。実際の案内は開始せず、{@link CoarseRouter}が引いた中間目標をその場で
+     * チャットに列挙するだけ。実データの海や山で意図通り曲がるかは、これで見るしかない。
+     */
+    private static int reportRoute(CommandSourceStack source, BlockPos goal) {
+        Player player = Minecraft.getInstance().player;
+        if (player == null) {
+            return 0;
+        }
+        if (!XaeroPresence.mapPresent()) {
+            source.sendFailure(Component.translatable("commands.xaeronav.mapdata_unavailable"));
+            return 0;
+        }
+
+        BlockPos start = player.blockPosition();
+        int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - ROUTE_PADDING_CHUNKS;
+        int maxChunkX = (Math.max(start.getX(), goal.getX()) >> 4) + ROUTE_PADDING_CHUNKS;
+        int minChunkZ = (Math.min(start.getZ(), goal.getZ()) >> 4) - ROUTE_PADDING_CHUNKS;
+        int maxChunkZ = (Math.max(start.getZ(), goal.getZ()) >> 4) + ROUTE_PADDING_CHUNKS;
+        int chunksX = maxChunkX - minChunkX + 1;
+        int chunksZ = maxChunkZ - minChunkZ + 1;
+        if (chunksX > ROUTE_MAX_SPAN_CHUNKS || chunksZ > ROUTE_MAX_SPAN_CHUNKS) {
+            source.sendFailure(Component.translatable("commands.xaeronav.route_too_far"));
+            return 0;
+        }
+
+        long startNanos = System.nanoTime();
+        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal);
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+
+        if (route.isEmpty()) {
+            if (route.reachedGoal()) {
+                source.sendSuccess(() -> Component.translatable("commands.xaeronav.route_same_chunk"), false);
+                return 1;
+            }
+            source.sendFailure(Component.translatable("commands.xaeronav.route_none", elapsedMillis));
+            return 0;
+        }
+
+        List<BlockPos> waypoints = route.waypoints();
+        source.sendSuccess(() -> Component.translatable(
+                route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
+                        : "commands.xaeronav.route_summary_partial",
+                waypoints.size(), elapsedMillis), false);
+        for (int i = 0; i < waypoints.size(); i++) {
+            int number = i + 1;
+            BlockPos waypoint = waypoints.get(i);
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.route_waypoint",
+                    number, waypoints.size(), waypoint.toShortString()), false);
+        }
+        return 1;
     }
 
     /**

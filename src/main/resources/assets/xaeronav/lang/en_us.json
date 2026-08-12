@@ -40,5 +40,12 @@
   "commands.xaeronav.mapdata_land": "land",
   "commands.xaeronav.mapdata_water": "water",
   "commands.xaeronav.mapdata_lava": "lava",
-  "commands.xaeronav.mapdata_none": "no data"
+  "commands.xaeronav.mapdata_none": "no data",
+
+  "commands.xaeronav.route_too_far": "XaeroNav: destination is too far (exceeds the diagnostic command's range limit)",
+  "commands.xaeronav.route_none": "XaeroNav: no route found (computed in %d ms)",
+  "commands.xaeronav.route_same_chunk": "XaeroNav: destination is in the same chunk as you (no waypoints)",
+  "commands.xaeronav.route_summary_reached": "XaeroNav long-range route: %1$d waypoint(s), reached destination, computed in %2$d ms",
+  "commands.xaeronav.route_summary_partial": "XaeroNav long-range route: %1$d waypoint(s), did not reach destination (stopped at the closest point), computed in %2$d ms",
+  "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s"
 }
