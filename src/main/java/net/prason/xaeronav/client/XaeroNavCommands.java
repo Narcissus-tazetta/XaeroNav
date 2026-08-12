@@ -1,5 +1,6 @@
 package net.prason.xaeronav.client;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import com.mojang.brigadier.CommandDispatcher;
@@ -18,8 +19,14 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
+import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
+import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
+import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
+import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.pathfinding.world.SurfaceCellSource;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 
@@ -74,6 +81,10 @@ public final class XaeroNavCommands {
                 .then(Commands.literal("route")
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> reportRoute(ctx.getSource(),
+                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
+                .then(Commands.literal("corridor")
+                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                .executes(ctx -> reportCorridor(ctx.getSource(),
                                         BlockPosArgument.getBlockPos(ctx, "pos"))))));
     }
 
@@ -98,21 +109,12 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
-        int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - ROUTE_PADDING_CHUNKS;
-        int maxChunkX = (Math.max(start.getX(), goal.getX()) >> 4) + ROUTE_PADDING_CHUNKS;
-        int minChunkZ = (Math.min(start.getZ(), goal.getZ()) >> 4) - ROUTE_PADDING_CHUNKS;
-        int maxChunkZ = (Math.max(start.getZ(), goal.getZ()) >> 4) + ROUTE_PADDING_CHUNKS;
-        int chunksX = maxChunkX - minChunkX + 1;
-        int chunksZ = maxChunkZ - minChunkZ + 1;
-        if (chunksX > ROUTE_MAX_SPAN_CHUNKS || chunksZ > ROUTE_MAX_SPAN_CHUNKS) {
-            source.sendFailure(Component.translatable("commands.xaeronav.route_too_far"));
+        long startNanos = System.nanoTime();
+        CoarseRouter.Route route = computeRouteOrFail(source, start, goal);
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+        if (route == null) {
             return 0;
         }
-
-        long startNanos = System.nanoTime();
-        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ);
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal);
-        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
 
         if (route.isEmpty()) {
             if (route.reachedGoal()) {
@@ -135,6 +137,144 @@ public final class XaeroNavCommands {
                     number, waypoints.size(), waypoint.toShortString()), false);
         }
         return 1;
+    }
+
+    /**
+     * {@link #reportRoute}と{@link #reportCorridor}が共有する層1の計算。範囲が
+     * {@link #ROUTE_MAX_SPAN_CHUNKS}を超える場合は失敗を送って{@code null}を返す。
+     */
+    private static CoarseRouter.Route computeRouteOrFail(CommandSourceStack source, BlockPos start, BlockPos goal) {
+        int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - ROUTE_PADDING_CHUNKS;
+        int maxChunkX = (Math.max(start.getX(), goal.getX()) >> 4) + ROUTE_PADDING_CHUNKS;
+        int minChunkZ = (Math.min(start.getZ(), goal.getZ()) >> 4) - ROUTE_PADDING_CHUNKS;
+        int maxChunkZ = (Math.max(start.getZ(), goal.getZ()) >> 4) + ROUTE_PADDING_CHUNKS;
+        int chunksX = maxChunkX - minChunkX + 1;
+        int chunksZ = maxChunkZ - minChunkZ + 1;
+        if (chunksX > ROUTE_MAX_SPAN_CHUNKS || chunksZ > ROUTE_MAX_SPAN_CHUNKS) {
+            source.sendFailure(Component.translatable("commands.xaeronav.route_too_far"));
+            return null;
+        }
+        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ);
+        return CoarseRouter.findRoute(map, start, goal);
+    }
+
+    /** {@link #reportCorridor}が廊下に足す水平マージン（ブロック）。長距離ルート層2の設計値そのもの。 */
+    private static final int CORRIDOR_HORIZONTAL_MARGIN_BLOCKS = 48;
+
+    /**
+     * 区間ごとの探索時間上限（ミリ秒）。{@link SearchLimits#DEFAULT}の2秒をそのまま使うと、
+     * 区間数だけ同期実行が連なるコマンドの性質上（メインスレッドで1区間ずつ順に処理する）、
+     * waypointの多い長いルートでは合計で数十秒クライアントが固まりかねない。層2は掘削・ドア・
+     * 蜘蛛の巣を扱わずノード単価が軽いので、上限を切り詰めても大抵の区間は十分な時間で解ける。
+     */
+    private static final long CORRIDOR_LEG_TIME_LIMIT_MILLIS = 300;
+
+    private static final SearchLimits CORRIDOR_SEARCH_LIMITS = new SearchLimits(
+            AStarPathfinder.DEFAULT_MAX_EXPANDED_NODES,
+            CORRIDOR_LEG_TIME_LIMIT_MILLIS,
+            AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
+
+    /**
+     * 廊下のバウンディングボックスに足す垂直マージン（ブロック）。{@link SurfaceCellSource#cell}は
+     * 実際にはY方向の範囲を見ない（列ごとの地表高さだけで通行可否が決まる）ので、ここは
+     * {@code bounds()}の体裁を整える以上の意味を持たない。
+     */
+    private static final int CORRIDOR_VERTICAL_MARGIN_BLOCKS = 64;
+
+    /**
+     * 長距離ルート層2（ブロック解像度の地表グラフ）の目視確認用。層1のwaypoint列を隣接ペアで結び、
+     * 線分ごとに廊下（±{@link #CORRIDOR_HORIZONTAL_MARGIN_BLOCKS}ブロック）を切り出して、
+     * {@link SurfaceCellSource}経由で既存の{@link AStarPathfinder}をそのまま走らせる。
+     * まだ{@code goto}（ライブナビ）には配線していない——段階Aのrouteと同じく確認専用。
+     */
+    private static int reportCorridor(CommandSourceStack source, BlockPos goal) {
+        Player player = Minecraft.getInstance().player;
+        if (player == null) {
+            return 0;
+        }
+        if (!XaeroPresence.mapPresent()) {
+            source.sendFailure(Component.translatable("commands.xaeronav.mapdata_unavailable"));
+            return 0;
+        }
+
+        BlockPos start = player.blockPosition();
+        long startNanos = System.nanoTime();
+        CoarseRouter.Route route = computeRouteOrFail(source, start, goal);
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+        if (route == null) {
+            return 0;
+        }
+        if (route.isEmpty()) {
+            if (route.reachedGoal()) {
+                source.sendSuccess(() -> Component.translatable("commands.xaeronav.route_same_chunk"), false);
+                return 1;
+            }
+            source.sendFailure(Component.translatable("commands.xaeronav.route_none", elapsedMillis));
+            return 0;
+        }
+
+        List<BlockPos> waypoints = route.waypoints();
+        source.sendSuccess(() -> Component.translatable(
+                route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
+                        : "commands.xaeronav.route_summary_partial",
+                waypoints.size(), elapsedMillis), false);
+
+        List<BlockPos> legs = new ArrayList<>();
+        legs.add(start);
+        legs.addAll(waypoints);
+        int legCount = legs.size() - 1;
+        for (int i = 0; i < legCount; i++) {
+            reportCorridorLeg(source, i + 1, legCount, legs.get(i), legs.get(i + 1));
+        }
+        return 1;
+    }
+
+    private static void reportCorridorLeg(CommandSourceStack source, int index, int total, BlockPos from, BlockPos to) {
+        int minBlockX = Math.min(from.getX(), to.getX()) - CORRIDOR_HORIZONTAL_MARGIN_BLOCKS;
+        int maxBlockX = Math.max(from.getX(), to.getX()) + CORRIDOR_HORIZONTAL_MARGIN_BLOCKS;
+        int minBlockZ = Math.min(from.getZ(), to.getZ()) - CORRIDOR_HORIZONTAL_MARGIN_BLOCKS;
+        int maxBlockZ = Math.max(from.getZ(), to.getZ()) + CORRIDOR_HORIZONTAL_MARGIN_BLOCKS;
+        int sizeX = maxBlockX - minBlockX + 1;
+        int sizeZ = maxBlockZ - minBlockZ + 1;
+
+        long startNanos = System.nanoTime();
+        SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(minBlockX, minBlockZ, sizeX, sizeZ);
+        BlockPos resolvedFrom = resolveOnGrid(grid, from);
+        BlockPos resolvedTo = resolveOnGrid(grid, to);
+        if (resolvedFrom == null || resolvedTo == null) {
+            long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+            source.sendFailure(Component.translatable(
+                    "commands.xaeronav.corridor_no_data", index, total, elapsedMillis));
+            return;
+        }
+        SearchBounds bounds = new SearchBounds(minBlockX, resolvedFrom.getY() - CORRIDOR_VERTICAL_MARGIN_BLOCKS, minBlockZ,
+                maxBlockX, resolvedFrom.getY() + CORRIDOR_VERTICAL_MARGIN_BLOCKS, maxBlockZ);
+        SurfaceCellSource cellSource = new SurfaceCellSource(grid, bounds);
+        PathResult result = new AStarPathfinder(cellSource, CORRIDOR_SEARCH_LIMITS)
+                .search(resolvedFrom, resolvedTo, () -> false);
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+
+        source.sendSuccess(() -> Component.translatable(
+                result.complete() ? "commands.xaeronav.corridor_leg_reached" : "commands.xaeronav.corridor_leg_partial",
+                index, total, result.steps().size(), elapsedMillis), false);
+    }
+
+    /**
+     * waypointのx,zはそのままに、層2が読んだ実際の地表高さへYを合わせる。データが無ければ{@code null}。
+     *
+     * <p>陸は地面の1つ上（立つ場所）へ、水は水面そのもの（{@link SurfaceCellSource#cell}が
+     * 水面の高さをWATERセルとして扱う——{@code y == surfaceHeight}はまだ水、その1つ上から空気）へ寄せる。
+     * ここを陸と同じ「+1」で揃えると、水上のwaypointが水面の1つ上＝空気へ解決され、
+     * 「泳いで渡る区間」のはずが水面から浮いた場所から探索を始めることになる。
+     */
+    private static BlockPos resolveOnGrid(SurfaceGrid grid, BlockPos pos) {
+        byte kind = grid.kindAt(pos.getX(), pos.getZ());
+        if (kind == CoarseMap.WATER) {
+            short surface = grid.surfaceHeightAt(pos.getX(), pos.getZ());
+            return surface == SurfaceGrid.UNKNOWN_HEIGHT ? null : new BlockPos(pos.getX(), surface, pos.getZ());
+        }
+        short ground = grid.groundHeightAt(pos.getX(), pos.getZ());
+        return ground == SurfaceGrid.UNKNOWN_HEIGHT ? null : new BlockPos(pos.getX(), ground + 1, pos.getZ());
     }
 
     /**

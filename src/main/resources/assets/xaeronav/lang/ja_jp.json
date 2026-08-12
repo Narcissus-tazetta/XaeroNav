@@ -49,5 +49,9 @@
   "commands.xaeronav.route_same_chunk": "XaeroNav: 現在地と同じチャンクです（中間目標なし）",
   "commands.xaeronav.route_summary_reached": "XaeroNav 長距離ルート: 中間目標 %1$d 個、目的地まで到達、計算 %2$d ms",
   "commands.xaeronav.route_summary_partial": "XaeroNav 長距離ルート: 中間目標 %1$d 個、目的地まで届かず（最も近づけた地点まで）、計算 %2$d ms",
-  "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s"
+  "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s",
+
+  "commands.xaeronav.corridor_no_data": "  区間 %1$d/%2$d: 地図データが無い（確認 %3$d ms）",
+  "commands.xaeronav.corridor_leg_reached": "  区間 %1$d/%2$d: 到達（%3$d ステップ、%4$d ms）",
+  "commands.xaeronav.corridor_leg_partial": "  区間 %1$d/%2$d: 未到達（%3$d ステップ、%4$d ms）"
 }

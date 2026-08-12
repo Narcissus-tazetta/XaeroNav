@@ -7,6 +7,8 @@ import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.state.BlockState;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMapBuilder;
+import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
+import net.prason.xaeronav.pathfinding.corridor.SurfaceGridBuilder;
 import xaero.map.MapProcessor;
 import xaero.map.WorldMapSession;
 import xaero.map.region.MapBlock;
@@ -86,6 +88,34 @@ public final class XaeroMapReader {
         for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
             for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
                 readRegion(processor, regionX, regionZ, builder);
+            }
+        }
+        return builder.build();
+    }
+
+    /**
+     * 廊下（層1のwaypoint間の線分±マージン）をブロック解像度で読む。{@link #readSurface}と違い
+     * 間引きをしない（256点/チャンク全部）ので、狭い範囲（廊下1本96×96ブロック程度）専用。
+     */
+    public static SurfaceGrid readSurfaceDetailed(int minBlockX, int minBlockZ, int sizeX, int sizeZ) {
+        SurfaceGridBuilder builder = new SurfaceGridBuilder(minBlockX, minBlockZ, sizeX, sizeZ);
+        MapProcessor processor = processor();
+        if (processor == null) {
+            return builder.build();
+        }
+
+        int minChunkX = minBlockX >> 4;
+        int maxChunkX = (minBlockX + sizeX - 1) >> 4;
+        int minChunkZ = minBlockZ >> 4;
+        int maxChunkZ = (minBlockZ + sizeZ - 1) >> 4;
+        int minRegionX = minChunkX >> CHUNKS_PER_REGION_SHIFT;
+        int maxRegionX = maxChunkX >> CHUNKS_PER_REGION_SHIFT;
+        int minRegionZ = minChunkZ >> CHUNKS_PER_REGION_SHIFT;
+        int maxRegionZ = maxChunkZ >> CHUNKS_PER_REGION_SHIFT;
+
+        for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
+            for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
+                readRegionDetailed(processor, regionX, regionZ, builder);
             }
         }
         return builder.build();
@@ -264,6 +294,62 @@ public final class XaeroMapReader {
             kind = CoarseMap.LAND;
         }
         builder.put(tile.getChunkX(), tile.getChunkZ(), kind, heightSum / samples, minHeight, maxHeight);
+    }
+
+    private static void readRegionDetailed(MapProcessor processor, int regionX, int regionZ,
+                                            SurfaceGridBuilder builder) {
+        // create=falseなので、Xaeroがまだ読み込んでいないリージョンはnullで返る（readRegionと同じ理由）
+        MapRegion region = processor.getLeafMapRegion(SURFACE_LAYER, regionX, regionZ, false);
+        if (region == null || !region.isLoaded()) {
+            return;
+        }
+        for (int tileChunkX = 0; tileChunkX < TILE_CHUNKS_PER_REGION; tileChunkX++) {
+            for (int tileChunkZ = 0; tileChunkZ < TILE_CHUNKS_PER_REGION; tileChunkZ++) {
+                MapTileChunk tileChunk = region.getChunk(tileChunkX, tileChunkZ);
+                if (tileChunk == null) {
+                    continue;
+                }
+                readTileChunkDetailed(tileChunk, builder);
+            }
+        }
+    }
+
+    private static void readTileChunkDetailed(MapTileChunk tileChunk, SurfaceGridBuilder builder) {
+        for (int tileX = 0; tileX < TILES_PER_TILE_CHUNK; tileX++) {
+            for (int tileZ = 0; tileZ < TILES_PER_TILE_CHUNK; tileZ++) {
+                MapTile tile = tileChunk.getTile(tileX, tileZ);
+                if (tile == null || !tile.isLoaded()) {
+                    continue;
+                }
+                readTileDetailed(tile, builder);
+            }
+        }
+    }
+
+    /**
+     * 1タイル分をブロック解像度（256点）で読む。{@link #readTile}と違い間引かない — 廊下限定の
+     * 狭い範囲でしか呼ばないので、ここで数百チャンク分を舐める心配は無い。
+     */
+    private static void readTileDetailed(MapTile tile, SurfaceGridBuilder builder) {
+        int blockX = tile.getChunkX() * 16;
+        int blockZ = tile.getChunkZ() * 16;
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                MapBlock block = tile.getBlock(x, z);
+                if (block == null) {
+                    continue;
+                }
+                if (isLava(block)) {
+                    int height = block.getHeight();
+                    builder.put(blockX + x, blockZ + z, CoarseMap.LAVA, height);
+                } else if (isWater(block)) {
+                    // 水底と水面の両方が読めるので、層1（水面のみ）には無い水深を持たせられる
+                    builder.put(blockX + x, blockZ + z, CoarseMap.WATER, block.getHeight(), block.getTopHeight());
+                } else {
+                    builder.put(blockX + x, blockZ + z, CoarseMap.LAND, block.getHeight());
+                }
+            }
+        }
     }
 
     /**

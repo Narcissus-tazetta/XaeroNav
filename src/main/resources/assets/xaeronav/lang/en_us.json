@@ -49,5 +49,9 @@
   "commands.xaeronav.route_same_chunk": "XaeroNav: destination is in the same chunk as you (no waypoints)",
   "commands.xaeronav.route_summary_reached": "XaeroNav long-range route: %1$d waypoint(s), reached destination, computed in %2$d ms",
   "commands.xaeronav.route_summary_partial": "XaeroNav long-range route: %1$d waypoint(s), did not reach destination (stopped at the closest point), computed in %2$d ms",
-  "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s"
+  "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s",
+
+  "commands.xaeronav.corridor_no_data": "  leg %1$d/%2$d: no map data for this segment (checked in %3$d ms)",
+  "commands.xaeronav.corridor_leg_reached": "  leg %1$d/%2$d: reached (%3$d steps, %4$d ms)",
+  "commands.xaeronav.corridor_leg_partial": "  leg %1$d/%2$d: did not reach (%3$d steps, %4$d ms)"
 }
