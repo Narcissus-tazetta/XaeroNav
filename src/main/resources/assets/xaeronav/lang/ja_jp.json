@@ -30,5 +30,15 @@
   "key.xaeronav.toggle_hud": "案内表示の切り替え",
   "hud.xaeronav.hud_on": "XaeroNav: 案内表示 オン",
   "hud.xaeronav.hud_off": "XaeroNav: 案内表示 オフ",
-  "hud.xaeronav.no_block_in_view": "XaeroNav: 視線の先にブロックがありません"
+  "hud.xaeronav.no_block_in_view": "XaeroNav: 視線の先にブロックがありません",
+
+  "commands.xaeronav.mapdata_unavailable": "XaeroNav: Xaero's World Mapが導入されていません",
+  "commands.xaeronav.mapdata_summary": "XaeroNav 地図データ: %1$d ブロック四方 — %2$d/%3$d チャンクが既知 (%4$d%%)、読み取り %5$d ms",
+  "commands.xaeronav.mapdata_regions": "  リージョン: %1$d 読み込み済み / %2$d 読み込み待ち / %3$d 範囲内",
+  "commands.xaeronav.mapdata_requested": "  %d 個のリージョンに読み込みを要求しました — 少し待ってもう一度実行してください",
+  "commands.xaeronav.mapdata_here": "  現在地: %1$s、高さ %2$d",
+  "commands.xaeronav.mapdata_land": "陸",
+  "commands.xaeronav.mapdata_water": "水",
+  "commands.xaeronav.mapdata_lava": "溶岩",
+  "commands.xaeronav.mapdata_none": "データ無し"
 }

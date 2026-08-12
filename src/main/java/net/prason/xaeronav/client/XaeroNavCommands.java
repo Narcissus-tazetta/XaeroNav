@@ -1,6 +1,7 @@
 package net.prason.xaeronav.client;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.commands.CommandSourceStack;
@@ -15,6 +16,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
+import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
+import net.prason.xaeronav.xaero.XaeroMapReader;
+import net.prason.xaeronav.xaero.XaeroPresence;
 
 /**
  * {@code /xaeronav goto <pos>}（徒歩・掘削） / {@code /xaeronav flyto <pos>}（エリトラ、design doc §5-3の
@@ -22,6 +26,9 @@ import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
  * Xaeroの右クリックメニュー等からの目的地設定はPhase 2後半（Xaeroアダプタ層）で追加する想定の暫定UI。
  */
 public final class XaeroNavCommands {
+
+    /** 既定の確認範囲（チャンク）。既定の描画距離より十分広く、読み取りが一瞬で終わる程度。 */
+    private static final int DEFAULT_MAPDATA_RADIUS_CHUNKS = 64;
 
     @SubscribeEvent
     public void onRegisterCommands(RegisterClientCommandsEvent event) {
@@ -55,7 +62,67 @@ public final class XaeroNavCommands {
                             ctx.getSource().sendSuccess(
                                     () -> Component.translatable("commands.xaeronav.cleared"), false);
                             return 1;
-                        })));
+                        }))
+                .then(Commands.literal("mapdata")
+                        .executes(ctx -> reportMapData(ctx.getSource(), DEFAULT_MAPDATA_RADIUS_CHUNKS))
+                        .then(Commands.argument("radiusChunks", IntegerArgumentType.integer(1, 512))
+                                .executes(ctx -> reportMapData(ctx.getSource(),
+                                        IntegerArgumentType.getInteger(ctx, "radiusChunks"))))));
+    }
+
+    /**
+     * Xaeroの地図からどれだけ地形が読めているかをその場で確かめるためのもの。長距離ルートは
+     * このデータの上に組み立てるので、まず「どこまで読めているか」が見えないと何も判断できない。
+     */
+    private static int reportMapData(CommandSourceStack source, int radiusChunks) {
+        Player player = Minecraft.getInstance().player;
+        if (player == null) {
+            return 0;
+        }
+        if (!XaeroPresence.mapPresent()) {
+            source.sendFailure(Component.translatable("commands.xaeronav.mapdata_unavailable"));
+            return 0;
+        }
+
+        int centerChunkX = player.blockPosition().getX() >> 4;
+        int centerChunkZ = player.blockPosition().getZ() >> 4;
+        int side = radiusChunks * 2 + 1;
+        long startNanos = System.nanoTime();
+        CoarseMap map = XaeroMapReader.readSurface(
+                centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side);
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+
+        int known = map.knownCells();
+        int total = map.totalCells();
+        int percent = total == 0 ? 0 : known * 100 / total;
+        source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_summary",
+                side * 16, known, total, percent, elapsedMillis), false);
+
+        XaeroMapReader.RegionStats regions = XaeroMapReader.surveyRegions(
+                centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side);
+        source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_regions",
+                regions.loaded(), regions.pendingLoad(), regions.inRange()), false);
+
+        if (regions.pendingLoad() > 0) {
+            int requested = XaeroMapReader.requestLoad(
+                    centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side);
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_requested",
+                    requested), false);
+        }
+
+        byte hereKind = map.kindAtChunk(centerChunkX, centerChunkZ);
+        source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_here",
+                describeKind(hereKind), map.heightAtChunk(centerChunkX, centerChunkZ)), false);
+        return 1;
+    }
+
+    private static Component describeKind(byte kind) {
+        return Component.translatable(switch (kind) {
+            case CoarseMap.LAND -> "commands.xaeronav.mapdata_land";
+            case CoarseMap.WATER -> "commands.xaeronav.mapdata_water";
+            case CoarseMap.LAVA -> "commands.xaeronav.mapdata_lava";
+            default -> "commands.xaeronav.mapdata_none";
+        });
     }
 
     /**
