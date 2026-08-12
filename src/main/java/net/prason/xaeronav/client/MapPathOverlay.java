@@ -79,16 +79,27 @@ public final class MapPathOverlay {
         // 長距離ルートの中間目標を先に結んでおく。目的地までの点線（下）は、この続きから引くことで
         // 「粗いルートに沿った点線」と「目的地への直線」が同時に、しかも食い違う向きに出るのを避ける
         // （中間目標無しに目的地まで一直線で結ぶと、粗いルートが迂回した山や海を平然と突っ切って見える）
+        //
+        // 始点は中間目標そのものではなく詳細経路の末端（無ければプレイヤー）。中間目標だけを結ぶと、
+        // 経路から外れたとき点線が現在地から切り離されて宙に浮き、古いルートが残っているように見える
         List<BlockPos> coarseWaypoints = snapshot.coarseWaypoints();
         BlockPos lastCoarseWaypoint = coarseWaypoints.isEmpty() ? null : coarseWaypoints.get(coarseWaypoints.size() - 1);
         if (!coarseWaypoints.isEmpty()) {
-            BlockPos previous = coarseWaypoints.get(0);
-            for (int i = 1; i < coarseWaypoints.size(); i++) {
-                BlockPos next = coarseWaypoints.get(i);
-                StraightDots.forEach(previous.getX(), previous.getZ(), next.getX(), next.getZ(),
+            int previousX;
+            int previousZ;
+            if (dots != null && dots.count > 0) {
+                previousX = dots.x[dots.count - 1];
+                previousZ = dots.z[dots.count - 1];
+            } else {
+                previousX = snapshot.playerPos().getX();
+                previousZ = snapshot.playerPos().getZ();
+            }
+            for (BlockPos next : coarseWaypoints) {
+                StraightDots.forEach(previousX, previousZ, next.getX(), next.getZ(),
                         (x, z) -> sink.dot(x, z,
                                 PathColors.COARSE_ROUTE[0], PathColors.COARSE_ROUTE[1], PathColors.COARSE_ROUTE[2]));
-                previous = next;
+                previousX = next.getX();
+                previousZ = next.getZ();
             }
         }
 

@@ -178,9 +178,21 @@ public final class PathfindingState {
         return currentRouteWaypoints().size();
     }
 
-    /** 長距離ルートの中間目標列（Xaero地図への点線描画用）。無ければ空リスト。 */
+    /**
+     * Xaero地図へ点線で描くべき中間目標列＝<b>まだ通っていない分だけ</b>。無ければ空リスト。
+     *
+     * <p>通過済みを含む全体を返すと、粗いルートは目的地が変わらない限り引き直さない設計のため、
+     * 点線がいつまでも「ルートを計算した当時の位置」から伸びたままになる。プレイヤーが経路から
+     * 大きく外れるほど現在地と点線が食い違い、古いルートが残っているように見える。
+     */
     public List<BlockPos> coarseRouteWaypoints() {
-        return currentRouteWaypoints();
+        List<BlockPos> all = currentRouteWaypoints();
+        DisplayedPath shown = displayed;
+        if (all.isEmpty() || shown == null || shown.mode() != PathMode.WAYPOINT) {
+            return all;
+        }
+        int current = shown.waypointIndex();
+        return current <= 0 || current >= all.size() ? all : all.subList(current, all.size());
     }
 
     /**
