@@ -160,6 +160,30 @@ public final class PathfindingState {
         return shown != null && shown.mode() == PathMode.TO_SURFACE;
     }
 
+    /** 長距離ルート中、現在向かっている中間目標の番号（1始まり）。長距離ルート中でなければ0。 */
+    public int coarseRouteWaypointNumber() {
+        DisplayedPath shown = displayed;
+        return shown != null && shown.mode() == PathMode.WAYPOINT && shown.waypointIndex() >= 0
+                ? shown.waypointIndex() + 1
+                : 0;
+    }
+
+    /** 長距離ルートの中間目標の総数。長距離ルート中でなければ0。 */
+    public int coarseRouteWaypointCount() {
+        DisplayedPath shown = displayed;
+        if (shown == null || shown.mode() != PathMode.WAYPOINT) {
+            return 0;
+        }
+        CoarseRoute route = coarseRoute;
+        return route == null ? 0 : route.waypoints().size();
+    }
+
+    /** 長距離ルートの中間目標列（Xaero地図への点線描画用）。無ければ空リスト。 */
+    public List<BlockPos> coarseRouteWaypoints() {
+        CoarseRoute route = coarseRoute;
+        return route == null ? List.of() : route.waypoints();
+    }
+
     public void onClientTick() {
         BlockPos currentGoal = goal;
         if (currentGoal == null) {
@@ -369,15 +393,19 @@ public final class PathfindingState {
         // それ以外は、目的地が描画距離の外にあるときだけ長距離ルートの中間目標を挟む
         PathMode mode;
         BlockPos target;
+        int waypointIndex;
         if (climbing) {
             mode = PathMode.TO_SURFACE;
             // 地上優先ナビ中は、遠い本来の目的地の箱に広げても意味が無い（ゴールが1点ではなく
             // 「空の下ならどこでも」なので）。垂直方向はgroundLevelまで確実に届くよう、同じ列で
             // groundLevelにある仮想ゴールとして範囲を組み立てる
             target = new BlockPos(start.getX(), groundLevel, start.getZ());
+            waypointIndex = -1;
         } else {
-            target = selectDetailTarget(start, currentGoal, renderRadius);
+            DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius);
+            target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
+            waypointIndex = detail.waypointIndex();
         }
 
         // 探索範囲は描画距離で切る。読み込み済みチャンクの外は読めないので、そこまで広げても
@@ -400,6 +428,7 @@ public final class PathfindingState {
         computing = true;
         PathMode finalMode = mode;
         BlockPos finalTarget = target;
+        int finalWaypointIndex = waypointIndex;
         CompletableFuture<PathResult> future = climbing
                 ? executor.submitToSurface(view.withoutDigging(), view, start, groundLevel, limits)
                 : executor.submit(view, start, finalTarget, limits);
@@ -429,10 +458,10 @@ public final class PathfindingState {
                 // 1歩も進まない中継（＝探索から見ればもう地上）も同じ扱いにする。どちらも
                 // この付近では中継を諦め、本来の目的地へ直接向かう（次tickで引き直される）
                 surfaceLegFailedAt = start;
-                displayed = new DisplayedPath(new PathResult(List.of(), false, result.expandedNodes()), PathMode.TO_SURFACE);
+                displayed = new DisplayedPath(new PathResult(List.of(), false, result.expandedNodes()), PathMode.TO_SURFACE, -1);
                 return;
             }
-            displayed = new DisplayedPath(result, finalMode);
+            displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
         });
     }
 
@@ -442,9 +471,9 @@ public final class PathfindingState {
      * 中間目標が一つも届く範囲に無い、のいずれでも本来の目的地へ直接向かう従来動作にフォールバックする
      * （発動条件が一つでも欠けたら長距離ルートには入らない）。
      */
-    private BlockPos selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius) {
+    private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius) {
         if (horizontalDistance(start, currentGoal) <= renderRadius || !XaeroPresence.mapPresent()) {
-            return currentGoal;
+            return new DetailTarget(currentGoal, -1);
         }
         CoarseRoute cached = coarseRoute;
         List<BlockPos> waypoints;
@@ -461,17 +490,22 @@ public final class PathfindingState {
             coarseRoute = new CoarseRoute(currentGoal, waypoints);
         }
         if (waypoints.isEmpty()) {
-            return currentGoal;
+            return new DetailTarget(currentGoal, -1);
         }
         // 中間目標は順番に1つずつではなく、詳細探索が届く範囲で最も遠い未通過点を選ぶ。
         // waypoint間隔は詳細探索が一度に届く距離より十分短いので、1つずつ渡すと探索能力を捨てる
         BlockPos farthestReachable = null;
-        for (BlockPos waypoint : waypoints) {
+        int farthestIndex = -1;
+        for (int i = 0; i < waypoints.size(); i++) {
+            BlockPos waypoint = waypoints.get(i);
             if (horizontalDistance(start, waypoint) <= renderRadius) {
                 farthestReachable = waypoint;
+                farthestIndex = i;
             }
         }
-        return farthestReachable != null ? farthestReachable : currentGoal;
+        return farthestReachable != null
+                ? new DetailTarget(farthestReachable, farthestIndex)
+                : new DetailTarget(currentGoal, -1);
     }
 
     /**
@@ -552,13 +586,20 @@ public final class PathfindingState {
      * 実際、モードを探索の開始時に、経路を完了時に更新していたときは、地上に出た直後の1tickだけ
      * 「中継経路 + 目的地モード」になり、中継経路の終端（＝いまの足元）が目的地の代わりとして
      * 到着判定に掛かって、着いていないのに「到着！」で案内が終了していた。
+     *
+     * @param waypointIndex {@code mode}が{@link PathMode#WAYPOINT}のとき、{@link CoarseRoute#waypoints()}中の
+     *         何番目を指しているか（0始まり）。それ以外のモードでは{@code -1}
      */
-    private record DisplayedPath(PathResult result, PathMode mode) {
+    private record DisplayedPath(PathResult result, PathMode mode, int waypointIndex) {
     }
 
     /**
      * 長距離ルートの中間目標のキャッシュ。地形は不変なので、目的地が変わらない限り引き直さない。
      */
     private record CoarseRoute(BlockPos goal, List<BlockPos> waypoints) {
+    }
+
+    /** {@link #selectDetailTarget}の戻り値。詳細探索のゴールと、それが粗いルート中の何番目かの組。 */
+    private record DetailTarget(BlockPos target, int waypointIndex) {
     }
 }

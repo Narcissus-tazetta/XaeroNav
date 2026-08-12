@@ -1,5 +1,7 @@
 package net.prason.xaeronav.client;
 
+import java.util.List;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -33,10 +35,11 @@ public final class MapPathOverlay {
      * その時点で描くべきものを1つに固めたもの。経路はワーカースレッドがいつでも差し替えるので、
      * 「何かあるか」の判定と実際の描画が別々に読むと、あると判断した経路が描く頃には消えている。
      */
-    public record Snapshot(PathResult ground, ElytraPath elytra, BlockPos goal, BlockPos playerPos) {
+    public record Snapshot(PathResult ground, ElytraPath elytra, BlockPos goal, BlockPos playerPos,
+                            List<BlockPos> coarseWaypoints) {
 
         public boolean isEmpty() {
-            return ground == null && elytra == null && goal == null;
+            return ground == null && elytra == null && goal == null && coarseWaypoints.isEmpty();
         }
     }
 
@@ -47,7 +50,7 @@ public final class MapPathOverlay {
     public static Snapshot snapshot() {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
-            return new Snapshot(null, null, null, null);
+            return new Snapshot(null, null, null, null, List.of());
         }
         PathResult ground = PathfindingState.INSTANCE.currentResult();
         if (ground != null && ground.steps().isEmpty()) {
@@ -60,7 +63,8 @@ public final class MapPathOverlay {
         BlockPos goal = XaeroNavConfig.INSTANCE.straightLineEnabled()
                 ? PathfindingState.INSTANCE.goal()
                 : null;
-        return new Snapshot(ground, elytra, goal, player.blockPosition());
+        return new Snapshot(ground, elytra, goal, player.blockPosition(),
+                PathfindingState.INSTANCE.coarseRouteWaypoints());
     }
 
     public static void draw(Snapshot snapshot, DotSink sink) {
@@ -72,12 +76,33 @@ public final class MapPathOverlay {
             }
         }
 
+        // 長距離ルートの中間目標を先に結んでおく。目的地までの点線（下）は、この続きから引くことで
+        // 「粗いルートに沿った点線」と「目的地への直線」が同時に、しかも食い違う向きに出るのを避ける
+        // （中間目標無しに目的地まで一直線で結ぶと、粗いルートが迂回した山や海を平然と突っ切って見える）
+        List<BlockPos> coarseWaypoints = snapshot.coarseWaypoints();
+        BlockPos lastCoarseWaypoint = coarseWaypoints.isEmpty() ? null : coarseWaypoints.get(coarseWaypoints.size() - 1);
+        if (!coarseWaypoints.isEmpty()) {
+            BlockPos previous = coarseWaypoints.get(0);
+            for (int i = 1; i < coarseWaypoints.size(); i++) {
+                BlockPos next = coarseWaypoints.get(i);
+                StraightDots.forEach(previous.getX(), previous.getZ(), next.getX(), next.getZ(),
+                        (x, z) -> sink.dot(x, z,
+                                PathColors.COARSE_ROUTE[0], PathColors.COARSE_ROUTE[1], PathColors.COARSE_ROUTE[2]));
+                previous = next;
+            }
+        }
+
         BlockPos goal = snapshot.goal();
         if (goal != null) {
-            // 点線の始点は経路の末端。経路がまだ無いならプレイヤー自身から引く
+            // 点線の始点は、粗いルートがあればその終点、無ければ経路の末端。経路も粗いルートも
+            // まだ無いならプレイヤー自身から引く。粗いルートの終点が目的地そのものに置き換わっている
+            // ときはfrom=toで長さ0になり、StraightDots側が何も描かず自然に消える
             int fromX;
             int fromZ;
-            if (dots != null && dots.count > 0) {
+            if (lastCoarseWaypoint != null) {
+                fromX = lastCoarseWaypoint.getX();
+                fromZ = lastCoarseWaypoint.getZ();
+            } else if (dots != null && dots.count > 0) {
                 fromX = dots.x[dots.count - 1];
                 fromZ = dots.z[dots.count - 1];
             } else {

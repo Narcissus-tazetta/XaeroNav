@@ -16,6 +16,8 @@ final class PathColors {
     static final float[] ELYTRA = {0.9f, 0.95f, 1.0f};
     /** 経路が分からない区間を繋ぐ直線。実際に辿れる経路と取り違えないよう、彩度を落とした色にする。 */
     static final float[] STRAIGHT = {0.85f, 0.85f, 0.9f};
+    /** 長距離ルートの粗い中間目標列。目的地までの直線（{@link #STRAIGHT}）と見分けが付くよう別の色調にする。 */
+    static final float[] COARSE_ROUTE = {0.95f, 0.75f, 0.2f};
     static final float[] BRIDGE = {0.4f, 0.9f, 0.9f};
     static final float[] LAVA_ADJACENT = {1.0f, 0.1f, 0.1f};
     static final float[] VOID_BELOW = {0.8f, 0.1f, 0.8f};
