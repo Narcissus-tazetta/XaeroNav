@@ -18,6 +18,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.cost.DigCost;
 
@@ -130,6 +131,18 @@ public final class ChunkView implements CellSource {
     }
 
     /**
+     * 同じチャンク参照を使い、掘削だけを禁じたビュー。{@link #capture}をもう一度呼ばずに済ませるための派生。
+     *
+     * <p>セルの判定結果は掘削の可否で変わるので、キャッシュは共有せず作り直す。チャンク参照とホットバーは
+     * 読むだけなので共有してよい。派生元と派生先を別スレッドで同時に使ってはならない（{@link CellSource}の
+     * スレッド契約は据え置き）。
+     */
+    public ChunkView withoutDigging() {
+        return new ChunkView(chunks, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
+                minBuildHeight, maxBuildHeight, minSection);
+    }
+
+    /**
      * 空洞を渡る足場として置けるか。上に立てる（{@code standable}）ことに加えて、置いた先が空中でも
      * 留まることを求める — 砂・砂利は置いた瞬間に落ちるので足場にならない。
      */
@@ -162,6 +175,24 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean isInBounds(int x, int y, int z) {
         return bounds.contains(x, y, z);
+    }
+
+    /**
+     * {@code MOTION_BLOCKING}ハイトマップの1つ上。{@code canSeeSky}（スカイライト15）は
+     * ライトエンジンを引くのでワーカースレッドからは触れないが、ハイトマップはチャンクが持つ
+     * ビット列を読むだけなので、ブロック状態と同じ条件でここから読める。
+     *
+     * <p>{@code MOTION_BLOCKING}はクライアントへ配信されるハイトマップなので、
+     * 読み込み済みチャンクなら必ず埋まっている（未生成なら{@code getHeight}側が組み直してしまうが、
+     * そこへ至るのはサーバー側のチャンクだけ）。
+     */
+    @Override
+    public int openSkyY(int x, int z) {
+        LevelChunk chunk = chunkAt(x >> 4, z >> 4);
+        if (chunk == null) {
+            return Integer.MAX_VALUE;
+        }
+        return chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) + 1;
     }
 
     @Override

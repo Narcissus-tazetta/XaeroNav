@@ -32,6 +32,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue groundLevelY;
     private final ModConfigSpec.IntValue recalcIntervalTicks;
     private final ModConfigSpec.IntValue maxExpandedNodes;
+    private final ModConfigSpec.DoubleValue heuristicWeight;
     private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
     private final ModConfigSpec.BooleanValue hudEnabled;
     private final ModConfigSpec.BooleanValue straightLineEnabled;
@@ -68,9 +69,10 @@ public final class XaeroNavConfig {
                 .defineInRange("arrivalRadiusBlocks", 3.0, 1.0, 16.0);
 
         groundLevelY = builder
-                .comment("この高さ(Y座標)以上を地上とみなす",
+                .comment("この高さ(Y座標)以上で、かつ頭上が開けている場所を地上とみなす",
                         "屋根の下(空が見えない場所)から地上の目的地へ向かうとき、目的地の真下を一直線に掘るのではなく、",
-                        "まず最寄りの地上（この高さ以上のどこか）へ出る経路を探してから、改めて目的地へ向かう",
+                        "まず最寄りの地上（この高さ以上で空の下）へ出る経路を探してから、改めて目的地へ向かう",
+                        "そのとき掘らずに行ける道を先に探すので、洞窟や坑道があればそちらを通る",
                         "空が見えている場所ではこの高さより下にいても地上として扱う（川底・谷底・海岸）",
                         "空の無い次元・天井のある次元（ネザー、ジ・エンド）では働かない",
                         "既定値60は海面の少し下")
@@ -81,9 +83,17 @@ public final class XaeroNavConfig {
                 .defineInRange("recalcIntervalTicks", 40, 20, 1200);
 
         maxExpandedNodes = builder
-                .comment("1回の探索で展開するノード数の上限。大きいほど遠くまで正確な経路が出るがCPUを使う",
-                        "探索はワーカースレッドで走るのでフレームレートには直接影響しない")
+                .comment("1回の探索で展開するノード数の上限。大きいほど遠くまで正確な経路が出るがCPUとメモリを使う",
+                        "探索はワーカースレッドで走るのでフレームレートには直接影響しない",
+                        "遠くまで経路を出したいときは、この値より先にheuristicWeightを上げる方が効く")
                 .defineInRange("maxExpandedNodes", AStarPathfinder.DEFAULT_MAX_EXPANDED_NODES, 1_000, 500_000);
+
+        heuristicWeight = builder
+                .comment("経路探索の「ゴールへの近さ」を重視する度合い",
+                        "1.0は最短経路を保証するが、掘削や遊泳のように実際のコストが見積もりを大きく上回る場所では",
+                        "探索が四方に広がり、上限が数十マス先で尽きて経路が届かなくなる",
+                        "上げるほど遠くまで届くかわりに、遠回りな経路が混じりうる（海を渡る・長距離では上げると効く）")
+                .defineInRange("heuristicWeight", AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT, 1.0, 3.0);
 
         forbiddenBlocks = builder
                 .comment("掘削禁止ブロックの追加リスト（例: \"minecraft:chest\"）。デフォルト禁止リストへの追加分")
@@ -138,6 +148,10 @@ public final class XaeroNavConfig {
 
     public int maxExpandedNodes() {
         return maxExpandedNodes.get();
+    }
+
+    public double heuristicWeight() {
+        return heuristicWeight.get();
     }
 
     public List<? extends String> additionalForbiddenBlocks() {
