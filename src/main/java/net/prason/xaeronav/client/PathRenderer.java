@@ -92,7 +92,10 @@ public final class PathRenderer {
         BlockPos goal = PathfindingState.INSTANCE.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
         boolean hasElytra = elytraPath != null && elytraPath.waypoints().size() >= 2;
-        boolean hasStraight = goal != null && XaeroNavConfig.INSTANCE.straightLineEnabled();
+        // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
+        // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
+        boolean hasStraight = goal != null && XaeroNavConfig.INSTANCE.straightLineEnabled()
+                && !PathfindingState.INSTANCE.arrived();
         if (!hasGround) {
             geometry = null;
         }

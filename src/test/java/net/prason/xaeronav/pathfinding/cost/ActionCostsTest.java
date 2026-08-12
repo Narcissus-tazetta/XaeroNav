@@ -24,6 +24,11 @@ class ActionCostsTest {
     }
 
     @Test
+    void paddlingIsFasterThanSprinting() {
+        assertTrue(ActionCosts.PADDLE_ONE_BLOCK < ActionCosts.SPRINT_ONE_BLOCK);
+    }
+
+    @Test
     void ascendIsAtLeastAsExpensiveAsWalkingOrJumping() {
         assertTrue(ActionCosts.ASCEND_ONE_BLOCK >= ActionCosts.WALK_ONE_BLOCK);
         assertTrue(ActionCosts.ASCEND_ONE_BLOCK >= ActionCosts.JUMP_ONE_BLOCK);

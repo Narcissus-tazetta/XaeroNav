@@ -157,4 +157,19 @@ public final class FakeCells implements CellSource {
     public boolean canPlaceBlocks() {
         return canPlaceBlocks;
     }
+
+    /**
+     * 本番の{@link ChunkView}はハイトマップを引くが、ここには地形しか無いので列を上から舐めて求める。
+     * 頭上を塞ぐのは空気でも水でもないセル（＝{@code MOTION_BLOCKING}に相当）。
+     */
+    @Override
+    public int openSkyY(int x, int z) {
+        for (int y = bounds.maxY(); y >= bounds.minY(); y--) {
+            long flags = cell(x, y, z);
+            if (CellData.present(flags) && !CellData.passableEmpty(flags)) {
+                return y + 1;
+            }
+        }
+        return bounds.minY();
+    }
 }
