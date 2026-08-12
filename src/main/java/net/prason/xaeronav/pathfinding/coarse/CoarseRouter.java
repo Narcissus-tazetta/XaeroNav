@@ -54,6 +54,22 @@ public final class CoarseRouter {
      */
     private static final int WAYPOINT_SPACING_CELLS = 6;
 
+    /**
+     * ゴールに届かなかったときの到達点候補を、{@code h + g / 係数}という複数の指標で同時に追う。
+     * {@link net.prason.xaeronav.pathfinding.astar.AStarPathfinder}と同じ考え方・同じ係数列。
+     * ヒューリスティック単独（＝ゴールに一番近いセル）で選ぶと、海に突き出した半島の先端のような
+     * 「辿り着くのに莫大なコストを払った行き止まり」を掴んでしまう。係数が小さいほど
+     * 実際に進んだ距離を重く見る。
+     */
+    private static final double[] COEFFICIENTS = {1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0};
+
+    /**
+     * これ未満しか進めない暫定ルートは提示する価値がない（セル＝チャンク）。
+     * {@link net.prason.xaeronav.pathfinding.astar.AStarPathfinder#MIN_DIST_PATH}と同じ役割だが、
+     * 単位がブロックではなくチャンクなのでこちらは1セルにしておく。
+     */
+    private static final double MIN_DIST_CELLS = 1.0;
+
     private CoarseRouter() {
     }
 
@@ -92,8 +108,10 @@ public final class CoarseRouter {
                 new PriorityQueue<>(Comparator.comparingDouble(Candidate::estimatedTotal));
         open.add(new Candidate(startIndex, heuristic(map, startX, startZ, goalX, goalZ)));
 
-        int best = startIndex;
-        double bestHeuristic = Double.POSITIVE_INFINITY;
+        int[] bestSoFar = new int[COEFFICIENTS.length];
+        double[] bestHeuristic = new double[COEFFICIENTS.length];
+        Arrays.fill(bestSoFar, startIndex);
+        Arrays.fill(bestHeuristic, heuristic(map, startX, startZ, goalX, goalZ));
 
         while (!open.isEmpty()) {
             Candidate current = open.poll();
@@ -108,28 +126,24 @@ public final class CoarseRouter {
 
             int x = cellX(map, current.index());
             int z = cellZ(map, current.index());
-            double remaining = heuristic(map, x, z, goalX, goalZ);
-            if (remaining < bestHeuristic) {
-                bestHeuristic = remaining;
-                best = current.index();
-            }
 
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dz = -1; dz <= 1; dz++) {
                     if (dx == 0 && dz == 0) {
                         continue;
                     }
-                    relax(map, cost, previous, closed, open, x, z, dx, dz, goalX, goalZ);
+                    relax(map, cost, previous, closed, open, x, z, dx, dz, goalX, goalZ,
+                            bestSoFar, bestHeuristic);
                 }
             }
         }
 
-        return buildRoute(map, previous, best, startIndex, false);
+        return buildRoute(map, previous, selectFallback(map, bestSoFar, startIndex), startIndex, false);
     }
 
     private static void relax(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
                               PriorityQueue<Candidate> open, int x, int z, int dx, int dz,
-                              int goalX, int goalZ) {
+                              int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic) {
         int nextX = x + dx;
         int nextZ = z + dz;
         if (!map.containsChunk(nextX, nextZ)) {
@@ -149,7 +163,35 @@ public final class CoarseRouter {
         }
         cost[nextIndex] = tentative;
         previous[nextIndex] = index(map, x, z);
-        open.add(new Candidate(nextIndex, tentative + heuristic(map, nextX, nextZ, goalX, goalZ)));
+        double remaining = heuristic(map, nextX, nextZ, goalX, goalZ);
+        open.add(new Candidate(nextIndex, tentative + remaining));
+
+        for (int i = 0; i < COEFFICIENTS.length; i++) {
+            double candidateHeuristic = remaining + tentative / COEFFICIENTS[i];
+            if (candidateHeuristic < bestHeuristic[i]) {
+                bestHeuristic[i] = candidateHeuristic;
+                bestSoFar[i] = nextIndex;
+            }
+        }
+    }
+
+    /**
+     * ゴールに届かなかったときの到達点を選ぶ。係数の小さい（＝実際に進んだ距離を重く見る）ものから順に、
+     * 始点から{@link #MIN_DIST_CELLS}以上離れている候補を採用する。どれも届かない場合は始点自身を返し、
+     * 空のルート＝「提示できるルートなし」として扱う。
+     */
+    private static int selectFallback(CoarseMap map, int[] bestSoFar, int startIndex) {
+        int startX = cellX(map, startIndex);
+        int startZ = cellZ(map, startIndex);
+        double thresholdSquared = MIN_DIST_CELLS * MIN_DIST_CELLS;
+        for (int candidate : bestSoFar) {
+            double dx = cellX(map, candidate) - startX;
+            double dz = cellZ(map, candidate) - startZ;
+            if (dx * dx + dz * dz > thresholdSquared) {
+                return candidate;
+            }
+        }
+        return startIndex;
     }
 
     private static double stepCost(CoarseMap map, int fromX, int fromZ, int toX, int toZ, boolean diagonal) {
