@@ -226,6 +226,8 @@ public final class XaeroMapReader {
         int waterSamples = 0;
         int lavaSamples = 0;
         int heightSum = 0;
+        int minHeight = Integer.MAX_VALUE;
+        int maxHeight = Integer.MIN_VALUE;
         int samples = 0;
 
         for (int x = 0; x < 16; x += SAMPLE_STEP) {
@@ -243,7 +245,10 @@ public final class XaeroMapReader {
                 }
                 // 水面の高さを使うのは、粗いルートが見るのが「そこを通れるか」だから。
                 // 水底の高さで段差を測ると、深い海が巨大な崖として現れて経路が歪む
-                heightSum += water ? block.getTopHeight() : block.getHeight();
+                int sampleHeight = water ? block.getTopHeight() : block.getHeight();
+                heightSum += sampleHeight;
+                minHeight = Math.min(minHeight, sampleHeight);
+                maxHeight = Math.max(maxHeight, sampleHeight);
             }
         }
 
@@ -258,7 +263,7 @@ public final class XaeroMapReader {
         } else {
             kind = CoarseMap.LAND;
         }
-        builder.put(tile.getChunkX(), tile.getChunkZ(), kind, heightSum / samples);
+        builder.put(tile.getChunkX(), tile.getChunkZ(), kind, heightSum / samples, minHeight, maxHeight);
     }
 
     /**

@@ -27,16 +27,20 @@ public final class CoarseMap {
     private final int chunksZ;
     private final byte[] kind;
     private final short[] height;
+    private final short[] minHeight;
+    private final short[] maxHeight;
     private final int knownCells;
 
     CoarseMap(int minChunkX, int minChunkZ, int chunksX, int chunksZ,
-              byte[] kind, short[] height, int knownCells) {
+              byte[] kind, short[] height, short[] minHeight, short[] maxHeight, int knownCells) {
         this.minChunkX = minChunkX;
         this.minChunkZ = minChunkZ;
         this.chunksX = chunksX;
         this.chunksZ = chunksZ;
         this.kind = kind;
         this.height = height;
+        this.minHeight = minHeight;
+        this.maxHeight = maxHeight;
         this.knownCells = knownCells;
     }
 
@@ -84,6 +88,24 @@ public final class CoarseMap {
             return UNKNOWN_HEIGHT;
         }
         return height[index(chunkX, chunkZ)];
+    }
+
+    /**
+     * セル内で観測できた最小・最大の高さ。平均だけでは崖のあるチャンクと緩斜面のチャンクを
+     * 区別できないので、この差（{@code maxHeightAtChunk - minHeightAtChunk}）を崖の目安に使う。
+     */
+    public short minHeightAtChunk(int chunkX, int chunkZ) {
+        if (!containsChunk(chunkX, chunkZ)) {
+            return UNKNOWN_HEIGHT;
+        }
+        return minHeight[index(chunkX, chunkZ)];
+    }
+
+    public short maxHeightAtChunk(int chunkX, int chunkZ) {
+        if (!containsChunk(chunkX, chunkZ)) {
+            return UNKNOWN_HEIGHT;
+        }
+        return maxHeight[index(chunkX, chunkZ)];
     }
 
     public byte kindAtBlock(int blockX, int blockZ) {

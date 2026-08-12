@@ -49,6 +49,21 @@ public final class CoarseRouter {
     private static final double HEIGHT_COST_PER_BLOCK = ActionCosts.JUMP_ONE_BLOCK;
 
     /**
+     * セル内の起伏（{@code maxHeight - minHeight}）がこれを超えたら崖とみなす。
+     * バニラの{@code SAFE_FALL_DISTANCE}既定値（{@link ActionCosts#SAFE_FALL_BLOCKS}）をそのまま使う。
+     * これより緩やかな起伏は、平均高さの差分で表現される通常の坂として扱えば十分。
+     */
+    private static final int CLIFF_THRESHOLD_BLOCKS = ActionCosts.SAFE_FALL_BLOCKS;
+
+    /**
+     * 崖セルへ踏み込む追加コスト。平均高さは周囲と同じでも、セル内部の起伏が大きいチャンクは
+     * 「崖の途中に平地が乗っている」可能性が高く、詳細探索が大きく迂回・掘削する羽目になりやすい。
+     * 平均だけを見る{@link #HEIGHT_COST_PER_BLOCK}では、山腹の急斜面チャンクと緩斜面チャンクが
+     * 同じ扱いになってしまうのを補う。
+     */
+    private static final double CLIFF_COST_PER_BLOCK = ActionCosts.JUMP_ONE_BLOCK;
+
+    /**
      * 中間目標を置く間隔（セル＝チャンク）。詳細探索が一度に解ける距離より短くしないと、
      * 次の目標が読み込み済みチャンクの外に出てしまう。
      */
@@ -214,7 +229,21 @@ public final class CoarseRouter {
         if (fromHeight != CoarseMap.UNKNOWN_HEIGHT && toHeight != CoarseMap.UNKNOWN_HEIGHT) {
             heightPenalty = Math.abs(toHeight - fromHeight) * HEIGHT_COST_PER_BLOCK;
         }
-        return base * multiplier + heightPenalty;
+        return base * multiplier + heightPenalty + cliffPenalty(map, toX, toZ);
+    }
+
+    /** 踏み込み先セルの起伏が大きいときの追加コスト。起伏が分からなければ平坦扱い（0）。 */
+    private static double cliffPenalty(CoarseMap map, int chunkX, int chunkZ) {
+        short min = map.minHeightAtChunk(chunkX, chunkZ);
+        short max = map.maxHeightAtChunk(chunkX, chunkZ);
+        if (min == CoarseMap.UNKNOWN_HEIGHT || max == CoarseMap.UNKNOWN_HEIGHT) {
+            return 0.0;
+        }
+        int relief = max - min;
+        if (relief <= CLIFF_THRESHOLD_BLOCKS) {
+            return 0.0;
+        }
+        return (relief - CLIFF_THRESHOLD_BLOCKS) * CLIFF_COST_PER_BLOCK;
     }
 
     /**

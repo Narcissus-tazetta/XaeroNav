@@ -150,6 +150,23 @@ class CoarseRouterTest {
         }
     }
 
+    @Test
+    void avoidsCliffyCellsEvenWhenAverageHeightMatchesSurroundings() {
+        CoarseMapBuilder builder = flatLand();
+        // 平均高さは周囲と同じ64だが、セル内の起伏（0〜128）が大きい＝崖のチャンク。
+        // 平均だけを見る旧ロジックでは検出できず、1マス北の平坦な迂回路と無差別だった
+        for (int x = 1; x <= 19; x++) {
+            builder.put(x, 0, CoarseMap.LAND, 64, 0, 128);
+        }
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0));
+
+        assertTrue(route.reachedGoal());
+        assertTrue(route.waypoints().stream().anyMatch(waypoint -> waypoint.getZ() != 8),
+                "起伏の大きいセルを避けず素通りした: " + route.waypoints());
+    }
+
     private static BlockPos last(CoarseRouter.Route route) {
         List<BlockPos> waypoints = route.waypoints();
         return waypoints.get(waypoints.size() - 1);
