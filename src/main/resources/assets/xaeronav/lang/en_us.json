@@ -53,5 +53,7 @@
 
   "commands.xaeronav.corridor_no_data": "  leg %1$d/%2$d: no map data for this segment (checked in %3$d ms, %4$d region(s) not yet loaded)",
   "commands.xaeronav.corridor_leg_reached": "  leg %1$d/%2$d: reached (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)",
-  "commands.xaeronav.corridor_leg_partial": "  leg %1$d/%2$d: did not reach (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)"
+  "commands.xaeronav.corridor_leg_partial": "  leg %1$d/%2$d: did not reach (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)",
+
+  "commands.xaeronav.version": "XaeroNav build: %s"
 }

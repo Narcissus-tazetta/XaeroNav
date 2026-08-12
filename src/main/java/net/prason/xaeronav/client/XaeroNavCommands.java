@@ -18,7 +18,9 @@ import net.minecraft.world.item.ElytraItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
+import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
@@ -85,7 +87,20 @@ public final class XaeroNavCommands {
                 .then(Commands.literal("corridor")
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> reportCorridor(ctx.getSource(),
-                                        BlockPosArgument.getBlockPos(ctx, "pos"))))));
+                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
+                .then(Commands.literal("version")
+                        .executes(ctx -> {
+                            ctx.getSource().sendSuccess(
+                                    () -> Component.translatable("commands.xaeronav.version", modVersion()), false);
+                            return 1;
+                        })));
+    }
+
+    /** 実機デバッグ用: 今読み込まれているビルドがどのgitコミットかを確認する（ビルド時にmod_versionへ埋め込み済み）。 */
+    private static String modVersion() {
+        return ModList.get().getModContainerById(XaeroNav.MOD_ID)
+                .map(container -> container.getModInfo().getVersion().toString())
+                .orElse("unknown");
     }
 
     /** {@link #reportRoute}が読む範囲を、始点と終点の周りにどれだけ広げるか（チャンク）。 */
