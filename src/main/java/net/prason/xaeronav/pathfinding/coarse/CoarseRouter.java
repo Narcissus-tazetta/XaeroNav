@@ -35,6 +35,14 @@ public final class CoarseRouter {
             ActionCosts.WALK_ONE_IN_WATER / ActionCosts.WALK_ONE_BLOCK;
 
     /**
+     * ボートで進むときの水面通過倍率。{@link ActionCosts#PADDLE_ONE_BLOCK}が
+     * {@link ActionCosts#WALK_ONE_BLOCK}より小さいため、{@link #WATER_MULTIPLIER}と違い
+     * 1未満になる＝水を避けるコストではなく積極的に選ぶ近道になる。
+     */
+    private static final double BOAT_MULTIPLIER =
+            ActionCosts.PADDLE_ONE_BLOCK / ActionCosts.WALK_ONE_BLOCK;
+
+    /**
      * 地図に無いセルを通る倍率。通れないと決めつけると、未訪問の土地を挟む目的地へは
      * 一切ルートが出ない。逆に陸と同じ扱いにすると、既知の迂回路を捨てて未知の直線へ突っ込む。
      * 「分かっている道が多少遠回りでも、そちらを選ぶ」程度に重くしておく。
@@ -99,7 +107,7 @@ public final class CoarseRouter {
         }
     }
 
-    public static Route findRoute(CoarseMap map, BlockPos start, BlockPos goal) {
+    public static Route findRoute(CoarseMap map, BlockPos start, BlockPos goal, boolean boatAvailable) {
         int startX = start.getX() >> 4;
         int startZ = start.getZ() >> 4;
         int goalX = goal.getX() >> 4;
@@ -107,6 +115,7 @@ public final class CoarseRouter {
         if (!map.containsChunk(startX, startZ) || !map.containsChunk(goalX, goalZ)) {
             return new Route(List.of(), false);
         }
+        double waterMultiplier = boatAvailable ? BOAT_MULTIPLIER : WATER_MULTIPLIER;
 
         int cells = map.chunksX() * map.chunksZ();
         double[] cost = new double[cells];
@@ -148,7 +157,7 @@ public final class CoarseRouter {
                         continue;
                     }
                     relax(map, cost, previous, closed, open, x, z, dx, dz, goalX, goalZ,
-                            bestSoFar, bestHeuristic);
+                            bestSoFar, bestHeuristic, waterMultiplier);
                 }
             }
         }
@@ -158,7 +167,8 @@ public final class CoarseRouter {
 
     private static void relax(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
                               PriorityQueue<Candidate> open, int x, int z, int dx, int dz,
-                              int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic) {
+                              int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
+                              double waterMultiplier) {
         int nextX = x + dx;
         int nextZ = z + dz;
         if (!map.containsChunk(nextX, nextZ)) {
@@ -168,7 +178,7 @@ public final class CoarseRouter {
         if (closed[nextIndex]) {
             return;
         }
-        double step = stepCost(map, x, z, nextX, nextZ, dx != 0 && dz != 0);
+        double step = stepCost(map, x, z, nextX, nextZ, dx != 0 && dz != 0, waterMultiplier);
         if (Double.isInfinite(step)) {
             return;
         }
@@ -209,14 +219,15 @@ public final class CoarseRouter {
         return startIndex;
     }
 
-    private static double stepCost(CoarseMap map, int fromX, int fromZ, int toX, int toZ, boolean diagonal) {
+    private static double stepCost(CoarseMap map, int fromX, int fromZ, int toX, int toZ, boolean diagonal,
+                                   double waterMultiplier) {
         byte kind = map.kindAtChunk(toX, toZ);
         if (kind == CoarseMap.LAVA) {
             return ActionCosts.INFEASIBLE;
         }
         double base = diagonal ? DIAGONAL_COST : STRAIGHT_COST;
         double multiplier = switch (kind) {
-            case CoarseMap.WATER -> WATER_MULTIPLIER;
+            case CoarseMap.WATER -> waterMultiplier;
             case CoarseMap.NO_DATA -> UNKNOWN_MULTIPLIER;
             default -> 1.0;
         };

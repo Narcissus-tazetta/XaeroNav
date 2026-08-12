@@ -14,6 +14,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.ElytraItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -124,8 +125,9 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
+        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
         long startNanos = System.nanoTime();
-        CoarseRouter.Route route = computeRouteOrFail(source, start, goal);
+        CoarseRouter.Route route = computeRouteOrFail(source, start, goal, boatAvailable);
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
         if (route == null) {
             return 0;
@@ -158,7 +160,8 @@ public final class XaeroNavCommands {
      * {@link #reportRoute}と{@link #reportCorridor}が共有する層1の計算。範囲が
      * {@link #ROUTE_MAX_SPAN_CHUNKS}を超える場合は失敗を送って{@code null}を返す。
      */
-    private static CoarseRouter.Route computeRouteOrFail(CommandSourceStack source, BlockPos start, BlockPos goal) {
+    private static CoarseRouter.Route computeRouteOrFail(CommandSourceStack source, BlockPos start, BlockPos goal,
+                                                          boolean boatAvailable) {
         int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - ROUTE_PADDING_CHUNKS;
         int maxChunkX = (Math.max(start.getX(), goal.getX()) >> 4) + ROUTE_PADDING_CHUNKS;
         int minChunkZ = (Math.min(start.getZ(), goal.getZ()) >> 4) - ROUTE_PADDING_CHUNKS;
@@ -170,7 +173,7 @@ public final class XaeroNavCommands {
             return null;
         }
         CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ);
-        return CoarseRouter.findRoute(map, start, goal);
+        return CoarseRouter.findRoute(map, start, goal, boatAvailable);
     }
 
     /** {@link #reportCorridor}が廊下に足す水平マージン（ブロック）。長距離ルート層2の設計値そのもの。 */
@@ -213,8 +216,9 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
+        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
         long startNanos = System.nanoTime();
-        CoarseRouter.Route route = computeRouteOrFail(source, start, goal);
+        CoarseRouter.Route route = computeRouteOrFail(source, start, goal, boatAvailable);
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
         if (route == null) {
             return 0;

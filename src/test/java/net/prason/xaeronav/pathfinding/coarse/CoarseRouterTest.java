@@ -33,7 +33,7 @@ class CoarseRouterTest {
     void routesStraightAcrossOpenLand() {
         CoarseMap map = flatLand().build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0));
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
@@ -56,13 +56,33 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0));
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
         // 迂回するなら、湾を跨ぐ区間では必ず北へ出ている
         assertTrue(route.waypoints().stream().anyMatch(waypoint -> waypoint.getZ() < -6 * 16),
                 "湾を迂回せず突っ切った: " + route.waypoints());
+    }
+
+    @Test
+    void crossesWaterDirectlyWhenBoatIsAvailable() {
+        CoarseMapBuilder builder = flatLand();
+        // 迂回できる湾（detoursAroundWaterInsteadOfSwimmingと同じ地形）。ボート無しでは迂回するが、
+        // ボートは徒歩より速いので、ボートがあれば迂回せず突っ切る方が安くなるはず
+        for (int x = 4; x <= 16; x++) {
+            for (int z = -6; z <= RADIUS - 1; z++) {
+                builder.put(x, z, CoarseMap.WATER, 62);
+            }
+        }
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), true);
+
+        assertTrue(route.reachedGoal());
+        assertFalse(route.isEmpty());
+        assertTrue(route.waypoints().stream().noneMatch(waypoint -> waypoint.getZ() < -6 * 16),
+                "ボートがあるのに迂回した: " + route.waypoints());
     }
 
     @Test
@@ -76,7 +96,7 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0));
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
 
         assertTrue(route.reachedGoal());
         assertEquals(20 * 16 + 8, last(route).getX());
@@ -92,7 +112,7 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0));
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
 
         // 溶岩で完全に分断されているので、目的地へは到達できない
         assertFalse(route.reachedGoal());
@@ -115,7 +135,7 @@ class CoarseRouterTest {
         builder.put(20, 0, CoarseMap.LAND, 64);
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0));
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
 
         assertTrue(route.reachedGoal());
         // 未知を突っ切る直線より、分かっている陸の帯へ寄る
@@ -127,7 +147,7 @@ class CoarseRouterTest {
     void reportsFailureWhenGoalIsOutsideTheMap() {
         CoarseMap map = flatLand().build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(RADIUS + 10, 0));
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(RADIUS + 10, 0), false);
 
         assertFalse(route.reachedGoal());
         assertTrue(route.isEmpty());
@@ -142,7 +162,7 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0));
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
 
         assertTrue(route.reachedGoal());
         for (BlockPos waypoint : route.waypoints()) {
@@ -160,7 +180,7 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0));
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
 
         assertTrue(route.reachedGoal());
         assertTrue(route.waypoints().stream().anyMatch(waypoint -> waypoint.getZ() != 8),

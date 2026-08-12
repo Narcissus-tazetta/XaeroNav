@@ -15,6 +15,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
@@ -407,6 +408,7 @@ public final class PathfindingState {
 
         BlockPos start = player.blockPosition();
         lastStart = start;
+        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
 
         int groundLevel = XaeroNavConfig.INSTANCE.groundLevelY();
         boolean climbing = shouldClimbToSurface(level, start, currentGoal, groundLevel);
@@ -425,7 +427,7 @@ public final class PathfindingState {
             target = new BlockPos(start.getX(), groundLevel, start.getZ());
             waypointIndex = -1;
         } else {
-            DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius);
+            DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius, boatAvailable);
             target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
             waypointIndex = detail.waypointIndex();
@@ -494,29 +496,32 @@ public final class PathfindingState {
      * 引き直してもなお中間目標が一つも届く範囲に無い、のいずれでも本来の目的地へ直接向かう
      * 従来動作にフォールバックする（発動条件が一つでも欠けたら長距離ルートには入らない）。
      */
-    private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius) {
+    private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
+                                             boolean boatAvailable) {
         if (horizontalDistance(start, currentGoal) <= renderRadius || !XaeroPresence.mapPresent()) {
             return new DetailTarget(currentGoal, -1);
         }
         DetailTarget target = reachableWaypointTarget(start, currentGoal,
-                cachedOrFreshRoute(start, currentGoal), renderRadius);
+                cachedOrFreshRoute(start, currentGoal, boatAvailable), renderRadius);
         if (target != null) {
             return target;
         }
         // キャッシュ済みのwaypointが1つも描画距離内に届かない＝大きく迂回して経路から外れた。
         // 目的地は変わっていないのでキャッシュは効くはずだが、地形は不変でも自分の位置は変わるので、
         // 今の位置を始点に引き直す（地形が変わらない限り引き直さない、という原則の唯一の例外）
-        target = reachableWaypointTarget(start, currentGoal, freshRoute(start, currentGoal), renderRadius);
+        target = reachableWaypointTarget(start, currentGoal, freshRoute(start, currentGoal, boatAvailable),
+                renderRadius);
         return target != null ? target : new DetailTarget(currentGoal, -1);
     }
 
-    private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal) {
+    private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable) {
         CoarseRoute cached = coarseRoute;
-        return cached != null && cached.goal().equals(currentGoal) ? cached.waypoints() : freshRoute(start, currentGoal);
+        return cached != null && cached.goal().equals(currentGoal)
+                ? cached.waypoints() : freshRoute(start, currentGoal, boatAvailable);
     }
 
-    private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal) {
-        CoarseRouter.Route route = computeCoarseRoute(start, currentGoal);
+    private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable) {
+        CoarseRouter.Route route = computeCoarseRoute(start, currentGoal, boatAvailable);
         List<BlockPos> waypoints = route.waypoints();
         if (!waypoints.isEmpty() && route.reachedGoal()) {
             // 粗い終点はチャンク中心±8ブロックで高さも代表値なので、そのままでは到着できない。
@@ -576,7 +581,7 @@ public final class PathfindingState {
      * 始点と終点を含むバウンディングボックス+{@link #COARSE_ROUTE_PADDING_CHUNKS}の範囲でXaeroの
      * 地図データを読み、{@link CoarseRouter}で中間目標列を引く。
      */
-    private static CoarseRouter.Route computeCoarseRoute(BlockPos start, BlockPos goal) {
+    private static CoarseRouter.Route computeCoarseRoute(BlockPos start, BlockPos goal, boolean boatAvailable) {
         int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - COARSE_ROUTE_PADDING_CHUNKS;
         int maxChunkX = (Math.max(start.getX(), goal.getX()) >> 4) + COARSE_ROUTE_PADDING_CHUNKS;
         int minChunkZ = (Math.min(start.getZ(), goal.getZ()) >> 4) - COARSE_ROUTE_PADDING_CHUNKS;
@@ -587,7 +592,7 @@ public final class PathfindingState {
             return new CoarseRouter.Route(List.of(), false);
         }
         CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ);
-        return CoarseRouter.findRoute(map, start, goal);
+        return CoarseRouter.findRoute(map, start, goal, boatAvailable);
     }
 
     private static List<BlockPos> replaceLast(List<BlockPos> waypoints, BlockPos replacement) {
