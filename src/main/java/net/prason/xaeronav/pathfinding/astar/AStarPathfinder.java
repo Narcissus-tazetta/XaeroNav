@@ -29,10 +29,20 @@ public final class AStarPathfinder {
      * 常に同じ経路が返る。時間で打ち切ると、その瞬間のマシン負荷で到達点が変わり、
      * 再計算のたびに表示される経路が変わってしまう。
      */
-    public static final int DEFAULT_MAX_EXPANDED_NODES = 30_000;
+    public static final int DEFAULT_MAX_EXPANDED_NODES = 100_000;
 
     /** 想定外に重い地形でワーカースレッドが張り付き続けないための安全弁。通常は展開数上限が先に効く。 */
     public static final long DEFAULT_TIME_LIMIT_MILLIS = 2_000;
+
+    /**
+     * ヒューリスティックに掛ける重み（weighted A*）。1.0なら最短経路を保証する通常のA*。
+     *
+     * <p>1.0のままだと、実コストがヒューリスティックを大きく上回る地形——掘削(石1セルあたり数十tick)や
+     * 遊泳(9.09 tick/マスに対し下限は3.56)——でA*がほぼDijkstraに退化し、展開数の上限が数十マス先で
+     * 尽きる。重みを掛けると最短性の保証は失うが、同じ展開数で辿り着ける距離が大きく伸びる。
+     * 展開数で打ち切る設計なので、重みを掛けても「同じ地形なら同じ経路」は保たれる。
+     */
+    public static final double DEFAULT_HEURISTIC_WEIGHT = 1.5;
 
     /** 落下ブロックが延々と積まれている異常な塔でも1エッジの評価が固まらないようにする安全弁。 */
     private static final int MAX_FALLING_CHAIN_SCAN = 16;
@@ -76,6 +86,7 @@ public final class AStarPathfinder {
     private final CellSource view;
     private final int maxExpandedNodes;
     private final long timeLimitMillis;
+    private final double heuristicWeight;
 
     /**
      * ノード表の初期サイズの上限。展開数上限を大きく設定されたときに、実際にはそこまで使わない表を
@@ -98,16 +109,18 @@ public final class AStarPathfinder {
     private int surfaceY;
 
     public AStarPathfinder(CellSource view) {
-        this(view, DEFAULT_MAX_EXPANDED_NODES, DEFAULT_TIME_LIMIT_MILLIS);
+        this(view, SearchLimits.DEFAULT);
     }
 
-    public AStarPathfinder(CellSource view, int maxExpandedNodes, long timeLimitMillis) {
+    public AStarPathfinder(CellSource view, SearchLimits limits) {
         this.view = view;
-        this.maxExpandedNodes = maxExpandedNodes;
-        this.timeLimitMillis = timeLimitMillis;
+        this.maxExpandedNodes = limits.maxExpandedNodes();
+        this.timeLimitMillis = limits.timeLimitMillis();
+        this.heuristicWeight = limits.heuristicWeight();
         // 展開したノードの周囲も含めるとノード数は展開数を超える。小さく作ると探索の途中で
         // 表の作り直しが何度も走り、そのたびに全エントリの再配置が起きる
-        this.nodes = new Long2ObjectOpenHashMap<>(Math.min(maxExpandedNodes, MAX_PRESIZED_NODES), 0.75f);
+        this.nodes = new Long2ObjectOpenHashMap<>(
+                Math.min(limits.maxExpandedNodes(), MAX_PRESIZED_NODES), 0.75f);
     }
 
     /**
@@ -141,7 +154,7 @@ public final class AStarPathfinder {
     private PathResult runSearch(BlockPos start, BooleanSupplier cancelled) {
         PathNode startNode = node(start.getX(), start.getY(), start.getZ());
         startNode.cost = 0.0;
-        startNode.combinedCost = startNode.estimatedCostToGoal;
+        startNode.combinedCost = heuristicWeight * startNode.estimatedCostToGoal;
         open.insert(startNode);
         Arrays.fill(bestSoFar, startNode);
         Arrays.fill(bestHeuristic, startNode.estimatedCostToGoal);
@@ -167,7 +180,10 @@ public final class AStarPathfinder {
     }
 
     private boolean reachedGoal(PathNode node) {
-        return surfaceGoal ? node.y >= surfaceY
+        // 高さだけでは天井の下も地上に数えてしまう。深い洞窟の坑道は水平に長く、
+        // 既定の地上高より上を通ることが珍しくない。そこで中継を終えると、洞窟の中から
+        // 目的地へ直行する経路＝避けたかった一直線の掘り進みに戻る
+        return surfaceGoal ? node.y >= surfaceY && node.y >= view.openSkyY(node.x, node.z)
                 : node.x == goalX && node.y == goalY && node.z == goalZ;
     }
 
@@ -612,7 +628,7 @@ public final class AStarPathfinder {
 
         neighbor.previous = from;
         neighbor.cost = tentativeCost;
-        neighbor.combinedCost = tentativeCost + neighbor.estimatedCostToGoal;
+        neighbor.combinedCost = tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal;
         neighbor.kind = kind;
         if (neighbor.isOpen()) {
             open.update(neighbor);

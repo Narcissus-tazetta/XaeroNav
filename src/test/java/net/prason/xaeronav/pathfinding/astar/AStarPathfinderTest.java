@@ -190,6 +190,26 @@ class AStarPathfinderTest {
     }
 
     @Test
+    void surfaceSearchWalksOutFromUnderARoofInsteadOfStoppingAtHeight() {
+        // y=65〜66 の坑道。西側(x=0,1)は岩の天井の下、東側(x=2,3)は空が開けている
+        CellSource cells = FakeCells.of(0, 64, 0, """
+                ....
+                ##..
+                ....
+                ....
+                ####""");
+
+        PathResult result = new AStarPathfinder(cells)
+                .searchToSurface(new BlockPos(0, 65, 0), 64, NOT_CANCELLED);
+
+        assertTrue(result.complete(), "開口部まで歩けば地上に出られる");
+        assertTrue(last(result).pos().getX() >= 2,
+                "天井の下は高さが足りていても地上ではない。空が開けた列まで進む: " + last(result).pos());
+        assertTrue(result.steps().stream().noneMatch(PathStep::digging),
+                "既存の坑道を歩いて出られるなら掘らない: " + movements(result));
+    }
+
+    @Test
     void samePathIsReturnedForTheSameTerrain() {
         // 展開ノード数で打ち切るのは、同じ入力なら同じ経路を返させるため。
         // 時間で打ち切ると、そのときのマシン負荷で線が変わって案内が落ち着かない

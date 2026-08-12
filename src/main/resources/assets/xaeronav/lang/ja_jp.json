@@ -15,6 +15,8 @@
   "hud.xaeronav.arrived": "到着！",
   "hud.xaeronav.climbing_to_surface": "まず地上へ向かっています",
   "hud.xaeronav.surface_ahead": "まもなく地上",
+  "hud.xaeronav.coarse_route_progress": "長距離ルート %1$d/%2$d",
+  "hud.xaeronav.waypoint_ahead": "まもなく中間目標",
   "hud.xaeronav.drowning": "長い潜水区間あり（酸素に注意）",
   "hud.xaeronav.straight": "このまま直進",
   "hud.xaeronav.turn_left": "%dブロック先を左へ",
@@ -30,5 +32,28 @@
   "key.xaeronav.toggle_hud": "案内表示の切り替え",
   "hud.xaeronav.hud_on": "XaeroNav: 案内表示 オン",
   "hud.xaeronav.hud_off": "XaeroNav: 案内表示 オフ",
-  "hud.xaeronav.no_block_in_view": "XaeroNav: 視線の先にブロックがありません"
+  "hud.xaeronav.no_block_in_view": "XaeroNav: 視線の先にブロックがありません",
+
+  "commands.xaeronav.mapdata_unavailable": "XaeroNav: Xaero's World Mapが導入されていません",
+  "commands.xaeronav.mapdata_summary": "XaeroNav 地図データ: %1$d ブロック四方 — %2$d/%3$d チャンクが既知 (%4$d%%)、読み取り %5$d ms",
+  "commands.xaeronav.mapdata_regions": "  リージョン: %1$d 読み込み済み / %2$d 読み込み待ち / %3$d 範囲内",
+  "commands.xaeronav.mapdata_requested": "  %d 個のリージョンに読み込みを要求しました — 少し待ってもう一度実行してください",
+  "commands.xaeronav.mapdata_here": "  現在地: %1$s、高さ %2$d",
+  "commands.xaeronav.mapdata_land": "陸",
+  "commands.xaeronav.mapdata_water": "水",
+  "commands.xaeronav.mapdata_lava": "溶岩",
+  "commands.xaeronav.mapdata_none": "データ無し",
+
+  "commands.xaeronav.route_too_far": "XaeroNav: 目的地が遠すぎます（診断コマンドの範囲上限を超えています）",
+  "commands.xaeronav.route_none": "XaeroNav: ルートが見つかりません（計算 %d ms）",
+  "commands.xaeronav.route_same_chunk": "XaeroNav: 現在地と同じチャンクです（中間目標なし）",
+  "commands.xaeronav.route_summary_reached": "XaeroNav 長距離ルート: 中間目標 %1$d 個、目的地まで到達、計算 %2$d ms",
+  "commands.xaeronav.route_summary_partial": "XaeroNav 長距離ルート: 中間目標 %1$d 個、目的地まで届かず（最も近づけた地点まで）、計算 %2$d ms",
+  "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s",
+
+  "commands.xaeronav.corridor_no_data": "  区間 %1$d/%2$d: 地図データが無い（確認 %3$d ms、未読み込みリージョン %4$d 件）",
+  "commands.xaeronav.corridor_leg_reached": "  区間 %1$d/%2$d: 到達（%3$d ステップ、%4$d ms、未読み込みリージョン %5$d 件）",
+  "commands.xaeronav.corridor_leg_partial": "  区間 %1$d/%2$d: 未到達（%3$d ステップ、%4$d ms、未読み込みリージョン %5$d 件）",
+
+  "commands.xaeronav.version": "XaeroNavビルド: %s"
 }

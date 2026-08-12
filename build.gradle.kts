@@ -67,6 +67,15 @@ val xaeroModules = listOf(
 // （xaeronav-xaero.mixins.jsonはrequired=falseなので、Xaeroが無ければ地図連携だけが黙って無効になる）。
 val withXaero = propOrNull("with_xaero")?.toBoolean() ?: true
 
+// XaeroはMODとして読み込ませる必要があるので、実行時クラスパスではなくrun/modsへ置く。
+// additionalRuntimeClasspathに載せるとクラスパスには現れるがFMLがMODとして検出せず、
+// Xaeroのクラスだけが「Minecraftのクラスを解決できないレイヤー」に置かれる。すると
+// ModList上は未導入なのにClass.forNameは成功するという食い違いが生まれ、触った瞬間に
+// NoClassDefFoundErrorでゲームごと落ちる。
+val xaeroRuntimeMods: Configuration by configurations.creating {
+    isTransitive = false
+}
+
 dependencies {
     annotationProcessor("org.spongepowered:mixin:0.8.7:processor")
 
@@ -75,9 +84,28 @@ dependencies {
     // 開発が進んでしまう。
     xaeroModules.forEach { compileOnly(it) }
     if (withXaero) {
-        xaeroModules.forEach { add("additionalRuntimeClasspath", it) }
+        xaeroModules.forEach { xaeroRuntimeMods(it) }
     }
 }
+
+// Syncではなくコピーにして、手で入れた他のMODを消さない。バージョンを上げたときに古いjarが
+// 残るが、mods以下を消して入れ直せば済む。
+val installXaeroMods by tasks.registering(Copy::class) {
+    from(xaeroRuntimeMods)
+    into(layout.projectDirectory.dir("run/mods"))
+}
+
+tasks.matching { it.name == "runClient" }.configureEach {
+    dependsOn(installXaeroMods)
+}
+
+// 実機デバッグ用: mods.tomlのversionにgitの短縮ハッシュを付ける（例: "0.1.0+f118060"）。
+// 「治ってない」報告が再ビルド未反映によるものかを/xaeronav versionで見分けられるようにするため
+// （このprovider自体はconfiguration cache対応。git未導入環境は想定しない — このMODは常にgit
+// リポジトリ内で開発する前提）。
+val gitCommitHash = providers.exec {
+    commandLine("git", "rev-parse", "--short", "HEAD")
+}.standardOutput.asText.map { it.trim() }
 
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = mapOf(
@@ -85,7 +113,7 @@ tasks.named<ProcessResources>("processResources").configure {
         "neoforge_loader_version_range" to prop("neoforge_loader_version_range"),
         "mod_id" to prop("mod_id"),
         "mod_name" to prop("mod_name"),
-        "mod_version" to prop("mod_version"),
+        "mod_version" to "${prop("mod_version")}+${gitCommitHash.get()}",
         "mod_authors" to prop("mod_authors"),
         "mod_description" to prop("mod_description"),
         "mod_license" to prop("mod_license"),

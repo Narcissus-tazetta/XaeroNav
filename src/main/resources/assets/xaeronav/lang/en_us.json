@@ -15,6 +15,8 @@
   "hud.xaeronav.arrived": "Arrived!",
   "hud.xaeronav.climbing_to_surface": "Heading to the surface first",
   "hud.xaeronav.surface_ahead": "Surface exit ahead",
+  "hud.xaeronav.coarse_route_progress": "Long-range route %1$d/%2$d",
+  "hud.xaeronav.waypoint_ahead": "Waypoint ahead",
   "hud.xaeronav.drowning": "Long dive ahead — watch your air",
   "hud.xaeronav.straight": "Continue straight",
   "hud.xaeronav.turn_left": "Turn left in %d blocks",
@@ -30,5 +32,28 @@
   "key.xaeronav.toggle_hud": "Toggle guidance HUD",
   "hud.xaeronav.hud_on": "XaeroNav: guidance HUD on",
   "hud.xaeronav.hud_off": "XaeroNav: guidance HUD off",
-  "hud.xaeronav.no_block_in_view": "XaeroNav: no block in view"
+  "hud.xaeronav.no_block_in_view": "XaeroNav: no block in view",
+
+  "commands.xaeronav.mapdata_unavailable": "XaeroNav: Xaero's World Map is not installed",
+  "commands.xaeronav.mapdata_summary": "XaeroNav map data: %1$d blocks across — %2$d/%3$d chunks known (%4$d%%), read in %5$d ms",
+  "commands.xaeronav.mapdata_regions": "  regions: %1$d loaded / %2$d awaiting load / %3$d in range",
+  "commands.xaeronav.mapdata_requested": "  requested loading of %d region(s) — run again in a moment",
+  "commands.xaeronav.mapdata_here": "  here: %1$s, height %2$d",
+  "commands.xaeronav.mapdata_land": "land",
+  "commands.xaeronav.mapdata_water": "water",
+  "commands.xaeronav.mapdata_lava": "lava",
+  "commands.xaeronav.mapdata_none": "no data",
+
+  "commands.xaeronav.route_too_far": "XaeroNav: destination is too far (exceeds the diagnostic command's range limit)",
+  "commands.xaeronav.route_none": "XaeroNav: no route found (computed in %d ms)",
+  "commands.xaeronav.route_same_chunk": "XaeroNav: destination is in the same chunk as you (no waypoints)",
+  "commands.xaeronav.route_summary_reached": "XaeroNav long-range route: %1$d waypoint(s), reached destination, computed in %2$d ms",
+  "commands.xaeronav.route_summary_partial": "XaeroNav long-range route: %1$d waypoint(s), did not reach destination (stopped at the closest point), computed in %2$d ms",
+  "commands.xaeronav.route_waypoint": "  %1$d/%2$d: %3$s",
+
+  "commands.xaeronav.corridor_no_data": "  leg %1$d/%2$d: no map data for this segment (checked in %3$d ms, %4$d region(s) not yet loaded)",
+  "commands.xaeronav.corridor_leg_reached": "  leg %1$d/%2$d: reached (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)",
+  "commands.xaeronav.corridor_leg_partial": "  leg %1$d/%2$d: did not reach (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)",
+
+  "commands.xaeronav.version": "XaeroNav build: %s"
 }

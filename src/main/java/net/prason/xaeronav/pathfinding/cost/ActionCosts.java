@@ -13,6 +13,15 @@ public final class ActionCosts {
     public static final double WALK_ONE_IN_WATER = 20.0 / 2.2;
 
     /**
+     * ボートで直進し続けたときの定常速度（1ブロックあたりのtick数）。
+     * {@code Boat#floatBoat()}（水上時 invFriction=0.9F）と{@code Boat#controlBoat()}
+     * （前進キー押下時、friction適用後に f=0.04F を加算）から、速度の漸化式
+     * v_(n+1) = 0.9 * v_n + 0.04 の収束先 v* = 0.04/(1-0.9) = 0.4 blocks/tick = 8.0 blocks/秒を
+     * 導出。時定数 1/(1-0.9)=10 tick(0.5秒) なので静水上ではほぼ瞬時に収束する。
+     */
+    public static final double PADDLE_ONE_BLOCK = 20.0 / 8.0;
+
+    /**
      * 蜘蛛の巣の中を1マス進む。{@code WebBlock#entityInside}が移動量そのものに0.25を掛けるため
      * （{@code Entity#move}）、走っていても素の1/4しか進まない。
      */
