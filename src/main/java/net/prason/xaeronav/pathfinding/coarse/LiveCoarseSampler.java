@@ -91,7 +91,6 @@ public final class LiveCoarseSampler {
         builder.put(chunkX, chunkZ, kind, heightSum / samples, minHeight, maxHeight);
     }
 
-    /** {@code openSkyY}を起点に下へ実セルを辿り、最初に見つかる非空気セルの種別と高さを返す。 */
     private static ColumnSample sampleColumn(CellSource view, int x, int z) {
         int top = view.openSkyY(x, z);
         if (top == Integer.MAX_VALUE) {
