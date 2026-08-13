@@ -761,7 +761,6 @@ public final class PathfindingState {
         });
     }
 
-    /** 1区間分の探索。地表データが無ければ生のwaypoint1点へフォールバックする。 */
     private CompletableFuture<List<BlockPos>> solveLeg(CorridorLegSolver.PreparedLeg leg, BlockPos rawTarget) {
         if (leg.view() == null) {
             return CompletableFuture.completedFuture(List.of(rawTarget));
@@ -878,11 +877,8 @@ public final class PathfindingState {
 
     /** 表示中の経路が向かう先の種類。 */
     private enum PathMode {
-        /** 本来の目的地。 */
         GOAL,
-        /** まず地上へ出るまでの中継区間。 */
         TO_SURFACE,
-        /** 長距離ルートの中間目標。 */
         WAYPOINT
     }
 
@@ -906,7 +902,6 @@ public final class PathfindingState {
     private record CoarseRoute(BlockPos goal, List<BlockPos> waypoints) {
     }
 
-    /** {@link #coarseRoute}の各区間を層2廊下で解決し直した精緻版。形は{@link CoarseRoute}と同じ。 */
     private record RefinedRoute(BlockPos goal, List<BlockPos> waypoints) {
     }
 

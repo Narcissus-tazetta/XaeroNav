@@ -22,7 +22,6 @@ final class PathCache<T> {
     private PathResult source;
     private T value;
 
-    /** {@code result}に対応する派生物。前回と違う経路なら{@code build}で作り直す。 */
     T get(PathResult result, Function<PathResult, T> build) {
         if (source != result) {
             source = result;

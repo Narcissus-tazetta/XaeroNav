@@ -591,7 +591,6 @@ public final class AStarPathfinder {
         relax(from, from.x, y, from.z, ActionCosts.LADDER_UP_ONE_BLOCK, MoveKind.CLIMB_UP);
     }
 
-    /** 梯子・ツタを降りる。 */
     private void addClimbDown(PathNode from) {
         int y = from.y - 1;
         if (!CellData.climbable(view.cell(from.x, y, from.z))) {

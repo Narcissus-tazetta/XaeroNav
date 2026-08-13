@@ -133,12 +133,10 @@ public final class ChunkView implements CellSource {
                 level.getMinBuildHeight(), level.getMaxBuildHeight(), level.getMinSection());
     }
 
-    /** 探索範囲に入るチャンクのうち、実際に読み込み済みだった数（{@link #totalChunksInBounds}分の）。 */
     public int loadedChunksInBounds() {
         return chunks.size();
     }
 
-    /** 探索範囲に入るチャンクの総数。読み込み済みかどうかによらない。 */
     public int totalChunksInBounds() {
         return totalChunksInBounds;
     }
