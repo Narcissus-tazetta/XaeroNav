@@ -83,9 +83,10 @@ public final class XaeroNavConfig {
                 .defineInRange("recalcIntervalTicks", 40, 20, 1200);
 
         maxExpandedNodes = builder
-                .comment("1回の探索で展開するノード数の上限。大きいほど遠くまで正確な経路が出るがCPUとメモリを使う",
+                .comment("1回の探索で展開するノード数の上限。届かなかったときに探索を打ち切る天井で、",
+                        "経路が見つかった時点で探索は終わるため、上げても届く経路の計算時間は変わらない",
                         "探索はワーカースレッドで走るのでフレームレートには直接影響しない",
-                        "遠くまで経路を出したいときは、この値より先にheuristicWeightを上げる方が効く")
+                        "下げると、届くはずの経路が手前で切れるようになる")
                 .defineInRange("maxExpandedNodes", AStarPathfinder.DEFAULT_MAX_EXPANDED_NODES, 1_000, 500_000);
 
         heuristicWeight = builder

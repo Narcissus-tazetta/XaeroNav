@@ -63,13 +63,24 @@
   "commands.xaeronav.corridor_leg_reached": "  区間 %1$d/%2$d: 到達（%3$d ステップ、%4$d ms、未読み込みリージョン %5$d 件）",
   "commands.xaeronav.corridor_leg_partial": "  区間 %1$d/%2$d: 未到達（%3$d ステップ、%4$d ms、未読み込みリージョン %5$d 件）",
 
+  "commands.xaeronav.probe_goal_cell_ok": "OK",
+  "commands.xaeronav.probe_goal_cell_dig": "要掘削",
+  "commands.xaeronav.probe_goal_cell_blocked": "NG",
+  "commands.xaeronav.probe_goal_ok": "  ゴールセル: 到達可能（足元の地面=OK、足の位置=%1$s、頭の位置=%2$s）",
+  "commands.xaeronav.probe_goal_outside_bounds": "  ※ゴールが探索範囲の箱の外にあります。この探索は原理的に到達しません",
+  "commands.xaeronav.probe_goal_blocked": "  ※ゴールセルに立てません（足元の地面=%1$s、足の位置=%2$s、頭の位置=%3$s）。到達判定は座標の完全一致なので、この探索は原理的に到達しません",
   "commands.xaeronav.probe_normal": "通常",
   "commands.xaeronav.probe_widened": "拡大再挑戦",
-  "commands.xaeronav.probe_summary_reached": "XaeroNav 詳細探索(%1$s): 到達（%2$d ステップ、展開ノード %3$d、%4$d ms、探索範囲 %5$d×%6$d ブロック）",
-  "commands.xaeronav.probe_summary_partial": "XaeroNav 詳細探索(%1$s): 未到達（%2$d ステップ、展開ノード %3$d、%4$d ms、探索範囲 %5$d×%6$d ブロック）",
+  "commands.xaeronav.probe_no_digging": "掘削オフ",
+  "commands.xaeronav.probe_unbounded": "ノード上限なし",
+  "commands.xaeronav.probe_no_digging_skipped": "  → 掘削は無効設定なので、掘削オフとの比較は省略します",
+  "commands.xaeronav.probe_summary_reached": "XaeroNav 詳細探索(%1$s): 到達（%2$d ステップ、展開ノード %3$d、異なるセル %7$d、%4$d ms、探索範囲 %5$d×%6$d ブロック）",
+  "commands.xaeronav.probe_summary_partial": "XaeroNav 詳細探索(%1$s): 未到達（%2$d ステップ、展開ノード %3$d、異なるセル %7$d、%4$d ms、探索範囲 %5$d×%6$d ブロック）",
   "commands.xaeronav.probe_movements": "  内訳: %s",
+  "commands.xaeronav.probe_chunks_missing": "  ※探索範囲 %2$d チャンク中 %1$d チャンクしか読み込まれていません（未読み込み分は進入不可扱い）",
   "commands.xaeronav.probe_widen_triggered": "  → 通常範囲では届かなかったので、探索範囲を描画距離いっぱいまで広げて再挑戦します",
   "commands.xaeronav.probe_widen_skipped": "  → 拡大再挑戦の条件を満たしていません（到達済み、または目的地が描画距離の外）",
+  "commands.xaeronav.probe_widen_skipped_budget": "  → 展開ノード数が上限（%1$d）に達したための未到達です。探索範囲を広げても同じ上限に当たるだけなので再挑戦しません（heuristicWeightを上げる、またはmaxExpandedNodesを増やしてください）",
 
   "commands.xaeronav.version": "XaeroNavビルド: %s"
 }

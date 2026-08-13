@@ -33,7 +33,7 @@ class NavGuidanceTest {
         for (BlockPos pos : positions) {
             steps.add(new PathStep(pos, MovementType.TRAVERSE, 4.0, List.of(), List.of(), PathRisk.NONE, null));
         }
-        return new PathResult(steps, complete, positions.size());
+        return new PathResult(steps, complete, positions.size(), positions.size());
     }
 
     private static List<BlockPos> straightEast(int length) {

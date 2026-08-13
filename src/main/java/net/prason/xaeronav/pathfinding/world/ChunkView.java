@@ -49,6 +49,7 @@ public final class ChunkView implements CellSource {
     private static final int CELL_CACHE_CAPACITY = 1 << 15;
 
     private final Long2ObjectMap<LevelChunk> chunks;
+    private final int totalChunksInBounds;
     private final SearchBounds bounds;
     /** メインスレッドで複製したホットバー。掘削コスト計算をワーカースレッドで行うために必要。 */
     private final ItemStack[] hotbar;
@@ -74,10 +75,11 @@ public final class ChunkView implements CellSource {
     private LevelChunk cachedChunk;
     private long cachedChunkKey = ChunkPos.INVALID_CHUNK_POS;
 
-    private ChunkView(Long2ObjectMap<LevelChunk> chunks, SearchBounds bounds, ItemStack[] hotbar,
-                      int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
+    private ChunkView(Long2ObjectMap<LevelChunk> chunks, int totalChunksInBounds, SearchBounds bounds,
+                      ItemStack[] hotbar, int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
                       int minBuildHeight, int maxBuildHeight, int minSection) {
         this.chunks = chunks;
+        this.totalChunksInBounds = totalChunksInBounds;
         this.bounds = bounds;
         this.hotbar = hotbar;
         this.hotbarEfficiency = hotbarEfficiency;
@@ -125,9 +127,20 @@ public final class ChunkView implements CellSource {
             canPlaceBlocks |= isBuildingBlock(stack);
         }
 
-        return new ChunkView(chunks, bounds, hotbar, hotbarEfficiency, diggingEnabled,
+        int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
+        return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, diggingEnabled,
                 bridgingEnabled && canPlaceBlocks,
                 level.getMinBuildHeight(), level.getMaxBuildHeight(), level.getMinSection());
+    }
+
+    /** 探索範囲に入るチャンクのうち、実際に読み込み済みだった数（{@link #totalChunksInBounds}分の）。 */
+    public int loadedChunksInBounds() {
+        return chunks.size();
+    }
+
+    /** 探索範囲に入るチャンクの総数。読み込み済みかどうかによらない。 */
+    public int totalChunksInBounds() {
+        return totalChunksInBounds;
     }
 
     /**
@@ -138,7 +151,7 @@ public final class ChunkView implements CellSource {
      * スレッド契約は据え置き）。
      */
     public ChunkView withoutDigging() {
-        return new ChunkView(chunks, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
+        return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
                 minBuildHeight, maxBuildHeight, minSection);
     }
 
