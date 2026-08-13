@@ -14,7 +14,6 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
-import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.common.NeoForge;
 import net.prason.xaeronav.client.ClientTickHandler;
@@ -22,6 +21,7 @@ import net.prason.xaeronav.client.NavHud;
 import net.prason.xaeronav.client.PathRenderer;
 import net.prason.xaeronav.client.XaeroNavCommands;
 import net.prason.xaeronav.client.XaeroNavKeys;
+import net.prason.xaeronav.client.gui.XaeroNavConfigScreen;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.cost.ForbiddenBlocks;
 
@@ -62,9 +62,9 @@ public final class XaeroNav {
             NeoForge.EVENT_BUS.register(new ClientTickHandler());
             NeoForge.EVENT_BUS.register(new XaeroNavCommands());
 
-            // Modsの一覧から設定画面を開けるようにする。NeoForge標準の画面がSPECのcomment/rangeから
-            // 項目を組み立てるので、TOMLを手で編集しなくても済む
-            container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
+            // Modsの一覧からもキーバインド（XaeroNavKeys.OPEN_CONFIG_SCREEN）と同じ画面を開けるようにする
+            container.registerExtensionPoint(IConfigScreenFactory.class,
+                    (modContainer, parent) -> new XaeroNavConfigScreen(parent));
         }
 
         @SubscribeEvent

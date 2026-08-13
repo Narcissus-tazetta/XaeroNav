@@ -11,6 +11,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.prason.xaeronav.XaeroNav;
+import net.prason.xaeronav.client.gui.XaeroNavConfigScreen;
 import net.prason.xaeronav.config.XaeroNavConfig;
 
 /**
@@ -27,6 +28,16 @@ public final class XaeroNavKeys {
     public static final KeyMapping GOTO_LOOKING_AT = unbound("key.xaeronav.goto_looking_at");
     public static final KeyMapping CLEAR = unbound("key.xaeronav.clear");
     public static final KeyMapping TOGGLE_HUD = unbound("key.xaeronav.toggle_hud");
+    public static final KeyMapping OPEN_CONFIG_SCREEN = unbound("key.xaeronav.open_config_screen");
+
+    /**
+     * Xaeroの世界地図画面（{@code GuiMap}）が開いている間だけ効く、カーソル位置への経路探索キー。
+     * Xaero自身の地図内ショートカット（B=ウェイポイント作成 等）と同じ、Controls画面から設定する
+     * 通常のKeyMappingだが、{@link #handleInput}（通常プレイ中に毎tick消費するループ）では扱わない
+     * ——地図画面はMinecraftのキーイベントを自分で先取りするため、判定は
+     * {@code mixin.xaero.GuiMapKeyMixin}がGuiMap#keyPressedへの注入から直接{@code matches}で行う。
+     */
+    public static final KeyMapping GOTO_MAP_CURSOR = unbound("key.xaeronav.goto_map_cursor");
 
     private XaeroNavKeys() {
     }
@@ -39,6 +50,8 @@ public final class XaeroNavKeys {
         event.register(GOTO_LOOKING_AT);
         event.register(CLEAR);
         event.register(TOGGLE_HUD);
+        event.register(OPEN_CONFIG_SCREEN);
+        event.register(GOTO_MAP_CURSOR);
     }
 
     /**
@@ -47,6 +60,14 @@ public final class XaeroNavKeys {
      */
     static void handleInput() {
         Minecraft mc = Minecraft.getInstance();
+
+        // 設定画面を開くだけの操作はプレイヤー/ワールドの状態を必要としないので、下のガードより前に
+        // 消費する。ガードの後ろに置くと、タイトル画面など未ロード中に押した分がキューに残ったまま
+        // ワールドへ入った瞬間に（何も押していないのに）画面が開く、という事故になる
+        while (OPEN_CONFIG_SCREEN.consumeClick()) {
+            mc.setScreen(new XaeroNavConfigScreen(mc.screen));
+        }
+
         if (mc.player == null || mc.level == null) {
             return;
         }
@@ -61,6 +82,7 @@ public final class XaeroNavKeys {
         while (TOGGLE_HUD.consumeClick()) {
             boolean enabled = !XaeroNavConfig.INSTANCE.hudEnabled();
             XaeroNavConfig.INSTANCE.setHudEnabled(enabled);
+            XaeroNavConfig.SPEC.save();
             mc.player.displayClientMessage(Component.translatable(enabled
                     ? "hud.xaeronav.hud_on"
                     : "hud.xaeronav.hud_off"), true);
