@@ -33,7 +33,7 @@ class PathProgressTest {
         for (BlockPos pos : positions) {
             steps.add(new PathStep(pos, MovementType.TRAVERSE, 4.0, List.of(), List.of(), PathRisk.NONE, null));
         }
-        return new PathResult(steps, true, positions.size());
+        return new PathResult(steps, true, positions.size(), positions.size());
     }
 
     /** ステップ{@code i}のマス中心に立ったときのプレイヤー座標。 */

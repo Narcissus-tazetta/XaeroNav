@@ -14,6 +14,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.level.Level;
@@ -26,7 +27,10 @@ import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
+import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
+import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
+import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.xaero.XaeroMapReader;
@@ -82,7 +86,16 @@ public final class PathfindingState {
     /** 長距離ルートの読み取り範囲の上限（チャンク四方）。無制限だと配列確保だけで固まる。 */
     private static final int COARSE_ROUTE_MAX_SPAN_CHUNKS = 1024;
 
+    /**
+     * 層2廊下で精緻化したwaypoint列を間引く最小間隔（ブロック）。層2はブロック単位の点列を返すため、
+     * 間引かないとHUDの「長距離ルート N/M」やwaypoint数が層1の頃と比べて桁違いに増える。
+     */
+    private static final int REFINED_WAYPOINT_MIN_SPACING_BLOCKS = 24;
+
     private final PathfindingExecutor executor = new PathfindingExecutor();
+    // 層2廊下の精緻化専用。executorと共用すると、詳細探索の頻繁な再投入（逸脱・末端接近のたびに
+    // 走る）のたびにsubmitが「前のジョブ」を打ち切ってしまい、廊下探索が終わる前に必ず潰れる
+    private final PathfindingExecutor corridorExecutor = new PathfindingExecutor();
     // clear()・新規setGoal()のたびに増分する。非同期結果を適用する直前にこれと照合し、
     // 一致しなければ「もう古くなったリクエストの結果」として捨てる(clear後に古い結果が
     // currentResultを復活させてしまう競合を防ぐ)。
@@ -99,9 +112,35 @@ public final class PathfindingState {
     private volatile BlockPos surfaceLegFailedAt;
     // 長距離ルートの中間目標。地形は不変なので、目的地が変わらない限り引き直さない
     private volatile CoarseRoute coarseRoute;
-    // 直前の「本来の目的地」への直行探索が範囲内で目的地に届かなかったか。whenComplete（ワーカー
-    // スレッド）で書き、次のrecalculate（クライアントスレッド）で読むのでvolatileが要る
-    private volatile boolean lastGoalSearchIncomplete;
+    // coarseRouteの各区間を層2廊下（ブロック解像度）で解決し直した精緻版。層1はチャンク平均でしか
+    // 地形を見ないため、waypointが実際には崖の上や湖の中を指すことがある。用意でき次第
+    // currentRouteWaypoints()がこちらへ差し替わる（発動条件が一つでも欠けたら層1のcoarseRouteへ
+    // フォールバックする、という既存の考え方の延長）
+    private volatile RefinedRoute refinedRoute;
+    // 精緻化がバックグラウンドで完了したことを示す、次tickで拾うためのフラグ（pendingWideRetryと
+    // 同じ構造）。whenComplete（ワーカースレッド）で立て、onClientTick（クライアントスレッド）で読む
+    private volatile boolean pendingRefinedRouteReady;
+    // 詳細探索が通常マージンでは届かなかった探索ゴール。次のrecalculateで範囲を広げて再挑戦する
+    // 目印。本来の目的地と長距離ルートの中間目標を区別しないのは、どちらも「描画距離の内側にある
+    // 詳細探索のゴール」で、壁や湖を迂回する経路が範囲の外に落ちる事情が同じだから。
+    // 「直前の探索が未到達か」のbooleanで持つと、同じ場所を指定し直すたびにclear()で落ちて
+    // 通常マージンからやり直しになる（届かないから指定し直す、という一番ありがちな操作で
+    // 再挑戦が永久に発動しない）。ゴールそのものを覚えて照合すれば、指定の経緯によらず
+    // 「ここには広い範囲が要る」が残る。そのためclear()でも消さない — 別のゴールには
+    // 一致しないので勝手に無効化される。whenComplete（ワーカースレッド）で書き、次の
+    // recalculate（クライアントスレッド）で読むのでvolatileが要る
+    private volatile BlockPos wideSearchNeededTarget;
+    // 範囲を広げた再挑戦をすぐに投げ直すべきか。他の再計算トリガー（経路からの逸脱・打ち切られた
+    // 末端への接近・経路上の地形変化）はどれもプレイヤーが動くことを前提にしているので、これが
+    // 無いと「行き止まりまで歩く」までは広い範囲での探索が始まらない。目的地に着いた直後に次の
+    // 目的地を指定して、その場に立ったまま結果を見るような使い方では永久に発動しない
+    private volatile boolean pendingWideRetry;
+    // wideSearchNeededTarget/pendingWideRetryと対になる、局所障害（描画距離内部の崖・湖）対策の
+    // 再挑戦目印。展開ノード数の上限に当たって未到達だった場合、範囲を広げても同じ上限に同じように
+    // 当たるだけ（wideRetryが対象外にしている理由そのもの）なので、代わりに読み込み済みチャンクの
+    // 生データから粗い地図を組み立て、その経由地を区間ごとに辿る（層3・design doc外）
+    private volatile BlockPos coarseGuideNeededTarget;
+    private volatile boolean pendingCoarseGuideRetry;
 
     // 直近の探索に使った入力。以下はクライアントスレッドからのみ触る。
     private BlockPos lastStart;
@@ -121,9 +160,48 @@ public final class PathfindingState {
         // 徒歩とエリトラは別々の目的地を持てるが、案内としては一度に1つだけ意味を成す。
         // 消さずに切り替えると、行き先の違う2本の線が同時に描かれる
         ElytraNavState.INSTANCE.clear();
-        this.goal = goal;
+        this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
         recalculate();
+    }
+
+    /**
+     * 目的地のYを、その列で実際に立てる高さへ寄せる。到達判定は座標の完全一致（{@code AStarPathfinder}）
+     * なので、Yが地面とずれているだけで探索は到達可能空間を舐め尽くして未到達に終わる。目的地のYは
+     * 地図クリックでは地図側の推定値、手入力ではおおよその値で指定されるのが普通で、
+     * ブロック単位で正しいことを前提にはできない。
+     *
+     * <p>要求されたYに最も近い立てる高さを選ぶ（最寄りの地表とは限らない — 洞窟内の目的地も指定できる）。
+     * 列が未読み込みならXaeroの地図データへ、それも無ければ元の座標へ順に落とす。
+     */
+    private static BlockPos resolveGoalStandable(Level level, BlockPos goal) {
+        int x = goal.getX();
+        int z = goal.getZ();
+        if (!level.hasChunkAt(x, z)) {
+            BlockPos fromMap = XaeroPresence.mapPresent() ? resolveWaypointOnSurface(goal) : null;
+            return fromMap != null ? fromMap : goal;
+        }
+        int minY = level.getMinBuildHeight() + 1;
+        int maxY = level.getMaxBuildHeight() - 2;
+        int requested = Mth.clamp(goal.getY(), minY, maxY);
+        for (int offset = 0; offset <= maxY - minY; offset++) {
+            int below = requested - offset;
+            if (below >= minY && standableAt(level, x, below, z)) {
+                return new BlockPos(x, below, z);
+            }
+            int above = requested + offset;
+            if (offset > 0 && above <= maxY && standableAt(level, x, above, z)) {
+                return new BlockPos(x, above, z);
+            }
+        }
+        return goal;
+    }
+
+    /** 足元に立てる地面があり、体の2セルが掘らずに入れるか。{@code AStarPathfinder}の移動の前提と同じ。 */
+    private static boolean standableAt(Level level, int x, int y, int z) {
+        return CellData.standable(CellData.flagsOf(level.getBlockState(new BlockPos(x, y - 1, z))))
+                && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(new BlockPos(x, y, z))))
+                && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(new BlockPos(x, y + 1, z))));
     }
 
     public void clear() {
@@ -137,7 +215,10 @@ public final class PathfindingState {
         this.arrived = false;
         this.surfaceLegFailedAt = null;
         this.coarseRoute = null;
-        this.lastGoalSearchIncomplete = false;
+        this.refinedRoute = null;
+        this.pendingRefinedRouteReady = false;
+        this.pendingWideRetry = false;
+        this.pendingCoarseGuideRetry = false;
         this.arrivedTicks = 0;
     }
 
@@ -208,6 +289,13 @@ public final class PathfindingState {
      * 実害は「表示だけ」だが、それ自体が過去に踏んだ罠なので構造で防ぐ）。
      */
     private List<BlockPos> currentRouteWaypoints() {
+        // detail-target選定(reachableWaypointTarget)とHUD/地図描画(coarseRouteWaypoints等)は
+        // 必ず同じリストを共有すること。別リストにするとwaypointIndexが指す先が食い違い、
+        // 地図の点線とHUDのカウンタが壊れる
+        RefinedRoute refined = refinedRoute;
+        if (refined != null && refined.goal().equals(goal)) {
+            return refined.waypoints();
+        }
         CoarseRoute route = coarseRoute;
         return route == null || !route.goal().equals(goal) ? List.of() : route.waypoints();
     }
@@ -263,6 +351,28 @@ public final class PathfindingState {
         if (computing) {
             // 計算中は再計算のトリガーを一旦止める。さもないと非同期結果が返ってくるまでの
             // 数tickの間、毎tick探索を投げ直してしまう。
+            return;
+        }
+        if (pendingWideRetry) {
+            // 通常マージンでは届かなかった。以降のトリガーはどれもプレイヤーが動くまで来ないので、
+            // ここで範囲を広げて投げ直す（間隔を空ける必要はない — 広い範囲での探索は目的地ごとに
+            // 一度だけで、失敗しても二度目のpendingWideRetryは立たない）
+            pendingWideRetry = false;
+            recalculate();
+            return;
+        }
+        if (pendingCoarseGuideRetry) {
+            // 展開ノード数の上限に当たって未到達だった。範囲を広げても同じ上限に当たるだけなので、
+            // 代わりに粗い経由地チェーンで区間を分割して投げ直す
+            pendingCoarseGuideRetry = false;
+            recalculate();
+            return;
+        }
+        if (pendingRefinedRouteReady) {
+            // 層2廊下による精緻化がバックグラウンドで終わった。まだ層1ベースのwaypointへ
+            // 向かっていれば、精緻版へ切り替えるために引き直す
+            pendingRefinedRouteReady = false;
+            recalculate();
             return;
         }
         ticksSinceRecalc++;
@@ -444,15 +554,24 @@ public final class PathfindingState {
         // マージンでは出口ごと範囲の外に落ちる。この区間は掘削を切って探すので通れるセルが
         // 空洞だけに絞られ、範囲を広げても展開数はほとんど増えない
         int horizontalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
+        boolean wideSearch = false;
+        boolean coarseGuided = false;
         if (climbing) {
             horizontalMargin *= SURFACE_SEARCH_MARGIN_FACTOR;
-        } else if (mode == PathMode.GOAL && lastGoalSearchIncomplete
-                && horizontalDistance(start, currentGoal) <= renderRadius) {
-            // 前回、目的地までの直行探索が範囲内で目的地に届かなかった。チャンクはrenderRadiusの
+        } else if (target.equals(wideSearchNeededTarget)
+                && horizontalDistance(start, target) <= renderRadius) {
+            // 前回、この探索ゴールへ通常マージンでは届かなかった。チャンクはrenderRadiusの
             // 正方形いっぱいまで読み込み済みなので、通常マージン(既定64)で切っていた箱をそこまで
             // 広げて再挑戦する。壁や湖を大きく迂回する経路が「探索範囲の外」という理由だけで
             // 出ない問題への対処（design doc外・近距離レパートリー拡充のPhase 2）
             horizontalMargin = renderRadius;
+            wideSearch = true;
+        } else if (target.equals(coarseGuideNeededTarget)
+                && horizontalDistance(start, target) <= renderRadius) {
+            // 前回、この探索ゴールで展開ノード数の上限に当たって未到達だった。範囲を広げても
+            // 同じ上限に当たるだけなので箱は広げず、粗い経由地チェーンで区間を分割する
+            // （design doc外・層3の局所障害対策）
+            coarseGuided = true;
         }
         SearchBounds bounds = SearchBounds.around(level, start, target,
                 horizontalMargin, XaeroNavConfig.INSTANCE.searchVerticalMargin(),
@@ -467,9 +586,16 @@ public final class PathfindingState {
         PathMode finalMode = mode;
         BlockPos finalTarget = target;
         int finalWaypointIndex = waypointIndex;
-        CompletableFuture<PathResult> future = climbing
-                ? executor.submitToSurface(view.withoutDigging(), view, start, groundLevel, limits)
-                : executor.submit(view, start, finalTarget, limits);
+        boolean finalWideSearch = wideSearch;
+        boolean finalCoarseGuided = coarseGuided;
+        CompletableFuture<PathResult> future;
+        if (climbing) {
+            future = executor.submitToSurface(view.withoutDigging(), view, start, groundLevel, limits);
+        } else if (coarseGuided) {
+            future = executor.submitCoarseGuided(view, bounds, start, finalTarget, limits);
+        } else {
+            future = executor.submit(view, start, finalTarget, limits);
+        }
         future.whenComplete((result, error) -> {
             if (generation.get() != myGeneration) {
                 // 追い越された古いリクエスト。computingは今走っているリクエストのものなので触らない
@@ -483,12 +609,23 @@ public final class PathfindingState {
                 }
                 return;
             }
+            // 探索が1つ終わった時点で、直前の探索が残した再挑戦の予約は用済み。以降で必要なら立て直す
+            pendingWideRetry = false;
+            pendingCoarseGuideRetry = false;
             if (!result.complete() && LOGGER.isDebugEnabled()) {
                 // 経路が目的地まで届かなかった理由は、探索の打ち切りか本当に道が無いかのどちらか。
                 // 展開ノード数を出しておかないと、maxExpandedNodesを上げ下げした効果を確かめる
                 // 手段がなく、「なぜ線が途中で切れるのか」に答えられない
-                LOGGER.debug("XaeroNav: 経路が未到達のまま終了しました (展開ノード数={}, 上限={}, ステップ数={})",
-                        result.expandedNodes(), XaeroNavConfig.INSTANCE.maxExpandedNodes(), result.steps().size());
+                LOGGER.debug("XaeroNav: 経路が未到達のまま終了しました (粗い経由地チェーン={}, 展開ノード数={}, 上限={}, ステップ数={})",
+                        finalCoarseGuided, result.expandedNodes(), XaeroNavConfig.INSTANCE.maxExpandedNodes(),
+                        result.steps().size());
+            }
+            if (finalCoarseGuided) {
+                // 粗い経由地チェーンが実際に発動したことと、その結果を確認する手段が無いと
+                // 「発動したのに足りなかった」のか「そもそも発動していない」のか切り分けられない。
+                // 発生頻度は展開ノード数の上限に当たった場合だけなので、debugゲート無しでも実害は無い
+                LOGGER.info("XaeroNav: 粗い経由地チェーンで再挑戦しました (到達={}, 展開ノード数={}, ステップ数={})",
+                        result.complete(), result.expandedNodes(), result.steps().size());
             }
             if (finalMode == PathMode.TO_SURFACE && (!result.complete() || result.steps().isEmpty())) {
                 // 地上まで届かなかった中継経路は表示しない。辿っても地上には出られないので、
@@ -496,12 +633,36 @@ public final class PathfindingState {
                 // 1歩も進まない中継（＝探索から見ればもう地上）も同じ扱いにする。どちらも
                 // この付近では中継を諦め、本来の目的地へ直接向かう（次tickで引き直される）
                 surfaceLegFailedAt = start;
-                displayed = new DisplayedPath(new PathResult(List.of(), false, result.expandedNodes()), PathMode.TO_SURFACE, -1);
+                displayed = new DisplayedPath(new PathResult(List.of(), false, result.expandedNodes(),
+                        result.distinctNodes()), PathMode.TO_SURFACE, -1);
                 return;
             }
-            if (finalMode == PathMode.GOAL) {
-                // 成功したら通常マージンに戻す。目的地が変わったときはclear()側でも戻している
-                lastGoalSearchIncomplete = !result.complete();
+            // 中継区間（TO_SURFACE）だけは対象外。ゴールが1点ではなく「空の下ならどこでも」なので
+            // 未到達＝範囲が狭いではないし、水平マージンには専用の倍率が掛かっている
+            if (finalMode != PathMode.TO_SURFACE) {
+                // 未到達の理由が展開ノード数の上限だった場合、箱を広げても同じ上限に同じように
+                // 当たるだけで結果は変わらない（実機で確認済み: 通常マージンと拡大後で展開ノード数が
+                // 一致し、どちらも上限ちょうどで打ち切られていた）。この場合は広げても意味が無いので
+                // 「広い範囲が要る」扱いにしない — 毎回の再計算のたびに無駄な拡大探索を繰り返さないため
+                //
+                // finalCoarseGuidedがtrue（今回のtickが既に粗い経由地チェーンだった）なら、それ以上の
+                // エスカレーションはしない。複数区間の合算expandedNodesは単一探索の上限と単純比較
+                // できないうえ、ここで再びtrueにすると次tickでまた同じ粗い経由地チェーンを試み、
+                // また同じ理由で失敗し…と無限往復する。エスカレーションは1段階までに留める
+                boolean hitNodeBudget = !finalCoarseGuided
+                        && result.expandedNodes() >= XaeroNavConfig.INSTANCE.maxExpandedNodes();
+                boolean needsWideRetry = !result.complete() && !hitNodeBudget && !finalCoarseGuided;
+                boolean needsCoarseGuideRetry = !result.complete() && hitNodeBudget && !finalCoarseGuided;
+                // 成功した・広げても無駄だったときは通常マージンに戻す。pendingWideRetryはこの書き込みの
+                // 後に立てること（クライアントスレッドはpendingWideRetryを見てからwideSearchNeededTargetを読む）
+                wideSearchNeededTarget = needsWideRetry ? finalTarget : null;
+                pendingWideRetry = needsWideRetry && !finalWideSearch;
+                coarseGuideNeededTarget = needsCoarseGuideRetry ? finalTarget : null;
+                pendingCoarseGuideRetry = needsCoarseGuideRetry;
+                if (needsCoarseGuideRetry) {
+                    LOGGER.info("XaeroNav: 展開ノード数の上限に当たりました。次tickで粗い経由地チェーンを試します"
+                            + " (目的地={})", finalTarget.toShortString());
+                }
             }
             displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
         });
@@ -546,7 +707,67 @@ public final class PathfindingState {
             waypoints = replaceLast(waypoints, currentGoal);
         }
         coarseRoute = new CoarseRoute(currentGoal, waypoints);
+        if (!waypoints.isEmpty()) {
+            refineRouteAsync(start, currentGoal, waypoints);
+        }
         return waypoints;
+    }
+
+    /**
+     * {@link #coarseRoute}の各区間を層2廊下で解決し直す（design doc外・長距離ルート層2の
+     * waypoint精緻化）。{@link CorridorLegSolver#prepare}はXaeroのデータ構造を触るため
+     * メインスレッド専用——全区間分をここで（このメソッドの呼び出しスレッド＝クライアントスレッドで）
+     * 先に済ませてしまい、後段の{@code thenCompose}チェーンには不変な{@link CorridorLegSolver.PreparedLeg}
+     * だけを渡す。区間ごとに逐次{@code prepare}を呼ぶと、2区間目以降は前区間の{@link CompletableFuture}を
+     * 完了させたワーカースレッド上で実行されてしまい、メインスレッド専用の制約に違反する。
+     *
+     * <p>重くなりうるA*探索は{@link #corridorExecutor}へ区間ごとに順番に（{@code thenCompose}で
+     * 連結して）投げる。{@link PathfindingExecutor#submit}は呼ぶたびに「前のジョブ」を打ち切る仕様
+     * なので、全区間をまとめて投げると2区間目以降が1区間目を即座にキャンセルしてしまう——
+     * 前の区間の完了を待ってから次を投げることで、これを避ける。
+     *
+     * <p>区間ごとに地表データが無ければ、その区間だけ生のwaypoint1点にフォールバックする
+     * （区間単位の段階的劣化——1区間のデータ欠如で経路全体の精緻化を諦めない）。
+     */
+    private void refineRouteAsync(BlockPos start, BlockPos currentGoal, List<BlockPos> waypoints) {
+        List<BlockPos> legs = new ArrayList<>();
+        legs.add(start);
+        legs.addAll(waypoints);
+
+        List<CorridorLegSolver.PreparedLeg> prepared = new ArrayList<>();
+        for (int i = 0; i < legs.size() - 1; i++) {
+            prepared.add(CorridorLegSolver.prepare(legs.get(i), legs.get(i + 1)));
+        }
+
+        CompletableFuture<List<List<BlockPos>>> chain = CompletableFuture.completedFuture(new ArrayList<>());
+        for (int i = 0; i < prepared.size(); i++) {
+            CorridorLegSolver.PreparedLeg leg = prepared.get(i);
+            BlockPos rawTarget = waypoints.get(i);
+            chain = chain.thenCompose(soFar -> solveLeg(leg, rawTarget).thenApply(points -> {
+                soFar.add(points);
+                return soFar;
+            }));
+        }
+        chain.whenComplete((legPoints, error) -> {
+            if (error != null || !currentGoal.equals(goal)) {
+                // 目的地が変わっていた・失敗した場合は何もしない。今のcoarseRoute/goalが
+                // そのまま使われる（発動条件が一つでも欠けたら従来動作へフォールバック、と同じ考え方）
+                return;
+            }
+            List<BlockPos> stitched = CorridorWaypoints.stitch(legPoints);
+            List<BlockPos> downsampled = CorridorWaypoints.downsample(stitched, REFINED_WAYPOINT_MIN_SPACING_BLOCKS);
+            refinedRoute = new RefinedRoute(currentGoal, downsampled);
+            pendingRefinedRouteReady = true;
+        });
+    }
+
+    /** 1区間分の探索。地表データが無ければ生のwaypoint1点へフォールバックする。 */
+    private CompletableFuture<List<BlockPos>> solveLeg(CorridorLegSolver.PreparedLeg leg, BlockPos rawTarget) {
+        if (leg.view() == null) {
+            return CompletableFuture.completedFuture(List.of(rawTarget));
+        }
+        return corridorExecutor.submitRaw(leg.view(), leg.from(), leg.to(), CorridorLegSolver.SEARCH_LIMITS)
+                .thenApply(result -> result.steps().stream().map(PathStep::pos).toList());
     }
 
     /**
@@ -568,8 +789,8 @@ public final class PathfindingState {
         if (farthestReachable == null) {
             return null;
         }
-        // 本来の目的地（replaceLastで置き換わった最終waypoint）はユーザー指定座標そのものなので
-        // 層2で寄せる対象ではない。それ以外の中間waypointだけ実際に立てる座標へ解決する
+        // 本来の目的地（replaceLastで置き換わった最終waypoint）は{@link #setGoal}で既に立てる座標へ
+        // 解決済み。それ以外の中間waypointだけここで解決する
         BlockPos resolvedTarget = farthestReachable.equals(currentGoal)
                 ? farthestReachable
                 : resolveWaypointOnSurface(farthestReachable);
@@ -683,6 +904,10 @@ public final class PathfindingState {
      * 長距離ルートの中間目標のキャッシュ。地形は不変なので、目的地が変わらない限り引き直さない。
      */
     private record CoarseRoute(BlockPos goal, List<BlockPos> waypoints) {
+    }
+
+    /** {@link #coarseRoute}の各区間を層2廊下で解決し直した精緻版。形は{@link CoarseRoute}と同じ。 */
+    private record RefinedRoute(BlockPos goal, List<BlockPos> waypoints) {
     }
 
     /** {@link #selectDetailTarget}の戻り値。詳細探索のゴールと、それが粗いルート中の何番目かの組。 */

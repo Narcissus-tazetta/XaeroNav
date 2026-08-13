@@ -16,6 +16,7 @@ import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.client.PathfindingState;
+import net.prason.xaeronav.xaero.XaeroMapCoords;
 import xaero.map.gui.GuiMap;
 import xaero.map.gui.dropdown.rightclick.RightClickOption;
 

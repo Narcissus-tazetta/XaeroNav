@@ -41,6 +41,10 @@ public final class AStarPathfinder {
      * 遊泳(9.09 tick/マスに対し下限は3.56)——でA*がほぼDijkstraに退化し、展開数の上限が数十マス先で
      * 尽きる。重みを掛けると最短性の保証は失うが、同じ展開数で辿り着ける距離が大きく伸びる。
      * 展開数で打ち切る設計なので、重みを掛けても「同じ地形なら同じ経路」は保たれる。
+     *
+     * <p>重みを掛けるとヒューリスティックの一貫性が崩れ、展開済みノードのコストが後から改善しうる。
+     * 展開済みを再びオープンセットへ戻すことはしない（{@link PathNode#closed}）ので、各セルの展開は
+     * 高々1回に収まり、経路のコストは最適のこの倍数以内に収まる。
      */
     public static final double DEFAULT_HEURISTIC_WEIGHT = 1.5;
 
@@ -169,6 +173,7 @@ public final class AStarPathfinder {
             }
 
             PathNode current = open.removeLowest();
+            current.closed = true;
             expanded++;
             if (reachedGoal(current)) {
                 return buildResult(startNode, current, true, expanded);
@@ -217,7 +222,7 @@ public final class AStarPathfinder {
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
         }
         Collections.reverse(steps);
-        return new PathResult(steps, complete, expanded);
+        return new PathResult(steps, complete, expanded, nodes.size());
     }
 
     /**
@@ -687,7 +692,7 @@ public final class AStarPathfinder {
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
         double tentativeCost = from.cost + edgeCost;
         PathNode neighbor = node(x, y, z);
-        if (neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
+        if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
             return;
         }
 
