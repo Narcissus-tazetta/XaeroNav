@@ -1,7 +1,9 @@
 package net.prason.xaeronav.client;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -18,16 +20,21 @@ import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.ElytraItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Level;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.prason.xaeronav.XaeroNav;
+import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
+import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
+import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.SurfaceCellSource;
 import net.prason.xaeronav.xaero.XaeroMapReader;
@@ -88,6 +95,10 @@ public final class XaeroNavCommands {
                 .then(Commands.literal("corridor")
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> reportCorridor(ctx.getSource(),
+                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
+                .then(Commands.literal("probe")
+                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                .executes(ctx -> reportProbe(ctx.getSource(),
                                         BlockPosArgument.getBlockPos(ctx, "pos")))))
                 .then(Commands.literal("version")
                         .executes(ctx -> {
@@ -347,6 +358,118 @@ public final class XaeroNavCommands {
             case CoarseMap.LAVA -> "commands.xaeronav.mapdata_lava";
             default -> "commands.xaeronav.mapdata_none";
         });
+    }
+
+    /**
+     * 徒歩の詳細A*を{@code goto}と同じ設定・範囲で同期実行し、到達可否・展開ノード数・移動種類の
+     * 内訳（斜め昇降が実際に選ばれているか）をその場で確認する診断コマンド。「多分できてる」で
+     * 終わらせず数値で裏取りするためのもの（近距離レパートリー拡充・Phase 3）。
+     *
+     * <p>1回目は通常のマージンで探索する。範囲内なのに届かなかった場合は、{@link PathfindingState}の
+     * Phase 2（探索範囲を読み込み済みチャンクいっぱいまで広げる再挑戦）と同じ条件・同じ広さで
+     * もう一度探索し、その結果も併せて報告する。
+     */
+    private static int reportProbe(CommandSourceStack source, BlockPos goal) {
+        Minecraft mc = Minecraft.getInstance();
+        Level level = mc.level;
+        Player player = mc.player;
+        if (level == null || player == null) {
+            return 0;
+        }
+
+        BlockPos start = player.blockPosition();
+        int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        int verticalMargin = XaeroNavConfig.INSTANCE.searchVerticalMargin();
+        int normalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
+
+        ProbeRun normal = runProbe(level, player, start, goal, normalMargin, verticalMargin, renderRadius);
+        reportProbeRun(source, "commands.xaeronav.probe_normal", normal);
+
+        boolean widenTriggered = !normal.result().complete()
+                && horizontalDistance(start, goal) <= renderRadius && normalMargin < renderRadius;
+        source.sendSuccess(() -> Component.translatable(widenTriggered
+                ? "commands.xaeronav.probe_widen_triggered" : "commands.xaeronav.probe_widen_skipped"), false);
+        if (widenTriggered) {
+            ProbeRun widened = runProbe(level, player, start, goal, renderRadius, verticalMargin, renderRadius);
+            reportProbeRun(source, "commands.xaeronav.probe_widened", widened);
+        }
+        return 1;
+    }
+
+    private static ProbeRun runProbe(Level level, Player player, BlockPos start, BlockPos goal,
+                                      int horizontalMargin, int verticalMargin, int renderRadius) {
+        SearchBounds bounds = SearchBounds.around(level, start, goal, horizontalMargin, verticalMargin, renderRadius);
+        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
+                XaeroNavConfig.INSTANCE.bridgingEnabled());
+        SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
+                AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());
+        long startNanos = System.nanoTime();
+        PathResult result = new AStarPathfinder(view, limits).search(start, goal, () -> false);
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+        return new ProbeRun(start, result, bounds, elapsedMillis);
+    }
+
+    private static void reportProbeRun(CommandSourceStack source, String labelKey, ProbeRun run) {
+        PathResult result = run.result();
+        SearchBounds bounds = run.bounds();
+        int spanX = bounds.maxX() - bounds.minX() + 1;
+        int spanZ = bounds.maxZ() - bounds.minZ() + 1;
+        Component label = Component.translatable(labelKey);
+        source.sendSuccess(() -> Component.translatable(
+                result.complete() ? "commands.xaeronav.probe_summary_reached"
+                        : "commands.xaeronav.probe_summary_partial",
+                label, result.steps().size(), result.expandedNodes(), run.elapsedMillis(), spanX, spanZ), false);
+        if (!result.steps().isEmpty()) {
+            String breakdown = describeMovements(result.steps(), run.start());
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_movements", breakdown), false);
+        }
+    }
+
+    /**
+     * ステップ数を{@link MovementType}ごとに集計する。ASCEND/DESCENDは、直前の地点からXZ両方に
+     * ずれているものを「斜め」として別集計する（{@code MoveKind.DIAGONAL_ASCEND/DESCEND}は
+     * astarパッケージ内部の型で公開APIには出てこないが、カーディナルのAscend/Descendは定義上
+     * どちらか一方の軸にしか動かないので、両軸が動いていれば斜めだと判定できる）。
+     */
+    private static String describeMovements(List<PathStep> steps, BlockPos start) {
+        Map<MovementType, Integer> counts = new EnumMap<>(MovementType.class);
+        Map<MovementType, Integer> diagonalCounts = new EnumMap<>(MovementType.class);
+        BlockPos previous = start;
+        for (PathStep step : steps) {
+            MovementType type = step.movement();
+            counts.merge(type, 1, Integer::sum);
+            if ((type == MovementType.ASCEND || type == MovementType.DESCEND)
+                    && step.pos().getX() != previous.getX() && step.pos().getZ() != previous.getZ()) {
+                diagonalCounts.merge(type, 1, Integer::sum);
+            }
+            previous = step.pos();
+        }
+        StringBuilder text = new StringBuilder();
+        for (Map.Entry<MovementType, Integer> entry : counts.entrySet()) {
+            if (!text.isEmpty()) {
+                text.append(", ");
+            }
+            text.append(entry.getKey()).append(' ').append(entry.getValue());
+            Integer diagonal = diagonalCounts.get(entry.getKey());
+            if (diagonal != null) {
+                text.append(" diag=").append(diagonal);
+            }
+        }
+        return text.toString();
+    }
+
+    /** {@link #runProbe}1回分の結果。{@link #reportProbeRun}が探索範囲のサイズを求めるのに始点も要る。 */
+    private record ProbeRun(BlockPos start, PathResult result, SearchBounds bounds, long elapsedMillis) {
+    }
+
+    /**
+     * {@link PathfindingState}のPhase 2発動条件と同じ水平距離の測り方（{@code y}は見ない）。
+     * ここでも同じ判定を再現する必要があるため、同じ式を独立に持つ。
+     */
+    private static double horizontalDistance(BlockPos a, BlockPos b) {
+        double dx = a.getX() - b.getX();
+        double dz = a.getZ() - b.getZ();
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     /**

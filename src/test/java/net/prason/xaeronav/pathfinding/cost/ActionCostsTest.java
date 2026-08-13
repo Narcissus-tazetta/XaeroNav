@@ -34,6 +34,36 @@ class ActionCostsTest {
         assertTrue(ActionCosts.ASCEND_ONE_BLOCK >= ActionCosts.JUMP_ONE_BLOCK);
     }
 
+    /**
+     * 斜め昇りは、水平1マス＋垂直1マスをカーディナル2手（登り+直進）に分解するより安くなければ
+     * 意味がない。逆転すると、探索が斜め移動を一度も選ばなくなる（{@code MIN_IMPROVEMENT}未満の
+     * 差ではなく明確に安いことを求める）。
+     */
+    @Test
+    void diagonalAscendIsCheaperThanTwoCardinalHops() {
+        assertTrue(ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK
+                < ActionCosts.ASCEND_ONE_BLOCK + ActionCosts.SPRINT_ONE_BLOCK);
+    }
+
+    /** {@link #diagonalAscendIsCheaperThanTwoCardinalHops}の降り側。 */
+    @Test
+    void diagonalDescendIsCheaperThanTwoCardinalHops() {
+        assertTrue(ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK
+                < ActionCosts.DESCEND_ONE_BLOCK + ActionCosts.SPRINT_ONE_BLOCK);
+    }
+
+    /**
+     * 斜めに1段登るのは、同じ距離を平らに斜め移動するより高くつく。ここが等しくなると
+     * 「ただで高さが稼げる」ことになり、{@code Heuristic}の上昇成分が丸ごと0になって
+     * 山の上を目指す経路で探索が不必要に広がる（カーディナル側は既にこの関係を満たしている）。
+     */
+    @Test
+    void climbingDiagonallyCostsMoreThanMovingDiagonallyOnFlatGround() {
+        double diagonalOnFlat = ActionCosts.SPRINT_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE;
+        assertTrue(ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK > diagonalOnFlat,
+                "斜めの登坂ペナルティが消えている: " + ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK + " vs " + diagonalOnFlat);
+    }
+
     @Test
     void fallCostIsMonotonicWithDistance() {
         double previous = 0.0;

@@ -233,6 +233,11 @@ public final class AStarPathfinder {
                 columnCost(from.x, from.y + 2, from.y + 2, from.z, cells);
                 standingBodyCost(to.x, to.y, to.z, cells);
             }
+            // 斜め昇降は掘削を許可しない（addDiagonalAscend/addDiagonalDescendがclearWithoutDiggingで
+            // 事前に確認済み）。デフォルト分岐に流すと、頭上の落下ブロック連鎖を拾って「払っていない
+            // 掘削コスト」を表示してしまいうる
+            case DIAGONAL_ASCEND, DIAGONAL_DESCEND -> {
+            }
             default -> standingBodyCost(to.x, to.y, to.z, cells);
         }
         return List.copyOf(cells);
@@ -267,6 +272,8 @@ public final class AStarPathfinder {
         }
         for (int i = 0; i < DIAGONAL_DX.length; i++) {
             addDiagonalTraverse(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            addDiagonalAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            addDiagonalDescend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
         }
         // 上下の泳ぎ・昇降は、いま水中／梯子の中にいるときしか始まらない。それ以外では判定ごと省く
         long standingCell = view.cell(current.x, current.y, current.z);
@@ -414,6 +421,64 @@ public final class AStarPathfinder {
         double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER : ActionCosts.DESCEND_ONE_BLOCK;
         relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
                 intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
+    }
+
+    /**
+     * 斜め1マスで1段登りながら進む（design doc外・近距離レパートリー拡充）。カーディナル4方向限定の
+     * {@link #addAscend}だと、斜めに続く階段状の地形で本来1手の区間が「登ってから横へ」の2手に
+     * 分解されてしまう。{@link #addDiagonalTraverse}と同じく、体が壁の角をすり抜けないよう
+     * 角2セルの掘削なし通行可能性を求める。
+     *
+     * <p>掘削は許可しない。角を抜ける移動で掘るくらいなら、カーディナルで素直に掘る方が安全で
+     * コストも正しく出る。{@link #addAscend}と同じくジャンプ時間支配のモデルなので、
+     * 地形の速度倍率（氷・ソウルサンド等）は見ない。
+     */
+    private void addDiagonalAscend(PathNode from, int dx, int dz) {
+        int x = from.x + dx;
+        int y = from.y + 1;
+        int z = from.z + dz;
+
+        if (!CellData.standable(view.cell(x, from.y, z))) {
+            return;
+        }
+        // 角2列を到着高さで見る。踏み出し高さの角は段差そのものなので塞がっていて構わない
+        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
+            return;
+        }
+        // 踏み切り地点の頭上。塞がっていると跳べない
+        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
+            return;
+        }
+        if (!clearWithoutDigging(x, y, z)) {
+            return;
+        }
+        relax(from, x, y, z, ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK, MoveKind.DIAGONAL_ASCEND);
+    }
+
+    /**
+     * 斜め1マスで1段降りながら進む。{@link #addDiagonalAscend}と同じ狙い。掘削は許可しない。
+     *
+     * <p>{@link #addDescend}と違い水面への踏み込みは扱わない（床は{@code standable}限定）。
+     * 海岸線の水際はカーディナル側が既に扱っており、斜めまで足すと水際で経路が細かく揺れる。
+     */
+    private void addDiagonalDescend(PathNode from, int dx, int dz) {
+        int x = from.x + dx;
+        int y = from.y - 1;
+        int z = from.z + dz;
+
+        if (!CellData.standable(view.cell(x, y - 1, z))) {
+            return;
+        }
+        // 角2列を踏み出し高さで見る
+        if (!clearWithoutDigging(from.x + dx, from.y, from.z) || !clearWithoutDigging(from.x, from.y, from.z + dz)) {
+            return;
+        }
+        // 到着地点の身体3セル分（Descendと同じ縦一列）。2回に分けて呼ぶことで
+        // y-1〜y+1（着地の足元・頭、踏み出し地点の足元と同じ高さ）をまとめて確認する
+        if (!clearWithoutDigging(x, y, z) || !clearWithoutDigging(x, y + 1, z)) {
+            return;
+        }
+        relax(from, x, y, z, ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK, MoveKind.DIAGONAL_DESCEND);
     }
 
     /**
