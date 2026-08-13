@@ -99,6 +99,9 @@ public final class PathfindingState {
     private volatile BlockPos surfaceLegFailedAt;
     // 長距離ルートの中間目標。地形は不変なので、目的地が変わらない限り引き直さない
     private volatile CoarseRoute coarseRoute;
+    // 直前の「本来の目的地」への直行探索が範囲内で目的地に届かなかったか。whenComplete（ワーカー
+    // スレッド）で書き、次のrecalculate（クライアントスレッド）で読むのでvolatileが要る
+    private volatile boolean lastGoalSearchIncomplete;
 
     // 直近の探索に使った入力。以下はクライアントスレッドからのみ触る。
     private BlockPos lastStart;
@@ -134,6 +137,7 @@ public final class PathfindingState {
         this.arrived = false;
         this.surfaceLegFailedAt = null;
         this.coarseRoute = null;
+        this.lastGoalSearchIncomplete = false;
         this.arrivedTicks = 0;
     }
 
@@ -439,8 +443,17 @@ public final class PathfindingState {
         // そのぶん自分の周囲は広めに取る。洞窟の出口が目的地の方角にあるとは限らず、通常の
         // マージンでは出口ごと範囲の外に落ちる。この区間は掘削を切って探すので通れるセルが
         // 空洞だけに絞られ、範囲を広げても展開数はほとんど増えない
-        int horizontalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin()
-                * (climbing ? SURFACE_SEARCH_MARGIN_FACTOR : 1);
+        int horizontalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
+        if (climbing) {
+            horizontalMargin *= SURFACE_SEARCH_MARGIN_FACTOR;
+        } else if (mode == PathMode.GOAL && lastGoalSearchIncomplete
+                && horizontalDistance(start, currentGoal) <= renderRadius) {
+            // 前回、目的地までの直行探索が範囲内で目的地に届かなかった。チャンクはrenderRadiusの
+            // 正方形いっぱいまで読み込み済みなので、通常マージン(既定64)で切っていた箱をそこまで
+            // 広げて再挑戦する。壁や湖を大きく迂回する経路が「探索範囲の外」という理由だけで
+            // 出ない問題への対処（design doc外・近距離レパートリー拡充のPhase 2）
+            horizontalMargin = renderRadius;
+        }
         SearchBounds bounds = SearchBounds.around(level, start, target,
                 horizontalMargin, XaeroNavConfig.INSTANCE.searchVerticalMargin(),
                 renderRadius);
@@ -485,6 +498,10 @@ public final class PathfindingState {
                 surfaceLegFailedAt = start;
                 displayed = new DisplayedPath(new PathResult(List.of(), false, result.expandedNodes()), PathMode.TO_SURFACE, -1);
                 return;
+            }
+            if (finalMode == PathMode.GOAL) {
+                // 成功したら通常マージンに戻す。目的地が変わったときはclear()側でも戻している
+                lastGoalSearchIncomplete = !result.complete();
             }
             displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
         });

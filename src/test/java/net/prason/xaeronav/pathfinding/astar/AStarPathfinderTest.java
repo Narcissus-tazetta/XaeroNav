@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
+import net.prason.xaeronav.pathfinding.world.SearchBounds;
 
 /**
  * 経路探索コアの振る舞い。地形は{@link FakeCells}で文字として書く。
@@ -65,6 +66,87 @@ class AStarPathfinderTest {
         PathResult down = search(cells, new BlockPos(3, 62, 0), new BlockPos(0, 61, 0));
         assertTrue(down.complete());
         assertTrue(movements(down).contains(MovementType.DESCEND), "降りる側も段差として扱う: " + movements(down));
+    }
+
+    @Test
+    void climbsDiagonallyUpAStaircase() {
+        // (0,61,0)→(1,62,1)→(2,63,2)→(3,64,3) と、XZ両方に1段ずつ上がる階段状の床だけを敷く。
+        // カーディナルの床（例: (1,60,0)）は一切置かないので、カーディナル分解では登れない
+        CellSource cells = diagonalStaircase();
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(3, 64, 3));
+
+        assertTrue(result.complete());
+        // カーディナル分解なら1段につき2手（登り+直進）＝6手かかる。斜めなら1段1手＝3手で済む
+        assertEquals(3, result.steps().size(),
+                "斜め昇りで1段1手のはず: " + result.steps().stream().map(PathStep::pos).toList());
+        assertEquals(List.of(MovementType.ASCEND, MovementType.ASCEND, MovementType.ASCEND), movements(result));
+        assertEquals(new BlockPos(3, 64, 3), last(result).pos());
+    }
+
+    @Test
+    void descendsDiagonally() {
+        // 上のテストと同じ階段を逆向きに降りる
+        CellSource cells = diagonalStaircase();
+
+        PathResult result = search(cells, new BlockPos(3, 64, 3), new BlockPos(0, 61, 0));
+
+        assertTrue(result.complete());
+        assertEquals(3, result.steps().size(),
+                "斜め降りで1段1手のはず: " + result.steps().stream().map(PathStep::pos).toList());
+        assertEquals(List.of(MovementType.DESCEND, MovementType.DESCEND, MovementType.DESCEND), movements(result));
+        assertEquals(new BlockPos(0, 61, 0), last(result).pos());
+    }
+
+    @Test
+    void doesNotCutThroughABlockedCorner() {
+        // 斜め昇りの角の一方(1,62,0)を石で塞ぐ。到着地点の床(1,61,1)自体は空いているので、
+        // 斜めでは行けないがカーディナル2手（z方向へ直進してから登る）では行ける
+        CellSource cells = diagonalAscendWithCardinalDetour().set(1, 62, 0, FakeCells.STONE);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 62, 1));
+
+        assertTrue(result.complete(), "角が塞がっていても迂回すれば届く");
+        assertEquals(2, result.steps().size(), "斜めが塞がっているのでカーディナル2手に迂回する: "
+                + result.steps().stream().map(PathStep::pos).toList());
+        assertEquals(new BlockPos(0, 61, 1), result.steps().get(0).pos());
+        assertEquals(new BlockPos(1, 62, 1), last(result).pos());
+    }
+
+    @Test
+    void doesNotJumpDiagonallyUnderALowCeiling() {
+        // 踏み切り地点の頭上(0,63,0)を石で塞ぐ。カーディナル2手側の頭上は別の座標なので影響を受けない
+        CellSource cells = diagonalAscendWithCardinalDetour().set(0, 63, 0, FakeCells.STONE);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 62, 1));
+
+        assertTrue(result.complete(), "頭上が塞がっていても迂回すれば届く");
+        assertEquals(2, result.steps().size(), "頭上が塞がって跳べないのでカーディナル2手に迂回する: "
+                + result.steps().stream().map(PathStep::pos).toList());
+        assertEquals(new BlockPos(0, 61, 1), result.steps().get(0).pos());
+        assertEquals(new BlockPos(1, 62, 1), last(result).pos());
+    }
+
+    /** (0,61,0)から(3,64,3)まで、XZ両方に1段ずつ上がる床だけを敷いた階段。カーディナルの床は無い。 */
+    private static CellSource diagonalStaircase() {
+        SearchBounds bounds = new SearchBounds(-2, 55, -2, 8, 75, 8);
+        return FakeCells.empty(bounds)
+                .set(0, 60, 0, FakeCells.STONE)
+                .set(1, 61, 1, FakeCells.STONE)
+                .set(2, 62, 2, FakeCells.STONE)
+                .set(3, 63, 3, FakeCells.STONE);
+    }
+
+    /**
+     * (0,61,0)→(1,62,1)の斜め昇り1段と、それを迂回できるカーディナル経路
+     * （(0,61,0)→(0,61,1)→(1,62,1)、z方向へ直進してから登る）の両方が成立する床だけを敷いた地形。
+     */
+    private static FakeCells diagonalAscendWithCardinalDetour() {
+        SearchBounds bounds = new SearchBounds(-2, 55, -2, 8, 75, 8);
+        return FakeCells.empty(bounds)
+                .set(0, 60, 0, FakeCells.STONE)
+                .set(0, 60, 1, FakeCells.STONE)
+                .set(1, 61, 1, FakeCells.STONE);
     }
 
     @Test
