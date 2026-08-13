@@ -4,6 +4,7 @@
   "package": "net.prason.xaeronav.mixin.xaero",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "GuiMapKeyMixin",
     "GuiMapMixin",
     "GuiMapRightClickMixin",
     "MinimapFBORendererMixin",

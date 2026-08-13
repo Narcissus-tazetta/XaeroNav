@@ -89,6 +89,10 @@ class LanguageKeyTest {
 
         Set<String> undeclared = new TreeSet<>(used);
         undeclared.removeAll(declared);
+        // GuiMapRightClickMixinがXaero自身のメニュー項目を判別するために比較対象として持つ、
+        // Xaeroの翻訳キー（"gui.xaero_..."）。うちのlangに declare するものではない
+        // （うちの実際のキーは"gui.xaeronav..."で、間にアンダースコアが入らないため衝突しない）
+        undeclared.removeIf(key -> key.startsWith("gui.xaero_"));
 
         assertTrue(undeclared.isEmpty(),
                 "コードで参照しているのに lang ファイルに無いキー: " + undeclared);

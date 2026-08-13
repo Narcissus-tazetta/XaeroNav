@@ -10,7 +10,7 @@ import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 
 /**
  * design doc §6 Phase3項目15。TOML設定ファイル（{@code config/xaeronav-client.toml}）としてクライアント側に生成される。
- * 現時点では専用の設定画面（GUI）は実装せず、標準のNeoForge設定ファイルとして提供する。
+ * 設定GUI画面（{@link net.prason.xaeronav.client.gui.XaeroNavConfigScreen}）からも編集される。
  */
 public final class XaeroNavConfig {
 
@@ -118,8 +118,16 @@ public final class XaeroNavConfig {
         return diggingEnabled.get();
     }
 
+    public void setDiggingEnabled(boolean value) {
+        diggingEnabled.set(value);
+    }
+
     public boolean bridgingEnabled() {
         return bridgingEnabled.get();
+    }
+
+    public void setBridgingEnabled(boolean value) {
+        bridgingEnabled.set(value);
     }
 
     public int searchHorizontalMargin() {
@@ -163,15 +171,18 @@ public final class XaeroNavConfig {
     }
 
     /**
-     * HUDの表示を切り替えて設定ファイルへ書き戻す（キーバインドから使う）。
-     * 書き戻すのは、切ったつもりがゲームを再起動すると戻っている、を避けるため。
+     * ここではsaveしない（GUI・キーバインド双方から呼ばれ、GUIは複数項目を一括保存したいため）。
+     * 呼び出し側が責任を持って{@link #SPEC}をsaveする。
      */
     public void setHudEnabled(boolean value) {
         hudEnabled.set(value);
-        hudEnabled.save();
     }
 
     public boolean straightLineEnabled() {
         return straightLineEnabled.get();
+    }
+
+    public void setStraightLineEnabled(boolean value) {
+        straightLineEnabled.set(value);
     }
 }
