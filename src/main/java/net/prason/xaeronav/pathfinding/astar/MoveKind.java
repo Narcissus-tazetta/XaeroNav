@@ -26,6 +26,10 @@ enum MoveKind {
     CLIMB_DOWN(MovementType.CLIMB),
     ASCEND(MovementType.ASCEND),
     DESCEND(MovementType.DESCEND),
+    /** 斜め1マスで1段登る（design doc外・近距離レパートリー拡充）。カーディナル2手の分解を1手に短縮する。 */
+    DIAGONAL_ASCEND(MovementType.ASCEND),
+    /** 斜め1マスで1段降りる。{@link #DIAGONAL_ASCEND}と同じ狙い。 */
+    DIAGONAL_DESCEND(MovementType.DESCEND),
     FALL(MovementType.DESCEND),
     FALL_TO_WATER(MovementType.SWIM),
     JUMP(MovementType.JUMP);
@@ -44,10 +48,10 @@ enum MoveKind {
     List<BlockPos> bodyCells(int fromX, int fromY, int fromZ, int x, int y, int z) {
         return switch (this) {
             // 一段降りる移動は、降りる手前の2マスと降りた先の1マスを通過する
-            case DESCEND, SWIM_DESCEND ->
+            case DESCEND, SWIM_DESCEND, DIAGONAL_DESCEND ->
                     List.of(new BlockPos(x, y + 1, z), new BlockPos(x, y + 2, z), new BlockPos(x, y, z));
             // ジャンプ中は踏み切り地点の頭上1マスも通る
-            case ASCEND -> List.of(new BlockPos(x, y, z), new BlockPos(x, y + 1, z),
+            case ASCEND, DIAGONAL_ASCEND -> List.of(new BlockPos(x, y, z), new BlockPos(x, y + 1, z),
                     new BlockPos(fromX, fromY + 2, fromZ));
             // 落下は着地点から踏み切り地点の頭上までの縦一列を通り抜ける
             case FALL, FALL_TO_WATER -> column(x, y, fromY + 1, z);

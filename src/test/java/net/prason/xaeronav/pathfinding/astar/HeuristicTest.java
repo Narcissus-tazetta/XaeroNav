@@ -75,4 +75,28 @@ class HeuristicTest {
             }
         }
     }
+
+    /**
+     * 水平1マス＋上昇1マスを1手でこなす{@code Ascend}の実コストは{@code ASCEND_ONE_BLOCK}
+     * （水平移動時間と跳躍時間の大きい方）なので、ヒューリスティックはそれを上回ってはいけない。
+     * 現行の実装は水平成分と垂直成分を独立に加算しているため、この検証は現状では失敗する
+     * （回帰テスト。Heuristicを軸別の相乗り計算に直すことで通す）。
+     */
+    @Test
+    void cardinalAscendEstimateDoesNotExceedItsRealCost() {
+        double estimate = Heuristic.estimate(0, 64, 0, 1, 65, 0);
+        assertTrue(estimate <= ActionCosts.ASCEND_ONE_BLOCK + 1e-9,
+                "1手のAscendの実コストを上回ってはいけない: estimate=" + estimate);
+    }
+
+    /**
+     * 斜め1マスで1段登る{@code DiagonalAscend}についても同様。カーディナル分を独立加算する
+     * 現行実装ではさらに大きく過大評価になる。
+     */
+    @Test
+    void diagonalAscendEstimateDoesNotExceedItsRealCost() {
+        double estimate = Heuristic.estimate(0, 64, 0, 1, 65, 1);
+        assertTrue(estimate <= ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK + 1e-9,
+                "1手のDiagonalAscendの実コストを上回ってはいけない: estimate=" + estimate);
+    }
 }

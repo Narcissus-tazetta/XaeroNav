@@ -72,6 +72,24 @@ public final class ActionCosts {
     public static final double DIAGONAL_DISTANCE = Math.sqrt(2.0);
 
     /**
+     * 斜め1マスで1段登るコスト（tick）。{@link #ASCEND_ONE_BLOCK}と同じ「跳ぶ時間と水平移動時間の
+     * 大きい方」というmaxモデルを踏襲する（跳んでいる間も水平には進んでいるので加算ではない）。
+     *
+     * <p>水平側に{@link #SPRINT_ONE_BLOCK}ではなく{@link #WALK_ONE_BLOCK}を使うのは、
+     * {@link #ASCEND_ONE_BLOCK}に合わせるため。段差を登るジャンプの繰り返しでは疾走を維持できないので
+     * カーディナルの昇りは徒歩速度で見積もっており、斜めだけ疾走を前提にすると登坂ペナルティが
+     * 消える（斜め移動と同コスト＝ただで高さが稼げる）。すると
+     * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}の上昇成分まで丸ごと0になり、
+     * 山の上を目指す経路で探索が不必要に広がる。
+     */
+    public static final double DIAGONAL_ASCEND_ONE_BLOCK =
+            Math.max(ASCEND_ONE_BLOCK, WALK_ONE_BLOCK * DIAGONAL_DISTANCE);
+
+    /** 斜め1マスで1段降りるコスト（tick）。{@link #DIAGONAL_ASCEND_ONE_BLOCK}と同じ考え方。 */
+    public static final double DIAGONAL_DESCEND_ONE_BLOCK =
+            Math.max(DESCEND_ONE_BLOCK, WALK_ONE_BLOCK * DIAGONAL_DISTANCE);
+
+    /**
      * 大きく落下する場合、tick/マスはterminal velocity(3.92 blocks/tick)に漸近しこれを下回らない。
      * A*ヒューリスティックの下降成分に使う安全な下限値（design doc §4-2参照）。
      */

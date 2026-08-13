@@ -55,5 +55,13 @@
   "commands.xaeronav.corridor_leg_reached": "  leg %1$d/%2$d: reached (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)",
   "commands.xaeronav.corridor_leg_partial": "  leg %1$d/%2$d: did not reach (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)",
 
+  "commands.xaeronav.probe_normal": "normal",
+  "commands.xaeronav.probe_widened": "widened retry",
+  "commands.xaeronav.probe_summary_reached": "XaeroNav detail search (%1$s): reached (%2$d steps, %3$d nodes expanded, %4$d ms, search area %5$d×%6$d blocks)",
+  "commands.xaeronav.probe_summary_partial": "XaeroNav detail search (%1$s): did not reach (%2$d steps, %3$d nodes expanded, %4$d ms, search area %5$d×%6$d blocks)",
+  "commands.xaeronav.probe_movements": "  breakdown: %s",
+  "commands.xaeronav.probe_widen_triggered": "  -> did not reach within the normal margin, retrying with the search area widened to the render distance",
+  "commands.xaeronav.probe_widen_skipped": "  -> widened retry condition not met (already reached, or destination is outside the render distance)",
+
   "commands.xaeronav.version": "XaeroNav build: %s"
 }
