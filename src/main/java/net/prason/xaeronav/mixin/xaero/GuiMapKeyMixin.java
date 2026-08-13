@@ -13,6 +13,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.client.XaeroNavKeys;
+import net.prason.xaeronav.xaero.XaeroMapCoords;
 import xaero.map.gui.GuiMap;
 
 /**

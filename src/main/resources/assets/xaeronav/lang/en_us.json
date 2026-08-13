@@ -63,13 +63,24 @@
   "commands.xaeronav.corridor_leg_reached": "  leg %1$d/%2$d: reached (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)",
   "commands.xaeronav.corridor_leg_partial": "  leg %1$d/%2$d: did not reach (%3$d steps, %4$d ms, %5$d region(s) not yet loaded)",
 
+  "commands.xaeronav.probe_goal_cell_ok": "OK",
+  "commands.xaeronav.probe_goal_cell_dig": "needs digging",
+  "commands.xaeronav.probe_goal_cell_blocked": "NG",
+  "commands.xaeronav.probe_goal_ok": "  goal cell: reachable (ground below=OK, feet=%1$s, head=%2$s)",
+  "commands.xaeronav.probe_goal_outside_bounds": "  * the goal lies outside the search area box; this search can never reach it",
+  "commands.xaeronav.probe_goal_blocked": "  * cannot stand at the goal cell (ground below=%1$s, feet=%2$s, head=%3$s). Arrival requires an exact coordinate match, so this search can never reach it",
   "commands.xaeronav.probe_normal": "normal",
   "commands.xaeronav.probe_widened": "widened retry",
-  "commands.xaeronav.probe_summary_reached": "XaeroNav detail search (%1$s): reached (%2$d steps, %3$d nodes expanded, %4$d ms, search area %5$d×%6$d blocks)",
-  "commands.xaeronav.probe_summary_partial": "XaeroNav detail search (%1$s): did not reach (%2$d steps, %3$d nodes expanded, %4$d ms, search area %5$d×%6$d blocks)",
+  "commands.xaeronav.probe_no_digging": "digging off",
+  "commands.xaeronav.probe_unbounded": "no node cap",
+  "commands.xaeronav.probe_no_digging_skipped": "  -> digging is disabled in the config, so the digging-off comparison is skipped",
+  "commands.xaeronav.probe_summary_reached": "XaeroNav detail search (%1$s): reached (%2$d steps, %3$d nodes expanded, %7$d distinct cells, %4$d ms, search area %5$d×%6$d blocks)",
+  "commands.xaeronav.probe_summary_partial": "XaeroNav detail search (%1$s): did not reach (%2$d steps, %3$d nodes expanded, %7$d distinct cells, %4$d ms, search area %5$d×%6$d blocks)",
   "commands.xaeronav.probe_movements": "  breakdown: %s",
+  "commands.xaeronav.probe_chunks_missing": "  * only %1$d of %2$d chunks in the search area are loaded (missing chunks are treated as impassable)",
   "commands.xaeronav.probe_widen_triggered": "  -> did not reach within the normal margin, retrying with the search area widened to the render distance",
   "commands.xaeronav.probe_widen_skipped": "  -> widened retry condition not met (already reached, or destination is outside the render distance)",
+  "commands.xaeronav.probe_widen_skipped_budget": "  -> did not reach because the node budget (%1$d) was exhausted. Widening the search area would hit the same cap, so no retry is attempted (try raising heuristicWeight or maxExpandedNodes)",
 
   "commands.xaeronav.version": "XaeroNav build: %s"
 }
