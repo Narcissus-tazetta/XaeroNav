@@ -28,7 +28,7 @@ class SurfaceCellSourceTest {
 
     private static PathResult search(SurfaceGrid grid, BlockPos start, BlockPos goal) {
         SearchBounds bounds = new SearchBounds(-RADIUS, 0, -RADIUS, RADIUS, 200, RADIUS);
-        return new AStarPathfinder(new SurfaceCellSource(grid, bounds)).search(start, goal, () -> false);
+        return new AStarPathfinder(new SurfaceCellSource(grid, bounds, true)).search(start, goal, () -> false);
     }
 
     private static List<MovementType> movements(PathResult result) {
@@ -61,7 +61,7 @@ class SurfaceCellSourceTest {
             }
         }
         SearchBounds bounds = new SearchBounds(-2, 0, -2, 18, 200, 3);
-        PathResult result = new AStarPathfinder(new SurfaceCellSource(builder.build(), bounds))
+        PathResult result = new AStarPathfinder(new SurfaceCellSource(builder.build(), bounds, true))
                 .search(new BlockPos(0, 65, 0), new BlockPos(15, 21, 0), () -> false);
 
         assertFalse(result.complete(), "44ブロックの崖は迂回路が無ければ越えられない");
@@ -100,7 +100,7 @@ class SurfaceCellSourceTest {
             }
         }
         SearchBounds bounds = new SearchBounds(-2, 0, -2, 18, 200, 3);
-        PathResult result = new AStarPathfinder(new SurfaceCellSource(builder.build(), bounds))
+        PathResult result = new AStarPathfinder(new SurfaceCellSource(builder.build(), bounds, true))
                 .search(new BlockPos(0, 65, 0), new BlockPos(15, 65, 0), () -> false);
 
         assertFalse(result.complete(), "溶岩は迂回路が無ければ越えられない");

@@ -25,6 +25,7 @@ public final class XaeroNavConfig {
 
     private final ModConfigSpec.BooleanValue diggingEnabled;
     private final ModConfigSpec.BooleanValue bridgingEnabled;
+    private final ModConfigSpec.BooleanValue jumpGapEnabled;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
     private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
@@ -45,9 +46,15 @@ public final class XaeroNavConfig {
                 .define("diggingEnabled", true);
 
         bridgingEnabled = builder
-                .comment("空洞を渡るためのブロック設置を経路に含めることを許可するか",
+                .comment("空洞を渡る・断崖を登るためのブロック設置を経路に含めることを許可するか",
                         "trueでも、ホットバーに置けるブロックが無い場合と、水・溶岩に接する場所には設置を提示しない")
                 .define("bridgingEnabled", true);
+
+        jumpGapEnabled = builder
+                .comment("隙間を飛び越える移動を経路に含めることを許可するか（最大3マスの隙間まで）",
+                        "falseにすると、跳べば渡れる隙間でも迂回かブロック設置(bridgingEnabled)で越える経路になる",
+                        "着地を外すと落ちるので、跳躍に自信が無い場合や落ちると危険な地形ではオフにする")
+                .define("jumpGapEnabled", true);
 
         searchHorizontalMargin = builder
                 .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
@@ -129,6 +136,14 @@ public final class XaeroNavConfig {
 
     public void setBridgingEnabled(boolean value) {
         bridgingEnabled.set(value);
+    }
+
+    public boolean jumpGapEnabled() {
+        return jumpGapEnabled.get();
+    }
+
+    public void setJumpGapEnabled(boolean value) {
+        jumpGapEnabled.set(value);
     }
 
     public int searchHorizontalMargin() {

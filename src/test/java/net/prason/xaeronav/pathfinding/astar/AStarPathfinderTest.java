@@ -309,6 +309,157 @@ class AStarPathfinderTest {
         assertNotEquals(0, first.size());
     }
 
+    /**
+     * 幅{@code gapBlocks}マスの割れ目。両岸は岩盤で、掘って降りることも回り込むこともできない。
+     * 断面の外（z≠0）も岩盤で埋めて、跳ぶ以外の道を残さない。
+     */
+    private static FakeCells chasm(int gapBlocks) {
+        FakeCells cells = FakeCells.of(0, 60, 0, "B".repeat(gapBlocks + 4))
+                .fillWith(FakeCells.BEDROCK);
+        for (int x = 0; x < gapBlocks + 4; x++) {
+            for (int y = 61; y <= 63; y++) {
+                cells.set(x, y, 0, FakeCells.AIR);
+            }
+        }
+        // 割れ目は x=2 から gapBlocks マス。床を抜き、落ちても足場が無いよう深く空ける
+        for (int x = 2; x < 2 + gapBlocks; x++) {
+            for (int y = 40; y <= 60; y++) {
+                cells.set(x, y, 0, FakeCells.AIR);
+            }
+        }
+        return cells;
+    }
+
+    @Test
+    void jumpsGapsUpToThreeBlocksWide() {
+        for (int gap = 1; gap <= 3; gap++) {
+            CellSource cells = chasm(gap);
+
+            PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(2 + gap, 61, 0));
+
+            assertTrue(result.complete(), gap + "マスの割れ目は跳んで渡れるはず");
+            assertTrue(movements(result).contains(MovementType.JUMP),
+                    gap + "マスの割れ目を跳ばずに渡った: " + movements(result));
+        }
+    }
+
+    @Test
+    void doesNotJumpGapsBeyondSprintJumpRange() {
+        // 4マスの割れ目は疾走ジャンプの到達限界を超える
+        CellSource cells = chasm(4);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(6, 61, 0));
+
+        assertFalse(result.complete(), "届かない距離を跳べと言ってはいけない");
+        assertFalse(movements(result).contains(MovementType.JUMP), "跳躍は生成されない: " + movements(result));
+    }
+
+    @Test
+    void bridgesInsteadOfJumpingWhenJumpingIsDisabled() {
+        CellSource cells = chasm(2).jumpGapEnabled(false).canPlaceBlocks(true);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertTrue(result.complete(), "跳べなくてもブロックを置けば渡れる");
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "跳躍を切っているのに跳んだ: " + movements(result));
+        assertTrue(result.steps().stream().anyMatch(PathStep::bridging),
+                "跳ぶ代わりに足場を置いて渡る: " + movements(result));
+    }
+
+    @Test
+    void doesNotCrossAtAllWhenJumpingAndBridgingAreBothDisabled() {
+        CellSource cells = chasm(2).jumpGapEnabled(false).canPlaceBlocks(false);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertFalse(result.complete(), "跳ぶことも置くこともできない割れ目は渡れない");
+    }
+
+    @Test
+    void landsOnTheNearestBankRatherThanJumpingFarther() {
+        // 2マスの割れ目の対岸(x=4)の先に、さらに割れ目(x=5)がある。手前の岸に降りるべき
+        FakeCells cells = chasm(2);
+        for (int y = 40; y <= 60; y++) {
+            cells.set(5, y, 0, FakeCells.AIR);
+        }
+        cells.set(6, 61, 0, FakeCells.AIR).set(6, 62, 0, FakeCells.AIR).set(6, 63, 0, FakeCells.AIR);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertTrue(result.complete());
+        assertEquals(new BlockPos(4, 61, 0), last(result).pos(), "手前の岸に降りる");
+    }
+
+    /**
+     * 掘って登ることも迂回することもできない断崖。Pillarでしか上がれない。
+     * 断面の外（z≠0）を岩盤で埋めるのは、そこが空気のままだと橋を架けて回り込めてしまうため。
+     */
+    private static FakeCells bedrockCliff() {
+        return FakeCells.of(0, 60, 0, """
+                ......
+                ......
+                .BBB..
+                .BBB..
+                .BBB..
+                BBBBBB""")
+                .fillWith(FakeCells.BEDROCK);
+    }
+
+    @Test
+    void pillarsUpACliffThatCannotBeDugOrWalkedAround() {
+        CellSource cells = bedrockCliff().canPlaceBlocks(true);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 64, 0));
+
+        assertTrue(result.complete(), "ブロックを積めば断崖の上に出られる");
+        assertTrue(result.steps().stream().anyMatch(PathStep::bridging),
+                "登るためにブロックを置く区間が出る: " + movements(result));
+        assertTrue(result.steps().stream().filter(PathStep::bridging)
+                        .allMatch(step -> step.movement() == MovementType.ASCEND),
+                "積んで登る区間は上昇として案内する: " + movements(result));
+    }
+
+    @Test
+    void doesNotPillarWithoutBlocksInTheHotbar() {
+        CellSource cells = bedrockCliff().canPlaceBlocks(false);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 64, 0));
+
+        assertFalse(result.complete(), "置くブロックが無ければ断崖は越えられない");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "持っていないブロックを置けとは言わない: " + result.steps());
+    }
+
+    @Test
+    void doesNotPillarThroughAnUnbreakableCeiling() {
+        // 断崖と同じ地形だが、積み上がる列(x=0)の頭上が岩盤で塞がっている
+        CellSource cells = bedrockCliff().set(0, 63, 0, FakeCells.BEDROCK).canPlaceBlocks(true);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 64, 0));
+
+        assertFalse(result.complete(), "掘れない天井の下では積み上がれない");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging), "積む区間は出ない: " + result.steps());
+    }
+
+    @Test
+    void doesNotPillarWhileFloatingInWater() {
+        // 水中に浮いている状態。踏み切って真下にブロックを置くことはできない
+        CellSource cells = FakeCells.of(0, 60, 0, """
+                ......
+                ......
+                .~~~..
+                .~~~..
+                BBBBBB""")
+                .fillWith(FakeCells.BEDROCK)
+                .canPlaceBlocks(true);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(1, 64, 0));
+
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "水中から積み上げる案内はしない: " + result.steps());
+    }
+
     private static PathStep last(PathResult result) {
         return result.steps().get(result.steps().size() - 1);
     }

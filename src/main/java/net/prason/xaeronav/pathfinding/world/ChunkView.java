@@ -57,6 +57,7 @@ public final class ChunkView implements CellSource {
     private final int[] hotbarEfficiency;
     private final boolean diggingEnabled;
     private final boolean canPlaceBlocks;
+    private final boolean jumpGapEnabled;
     private final int minBuildHeight;
     private final int maxBuildHeight;
     private final int minSection;
@@ -77,7 +78,7 @@ public final class ChunkView implements CellSource {
 
     private ChunkView(Long2ObjectMap<LevelChunk> chunks, int totalChunksInBounds, SearchBounds bounds,
                       ItemStack[] hotbar, int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
-                      int minBuildHeight, int maxBuildHeight, int minSection) {
+                      boolean jumpGapEnabled, int minBuildHeight, int maxBuildHeight, int minSection) {
         this.chunks = chunks;
         this.totalChunksInBounds = totalChunksInBounds;
         this.bounds = bounds;
@@ -85,6 +86,7 @@ public final class ChunkView implements CellSource {
         this.hotbarEfficiency = hotbarEfficiency;
         this.diggingEnabled = diggingEnabled;
         this.canPlaceBlocks = canPlaceBlocks;
+        this.jumpGapEnabled = jumpGapEnabled;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
         this.minSection = minSection;
@@ -95,7 +97,7 @@ public final class ChunkView implements CellSource {
 
     /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
     public static ChunkView capture(Level level, Player player, SearchBounds bounds, boolean diggingEnabled,
-                                     boolean bridgingEnabled) {
+                                     boolean bridgingEnabled, boolean jumpGapEnabled) {
         int minChunkX = bounds.minX() >> 4;
         int maxChunkX = bounds.maxX() >> 4;
         int minChunkZ = bounds.minZ() >> 4;
@@ -129,7 +131,7 @@ public final class ChunkView implements CellSource {
 
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, diggingEnabled,
-                bridgingEnabled && canPlaceBlocks,
+                bridgingEnabled && canPlaceBlocks, jumpGapEnabled,
                 level.getMinBuildHeight(), level.getMaxBuildHeight(), level.getMinSection());
     }
 
@@ -150,7 +152,7 @@ public final class ChunkView implements CellSource {
      */
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
-                minBuildHeight, maxBuildHeight, minSection);
+                jumpGapEnabled, minBuildHeight, maxBuildHeight, minSection);
     }
 
     /**
@@ -168,6 +170,11 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean canPlaceBlocks() {
         return canPlaceBlocks;
+    }
+
+    @Override
+    public boolean jumpGapEnabled() {
+        return jumpGapEnabled;
     }
 
     /** 初回アクセス時に計算してキャッシュする。 */

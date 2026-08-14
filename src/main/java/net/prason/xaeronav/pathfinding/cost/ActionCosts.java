@@ -40,13 +40,28 @@ public final class ActionCosts {
     public static final double ASCEND_ONE_BLOCK = Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK);
 
     /**
-     * 1マスの隙間を飛び越えるのに要するtick数。踏み切ってから着地するまでは滞空時間そのもので、
-     * 頂点1.25マスの上昇と下降が対称なので、その往復として求める（約12.5tick）。
+     * 隙間を飛び越えるときの滞空時間（約12.5tick）。踏み切ってから着地するまでは滞空時間そのもので、
+     * 頂点1.25マスの上昇と下降が対称なので、その往復として求める。
+     *
+     * <p>同じ高さへ着地する跳躍は、隙間が1マスでも3マスでも<b>まったく同じ放物線</b>を描く。
+     * 変わるのは踏み切り時の水平速度だけなので、滞空時間は距離に依らずこの値になる。
+     * 距離ごとの差は{@link #JUMP_REACH_PENALTY}で表す。
      *
      * <p>走って2マス進む（約7tick）より高くつくため、平地では選ばれない。迂回が4マス以上に
      * なるときだけ跳ぶ、という現実に近い判断になる。
      */
     public static final double JUMP_ACROSS_GAP = 2.0 * FallPhysics.ticksToFall(1.25);
+
+    /**
+     * 隙間が1マス広がるごとの追加コスト。滞空時間が同じでも、遠くへ跳ぶには踏み切りまでに
+     * 疾走の最高速度が乗っている必要があり、助走の取り直しや踏み切り位置の調整が要る。
+     * 3マスの隙間（着地は4マス先）は疾走ジャンプの到達限界そのもので、外せば落ちる。
+     *
+     * <p>値はBaritoneの{@code jumpPenalty}（既定2.0、ascend/pillar/parkourに一律加算）に合わせた。
+     * これにより「同じ距離を平地で歩く方が安い」（隙間3マス: 跳躍16.5 &gt; 徒歩4マス14.3）が保たれ、
+     * 迂回路があるうちは跳ばない。
+     */
+    public static final double JUMP_REACH_PENALTY = 2.0;
 
     public static final double DESCEND_ONE_BLOCK = fallCost(1);
 
@@ -120,5 +135,10 @@ public final class ActionCosts {
     /** 縁から踏み出して{@code blocks}マス落ち、着地してマスの中心に戻るまで。 */
     public static double fallCost(int blocks) {
         return WALK_OFF_BLOCK + Math.max(FallPhysics.ticksToFall(blocks), CENTER_AFTER_FALL);
+    }
+
+    /** {@code gapBlocks}マスの隙間を飛び越えるコスト。着地点は{@code gapBlocks + 1}マス先になる。 */
+    public static double jumpAcrossGap(int gapBlocks) {
+        return JUMP_ACROSS_GAP + (gapBlocks - 1) * JUMP_REACH_PENALTY;
     }
 }

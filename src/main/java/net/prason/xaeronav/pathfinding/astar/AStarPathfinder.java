@@ -64,6 +64,12 @@ public final class AStarPathfinder {
     private static final int NOTHING_BELOW = Integer.MIN_VALUE;
 
     /**
+     * 飛び越えられる隙間の最大幅（着地点は隙間の1マス先）。疾走ジャンプは滞空約12.5tickの間に
+     * 水平4マス弱しか進めないので、3マスの隙間＝4マス先への着地がバニラの到達限界になる。
+     */
+    private static final int MAX_JUMP_GAP_BLOCKS = 3;
+
+    /**
      * ゴールに到達できなかった場合の到達点候補を、{@code h + g / 係数}という複数の指標で同時に追う。
      * ヒューリスティック単独で最良の点を選ぶと、ゴールに近いだけで行き止まりの地点（崖の縁など）を
      * 掴んでしまう。係数が小さいほど「実際に進んだ距離」を重く見る。
@@ -243,6 +249,9 @@ public final class AStarPathfinder {
             // 掘削コスト」を表示してしまいうる
             case DIAGONAL_ASCEND, DIAGONAL_DESCEND -> {
             }
+            // 登るために掘るのは新しい頭になるセルだけ。到着地点の身体2セルを数えると、
+            // 元の頭（既に通れることが確認済み）まで掘削セルとして表示されてしまう
+            case PILLAR -> columnCost(from.x, from.y + 2, from.y + 2, from.z, cells);
             default -> standingBodyCost(to.x, to.y, to.z, cells);
         }
         return List.copyOf(cells);
@@ -290,6 +299,7 @@ public final class AStarPathfinder {
             addClimbUp(current);
             addClimbDown(current);
         }
+        addPillar(current);
         // 踏み出した先の下に何があるかは落下と設置で共通なので、方向ごとに1度だけ辿る。
         // ブロックの設置を最後に評価するのは、同コストなら地形をそのまま使う移動を採用させるため
         for (int i = 0; i < CARDINAL_DX.length; i++) {
@@ -487,39 +497,55 @@ public final class AStarPathfinder {
     }
 
     /**
-     * 1マスの隙間を飛び越える（同一高度、カーディナル方向のみ）。
+     * 隙間を飛び越える（同一高度、カーディナル方向のみ）。
      *
      * <p>これが無いと、誰でも何も考えずに跨げる1マスの割れ目（小川・洞窟の裂け目・峡谷の枝）で、
      * ブロックを置いて渡るか大きく迂回することになる。
      *
-     * <p>2マス以上の跳躍は扱わない。助走とタイミングが要り、外せば落ちる。落ちる先が峡谷なら
-     * 死ぬのだから、案内が「ここを飛べ」と言ってよい範囲は、誰がやっても失敗しない1マスまで。
+     * <p>{@link #MAX_JUMP_GAP_BLOCKS}マスまで。これは疾走ジャンプの到達限界そのもので、
+     * これ以上は助走をどれだけ取っても届かない。跳躍は外せば落ちるので、そもそも提示するかどうかを
+     * {@link CellSource#jumpGapEnabled()}で切れるようにしてある。
+     *
+     * <p>近い隙間から順に試し、最初に着地できた距離で確定する。同じ方向に複数の着地点があるとき、
+     * 手前に降りられるなら遠くまで跳ぶ理由が無い（{@link ActionCosts#jumpAcrossGap}も遠いほど高い）。
      *
      * <p>空中では掘れないので、通り抜ける空間は掘削なしで通れることを求める。頭上も見る —
      * ジャンプは1.25マス上がるので、天井があると跳べずに隙間へ落ちる。
      */
     private void addJumpGap(PathNode from, int dx, int dz) {
-        int gapX = from.x + dx;
-        int gapZ = from.z + dz;
+        if (!view.jumpGapEnabled()) {
+            return;
+        }
         int y = from.y;
-        if (CellData.standable(view.cell(gapX, y - 1, gapZ))) {
+        if (CellData.standable(view.cell(from.x + dx, y - 1, from.z + dz))) {
             // 隙間ではなく床がある。歩いて行けるならTraverseの方が安い
             return;
         }
-        int x = from.x + 2 * dx;
-        int z = from.z + 2 * dz;
-        if (!CellData.standable(view.cell(x, y - 1, z))) {
+        // 踏み切り地点の頭上。ここが塞がっていると跳躍そのものが成立しない
+        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
             return;
         }
-        if (!clearWithoutDigging(gapX, y, gapZ) || !clearWithoutDigging(x, y, z)) {
+
+        for (int gap = 1; gap <= MAX_JUMP_GAP_BLOCKS; gap++) {
+            int gapX = from.x + gap * dx;
+            int gapZ = from.z + gap * dz;
+            // 跳び越える空間が塞がっていれば、その先へはどれだけ助走しても届かない
+            if (!clearWithoutDigging(gapX, y, gapZ)
+                    || !CellData.occupiableWithoutDigging(view.cell(gapX, y + 2, gapZ))) {
+                return;
+            }
+            int x = from.x + (gap + 1) * dx;
+            int z = from.z + (gap + 1) * dz;
+            if (!CellData.standable(view.cell(x, y - 1, z))) {
+                // まだ着地できない。隙間はもう1マス続く
+                continue;
+            }
+            if (!clearWithoutDigging(x, y, z)) {
+                return;
+            }
+            relax(from, x, y, z, ActionCosts.jumpAcrossGap(gap), MoveKind.JUMP);
             return;
         }
-        // 踏み切り地点と跳び越える隙間の頭上。ここが塞がっていると跳躍そのものが成立しない
-        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))
-                || !CellData.occupiableWithoutDigging(view.cell(gapX, y + 2, gapZ))) {
-            return;
-        }
-        relax(from, x, y, z, ActionCosts.JUMP_ACROSS_GAP, MoveKind.JUMP);
     }
 
     /**
@@ -674,6 +700,35 @@ public final class AStarPathfinder {
         double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + submerged(bodyCost, x, y + 1, z);
         relax(from, x, y, z, cost, MoveKind.BRIDGE);
+    }
+
+    /**
+     * 跳びながら足元にブロックを置いて真上へ1マス登る（design doc §4-1のPillar）。
+     * {@link #addBridge}の垂直版で、これが無いと断崖はどれだけ低くても迂回するしかない。
+     *
+     * <p>置く先は自分がいま立っているセルそのものなので、そこが本当の空気であることを求める。
+     * 水に浮いた状態では踏み切れず、梯子に掴まっている場所には置けない。
+     *
+     * <p>足場は要求しない。連続して積み上げる2手目以降は、自分が直前に置いたブロックの上に
+     * 立っている——地形データにはまだ存在しないセルなので、足場を求めると1マスしか登れなくなる。
+     *
+     * <p>新しい頭になるセル（2つ上）だけが未検証。新しい足元は元の頭で、そこに立っている時点で
+     * 通行可能性は確認済み。{@link #addAscend}と同じく、天井が塞がっていても掘れるなら掘って上がる。
+     */
+    private void addPillar(PathNode from) {
+        if (!view.canPlaceBlocks()) {
+            return;
+        }
+        if (!CellData.passableEmpty(view.cell(from.x, from.y, from.z))) {
+            return;
+        }
+        double clearanceCost = columnCost(from.x, from.y + 2, from.y + 2, from.z, null);
+        if (Double.isInfinite(clearanceCost)) {
+            return;
+        }
+        double cost = ActionCosts.ASCEND_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+                + submerged(clearanceCost, from.x, from.y + 2, from.z);
+        relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR);
     }
 
     /** ブロックを置くセルの周り（真上を除く5面）に水・溶岩があるか。 */
