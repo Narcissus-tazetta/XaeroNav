@@ -651,8 +651,15 @@ public final class PathfindingState {
                 // また同じ理由で失敗し…と無限往復する。エスカレーションは1段階までに留める
                 boolean hitNodeBudget = !finalCoarseGuided
                         && result.expandedNodes() >= XaeroNavConfig.INSTANCE.maxExpandedNodes();
-                boolean needsWideRetry = !result.complete() && !hitNodeBudget && !finalCoarseGuided;
-                boolean needsCoarseGuideRetry = !result.complete() && hitNodeBudget && !finalCoarseGuided;
+                // 再挑戦の予約は、実際に発動できるときだけ立てる。どちらの再挑戦もrenderRadius以内の
+                // ゴールを前提にしている（箱を広げる側は広げ先がrenderRadius、粗い経由地チェーン側は
+                // 読み込み済みチャンクからしか粗い地図を作れない）。予約だけ立てて発動条件が
+                // 通らないと、次tickで同じ探索をやり直しては同じ予約を立て直す無限ループになる
+                boolean retryTargetInBox = horizontalDistance(start, finalTarget) <= renderRadius;
+                boolean needsWideRetry = !result.complete() && !hitNodeBudget && !finalCoarseGuided
+                        && retryTargetInBox;
+                boolean needsCoarseGuideRetry = !result.complete() && hitNodeBudget && !finalCoarseGuided
+                        && retryTargetInBox;
                 // 成功した・広げても無駄だったときは通常マージンに戻す。pendingWideRetryはこの書き込みの
                 // 後に立てること（クライアントスレッドはpendingWideRetryを見てからwideSearchNeededTargetを読む）
                 wideSearchNeededTarget = needsWideRetry ? finalTarget : null;
@@ -692,7 +699,17 @@ public final class PathfindingState {
         return target != null ? target : new DetailTarget(currentGoal, -1);
     }
 
+    /**
+     * 層2の精緻版があればそちらを優先する（{@link #currentRouteWaypoints}と同じ順序）。層1は
+     * チャンク解像度で中間目標が100ブロック近く離れることがあり、描画距離を下げた環境では
+     * {@link #reachableWaypointTarget}の「renderRadius以内」を1つも満たせず長距離ルートごと
+     * 空振りする。精緻版は{@link #REFINED_WAYPOINT_MIN_SPACING_BLOCKS}間隔なのでここを埋められる。
+     */
     private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable) {
+        RefinedRoute refined = refinedRoute;
+        if (refined != null && refined.goal().equals(currentGoal)) {
+            return refined.waypoints();
+        }
         CoarseRoute cached = coarseRoute;
         return cached != null && cached.goal().equals(currentGoal)
                 ? cached.waypoints() : freshRoute(start, currentGoal, boatAvailable);

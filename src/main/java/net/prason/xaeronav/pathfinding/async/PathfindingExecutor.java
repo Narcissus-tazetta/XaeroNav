@@ -38,9 +38,6 @@ public final class PathfindingExecutor {
         return thread;
     });
 
-    /** {@link #submitCoarseGuided}が区間に割り振る展開ノード数の下限。区間数が多いときの頭打ち防止。 */
-    private static final int MIN_LEG_EXPANDED_NODES = 10_000;
-
     /**
      * {@link #submitCoarseGuided}の区間ごとの探索時間上限（ミリ秒）。層2の廊下
      * （{@code CorridorLegSolver.LEG_TIME_LIMIT_MILLIS=300}）より長めにしてある——こちらは
@@ -118,32 +115,57 @@ public final class PathfindingExecutor {
 
         List<BlockPos> rawLegGoals = new ArrayList<>(route.waypoints());
         rawLegGoals.add(goal);
-        // 分割した意味は「1区間を軽くする」こと。そのまま満額を各区間に与えると、最悪ケースで
-        // 区間数倍の計算時間になってしまう
-        int legBudget = Math.max(MIN_LEG_EXPANDED_NODES, limits.maxExpandedNodes() / rawLegGoals.size());
-        SearchLimits legLimits = new SearchLimits(legBudget, COARSE_GUIDED_LEG_TIME_LIMIT_MILLIS,
+        // 展開数の上限は区間数で割らずに満額渡す。SearchLimitsが言うとおりこれは「届かなかった
+        // ときに打ち切る天井」であって払うコストではなく、区間が短いほど実際の展開数は少なく済む。
+        // 割ると、届くはずの区間が手前で切れるだけになる（実機で30000÷3区間=10000となり山岳地形の
+        // 1区間目すら届かなかった）。
+        //
+        // 代わりにチェーン全体を、単一探索1回分と同じ時間で縛る。区間ごとの上限しか無いと
+        // 区間数×COARSE_GUIDED_LEG_TIME_LIMIT_MILLISまで伸びてしまい、これの代替手段であるはずの
+        // チェーンだけが青天井になる
+        SearchLimits legLimits = new SearchLimits(limits.maxExpandedNodes(), COARSE_GUIDED_LEG_TIME_LIMIT_MILLIS,
                 limits.heuristicWeight());
+        long chainDeadline = System.currentTimeMillis() + limits.timeLimitMillis();
 
         List<PathStep> steps = new ArrayList<>();
-        boolean complete = true;
+        boolean complete = false;
         int totalExpanded = 0;
         int totalDistinct = 0;
         BlockPos legStart = StanceFinder.resolveStart(view, start);
-        for (BlockPos rawLegGoal : rawLegGoals) {
-            BlockPos legGoal = StanceFinder.resolveGoal(view, rawLegGoal);
-            BlockPos currentLegStart = legStart;
-            PathResult legResult = search(view, legLimits, cancelled,
-                    (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c));
-            steps.addAll(legResult.steps());
-            totalExpanded += legResult.expandedNodes();
-            totalDistinct += legResult.distinctNodes();
-            if (!legResult.complete()) {
-                // 暫定経路の思想どおり、辿り着けた分はそのまま使う。以降の区間は始点が
-                // 定まらないので続けない
-                complete = false;
+        for (int i = 0; i < rawLegGoals.size(); i++) {
+            long remainingMillis = chainDeadline - System.currentTimeMillis();
+            if (remainingMillis <= 0) {
                 break;
             }
-            legStart = legResult.steps().isEmpty() ? legStart : legResult.steps().get(legResult.steps().size() - 1).pos();
+            SearchLimits thisLegLimits = remainingMillis >= COARSE_GUIDED_LEG_TIME_LIMIT_MILLIS
+                    ? legLimits
+                    : new SearchLimits(legLimits.maxExpandedNodes(), remainingMillis, legLimits.heuristicWeight());
+            BlockPos legGoal = StanceFinder.resolveGoal(view, rawLegGoals.get(i));
+            BlockPos currentLegStart = legStart;
+            PathResult legResult = search(view, thisLegLimits, cancelled,
+                    (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c));
+            totalExpanded += legResult.expandedNodes();
+            totalDistinct += legResult.distinctNodes();
+            boolean lastLeg = i == rawLegGoals.size() - 1;
+
+            if (legResult.complete()) {
+                steps.addAll(legResult.steps());
+                if (!legResult.steps().isEmpty()) {
+                    legStart = legResult.steps().get(legResult.steps().size() - 1).pos();
+                }
+                if (lastLeg) {
+                    complete = true;
+                }
+            } else if (lastLeg) {
+                // 最後の区間は本来の目的地。届かなくても拾えた分はそのまま使う（暫定経路の思想）
+                steps.addAll(legResult.steps());
+            }
+            // 中間の経由地に届かなかったときは、そこで諦めずに同じ地点から次の経由地を狙う。
+            // 粗い地図は溶岩以外に「通行不能」を表現できず、チャンクを埋める垂直な壁は起伏0の
+            // 平坦な台地に見えるため、経由地が壁の天面のような到達不能な点に落ちることがある。
+            // 1つ届かないだけでチェーンごと捨てると、そういう地形で直接探索より悪くなる——
+            // 最後の区間は必ず本来の目的地なので、経由地が全滅しても直接探索と同じ結果に落ち着く。
+            // 部分経路を継ぎ足さないのは、次の区間を同じ地点から引き直す以上そこで経路が飛ぶため
         }
         return new PathResult(steps, complete, totalExpanded, totalDistinct);
     }
