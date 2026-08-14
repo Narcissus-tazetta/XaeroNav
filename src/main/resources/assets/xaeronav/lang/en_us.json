@@ -39,7 +39,7 @@
   "gui.xaeronav.config.digging_enabled": "Allow digging in routes",
   "gui.xaeronav.config.bridging_enabled": "Allow block placement (bridging, pillaring) in routes",
   "gui.xaeronav.config.jump_gap_enabled": "Allow jumping gaps (up to 3 blocks) in routes",
-  "gui.xaeronav.config.fall_damage_tolerance_enabled": "Allow drops that deal fall damage (up to 1/3 health; MLG with a water bucket)",
+  "gui.xaeronav.config.fall_damage_tolerance_enabled": "Tolerate fall damage (up to 1/3 health)",
   "gui.xaeronav.config.hud_enabled": "Guidance HUD",
   "gui.xaeronav.config.straight_line_enabled": "Show dotted line for unsearched sections",
   "hud.xaeronav.hud_on": "XaeroNav: guidance HUD on",
