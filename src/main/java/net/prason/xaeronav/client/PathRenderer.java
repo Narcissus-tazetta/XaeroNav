@@ -1,5 +1,6 @@
 package net.prason.xaeronav.client;
 
+import java.util.Arrays;
 import java.util.List;
 
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -16,7 +17,6 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
-import net.prason.xaeronav.pathfinding.elytra.ElytraPath;
 
 /**
  * design doc §2-5 / Phase 2項目9。Xaero非依存のワールド内描画。
@@ -78,6 +78,10 @@ public final class PathRenderer {
     private double playerY;
     private double playerZ;
 
+    // 点線の経由点を x,y,z の3つ組で並べたもの。遮蔽側と通常側で同じ列を2度なぞるので、
+    // 毎フレーム組み直さずに使い回す（描画スレッド専用）。
+    private double[] straightPoints = new double[12];
+
     @SubscribeEvent
     public void onRenderLevelStage(RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
@@ -89,10 +93,8 @@ public final class PathRenderer {
         }
 
         PathResult groundResult = PathfindingState.INSTANCE.currentResult();
-        ElytraPath elytraPath = ElytraNavState.INSTANCE.currentPath();
         BlockPos goal = PathfindingState.INSTANCE.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
-        boolean hasElytra = elytraPath != null && elytraPath.waypoints().size() >= 2;
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
         boolean hasStraight = goal != null && XaeroNavConfig.INSTANCE.straightLineEnabled()
@@ -100,7 +102,7 @@ public final class PathRenderer {
         if (!hasGround) {
             geometry = null;
         }
-        if (!hasGround && !hasElytra && !hasStraight) {
+        if (!hasGround && !hasStraight) {
             return;
         }
 
@@ -119,7 +121,9 @@ public final class PathRenderer {
         boolean playerInWater = mc.level.getFluidState(playerPos).is(FluidTags.WATER);
         double playerFeetY = playerPos.getY() + 0.55;
         playerX = mc.player.getX();
-        playerY = playerInWater ? playerFeetY : mc.player.getY() + 0.55;
+        // 点線（ゴールへの直線）の起点だけ2マス下げる。目線の高さから引くと、飛行中など
+        // 見下ろす形になる場面で自分の体に埋もれて見えにくいため
+        playerY = (playerInWater ? playerFeetY : mc.player.getY() + 0.55) - 2.0;
         playerZ = mc.player.getZ();
 
         PathGeometry current = null;
@@ -130,9 +134,6 @@ public final class PathRenderer {
                 geometry = current;
             }
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);
-        }
-        if (hasElytra) {
-            renderElytraPath(bufferSource, pose, elytraPath, cameraPos, cullRadiusSq);
         }
         if (hasStraight) {
             renderStraightLine(bufferSource, pose, current, goal, cullRadius);
@@ -160,26 +161,59 @@ public final class PathRenderer {
             fromY = geometry.pointY[last];
             fromZ = geometry.pointZ[last];
         }
-        double dx = goal.getX() + 0.5 - fromX;
-        double dy = goal.getY() + 0.55 - fromY;
-        double dz = goal.getZ() + 0.5 - fromZ;
-        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (length < STRAIGHT_MIN_DISTANCE) {
-            return;
-        }
-        dx /= length;
-        dy /= length;
-        dz /= length;
-        // 描画距離の外は地形ごと描かれないので、そこまで点を積んでも見えない
-        double drawn = Math.min(length, cullRadius);
 
+        // 滑空中の曲がり点だけを使う（先頭は計算した時点の位置で古いので捨て、今の位置から引く）
+        List<Vec3> bend = PathfindingState.INSTANCE.flightGuideWaypoints();
+        int points = 0;
+        points = pushStraightPoint(points, fromX, fromY, fromZ);
+        for (int i = 1; i < bend.size() - 1; i++) {
+            Vec3 point = bend.get(i);
+            points = pushStraightPoint(points, point.x, point.y, point.z);
+        }
+        points = pushStraightPoint(points, goal.getX() + 0.5, goal.getY() + 0.55, goal.getZ() + 0.5);
+
+        // 遮蔽側を最後まで積んでからバッファを閉じ、それから通常側へ移る。BufferSourceは
+        // 一度に1つのRenderTypeしかビルドできず、次のgetBufferを呼んだ時点で前のバッファは
+        // 閉じられる——2つを持って交互に書くと閉じた側への書き込みで落ちる
         VertexConsumer occludedQuads = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
-        drawDashes(occludedQuads, pose, fromX, fromY, fromZ, dx, dy, dz, drawn, STRAIGHT_OCCLUDED_ALPHA);
+        drawStraightDashes(occludedQuads, pose, points, cullRadius, STRAIGHT_OCCLUDED_ALPHA);
         bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
 
         VertexConsumer quadBuffer = bufferSource.getBuffer(RenderType.debugQuads());
-        drawDashes(quadBuffer, pose, fromX, fromY, fromZ, dx, dy, dz, drawn, STRAIGHT_ALPHA);
+        drawStraightDashes(quadBuffer, pose, points, cullRadius, STRAIGHT_ALPHA);
         bufferSource.endBatch(RenderType.debugQuads());
+    }
+
+    private int pushStraightPoint(int count, double x, double y, double z) {
+        if ((count + 1) * 3 > straightPoints.length) {
+            straightPoints = Arrays.copyOf(straightPoints, straightPoints.length * 2);
+        }
+        straightPoints[count * 3] = x;
+        straightPoints[count * 3 + 1] = y;
+        straightPoints[count * 3 + 2] = z;
+        return count + 1;
+    }
+
+    private void drawStraightDashes(VertexConsumer buffer, PoseStack.Pose pose, int points, double cullRadius,
+                                     float alpha) {
+        for (int i = 0; i + 1 < points; i++) {
+            double fromX = straightPoints[i * 3];
+            double fromY = straightPoints[i * 3 + 1];
+            double fromZ = straightPoints[i * 3 + 2];
+            double dx = straightPoints[i * 3 + 3] - fromX;
+            double dy = straightPoints[i * 3 + 4] - fromY;
+            double dz = straightPoints[i * 3 + 5] - fromZ;
+            double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (length < STRAIGHT_MIN_DISTANCE) {
+                continue;
+            }
+            dx /= length;
+            dy /= length;
+            dz /= length;
+            // 描画距離の外は地形ごと描かれないので、そこまで点を積んでも見えない
+            double drawn = Math.min(length, cullRadius);
+            drawDashes(buffer, pose, fromX, fromY, fromZ, dx, dy, dz, drawn, alpha);
+        }
     }
 
     private void drawDashes(VertexConsumer buffer, PoseStack.Pose pose,
@@ -339,22 +373,6 @@ public final class PathRenderer {
         BlockPos pos = new BlockPos(geometry.highlightX[index], geometry.highlightY[index],
                 geometry.highlightZ[index]);
         return level.getBlockState(pos).isAir();
-    }
-
-    private void renderElytraPath(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
-                                   ElytraPath elytraPath, Vec3 camera, double cullRadiusSq) {
-        VertexConsumer quadBuffer = bufferSource.getBuffer(RenderType.debugQuads());
-        List<Vec3> waypoints = elytraPath.waypoints();
-        for (int i = 0; i + 1 < waypoints.size(); i++) {
-            Vec3 from = waypoints.get(i);
-            Vec3 to = waypoints.get(i + 1);
-            if (distanceSqToSegment(camera, from.x, from.y, from.z, to.x, to.y, to.z) > cullRadiusSq) {
-                continue;
-            }
-            drawTube(quadBuffer, pose, from.x, from.y, from.z, to.x, to.y, to.z,
-                    PathColors.ELYTRA[0], PathColors.ELYTRA[1], PathColors.ELYTRA[2], TUBE_ALPHA);
-        }
-        bufferSource.endBatch(RenderType.debugQuads());
     }
 
     /**

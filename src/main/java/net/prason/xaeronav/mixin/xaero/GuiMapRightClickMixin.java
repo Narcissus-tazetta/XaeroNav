@@ -85,6 +85,20 @@ public abstract class GuiMapRightClickMixin {
                 PathfindingState.INSTANCE.setGoal(new BlockPos(goalX, goalY, goalZ));
             }
         });
+        // 「ここへ経路探索」のすぐ下に置く。目的地が無い間は押しても意味が無いので灰色表示にする
+        // （項目自体を消すとメニューの位置が探索中/未探索で変わってしまい押し間違えやすい）
+        int clearIndex = insertIndex + 1;
+        original.add(clearIndex, new RightClickOption("gui.xaeronav_clear_route", clearIndex, (GuiMap) (Object) this) {
+            @Override
+            public boolean isActive() {
+                return PathfindingState.INSTANCE.goal() != null;
+            }
+
+            @Override
+            public void onAction(Screen screen) {
+                PathfindingState.INSTANCE.clear();
+            }
+        });
         return original;
     }
 

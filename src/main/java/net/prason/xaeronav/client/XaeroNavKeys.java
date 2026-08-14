@@ -76,7 +76,6 @@ public final class XaeroNavKeys {
         }
         while (CLEAR.consumeClick()) {
             PathfindingState.INSTANCE.clear();
-            ElytraNavState.INSTANCE.clear();
             mc.player.displayClientMessage(Component.translatable("commands.xaeronav.cleared"), true);
         }
         while (TOGGLE_HUD.consumeClick()) {

@@ -45,6 +45,18 @@ public abstract class WaypointReaderMixin {
                 PathfindingState.INSTANCE.setGoal(new BlockPos(element.getX(), element.getY(), element.getZ()));
             }
         });
+        // 「ここへ経路探索」のすぐ下に置く。目的地が無い間は押しても意味が無いので灰色表示にする
+        original.add(new RightClickOption("gui.xaeronav_clear_route", original.size(), target) {
+            @Override
+            public boolean isActive() {
+                return PathfindingState.INSTANCE.goal() != null;
+            }
+
+            @Override
+            public void onAction(Screen screen) {
+                PathfindingState.INSTANCE.clear();
+            }
+        });
         return original;
     }
 }

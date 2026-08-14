@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -30,6 +32,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
+import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -96,6 +99,13 @@ public final class PathfindingState {
     // 層2廊下の精緻化専用。executorと共用すると、詳細探索の頻繁な再投入（逸脱・末端接近のたびに
     // 走る）のたびにsubmitが「前のジョブ」を打ち切ってしまい、廊下探索が終わる前に必ず潰れる
     private final PathfindingExecutor corridorExecutor = new PathfindingExecutor();
+    // 滑空中の点線を曲げる計算専用。A*とはライフサイクルも打ち切り方も関係が無いので、
+    // PathfindingExecutor（呼ぶたび前のジョブを打ち切る）ではなく素のスレッドを1本持つ
+    private final ExecutorService flightLineExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "xaeronav-flight-line");
+        thread.setDaemon(true);
+        return thread;
+    });
     // clear()・新規setGoal()のたびに増分する。非同期結果を適用する直前にこれと照合し、
     // 一致しなければ「もう古くなったリクエストの結果」として捨てる(clear後に古い結果が
     // currentResultを復活させてしまう競合を防ぐ)。
@@ -141,28 +151,40 @@ public final class PathfindingState {
     // 生データから粗い地図を組み立て、その経由地を区間ごとに辿る（層3・design doc外）
     private volatile BlockPos coarseGuideNeededTarget;
     private volatile boolean pendingCoarseGuideRetry;
+    // エリトラで滑空中か。滑空中は地上A*・長距離ルートの計算を一切止め、目的地への直線（点線）だけを
+    // 見せる（design doc外・自動エリトラ検知。「空はプレイヤー自身が見て操縦できる」ため障害物回避の
+    // 経路は不要という判断）
+    private volatile boolean flying;
+    // 滑空中の点線を山の上・横へ曲げるための経由点。始点・終点を含む2〜3点
+    private volatile List<Vec3> flightGuideWaypoints;
 
     // 直近の探索に使った入力。以下はクライアントスレッドからのみ触る。
     private BlockPos lastStart;
     private int ticksSinceRecalc;
     private int ticksSinceValidation;
+    private int ticksSinceFlightLineRecalc;
     private int arrivedTicks;
 
     private PathfindingState() {
     }
 
     public void setGoal(BlockPos goal) {
-        Level level = Minecraft.getInstance().level;
-        if (level == null) {
+        Minecraft mc = Minecraft.getInstance();
+        Level level = mc.level;
+        Player player = mc.player;
+        if (level == null || player == null) {
             return;
         }
         clear();
-        // 徒歩とエリトラは別々の目的地を持てるが、案内としては一度に1つだけ意味を成す。
-        // 消さずに切り替えると、行き先の違う2本の線が同時に描かれる
-        ElytraNavState.INSTANCE.clear();
         this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
-        recalculate();
+        // 滑空中に指定された目的地は、着地するまで経路を引かない（引いても表示せず捨てるだけになる）
+        this.flying = player.isFallFlying();
+        if (this.flying) {
+            recalculateFlightLine();
+        } else {
+            recalculate();
+        }
     }
 
     /**
@@ -219,6 +241,8 @@ public final class PathfindingState {
         this.pendingRefinedRouteReady = false;
         this.pendingWideRetry = false;
         this.pendingCoarseGuideRetry = false;
+        this.flying = false;
+        this.flightGuideWaypoints = null;
         this.arrivedTicks = 0;
     }
 
@@ -227,8 +251,31 @@ public final class PathfindingState {
     }
 
     public PathResult currentResult() {
+        if (flying) {
+            return null;
+        }
         DisplayedPath shown = displayed;
         return shown == null ? null : shown.result();
+    }
+
+    /** エリトラで滑空中か。滑空中は経路を計算せず、目的地への直線（点線）だけを見せる。 */
+    public boolean flying() {
+        return flying;
+    }
+
+    /**
+     * 滑空中の点線が通るべき経由点（始点・終点を含む）。曲げる必要が無い・まだ計算できていない
+     * 場合は空リストで、描画側は従来どおり現在地から目的地へ1本引く。
+     *
+     * <p>先頭の点は<b>計算した時点</b>のプレイヤー位置なので、届く頃には最大で再計算間隔ぶん古い。
+     * 描画側は先頭を捨てて今の位置から引き直すこと（曲がり点と目的地だけがここから要る情報）。
+     */
+    public List<Vec3> flightGuideWaypoints() {
+        if (!flying) {
+            return List.of();
+        }
+        List<Vec3> current = flightGuideWaypoints;
+        return current == null ? List.of() : current;
     }
 
     /** 探索がまだ走っているか。まだ経路が無いのが計算中だからなのかを案内表示が区別するために使う。 */
@@ -272,6 +319,9 @@ public final class PathfindingState {
      * 大きく外れるほど現在地と点線が食い違い、古いルートが残っているように見える。
      */
     public List<BlockPos> coarseRouteWaypoints() {
+        if (flying) {
+            return List.of();
+        }
         List<BlockPos> all = currentRouteWaypoints();
         DisplayedPath shown = displayed;
         if (all.isEmpty() || shown == null || shown.mode() != PathMode.WAYPOINT) {
@@ -324,6 +374,35 @@ public final class PathfindingState {
         // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
         // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
         if (mc.screen != null) {
+            return;
+        }
+        boolean nowFlying = mc.player.isFallFlying();
+        if (nowFlying != flying) {
+            flying = nowFlying;
+            if (nowFlying) {
+                // 世代を進めた時点で走っている探索の結果は捨てられる。ただし世代不一致の
+                // whenCompleteは早期returnしてcomputingを書かないので、ここで明示的に下ろす
+                generation.incrementAndGet();
+                computing = false;
+                // 離陸した瞬間から線を曲げたい。周期を待つと最初の数秒だけ山を突き抜けて見える
+                recalculateFlightLine();
+            } else {
+                // 着地した。離陸前の経路は遠く離れた場所のものなので先に消してから引き直す
+                // （消さないと、新しい経路が届くまでの数tickだけ古い線が残って見える）
+                displayed = null;
+                flightGuideWaypoints = null;
+                recalculate();
+                return;
+            }
+        }
+        if (flying) {
+            // 滑空中に見るのは到着判定と点線の引き直しだけ。経路追従・逸脱検知・A*の再計算は
+            // どれも地上の話なので止める
+            checkArrival(mc.player, currentGoal, null);
+            ticksSinceFlightLineRecalc++;
+            if (ticksSinceFlightLineRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
+                recalculateFlightLine();
+            }
             return;
         }
         // 経路とモードは一組で差し替わるので、1tickの判断は同じスナップショットの上で行う
@@ -473,11 +552,51 @@ public final class PathfindingState {
         return dx * dx + dz * dz;
     }
 
+    /**
+     * 滑空中の点線を引き直す（山や丘を越える／横へ避ける形に曲げる）。
+     *
+     * <p>鮮度の確認は目的地と次元の一致で行い、A*と共有の{@code generation}は使わない——
+     * こちらは経路探索ではなく見た目を整えるだけの別パイプラインで、A*の打ち切りや世代進行に
+     * 巻き込まれる理由が無い（層2の精緻化{@link #refineRouteAsync}と同じ考え方）。
+     */
+    private void recalculateFlightLine() {
+        ticksSinceFlightLineRecalc = 0;
+        Minecraft mc = Minecraft.getInstance();
+        Level level = mc.level;
+        Player player = mc.player;
+        BlockPos currentGoal = this.goal;
+        if (level == null || player == null || currentGoal == null) {
+            return;
+        }
+
+        Vec3 start = player.position();
+        Vec3 goalVec = Vec3.atCenterOf(currentGoal);
+        ResourceKey<Level> dimension = level.dimension();
+        SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), currentGoal,
+                FlightLineRouter.HORIZONTAL_MARGIN_BLOCKS, FlightLineRouter.VERTICAL_MARGIN_BLOCKS,
+                mc.options.getEffectiveRenderDistance() * 16);
+        // 飛行判定に掘削・ブロック設置・隙間跳び・落下ダメージはどれも無関係なので全てfalse
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false);
+
+        CompletableFuture
+                .supplyAsync(() -> new FlightLineRouter(view).findGuideLine(start, goalVec), flightLineExecutor)
+                .whenComplete((result, error) -> {
+                    if (error != null) {
+                        LOGGER.error("XaeroNav: 滑空中の点線の計算に失敗しました", error);
+                        return;
+                    }
+                    if (flying && currentGoal.equals(goal) && dimension.equals(goalDimension)) {
+                        flightGuideWaypoints = result;
+                    }
+                });
+    }
+
     private void arrive() {
         // 走っている探索の結果で経路が復活しないように世代を進める
         generation.incrementAndGet();
         computing = false;
         displayed = null;
+        flightGuideWaypoints = null;
         arrivedTicks = 0;
         arrived = true;
         Player player = Minecraft.getInstance().player;
