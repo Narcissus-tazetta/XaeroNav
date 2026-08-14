@@ -93,7 +93,7 @@ final class ElytraNavState {
                 HORIZONTAL_MARGIN_BLOCKS, VERTICAL_MARGIN_BLOCKS,
                 mc.options.getEffectiveRenderDistance() * 16);
         // 飛行判定に掘削・ブロック設置・隙間跳びはどれも無関係なので全てfalseにしておく
-        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false);
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false);
 
         long myGeneration = generation.incrementAndGet();
         pathDimension = level.dimension();

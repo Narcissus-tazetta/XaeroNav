@@ -75,6 +75,17 @@ public final class SurfaceCellSource implements CellSource {
         return jumpGapEnabled;
     }
 
+    /** 層2はプレイヤーの状態（体力・持ち物）を知らないので、痛い降下も水バケツMLGも提案しない。 */
+    @Override
+    public int maxFallDamagePoints() {
+        return 0;
+    }
+
+    @Override
+    public boolean canMlgWaterBucket() {
+        return false;
+    }
+
     @Override
     public int openSkyY(int x, int z) {
         byte kind = grid.kindAt(x, z);

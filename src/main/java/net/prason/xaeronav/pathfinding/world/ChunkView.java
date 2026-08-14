@@ -12,6 +12,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ChunkPos;
@@ -48,6 +49,12 @@ public final class ChunkView implements CellSource {
     /** 探索1回でセルは数万〜数十万件になる。伸ばしながら作るとその途中で毎回全件の詰め直しが起きる。 */
     private static final int CELL_CACHE_CAPACITY = 1 << 15;
 
+    /**
+     * 落下ダメージを許容する場合に受け入れる上限（ダメージ点＝0.5ハート単位）を体力から求める割合。
+     * 満タン(20)なら6点＝3ハート＝9マスの落下まで許すことになる。
+     */
+    private static final float FALL_DAMAGE_HEALTH_FRACTION = 3.0f;
+
     private final Long2ObjectMap<LevelChunk> chunks;
     private final int totalChunksInBounds;
     private final SearchBounds bounds;
@@ -58,6 +65,8 @@ public final class ChunkView implements CellSource {
     private final boolean diggingEnabled;
     private final boolean canPlaceBlocks;
     private final boolean jumpGapEnabled;
+    private final int maxFallDamagePoints;
+    private final boolean canMlgWaterBucket;
     private final int minBuildHeight;
     private final int maxBuildHeight;
     private final int minSection;
@@ -78,7 +87,8 @@ public final class ChunkView implements CellSource {
 
     private ChunkView(Long2ObjectMap<LevelChunk> chunks, int totalChunksInBounds, SearchBounds bounds,
                       ItemStack[] hotbar, int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
-                      boolean jumpGapEnabled, int minBuildHeight, int maxBuildHeight, int minSection) {
+                      boolean jumpGapEnabled, int maxFallDamagePoints, boolean canMlgWaterBucket,
+                      int minBuildHeight, int maxBuildHeight, int minSection) {
         this.chunks = chunks;
         this.totalChunksInBounds = totalChunksInBounds;
         this.bounds = bounds;
@@ -87,6 +97,8 @@ public final class ChunkView implements CellSource {
         this.diggingEnabled = diggingEnabled;
         this.canPlaceBlocks = canPlaceBlocks;
         this.jumpGapEnabled = jumpGapEnabled;
+        this.maxFallDamagePoints = maxFallDamagePoints;
+        this.canMlgWaterBucket = canMlgWaterBucket;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
         this.minSection = minSection;
@@ -97,7 +109,8 @@ public final class ChunkView implements CellSource {
 
     /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
     public static ChunkView capture(Level level, Player player, SearchBounds bounds, boolean diggingEnabled,
-                                     boolean bridgingEnabled, boolean jumpGapEnabled) {
+                                     boolean bridgingEnabled, boolean jumpGapEnabled,
+                                     boolean fallDamageToleranceEnabled) {
         int minChunkX = bounds.minX() >> 4;
         int maxChunkX = bounds.maxX() >> 4;
         int minChunkZ = bounds.minZ() >> 4;
@@ -129,9 +142,14 @@ public final class ChunkView implements CellSource {
             canPlaceBlocks |= isBuildingBlock(stack);
         }
 
+        int maxFallDamagePoints = fallDamageToleranceEnabled
+                ? (int) (player.getHealth() / FALL_DAMAGE_HEALTH_FRACTION) : 0;
+        boolean canMlgWaterBucket = fallDamageToleranceEnabled
+                && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
+
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, diggingEnabled,
-                bridgingEnabled && canPlaceBlocks, jumpGapEnabled,
+                bridgingEnabled && canPlaceBlocks, jumpGapEnabled, maxFallDamagePoints, canMlgWaterBucket,
                 level.getMinBuildHeight(), level.getMaxBuildHeight(), level.getMinSection());
     }
 
@@ -152,7 +170,7 @@ public final class ChunkView implements CellSource {
      */
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
-                jumpGapEnabled, minBuildHeight, maxBuildHeight, minSection);
+                jumpGapEnabled, maxFallDamagePoints, canMlgWaterBucket, minBuildHeight, maxBuildHeight, minSection);
     }
 
     /**
@@ -175,6 +193,16 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean jumpGapEnabled() {
         return jumpGapEnabled;
+    }
+
+    @Override
+    public int maxFallDamagePoints() {
+        return maxFallDamagePoints;
+    }
+
+    @Override
+    public boolean canMlgWaterBucket() {
+        return canMlgWaterBucket;
     }
 
     /** 初回アクセス時に計算してキャッシュする。 */

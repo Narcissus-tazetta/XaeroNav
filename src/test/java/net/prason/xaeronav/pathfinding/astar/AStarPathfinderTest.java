@@ -460,6 +460,84 @@ class AStarPathfinderTest {
                 "水中から積み上げる案内はしない: " + result.steps());
     }
 
+    /**
+     * 高さ{@code drop}マスの一枚岩の崖。降りる手段は落下しかない——岩盤なので掘り下げられず、
+     * 断面の外は岩盤で埋めるので迂回もできない。始点は崖の上(x=0)、終点は崖下(x=1)。
+     */
+    private static FakeCells sheerDrop(int drop) {
+        StringBuilder diagram = new StringBuilder("......\n......\n");
+        diagram.append("B.....\n".repeat(drop));
+        diagram.append("BBBBBB");
+        return FakeCells.of(0, 60, 0, diagram.toString()).fillWith(FakeCells.BEDROCK);
+    }
+
+    private static BlockPos dropTop(int drop) {
+        return new BlockPos(0, 61 + drop, 0);
+    }
+
+    private static final BlockPos DROP_BOTTOM = new BlockPos(1, 61, 0);
+
+    @Test
+    void fallsFreelyUpToTheSafeHeight() {
+        CellSource cells = sheerDrop(3);
+
+        PathResult result = search(cells, dropTop(3), DROP_BOTTOM);
+
+        assertTrue(result.complete(), "安全な高さの落下は設定に関係なく降りられる");
+        assertEquals(List.of(MovementType.DESCEND), movements(result));
+    }
+
+    @Test
+    void doesNotFallBeyondTheSafeHeightByDefault() {
+        CellSource cells = sheerDrop(5);
+
+        PathResult result = search(cells, dropTop(5), DROP_BOTTOM);
+
+        assertFalse(result.complete(), "既定では痛い落下を提示しない");
+    }
+
+    @Test
+    void fallsWithDamageWhenTolerated() {
+        // 5マスの落下はダメージ2点。これを許容範囲に収める
+        CellSource cells = sheerDrop(5).maxFallDamagePoints(2);
+
+        PathResult result = search(cells, dropTop(5), DROP_BOTTOM);
+
+        assertTrue(result.complete(), "許容範囲のダメージなら飛び降りて降りられる");
+        assertEquals(List.of(MovementType.FALL_DAMAGE), movements(result));
+    }
+
+    @Test
+    void doesNotFallWhenTheDamageExceedsTheTolerance() {
+        CellSource cells = sheerDrop(5).maxFallDamagePoints(1);
+
+        PathResult result = search(cells, dropTop(5), DROP_BOTTOM);
+
+        assertFalse(result.complete(), "許容量を超えるダメージの落下は提示しない");
+    }
+
+    @Test
+    void usesTheWaterBucketForDropsBeyondTheDamageTolerance() {
+        // 12マスの落下はダメージ9点。体力満タン(許容6点)でも耐えられないが、MLGなら無傷で降りられる
+        CellSource cells = sheerDrop(12).maxFallDamagePoints(6).canMlgWaterBucket(true);
+
+        PathResult result = search(cells, dropTop(12), DROP_BOTTOM);
+
+        assertTrue(result.complete(), "水バケツがあれば高さに関係なく降りられる");
+        assertEquals(List.of(MovementType.FALL_MLG), movements(result));
+    }
+
+    @Test
+    void takesTheCheapDamageRatherThanTheWaterBucket() {
+        CellSource cells = sheerDrop(5).maxFallDamagePoints(6).canMlgWaterBucket(true);
+
+        PathResult result = search(cells, dropTop(5), DROP_BOTTOM);
+
+        assertTrue(result.complete());
+        assertEquals(List.of(MovementType.FALL_DAMAGE), movements(result),
+                "軽いダメージで済む落下に、わざわざ水バケツの手間はかけない");
+    }
+
     private static PathStep last(PathResult result) {
         return result.steps().get(result.steps().size() - 1);
     }

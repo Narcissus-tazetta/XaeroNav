@@ -26,6 +26,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue diggingEnabled;
     private final ModConfigSpec.BooleanValue bridgingEnabled;
     private final ModConfigSpec.BooleanValue jumpGapEnabled;
+    private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
     private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
@@ -55,6 +56,13 @@ public final class XaeroNavConfig {
                         "falseにすると、跳べば渡れる隙間でも迂回かブロック設置(bridgingEnabled)で越える経路になる",
                         "着地を外すと落ちるので、跳躍に自信が無い場合や落ちると危険な地形ではオフにする")
                 .define("jumpGapEnabled", true);
+
+        fallDamageToleranceEnabled = builder
+                .comment("落下ダメージを受ける降下を経路に含めることを許可するか",
+                        "許容するダメージは経路を計算した時点の体力の1/3まで（満タンなら3ハート＝9マスの落下まで）",
+                        "水バケツを持っている場合は、着地寸前に水を置いてダメージを消す降下（MLG）も候補に入る",
+                        "falseなら安全に降りられる高さ(3マス)までしか降下しない")
+                .define("fallDamageToleranceEnabled", false);
 
         searchHorizontalMargin = builder
                 .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
@@ -144,6 +152,14 @@ public final class XaeroNavConfig {
 
     public void setJumpGapEnabled(boolean value) {
         jumpGapEnabled.set(value);
+    }
+
+    public boolean fallDamageToleranceEnabled() {
+        return fallDamageToleranceEnabled.get();
+    }
+
+    public void setFallDamageToleranceEnabled(boolean value) {
+        fallDamageToleranceEnabled.set(value);
     }
 
     public int searchHorizontalMargin() {

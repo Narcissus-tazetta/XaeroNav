@@ -34,6 +34,10 @@ enum MoveKind {
     DIAGONAL_DESCEND(MovementType.DESCEND),
     FALL(MovementType.DESCEND),
     FALL_TO_WATER(MovementType.SWIM),
+    /** 安全高さを超える落下。着地時に体力が減る。 */
+    FALL_DAMAGE(MovementType.FALL_DAMAGE),
+    /** 安全高さを超える落下を、着地寸前の水バケツ設置で無傷にする。 */
+    FALL_MLG(MovementType.FALL_MLG),
     JUMP(MovementType.JUMP);
 
     private final MovementType movementType;
@@ -56,7 +60,7 @@ enum MoveKind {
             case ASCEND, DIAGONAL_ASCEND -> List.of(new BlockPos(x, y, z), new BlockPos(x, y + 1, z),
                     new BlockPos(fromX, fromY + 2, fromZ));
             // 落下は着地点から踏み切り地点の頭上までの縦一列を通り抜ける
-            case FALL, FALL_TO_WATER -> column(x, y, fromY + 1, z);
+            case FALL, FALL_TO_WATER, FALL_DAMAGE, FALL_MLG -> column(x, y, fromY + 1, z);
             // 跳び越える隙間も身体が通る。ここが塞がれたら経路は成立しない
             case JUMP -> jumpCells(fromX, fromZ, x, y, z);
             default -> List.of(new BlockPos(x, y, z), new BlockPos(x, y + 1, z));

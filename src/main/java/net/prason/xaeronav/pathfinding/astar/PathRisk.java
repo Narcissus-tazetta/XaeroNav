@@ -7,5 +7,9 @@ public enum PathRisk {
     WATER_INFLOW,
     VOID_BELOW,
     /** 息継ぎできないまま潜り続ける区間。空気が尽きて溺れる（{@code PathSafetyChecker#drowningRuns}）。 */
-    DROWNING
+    DROWNING,
+    /** 着地時に落下ダメージを受ける区間。設定で許可したときだけ経路に現れる。 */
+    FALL_DAMAGE,
+    /** 着地寸前に水バケツを置かないと落下ダメージを受ける区間。 */
+    MLG_REQUIRED
 }
