@@ -14,12 +14,8 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BoatItem;
-import net.minecraft.world.item.ElytraItem;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
@@ -41,8 +37,7 @@ import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 
 /**
- * {@code /xaeronav goto <pos>}（徒歩・掘削） / {@code /xaeronav flyto <pos>}（エリトラ、design doc §5-3の
- * 明示的モード選択） / {@code /xaeronav clear}。
+ * {@code /xaeronav goto <pos>}（徒歩・掘削） / {@code /xaeronav clear}。
  * Xaeroの右クリックメニュー等からの目的地設定はPhase 2後半（Xaeroアダプタ層）で追加する想定の暫定UI。
  */
 public final class XaeroNavCommands {
@@ -73,21 +68,9 @@ public final class XaeroNavCommands {
                                                     resolved.toShortString()), false);
                                     return 1;
                                 })))
-                .then(Commands.literal("flyto")
-                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> {
-                                    BlockPos pos = BlockPosArgument.getBlockPos(ctx, "pos");
-                                    ElytraNavState.INSTANCE.requestPath(pos);
-                                    ctx.getSource().sendSuccess(
-                                            () -> Component.translatable("commands.xaeronav.goal_elytra",
-                                                    pos.toShortString()), false);
-                                    warnMissingFlightGear(ctx.getSource());
-                                    return 1;
-                                })))
                 .then(Commands.literal("clear")
                         .executes(ctx -> {
                             PathfindingState.INSTANCE.clear();
-                            ElytraNavState.INSTANCE.clear();
                             ctx.getSource().sendSuccess(
                                     () -> Component.translatable("commands.xaeronav.cleared"), false);
                             return 1;
@@ -529,24 +512,5 @@ public final class XaeroNavCommands {
         double dx = a.getX() - b.getX();
         double dz = a.getZ() - b.getZ();
         return Math.sqrt(dx * dx + dz * dz);
-    }
-
-    /**
-     * エリトラ経路は「地形の上まで高度を上げて越える」前提で引く。ところがエリトラは
-     * ロケット花火が無ければ上昇できず、滑空で下るぶんしか進めない。線だけ引いても
-     * 辿れないので、実行できない前提が欠けていることはその場で伝える。
-     */
-    private static void warnMissingFlightGear(CommandSourceStack source) {
-        Player player = Minecraft.getInstance().player;
-        if (player == null) {
-            return;
-        }
-        ItemStack chest = player.getItemBySlot(EquipmentSlot.CHEST);
-        if (!chest.is(Items.ELYTRA) || !ElytraItem.isFlyEnabled(chest)) {
-            source.sendFailure(Component.translatable("commands.xaeronav.no_elytra"));
-        }
-        if (!player.getInventory().contains(stack -> stack.is(Items.FIREWORK_ROCKET))) {
-            source.sendFailure(Component.translatable("commands.xaeronav.no_fireworks"));
-        }
     }
 }

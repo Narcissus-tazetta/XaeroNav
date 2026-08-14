@@ -8,7 +8,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
-import net.prason.xaeronav.pathfinding.elytra.ElytraPath;
 
 /**
  * Xaeroの世界地図・ミニマップへ経路を描くときの「何をどの色で置くか」。
@@ -35,11 +34,11 @@ public final class MapPathOverlay {
      * その時点で描くべきものを1つに固めたもの。経路はワーカースレッドがいつでも差し替えるので、
      * 「何かあるか」の判定と実際の描画が別々に読むと、あると判断した経路が描く頃には消えている。
      */
-    public record Snapshot(PathResult ground, ElytraPath elytra, BlockPos goal, BlockPos playerPos,
-                            List<BlockPos> coarseWaypoints) {
+    public record Snapshot(PathResult ground, BlockPos goal, BlockPos playerPos,
+                            List<BlockPos> coarseWaypoints, List<Vec3> flightBend) {
 
         public boolean isEmpty() {
-            return ground == null && elytra == null && goal == null && coarseWaypoints.isEmpty();
+            return ground == null && goal == null && coarseWaypoints.isEmpty();
         }
     }
 
@@ -50,21 +49,18 @@ public final class MapPathOverlay {
     public static Snapshot snapshot() {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
-            return new Snapshot(null, null, null, null, List.of());
+            return new Snapshot(null, null, null, List.of(), List.of());
         }
         PathResult ground = PathfindingState.INSTANCE.currentResult();
         if (ground != null && ground.steps().isEmpty()) {
             ground = null;
         }
-        ElytraPath elytra = ElytraNavState.INSTANCE.currentPath();
-        if (elytra != null && elytra.waypoints().isEmpty()) {
-            elytra = null;
-        }
         BlockPos goal = XaeroNavConfig.INSTANCE.straightLineEnabled()
                 ? PathfindingState.INSTANCE.goal()
                 : null;
-        return new Snapshot(ground, elytra, goal, player.blockPosition(),
-                PathfindingState.INSTANCE.coarseRouteWaypoints());
+        return new Snapshot(ground, goal, player.blockPosition(),
+                PathfindingState.INSTANCE.coarseRouteWaypoints(),
+                PathfindingState.INSTANCE.flightGuideWaypoints());
     }
 
     public static void draw(Snapshot snapshot, DotSink sink) {
@@ -120,16 +116,24 @@ public final class MapPathOverlay {
                 fromX = snapshot.playerPos().getX();
                 fromZ = snapshot.playerPos().getZ();
             }
-            StraightDots.forEach(fromX, fromZ, goal.getX(), goal.getZ(),
-                    (x, z) -> sink.dot(x, z,
-                            PathColors.STRAIGHT[0], PathColors.STRAIGHT[1], PathColors.STRAIGHT[2]));
-        }
-
-        if (snapshot.elytra() != null) {
-            for (Vec3 waypoint : snapshot.elytra().waypoints()) {
-                sink.dot((int) Math.floor(waypoint.x), (int) Math.floor(waypoint.z),
-                        PathColors.ELYTRA[0], PathColors.ELYTRA[1], PathColors.ELYTRA[2]);
+            // 滑空中の曲がり点だけを辿る（先頭は計算した時点の位置なので使わない）。
+            // 曲げる必要が無ければ空リストで、従来どおり目的地まで1本引かれる
+            List<Vec3> bend = snapshot.flightBend();
+            for (int i = 1; i < bend.size() - 1; i++) {
+                Vec3 point = bend.get(i);
+                int nextX = (int) Math.floor(point.x);
+                int nextZ = (int) Math.floor(point.z);
+                straightDots(sink, fromX, fromZ, nextX, nextZ);
+                fromX = nextX;
+                fromZ = nextZ;
             }
+            straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ());
         }
+    }
+
+    private static void straightDots(DotSink sink, int fromX, int fromZ, int toX, int toZ) {
+        StraightDots.forEach(fromX, fromZ, toX, toZ,
+                (x, z) -> sink.dot(x, z,
+                        PathColors.STRAIGHT[0], PathColors.STRAIGHT[1], PathColors.STRAIGHT[2]));
     }
 }

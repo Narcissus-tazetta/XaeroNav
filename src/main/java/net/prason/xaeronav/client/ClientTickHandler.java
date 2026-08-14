@@ -11,7 +11,6 @@ public final class ClientTickHandler {
     public void onClientTick(ClientTickEvent.Post event) {
         XaeroNavKeys.handleInput();
         PathfindingState.INSTANCE.onClientTick();
-        ElytraNavState.INSTANCE.onClientTick();
         NavPace.INSTANCE.onClientTick();
     }
 
@@ -28,6 +27,5 @@ public final class ClientTickHandler {
     @SubscribeEvent
     public void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         PathfindingState.INSTANCE.clear();
-        ElytraNavState.INSTANCE.clear();
     }
 }

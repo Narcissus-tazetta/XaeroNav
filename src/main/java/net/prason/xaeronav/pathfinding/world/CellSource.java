@@ -3,7 +3,7 @@ package net.prason.xaeronav.pathfinding.world;
 /**
  * 探索が世界に対して行う問い合わせのすべて。
  *
- * <p>経路探索（{@code AStarPathfinder} / {@code ElytraPathfinder} / {@link StanceFinder} /
+ * <p>経路探索（{@code AStarPathfinder} / {@link StanceFinder} /
  * {@code PathSafetyChecker}）がブロックについて知りたいのはここにある4つだけで、
  * チャンクの引き方・ホットバーの複製・掘削コストの求め方といった話は一切要らない。
  *
