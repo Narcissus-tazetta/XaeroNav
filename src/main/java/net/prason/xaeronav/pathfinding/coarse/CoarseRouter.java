@@ -130,12 +130,12 @@ public final class CoarseRouter {
 
         PriorityQueue<Candidate> open =
                 new PriorityQueue<>(Comparator.comparingDouble(Candidate::estimatedTotal));
-        open.add(new Candidate(startIndex, heuristic(map, startX, startZ, goalX, goalZ)));
+        open.add(new Candidate(startIndex, heuristic(map, startX, startZ, goalX, goalZ, waterMultiplier)));
 
         int[] bestSoFar = new int[COEFFICIENTS.length];
         double[] bestHeuristic = new double[COEFFICIENTS.length];
         Arrays.fill(bestSoFar, startIndex);
-        Arrays.fill(bestHeuristic, heuristic(map, startX, startZ, goalX, goalZ));
+        Arrays.fill(bestHeuristic, heuristic(map, startX, startZ, goalX, goalZ, waterMultiplier));
 
         while (!open.isEmpty()) {
             Candidate current = open.poll();
@@ -188,7 +188,7 @@ public final class CoarseRouter {
         }
         cost[nextIndex] = tentative;
         previous[nextIndex] = index(map, x, z);
-        double remaining = heuristic(map, nextX, nextZ, goalX, goalZ);
+        double remaining = heuristic(map, nextX, nextZ, goalX, goalZ, waterMultiplier);
         open.add(new Candidate(nextIndex, tentative + remaining));
 
         for (int i = 0; i < COEFFICIENTS.length; i++) {
@@ -258,14 +258,17 @@ public final class CoarseRouter {
     }
 
     /**
-     * 残りコストの下限。平坦な陸を最短で進んだ場合の値で、水も未知も段差もこれを下回らない。
+     * 残りコストの下限。{@code waterMultiplier}(ボート所持時は{@link #BOAT_MULTIPLIER}<1.0)を
+     * 掛けておかないと、経路が丸ごとボート水域だった場合の実コストがこの下限を下回り非許容になる。
+     * 陸・未知・段差はどれも倍率が1.0以上なのでこれより安くはならない。
      */
-    private static double heuristic(CoarseMap map, int x, int z, int goalX, int goalZ) {
+    private static double heuristic(CoarseMap map, int x, int z, int goalX, int goalZ, double waterMultiplier) {
         int dx = Math.abs(goalX - x);
         int dz = Math.abs(goalZ - z);
         int diagonal = Math.min(dx, dz);
         int straight = Math.max(dx, dz) - diagonal;
-        return diagonal * DIAGONAL_COST + straight * STRAIGHT_COST;
+        double multiplier = Math.min(1.0, waterMultiplier);
+        return (diagonal * DIAGONAL_COST + straight * STRAIGHT_COST) * multiplier;
     }
 
     /**
