@@ -346,7 +346,8 @@ public final class XaeroNavCommands {
                 renderRadius);
         ChunkView normalView = ChunkView.capture(level, player, normalBounds,
                 XaeroNavConfig.INSTANCE.diggingEnabled(), XaeroNavConfig.INSTANCE.bridgingEnabled(),
-                XaeroNavConfig.INSTANCE.jumpGapEnabled());
+                XaeroNavConfig.INSTANCE.jumpGapEnabled(),
+                XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         reportGoalCell(source, normalView, normalBounds, goal);
 
         ProbeRun normal = runProbe(normalView, normalBounds, start, goal);
@@ -441,7 +442,8 @@ public final class XaeroNavCommands {
                                       int horizontalMargin, int verticalMargin, int renderRadius) {
         SearchBounds bounds = SearchBounds.around(level, start, goal, horizontalMargin, verticalMargin, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
-                XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled());
+                XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
+                XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         return runProbe(view, bounds, start, goal);
     }
 

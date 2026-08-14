@@ -13,5 +13,9 @@ public enum MovementType {
     /** 梯子・ツタの昇降。水中と同じく足場を要求しない。 */
     CLIMB,
     /** 1マスの隙間を飛び越える区間（{@code AStarPathfinder#addJumpGap}）。他と違い掘削も設置も伴わない。 */
-    JUMP
+    JUMP,
+    /** 落下ダメージを受けて降りる区間（設定で許可した場合のみ）。実際に体力が減る。 */
+    FALL_DAMAGE,
+    /** 着地寸前に水バケツを置いて落下ダメージを消す区間。タイミング操作が要る。 */
+    FALL_MLG
 }

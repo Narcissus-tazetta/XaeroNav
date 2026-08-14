@@ -83,6 +83,12 @@ public final class PathSafetyChecker {
             // 置いた足場は渡っている間ずっと身体の真下にある。下が空虚なのは設置区間では前提なので見ない
             return hasAdjacent(view, step.placedBlockPos(), CellData::lava) ? PathRisk.LAVA_ADJACENT : PathRisk.NONE;
         }
+        if (step.movement() == MovementType.FALL_DAMAGE) {
+            return PathRisk.FALL_DAMAGE;
+        }
+        if (step.movement() == MovementType.FALL_MLG) {
+            return PathRisk.MLG_REQUIRED;
+        }
         if (step.movement() == MovementType.JUMP) {
             // 跳ぶ区間は、失敗したときに落ちる先が問題になる。溶岩なら即死、深い縦穴なら大怪我なので、
             // 掘削区間と同じように色を変えて「ここは落ちたら終わり」と分かるようにする

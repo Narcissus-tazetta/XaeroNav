@@ -577,7 +577,8 @@ public final class PathfindingState {
                 horizontalMargin, XaeroNavConfig.INSTANCE.searchVerticalMargin(),
                 renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
-                XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled());
+                XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
+                XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
 
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
                 AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());
