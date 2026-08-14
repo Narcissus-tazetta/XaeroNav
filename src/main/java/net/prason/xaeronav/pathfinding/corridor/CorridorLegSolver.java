@@ -1,6 +1,7 @@
 package net.prason.xaeronav.pathfinding.corridor;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.CellSource;
@@ -85,7 +86,7 @@ public final class CorridorLegSolver {
 
         SearchBounds bounds = new SearchBounds(minBlockX, resolvedFrom.getY() - VERTICAL_MARGIN_BLOCKS, minBlockZ,
                 maxBlockX, resolvedFrom.getY() + VERTICAL_MARGIN_BLOCKS, maxBlockZ);
-        CellSource view = new SurfaceCellSource(grid, bounds);
+        CellSource view = new SurfaceCellSource(grid, bounds, XaeroNavConfig.INSTANCE.jumpGapEnabled());
         return new PreparedLeg(view, resolvedFrom, resolvedTo, pendingRegions);
     }
 

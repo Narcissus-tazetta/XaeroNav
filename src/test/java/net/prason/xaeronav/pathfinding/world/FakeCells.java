@@ -46,6 +46,8 @@ public final class FakeCells implements CellSource {
     private final Long2LongOpenHashMap cells = new Long2LongOpenHashMap();
     private SearchBounds bounds;
     private boolean canPlaceBlocks;
+    /** 設定の既定値に合わせてtrue。跳躍を禁じたいテストだけが明示的に切る。 */
+    private boolean jumpGapEnabled = true;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
 
@@ -110,6 +112,11 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    public FakeCells jumpGapEnabled(boolean value) {
+        this.jumpGapEnabled = value;
+        return this;
+    }
+
     public FakeCells bounds(SearchBounds value) {
         this.bounds = value;
         return this;
@@ -156,6 +163,11 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean canPlaceBlocks() {
         return canPlaceBlocks;
+    }
+
+    @Override
+    public boolean jumpGapEnabled() {
+        return jumpGapEnabled;
     }
 
     /**

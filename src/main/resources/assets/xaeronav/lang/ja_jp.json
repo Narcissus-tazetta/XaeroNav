@@ -35,7 +35,8 @@
 
   "gui.xaeronav.config.title": "XaeroNav 設定",
   "gui.xaeronav.config.digging_enabled": "掘削を経路に含める",
-  "gui.xaeronav.config.bridging_enabled": "ブロック設置(橋)を経路に含める",
+  "gui.xaeronav.config.bridging_enabled": "ブロック設置(橋・登り)を経路に含める",
+  "gui.xaeronav.config.jump_gap_enabled": "隙間跳び(最大3マス)を経路に含める",
   "gui.xaeronav.config.hud_enabled": "案内表示(HUD)",
   "gui.xaeronav.config.straight_line_enabled": "未探索区間の点線表示",
   "hud.xaeronav.hud_on": "XaeroNav: 案内表示 オン",

@@ -62,6 +62,11 @@ final class PathGeometry {
     /** ハイライトごとのRGB（ハイライト数 × 3）。 */
     final float[] highlightColor;
     /**
+     * ハイライトが「これから置く場所」か。置いた瞬間に枠を消すため、描画側が毎フレーム
+     * そのセルの現況を見る必要があるものだけを区別する（掘る場所は逆で、壊れるまで出し続ける）。
+     */
+    final boolean[] highlightPlacement;
+    /**
      * 「次に掘る場所」にあたるハイライトの添字範囲 {@code [nextDigFrom, nextDigTo)}。経路の先頭側から
      * 最初に掘削を含む区間を指す（経路はプレイヤーの現在地から作り直されるので、これが手前の掘削地点になる）。
      */
@@ -74,7 +79,7 @@ final class PathGeometry {
                          double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
                          int[] segmentEndStep, double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
-                         int nextDigFrom, int nextDigTo, int fadeFromSegment) {
+                         boolean[] highlightPlacement, int nextDigFrom, int nextDigTo, int fadeFromSegment) {
         this.source = source;
         this.playerInWater = playerInWater;
         this.playerFeetY = playerFeetY;
@@ -90,6 +95,7 @@ final class PathGeometry {
         this.highlightY = highlightY;
         this.highlightZ = highlightZ;
         this.highlightColor = highlightColor;
+        this.highlightPlacement = highlightPlacement;
         this.nextDigFrom = nextDigFrom;
         this.nextDigTo = nextDigTo;
         this.fadeFromSegment = fadeFromSegment;
@@ -201,6 +207,7 @@ final class PathGeometry {
 
         List<BlockPos> highlightCells = new ArrayList<>();
         List<float[]> highlightColors = new ArrayList<>();
+        List<Boolean> highlightPlacements = new ArrayList<>();
         int nextDigFrom = 0;
         int nextDigTo = 0;
         for (PathStep step : steps) {
@@ -211,10 +218,12 @@ final class PathGeometry {
             for (BlockPos cell : step.digCells()) {
                 highlightCells.add(cell);
                 highlightColors.add(PathColors.DIGGING);
+                highlightPlacements.add(false);
             }
             if (step.bridging()) {
                 highlightCells.add(step.placedBlockPos());
                 highlightColors.add(PathColors.BRIDGE);
+                highlightPlacements.add(true);
             }
         }
 
@@ -223,6 +232,7 @@ final class PathGeometry {
         int[] hy = new int[highlights];
         int[] hz = new int[highlights];
         float[] hColor = new float[highlights * 3];
+        boolean[] hPlacement = new boolean[highlights];
         for (int i = 0; i < highlights; i++) {
             BlockPos cell = highlightCells.get(i);
             hx[i] = cell.getX();
@@ -232,12 +242,13 @@ final class PathGeometry {
             hColor[i * 3] = color[0];
             hColor[i * 3 + 1] = color[1];
             hColor[i * 3 + 2] = color[2];
+            hPlacement[i] = highlightPlacements.get(i);
         }
 
         return new PathGeometry(result, playerInWater, playerFeetY,
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), rawX, rawY, rawZ,
-                hx, hy, hz, hColor, nextDigFrom, nextDigTo,
+                hx, hy, hz, hColor, hPlacement, nextDigFrom, nextDigTo,
                 Math.min(fadeFromSegment, segments));
     }
 

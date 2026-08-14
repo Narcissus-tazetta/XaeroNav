@@ -10,6 +10,7 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -320,7 +321,24 @@ public final class PathRenderer {
         double dx = geometry.highlightX[index] + 0.5 - camera.x;
         double dy = geometry.highlightY[index] + 0.5 - camera.y;
         double dz = geometry.highlightZ[index] + 0.5 - camera.z;
-        return dx * dx + dy * dy + dz * dz <= cullRadiusSq;
+        if (dx * dx + dy * dy + dz * dz > cullRadiusSq) {
+            return false;
+        }
+        return !geometry.highlightPlacement[index] || placementPending(geometry, index);
+    }
+
+    /**
+     * 設置予定地がまだ空いているか。置いた瞬間に枠を消すためのもので、経路の引き直しを待たない
+     * （経路は数十tickに一度しか作り直されないので、置いた足場に枠が残り続けて見える）。
+     */
+    private boolean placementPending(PathGeometry geometry, int index) {
+        Level level = Minecraft.getInstance().level;
+        if (level == null) {
+            return true;
+        }
+        BlockPos pos = new BlockPos(geometry.highlightX[index], geometry.highlightY[index],
+                geometry.highlightZ[index]);
+        return level.getBlockState(pos).isAir();
     }
 
     private void renderElytraPath(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,

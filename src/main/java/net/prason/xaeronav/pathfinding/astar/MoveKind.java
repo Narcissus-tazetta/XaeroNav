@@ -17,6 +17,8 @@ enum MoveKind {
     TRAVERSE(MovementType.TRAVERSE),
     DIAGONAL(MovementType.TRAVERSE),
     BRIDGE(MovementType.TRAVERSE),
+    /** 足元にブロックを置いて真上へ登る（design doc §4-1のPillar）。{@link #BRIDGE}の垂直版。 */
+    PILLAR(MovementType.ASCEND),
     SWIM(MovementType.SWIM),
     SWIM_UP(MovementType.SWIM),
     SWIM_DOWN(MovementType.SWIM),
@@ -55,13 +57,26 @@ enum MoveKind {
                     new BlockPos(fromX, fromY + 2, fromZ));
             // 落下は着地点から踏み切り地点の頭上までの縦一列を通り抜ける
             case FALL, FALL_TO_WATER -> column(x, y, fromY + 1, z);
-            // 跳び越える隙間の2マスも身体が通る。ここが塞がれたら経路は成立しない
-            // （両端は2マス離れているので、中点は必ず整数になる）
-            case JUMP -> List.of(new BlockPos(x, y, z), new BlockPos(x, y + 1, z),
-                    new BlockPos((fromX + x) / 2, y, (fromZ + z) / 2),
-                    new BlockPos((fromX + x) / 2, y + 1, (fromZ + z) / 2));
+            // 跳び越える隙間も身体が通る。ここが塞がれたら経路は成立しない
+            case JUMP -> jumpCells(fromX, fromZ, x, y, z);
             default -> List.of(new BlockPos(x, y, z), new BlockPos(x, y + 1, z));
         };
+    }
+
+    /**
+     * 踏み切り地点の次のマスから着地点までの、身体2セル分。跳躍はカーディナル方向限定なので
+     * dx・dzのどちらかは必ず0で、歩数は水平距離の和で求まる。
+     */
+    private static List<BlockPos> jumpCells(int fromX, int fromZ, int x, int y, int z) {
+        int stepX = Integer.signum(x - fromX);
+        int stepZ = Integer.signum(z - fromZ);
+        int steps = Math.abs(x - fromX) + Math.abs(z - fromZ);
+        List<BlockPos> cells = new ArrayList<>(steps * 2);
+        for (int i = 1; i <= steps; i++) {
+            cells.add(new BlockPos(fromX + stepX * i, y, fromZ + stepZ * i));
+            cells.add(new BlockPos(fromX + stepX * i, y + 1, fromZ + stepZ * i));
+        }
+        return List.copyOf(cells);
     }
 
     private static List<BlockPos> column(int x, int bottomY, int topY, int z) {
@@ -72,8 +87,11 @@ enum MoveKind {
         return List.copyOf(cells);
     }
 
-    /** 空洞を渡るためにブロックを置く座標。それ以外の移動では{@code null}。 */
+    /**
+     * 移動のためにブロックを置く座標。それ以外の移動では{@code null}。
+     * Bridgeは進行先の床、Pillarは踏み台にする元の足元で、どちらも到着地点の1つ下になる。
+     */
     BlockPos placedBlockPos(int x, int y, int z) {
-        return this == BRIDGE ? new BlockPos(x, y - 1, z) : null;
+        return this == BRIDGE || this == PILLAR ? new BlockPos(x, y - 1, z) : null;
     }
 }

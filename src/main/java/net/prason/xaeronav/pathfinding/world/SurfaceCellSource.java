@@ -16,10 +16,12 @@ public final class SurfaceCellSource implements CellSource {
 
     private final SurfaceGrid grid;
     private final SearchBounds bounds;
+    private final boolean jumpGapEnabled;
 
-    public SurfaceCellSource(SurfaceGrid grid, SearchBounds bounds) {
+    public SurfaceCellSource(SurfaceGrid grid, SearchBounds bounds, boolean jumpGapEnabled) {
         this.grid = grid;
         this.bounds = bounds;
+        this.jumpGapEnabled = jumpGapEnabled;
     }
 
     @Override
@@ -66,6 +68,11 @@ public final class SurfaceCellSource implements CellSource {
     @Override
     public boolean canPlaceBlocks() {
         return false;
+    }
+
+    @Override
+    public boolean jumpGapEnabled() {
+        return jumpGapEnabled;
     }
 
     @Override

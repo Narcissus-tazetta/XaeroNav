@@ -83,6 +83,32 @@ class ActionCostsTest {
         assertTrue(ActionCosts.JUMP_ACROSS_GAP > 2 * ActionCosts.SPRINT_ONE_BLOCK);
     }
 
+    /**
+     * 跳ぶより歩く方が安い、をどの隙間幅でも保つ。ここが逆転すると、平地に迂回路があっても
+     * 跳ぶ経路が選ばれ、着地を外せば落ちる案内を勧めることになる。
+     */
+    @Test
+    void jumpingAnyGapCostsMoreThanSprintingAroundIt() {
+        for (int gap = 1; gap <= 3; gap++) {
+            // 着地点は隙間の1マス先。同じ距離を平地で走った場合と比べる
+            double sprintSameDistance = (gap + 1) * ActionCosts.SPRINT_ONE_BLOCK;
+            assertTrue(ActionCosts.jumpAcrossGap(gap) > sprintSameDistance,
+                    gap + "マスの隙間跳びが、同じ距離を走るより安くなっている");
+        }
+    }
+
+    @Test
+    void widerGapsCostMore() {
+        assertEquals(ActionCosts.JUMP_ACROSS_GAP, ActionCosts.jumpAcrossGap(1),
+                "1マスの隙間は従来どおり滞空時間そのもの");
+        double previous = ActionCosts.jumpAcrossGap(1);
+        for (int gap = 2; gap <= 3; gap++) {
+            double cost = ActionCosts.jumpAcrossGap(gap);
+            assertTrue(cost > previous, gap + "マスの隙間は" + (gap - 1) + "マスより高くつくはず");
+            previous = cost;
+        }
+    }
+
     @Test
     void safeFallBlocksMatchesVanillaFallDamageThreshold() {
         assertEquals(3, ActionCosts.SAFE_FALL_BLOCKS);
