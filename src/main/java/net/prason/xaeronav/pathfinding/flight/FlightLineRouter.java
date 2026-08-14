@@ -83,7 +83,13 @@ public final class FlightLineRouter {
         return List.of(start, goal);
     }
 
-    /** 上・左・右・左斜め上・右斜め上。真下へ曲げても地形は避けられないので持たない。 */
+    /**
+     * 左・右・左斜め上・右斜め上・上の順。真下へ曲げても地形は避けられないので持たない。
+     *
+     * <p>同じ半径ならどの向きも余分距離は同じ（半径だけで決まる）ため、複数方向が同時に地形を
+     * 避けられる際どい間合いでは並び順がそのままタイブレークになる。水平成分の大きい向きから
+     * 試すことで、際どい場面では「上へ抜ける」より「横へ逸れる」を優先する。
+     */
     private static final int DIRECTION_COUNT = 5;
 
     private static final double DIAGONAL = Math.sqrt(0.5);
@@ -94,16 +100,16 @@ public final class FlightLineRouter {
      */
     private Vec3 bendPoint(Vec3 middle, double perpX, double perpZ, double radius, int direction) {
         double lateral = switch (direction) {
-            case 0 -> 0.0;
-            case 1 -> 1.0;
-            case 2 -> -1.0;
-            case 3 -> DIAGONAL;
-            default -> -DIAGONAL;
+            case 0 -> 1.0;
+            case 1 -> -1.0;
+            case 2 -> DIAGONAL;
+            case 3 -> -DIAGONAL;
+            default -> 0.0;
         };
         double vertical = switch (direction) {
-            case 0 -> 1.0;
-            case 1, 2 -> 0.0;
-            default -> DIAGONAL;
+            case 0, 1 -> 0.0;
+            case 2, 3 -> DIAGONAL;
+            default -> 1.0;
         };
         SearchBounds bounds = view.bounds();
         return new Vec3(
