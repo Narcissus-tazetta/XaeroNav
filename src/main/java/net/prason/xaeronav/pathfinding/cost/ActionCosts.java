@@ -127,6 +127,18 @@ public final class ActionCosts {
      */
     public static final double PLACE_BLOCK_OVERHEAD_TICKS = 8.0;
 
+    /**
+     * 落下ダメージ許容時、ダメージ1点(0.5ハート)あたりの追加ペナルティ。{@link #JUMP_REACH_PENALTY}と
+     * 同じ「安い迂回があるならそちらを選ばせる」ための重み。本MOD独自の見積もり。
+     */
+    public static final double FALL_DAMAGE_PENALTY_PER_POINT = 2.0;
+
+    /**
+     * 水バケツMLG（着地寸前に水を設置し直後に回収して落下ダメージを無効化する）の照準・設置・回収
+     * オーバーヘッド。{@link #PLACE_BLOCK_OVERHEAD_TICKS}と同じ「照準して設置」動作なので同値を採用。
+     */
+    public static final double MLG_WATER_OVERHEAD_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
+
     public static final double INFEASIBLE = Double.POSITIVE_INFINITY;
 
     private ActionCosts() {

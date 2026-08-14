@@ -628,9 +628,12 @@ public final class AStarPathfinder {
     /**
      * 縁から踏み出して落ちる。1マス下は{@link #addDescend}が扱うので、ここは2マス以上の落下だけ。
      *
-     * <p>落下ダメージを受ける高さは提示しない（{@link ActionCosts#SAFE_FALL_BLOCKS}まで）。降りる手段は
-     * 掘り下げ（Descend + 掘削）もあるので、痛い近道を勧めるより階段状に降りる経路を出す方がよい。
+     * <p>既定では落下ダメージを受ける高さを提示しない（{@link ActionCosts#SAFE_FALL_BLOCKS}まで）。降りる
+     * 手段は掘り下げ（Descend + 掘削）もあるので、痛い近道を勧めるより階段状に降りる経路を出す方がよい。
      * ただし着水はバニラが落下距離をリセットするので、高さを問わず安全に降りられる。
+     *
+     * <p>設定で許可された場合だけ、体力から決まる上限までのダメージ落下と、水バケツMLGによる無傷の
+     * 落下を候補に加える（{@link CellSource#maxFallDamagePoints}／{@link CellSource#canMlgWaterBucket}）。
      */
     private void addFall(PathNode from, int dx, int dz, int obstacleY) {
         if (obstacleY == NOTHING_BELOW) {
@@ -655,8 +658,24 @@ public final class AStarPathfinder {
             return;
         }
         int drop = from.y - obstacleY - 1;
-        if (drop >= 2 && drop <= ActionCosts.SAFE_FALL_BLOCKS) {
+        if (drop < 2) {
+            return;
+        }
+        if (drop <= ActionCosts.SAFE_FALL_BLOCKS) {
             relax(from, x, obstacleY + 1, z, ActionCosts.fallCost(drop), MoveKind.FALL);
+            return;
+        }
+
+        // バニラのダメージは ceil(落下距離 - SAFE_FALL_DISTANCE)。落下距離が整数マスなのでそのまま引き算になる
+        int damage = drop - ActionCosts.SAFE_FALL_BLOCKS;
+        if (view.canMlgWaterBucket()) {
+            relax(from, x, obstacleY + 1, z,
+                    ActionCosts.fallCost(drop) + ActionCosts.MLG_WATER_OVERHEAD_TICKS, MoveKind.FALL_MLG);
+        }
+        if (damage <= view.maxFallDamagePoints()) {
+            relax(from, x, obstacleY + 1, z,
+                    ActionCosts.fallCost(drop) + damage * ActionCosts.FALL_DAMAGE_PENALTY_PER_POINT,
+                    MoveKind.FALL_DAMAGE);
         }
     }
 

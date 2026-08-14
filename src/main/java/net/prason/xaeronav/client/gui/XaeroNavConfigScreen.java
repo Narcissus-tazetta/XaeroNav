@@ -38,6 +38,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 cfg.bridgingEnabled(), cfg::setBridgingEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.jump_gap_enabled",
                 cfg.jumpGapEnabled(), cfg::setJumpGapEnabled));
+        this.list.addBig(boolOption("gui.xaeronav.config.fall_damage_tolerance_enabled",
+                cfg.fallDamageToleranceEnabled(), cfg::setFallDamageToleranceEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.hud_enabled",
                 cfg.hudEnabled(), cfg::setHudEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.straight_line_enabled",

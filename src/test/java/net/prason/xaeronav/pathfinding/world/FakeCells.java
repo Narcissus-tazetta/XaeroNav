@@ -48,6 +48,9 @@ public final class FakeCells implements CellSource {
     private boolean canPlaceBlocks;
     /** 設定の既定値に合わせてtrue。跳躍を禁じたいテストだけが明示的に切る。 */
     private boolean jumpGapEnabled = true;
+    /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
+    private int maxFallDamagePoints;
+    private boolean canMlgWaterBucket;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
 
@@ -117,6 +120,16 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    public FakeCells maxFallDamagePoints(int value) {
+        this.maxFallDamagePoints = value;
+        return this;
+    }
+
+    public FakeCells canMlgWaterBucket(boolean value) {
+        this.canMlgWaterBucket = value;
+        return this;
+    }
+
     public FakeCells bounds(SearchBounds value) {
         this.bounds = value;
         return this;
@@ -168,6 +181,16 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean jumpGapEnabled() {
         return jumpGapEnabled;
+    }
+
+    @Override
+    public int maxFallDamagePoints() {
+        return maxFallDamagePoints;
+    }
+
+    @Override
+    public boolean canMlgWaterBucket() {
+        return canMlgWaterBucket;
     }
 
     /**

@@ -24,6 +24,10 @@ final class PathColors {
     static final float[] WATER_INFLOW = {0.1f, 0.7f, 1.0f};
     /** 息継ぎできない潜水区間。同じ水色でも{@link #SWIM}とは明確に違う暗さにする。 */
     static final float[] DROWNING = {0.1f, 0.15f, 0.55f};
+    /** 体力が減る降下。危険色の中では警告寄り（{@link #LAVA_ADJACENT}の赤ほど強くない）。 */
+    static final float[] FALL_DAMAGE = {1.0f, 0.35f, 0.0f};
+    /** 着地寸前の水バケツが要る降下。{@link #FALL_DAMAGE}と同系だが、水を使うことが分かる色にする。 */
+    static final float[] MLG_REQUIRED = {0.0f, 0.85f, 0.8f};
     static final float[] DIGGING = {1.0f, 0.55f, 0.1f};
     static final float[] SWIM = {0.1f, 0.4f, 1.0f};
     static final float[] JUMP = {0.95f, 0.6f, 0.9f};
@@ -46,6 +50,8 @@ final class PathColors {
             case VOID_BELOW -> VOID_BELOW;
             case WATER_INFLOW -> WATER_INFLOW;
             case DROWNING -> DROWNING;
+            case FALL_DAMAGE -> FALL_DAMAGE;
+            case MLG_REQUIRED -> MLG_REQUIRED;
             case NONE -> null;
         };
         if (risk != null) {
@@ -63,6 +69,9 @@ final class PathColors {
             case CLIMB -> CLIMB;
             case ASCEND -> ASCEND;
             case DESCEND -> DESCEND;
+            // riskのswitchで必ず先に拾われるので、ここへは落ちてこない
+            case FALL_DAMAGE -> FALL_DAMAGE;
+            case FALL_MLG -> MLG_REQUIRED;
             case TRAVERSE -> WALK;
         };
     }

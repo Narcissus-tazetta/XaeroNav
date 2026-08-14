@@ -1,7 +1,10 @@
 package net.prason.xaeronav.client;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -13,6 +16,7 @@ import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathRisk;
+import net.prason.xaeronav.pathfinding.astar.PathStep;
 
 /**
  * 画面上部の案内表示。「次にどちらへ曲がるか」「残りの道のり・所要時間」を出す。
@@ -35,9 +39,9 @@ public final class NavHud {
     private final List<Component> lines = new ArrayList<>(4);
     private final List<Integer> colors = new ArrayList<>(4);
 
-    // 溺れる区間があるかは経路が変わったときにしか変わらない。HUDは毎フレーム描かれるので、
+    // 警告すべき区間があるかは経路が変わったときにしか変わらない。HUDは毎フレーム描かれるので、
     // 全ステップの走査を経路1本につき1度で済ませる
-    private final PathCache<Boolean> drowningAhead = new PathCache<>();
+    private final PathCache<Set<PathRisk>> risksAhead = new PathCache<>();
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
@@ -78,9 +82,17 @@ public final class NavHud {
             add(instruction(guidance, climbing, waypointNumber > 0), PRIMARY_COLOR);
             add(Component.translatable("hud.xaeronav.remaining",
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
-            if (drowningAhead(result)) {
+            Set<PathRisk> risks = risksAhead(result);
+            if (risks.contains(PathRisk.DROWNING)) {
                 // 線の色だけでは「息が続かない」ことまでは伝わらない。潜る前に分かる必要がある
                 add(Component.translatable("hud.xaeronav.drowning"), WARNING_COLOR);
+            }
+            if (risks.contains(PathRisk.MLG_REQUIRED)) {
+                // 着地の瞬間に操作が要る区間なので、辿り着いてから気付いたのでは間に合わない
+                add(Component.translatable("hud.xaeronav.mlg_required"), WARNING_COLOR);
+            }
+            if (risks.contains(PathRisk.FALL_DAMAGE)) {
+                add(Component.translatable("hud.xaeronav.fall_damage"), WARNING_COLOR);
             }
             if (!guidance.complete) {
                 add(Component.translatable("hud.xaeronav.incomplete"), WARNING_COLOR);
@@ -95,9 +107,10 @@ public final class NavHud {
         colors.add(color);
     }
 
-    private boolean drowningAhead(PathResult result) {
-        return drowningAhead.get(result,
-                path -> path.steps().stream().anyMatch(step -> step.risk() == PathRisk.DROWNING));
+    private Set<PathRisk> risksAhead(PathResult result) {
+        return risksAhead.get(result, path -> path.steps().stream()
+                .map(PathStep::risk)
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(PathRisk.class))));
     }
 
     private static Component instruction(NavGuidance guidance, boolean climbing, boolean onWaypoint) {
