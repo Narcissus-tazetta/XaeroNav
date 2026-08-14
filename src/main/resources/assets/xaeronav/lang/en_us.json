@@ -1,15 +1,14 @@
 {
   "gui.xaeronav_goto_waypoint": "Navigate Here",
   "gui.xaeronav_goto_here": "Navigate Here",
+  "gui.xaeronav_clear_route": "Clear Route",
 
   "commands.xaeronav.goal_walk": "XaeroNav: destination set, on foot (%s)",
-  "commands.xaeronav.goal_elytra": "XaeroNav: destination set, elytra (%s)",
   "commands.xaeronav.cleared": "XaeroNav: route cleared",
-  "commands.xaeronav.no_elytra": "XaeroNav: no usable elytra equipped",
-  "commands.xaeronav.no_fireworks": "XaeroNav: no firework rockets — you cannot gain altitude, so only the gliding part of this route is usable",
 
   "hud.xaeronav.searching": "Finding a route...",
   "hud.xaeronav.no_route": "No route found",
+  "hud.xaeronav.flying": "Gliding — routing paused",
   "hud.xaeronav.direct_distance": "%d blocks away in a straight line",
   "hud.xaeronav.arriving": "Arriving",
   "hud.xaeronav.arrived": "Arrived!",

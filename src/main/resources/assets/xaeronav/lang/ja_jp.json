@@ -1,15 +1,14 @@
 {
   "gui.xaeronav_goto_waypoint": "ここへ経路探索",
   "gui.xaeronav_goto_here": "ここへ経路探索",
+  "gui.xaeronav_clear_route": "経路をクリア",
 
   "commands.xaeronav.goal_walk": "XaeroNav: 目的地を設定・徒歩 (%s)",
-  "commands.xaeronav.goal_elytra": "XaeroNav: 目的地を設定・エリトラ (%s)",
   "commands.xaeronav.cleared": "XaeroNav: 経路をクリア",
-  "commands.xaeronav.no_elytra": "XaeroNav: 飛べるエリトラを装備していません",
-  "commands.xaeronav.no_fireworks": "XaeroNav: ロケット花火がありません。上昇できないので、滑空で下れる範囲しか辿れません",
 
   "hud.xaeronav.searching": "経路を計算中…",
   "hud.xaeronav.no_route": "経路が見つかりません",
+  "hud.xaeronav.flying": "滑空中（経路の計算は止めています）",
   "hud.xaeronav.direct_distance": "目的地まで直線で%dブロック",
   "hud.xaeronav.arriving": "まもなく到着",
   "hud.xaeronav.arrived": "到着！",
