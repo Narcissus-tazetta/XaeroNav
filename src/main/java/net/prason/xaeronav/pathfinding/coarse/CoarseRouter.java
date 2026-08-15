@@ -50,6 +50,16 @@ public final class CoarseRouter {
     private static final double UNKNOWN_MULTIPLIER = 1.6;
 
     /**
+     * 溶岩が混じるセルを通る倍率。他の倍率と違い実測の速度比ではない——溶岩は歩みを遅くするのではなく
+     * 迂回を強いるものなので、「チャンク内で溶岩を避けて回り込むぶん実距離が2倍前後になる」という
+     * 見積もりに、層1からは安全に抜けられるか分からないぶんの余裕を足した値。
+     *
+     * <p>ネザーはこの種のセルが常時混じるので、これを通行不能にすると経路が繋がらない。
+     * かといって陸と同じにすると溶岩地帯を突っ切る案内になる。「他に道があるならそちら」を選ばせる重み。
+     */
+    private static final double LAVA_MIXED_MULTIPLIER = 2.5;
+
+    /**
      * 高低差1ブロックあたりの追加コスト。登りも下りも同じだけ掛ける。
      * 粗いセルでは崖と緩斜面を区別できないので、どちらつかずの中間の重みにしておき、
      * 「同じくらいの距離なら平坦な方」を選ばせるためだけに使う。
@@ -145,7 +155,7 @@ public final class CoarseRouter {
             }
             closed[current.index()] = true;
             if (current.index() == goalIndex) {
-                return buildRoute(map, previous, goalIndex, startIndex, true);
+                return buildRoute(map, previous, goalIndex, startIndex, true, start.getY());
             }
 
             int x = cellX(map, current.index());
@@ -162,7 +172,8 @@ public final class CoarseRouter {
             }
         }
 
-        return buildRoute(map, previous, selectFallback(map, bestSoFar, startIndex), startIndex, false);
+        return buildRoute(map, previous, selectFallback(map, bestSoFar, startIndex), startIndex, false,
+                start.getY());
     }
 
     private static void relax(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
@@ -229,6 +240,7 @@ public final class CoarseRouter {
         double multiplier = switch (kind) {
             case CoarseMap.WATER -> waterMultiplier;
             case CoarseMap.NO_DATA -> UNKNOWN_MULTIPLIER;
+            case CoarseMap.LAVA_MIXED -> LAVA_MIXED_MULTIPLIER;
             default -> 1.0;
         };
 
@@ -276,7 +288,7 @@ public final class CoarseRouter {
      * 粗い線をなぞるだけの案内になってしまう。
      */
     private static Route buildRoute(CoarseMap map, int[] previous, int endIndex, int startIndex,
-                                    boolean reachedGoal) {
+                                    boolean reachedGoal, int startY) {
         List<Integer> cells = new ArrayList<>();
         for (int cursor = endIndex; cursor != -1; cursor = previous[cursor]) {
             cells.add(cursor);
@@ -292,6 +304,10 @@ public final class CoarseRouter {
         List<BlockPos> waypoints = new ArrayList<>();
         int lastX = cellX(map, cells.get(0));
         int lastZ = cellZ(map, cells.get(0));
+        // 高さが分からないセルのフォールバックは、直前に分かった高さを引き継ぐ（無ければ出発点）。
+        // 固定の0だと、ネザーのように地形の主要な高さ帯が0から遠い次元で、詳細探索が
+        // 奈落の底へ経路を引こうとしてノード上限を焼き切る
+        int fallbackHeight = startY;
         for (int i = 1; i < cells.size(); i++) {
             int cell = cells.get(i);
             int x = cellX(map, cell);
@@ -300,7 +316,9 @@ public final class CoarseRouter {
             int spanX = Math.abs(x - lastX);
             int spanZ = Math.abs(z - lastZ);
             if (last || Math.max(spanX, spanZ) >= WAYPOINT_SPACING_CELLS) {
-                waypoints.add(toBlockPos(map, x, z));
+                BlockPos waypoint = toBlockPos(map, x, z, fallbackHeight);
+                waypoints.add(waypoint);
+                fallbackHeight = waypoint.getY();
                 lastX = x;
                 lastZ = z;
             }
@@ -308,11 +326,11 @@ public final class CoarseRouter {
         return new Route(List.copyOf(waypoints), reachedGoal);
     }
 
-    /** セルの中心。高さが分からないセルは、詳細探索が始点の高さから解き直せるよう0にしておく。 */
-    private static BlockPos toBlockPos(CoarseMap map, int chunkX, int chunkZ) {
+    /** セルの中心。高さが分からないセルは{@code fallbackHeight}を使う。 */
+    private static BlockPos toBlockPos(CoarseMap map, int chunkX, int chunkZ, int fallbackHeight) {
         short height = map.heightAtChunk(chunkX, chunkZ);
         return new BlockPos(chunkX * CELL_BLOCKS + CELL_BLOCKS / 2,
-                height == CoarseMap.UNKNOWN_HEIGHT ? 0 : height,
+                height == CoarseMap.UNKNOWN_HEIGHT ? fallbackHeight : height,
                 chunkZ * CELL_BLOCKS + CELL_BLOCKS / 2);
     }
 

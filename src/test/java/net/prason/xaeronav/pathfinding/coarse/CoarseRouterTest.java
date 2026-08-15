@@ -121,6 +121,49 @@ class CoarseRouterTest {
         }
     }
 
+    /**
+     * 溶岩が混じるだけのセルは通れる。ネザーは既知セルの過半数がこれになるので、
+     * 通行不能にすると経路がまったく繋がらない。
+     */
+    @Test
+    void crossesMixedLavaWhenItIsTheOnlyWay() {
+        CoarseMapBuilder builder = flatLand();
+        for (int x = 4; x <= 6; x++) {
+            for (int z = -RADIUS; z < RADIUS; z++) {
+                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+            }
+        }
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+
+        assertTrue(route.reachedGoal());
+        assertEquals(20 * 16 + 8, last(route).getX());
+    }
+
+    /** ただし迂回できるなら迂回する——「通れる」と「選ぶ」は別。 */
+    @Test
+    void detoursAroundMixedLavaWhenCleanGroundExists() {
+        CoarseMapBuilder builder = flatLand();
+        // 進路上に溶岩混じりの帯を置くが、Z方向に少し逸れれば素の陸で回り込める
+        for (int x = 4; x <= 6; x++) {
+            for (int z = -2; z <= 2; z++) {
+                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+            }
+        }
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+
+        assertTrue(route.reachedGoal());
+        for (BlockPos waypoint : route.waypoints()) {
+            int chunkX = waypoint.getX() >> 4;
+            int chunkZ = waypoint.getZ() >> 4;
+            boolean insideMixedLava = chunkX >= 4 && chunkX <= 6 && chunkZ >= -2 && chunkZ <= 2;
+            assertFalse(insideMixedLava, "迂回できるのに溶岩混じりを突っ切った: " + waypoint);
+        }
+    }
+
     @Test
     void prefersKnownGroundOverUnmappedShortcut() {
         CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);

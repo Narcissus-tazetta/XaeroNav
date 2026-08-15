@@ -942,11 +942,12 @@ public final class PathfindingState {
     private static BlockPos resolveWaypointOnSurface(BlockPos waypoint) {
         int chunkX = waypoint.getX() >> 4;
         int chunkZ = waypoint.getZ() >> 4;
-        XaeroMapReader.RegionStats stats = XaeroMapReader.surveyRegions(chunkX, chunkZ, 1, 1);
+        int referenceY = waypoint.getY();
+        XaeroMapReader.RegionStats stats = XaeroMapReader.surveyRegions(chunkX, chunkZ, 1, 1, referenceY);
         if (stats.pendingLoad() > 0) {
-            XaeroMapReader.requestLoad(chunkX, chunkZ, 1, 1);
+            XaeroMapReader.requestLoad(chunkX, chunkZ, 1, 1, referenceY);
         }
-        SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(chunkX * 16, chunkZ * 16, 16, 16);
+        SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(chunkX * 16, chunkZ * 16, 16, 16, referenceY);
         BlockPos resolved = grid.resolveStandable(waypoint.getX(), waypoint.getZ());
         return resolved != null ? resolved : waypoint;
     }
@@ -965,7 +966,8 @@ public final class PathfindingState {
         if (chunksX > COARSE_ROUTE_MAX_SPAN_CHUNKS || chunksZ > COARSE_ROUTE_MAX_SPAN_CHUNKS) {
             return new CoarseRouter.Route(List.of(), false);
         }
-        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ);
+        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ,
+                (start.getY() + goal.getY()) / 2);
         return CoarseRouter.findRoute(map, start, goal, boatAvailable);
     }
 

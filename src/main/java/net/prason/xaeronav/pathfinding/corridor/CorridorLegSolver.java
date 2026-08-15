@@ -71,13 +71,17 @@ public final class CorridorLegSolver {
         int maxChunkZ = maxBlockZ >> 4;
         int chunksX = maxChunkX - minChunkX + 1;
         int chunksZ = maxChunkZ - minChunkZ + 1;
-        XaeroMapReader.RegionStats regionStats = XaeroMapReader.surveyRegions(minChunkX, minChunkZ, chunksX, chunksZ);
+        // 天井のある次元ではXaeroの地図がY帯ごとのレイヤーに分かれる。この区間が
+        // どのY帯の話なのかを渡さないと、読むレイヤーを選べない
+        int referenceY = (from.getY() + to.getY()) / 2;
+        XaeroMapReader.RegionStats regionStats =
+                XaeroMapReader.surveyRegions(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
         int pendingRegions = regionStats.pendingLoad();
         if (pendingRegions > 0) {
-            XaeroMapReader.requestLoad(minChunkX, minChunkZ, chunksX, chunksZ);
+            XaeroMapReader.requestLoad(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
         }
 
-        SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(minBlockX, minBlockZ, sizeX, sizeZ);
+        SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(minBlockX, minBlockZ, sizeX, sizeZ, referenceY);
         BlockPos resolvedFrom = grid.resolveStandable(from.getX(), from.getZ());
         BlockPos resolvedTo = grid.resolveStandable(to.getX(), to.getZ());
         if (resolvedFrom == null || resolvedTo == null) {
