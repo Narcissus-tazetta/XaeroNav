@@ -18,6 +18,16 @@ public final class CoarseMap {
     public static final byte WATER = 2;
     public static final byte LAVA = 3;
 
+    /**
+     * 溶岩が混じるが、まだ歩いて抜けられるセル。
+     *
+     * <p>{@link #LAVA}と分けるのは、チャンクの一部が溶岩というだけで通行不能にすると
+     * ネザーの地形の過半数が壁になるため（実測: 既知セルの58%が溶岩判定になった）。
+     * 1マス単位で溶岩を避けられるかどうかは粗い地図には分からないので、ここでは
+     * 「通れるが高い」に留めて、実際に抜けられるかの判断は層2・層3へ渡す。
+     */
+    public static final byte LAVA_MIXED = 4;
+
     /** データが無いセルの高さ。 */
     public static final short UNKNOWN_HEIGHT = Short.MIN_VALUE;
 

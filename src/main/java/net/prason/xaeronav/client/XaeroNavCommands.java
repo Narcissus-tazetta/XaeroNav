@@ -175,7 +175,8 @@ public final class XaeroNavCommands {
             source.sendFailure(Component.translatable("commands.xaeronav.route_too_far"));
             return null;
         }
-        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ);
+        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ,
+                (start.getY() + goal.getY()) / 2);
         return CoarseRouter.findRoute(map, start, goal, boatAvailable);
     }
 
@@ -262,10 +263,11 @@ public final class XaeroNavCommands {
 
         int centerChunkX = player.blockPosition().getX() >> 4;
         int centerChunkZ = player.blockPosition().getZ() >> 4;
+        int referenceY = player.blockPosition().getY();
         int side = radiusChunks * 2 + 1;
         long startNanos = System.nanoTime();
         CoarseMap map = XaeroMapReader.readSurface(
-                centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side);
+                centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side, referenceY);
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
 
         int known = map.knownCells();
@@ -275,21 +277,84 @@ public final class XaeroNavCommands {
                 side * 16, known, total, percent, elapsedMillis), false);
 
         XaeroMapReader.RegionStats regions = XaeroMapReader.surveyRegions(
-                centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side);
+                centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side, referenceY);
         source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_regions",
                 regions.loaded(), regions.pendingLoad(), regions.inRange()), false);
 
         if (regions.pendingLoad() > 0) {
             int requested = XaeroMapReader.requestLoad(
-                    centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side);
+                    centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side, referenceY);
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_requested",
                     requested), false);
         }
 
+        reportKindHistogram(source, map, centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side);
+        reportMapLayers(source, centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side);
+
         byte hereKind = map.kindAtChunk(centerChunkX, centerChunkZ);
+        // 実際に立っているYも並べる。粗い地図の高さは洞窟レイヤーのcaveStartから下向きに
+        // 走査した結果なので、足元と食い違っていないかはこの2つを比べないと分からない
         source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_here",
-                describeKind(hereKind), map.heightAtChunk(centerChunkX, centerChunkZ)), false);
+                describeKind(hereKind), map.heightAtChunk(centerChunkX, centerChunkZ), referenceY), false);
         return 1;
+    }
+
+    /**
+     * 粗い地図の地形種別の内訳。{@link CoarseRouter}で溶岩だけが通行不能（他は未知でも通れる）なので、
+     * 長距離ルートが途中で打ち切られたとき、溶岩がどれだけ通行可能領域を削っているかがここで分かる。
+     */
+    private static void reportKindHistogram(CommandSourceStack source, CoarseMap map,
+                                             int minChunkX, int minChunkZ, int side) {
+        int land = 0;
+        int water = 0;
+        int lava = 0;
+        int lavaMixed = 0;
+        int noData = 0;
+        for (int chunkX = minChunkX; chunkX < minChunkX + side; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ < minChunkZ + side; chunkZ++) {
+                switch (map.kindAtChunk(chunkX, chunkZ)) {
+                    case CoarseMap.LAND -> land++;
+                    case CoarseMap.WATER -> water++;
+                    case CoarseMap.LAVA -> lava++;
+                    case CoarseMap.LAVA_MIXED -> lavaMixed++;
+                    default -> noData++;
+                }
+            }
+        }
+        // 割合は既知セルに対して出す。全体に対してだと未探索で薄まって、
+        // 通行可能領域がどれだけ削られているかが見えない
+        int known = land + water + lava + lavaMixed;
+        int lavaPercent = known == 0 ? 0 : lava * 100 / known;
+        final int landCount = land;
+        final int waterCount = water;
+        final int lavaCount = lava;
+        final int lavaMixedCount = lavaMixed;
+        final int noDataCount = noData;
+        source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_kinds",
+                landCount, waterCount, lavaCount, lavaMixedCount, noDataCount, lavaPercent), false);
+    }
+
+    /**
+     * Xaeroがこの範囲のデータをどのレイヤーに持っているかを並べる。ネザーのように空の無い次元では
+     * 地表レイヤーが空になり、データが{@code caveStart >> 4}のY帯ごとに分かれる——長距離ルートが
+     * 効かないときに、地形が読めていないのか読む場所を間違えているのかを切り分けるためのもの。
+     */
+    private static void reportMapLayers(CommandSourceStack source, int minChunkX, int minChunkZ, int side) {
+        source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_cave_mode",
+                XaeroMapReader.caveModeType()), false);
+
+        List<XaeroMapReader.LayerProbe> probes = XaeroMapReader.probeLayers(minChunkX, minChunkZ, side, side);
+        if (probes.isEmpty()) {
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_layers_none"), false);
+            return;
+        }
+        for (XaeroMapReader.LayerProbe probe : probes) {
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_layer",
+                    probe.isSurface()
+                            ? Component.translatable("commands.xaeronav.mapdata_layer_surface")
+                            : Component.literal(String.valueOf(probe.caveLayer())),
+                    probe.knownCells(), probe.minHeight(), probe.maxHeight()), false);
+        }
     }
 
     private static Component describeKind(byte kind) {
@@ -297,6 +362,7 @@ public final class XaeroNavCommands {
             case CoarseMap.LAND -> "commands.xaeronav.mapdata_land";
             case CoarseMap.WATER -> "commands.xaeronav.mapdata_water";
             case CoarseMap.LAVA -> "commands.xaeronav.mapdata_lava";
+            case CoarseMap.LAVA_MIXED -> "commands.xaeronav.mapdata_lava_mixed";
             default -> "commands.xaeronav.mapdata_none";
         });
     }

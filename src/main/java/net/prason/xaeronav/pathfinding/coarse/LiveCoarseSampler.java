@@ -19,7 +19,8 @@ public final class LiveCoarseSampler {
     /** 1チャンク内で何ブロックおきに見るか。{@code XaeroMapReader}の値と揃える。 */
     private static final int SAMPLE_STEP = 4;
     private static final int SAMPLES_PER_CHUNK = (16 / SAMPLE_STEP) * (16 / SAMPLE_STEP);
-    private static final int LAVA_SAMPLE_THRESHOLD = SAMPLES_PER_CHUNK / 4;
+    /** {@code XaeroMapReader}と同じ3段階の溶岩分類にする（層1と層3で同じ地形が違って見えないように）。 */
+    private static final int LAVA_MIXED_NUMERATOR = 4;
 
     /**
      * 列(x,z)の地表を探す下方向の走査深さ。{@link CellSource#openSkyY}はハイトマップ由来の
@@ -81,8 +82,10 @@ public final class LiveCoarseSampler {
             return;
         }
         byte kind;
-        if (lavaSamples >= LAVA_SAMPLE_THRESHOLD) {
+        if (lavaSamples * 2 >= samples) {
             kind = CoarseMap.LAVA;
+        } else if (lavaSamples * LAVA_MIXED_NUMERATOR >= samples) {
+            kind = CoarseMap.LAVA_MIXED;
         } else if (waterSamples * 2 >= samples) {
             kind = CoarseMap.WATER;
         } else {
