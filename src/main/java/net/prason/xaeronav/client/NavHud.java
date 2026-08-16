@@ -84,6 +84,11 @@ public final class NavHud {
                 add(Component.translatable("hud.xaeronav.coarse_route_progress",
                         waypointNumber, PathfindingState.INSTANCE.coarseRouteWaypointCount()), SECONDARY_COLOR);
             }
+            if (PathfindingState.INSTANCE.rerouted()) {
+                // 案内が急に変わった理由を出す。出さないと、それまで歩いていた道が
+                // 突然消えたようにしか見えない
+                add(Component.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
+            }
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
             add(instruction(guidance, climbing, waypointNumber > 0), PRIMARY_COLOR);
             add(Component.translatable("hud.xaeronav.remaining",

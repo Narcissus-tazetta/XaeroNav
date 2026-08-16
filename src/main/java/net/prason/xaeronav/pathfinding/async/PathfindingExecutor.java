@@ -9,6 +9,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
+
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
@@ -31,6 +34,8 @@ import net.prason.xaeronav.pathfinding.world.StanceFinder;
  * 注釈付けをここに置くのは、経路を求めたビューと注釈に使うビューを取り違えないようにするため。
  */
 public final class PathfindingExecutor {
+
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "xaeronav-pathfinding");
@@ -105,7 +110,17 @@ public final class PathfindingExecutor {
     private static PathResult solveCoarseGuided(CellSource view, SearchBounds bounds, BlockPos start, BlockPos goal,
                                                  SearchLimits limits, BooleanSupplier cancelled) {
         CoarseMap coarseMap = LiveCoarseSampler.sample(view, bounds);
-        CoarseRouter.Route route = CoarseRouter.findRoute(coarseMap, start, goal, false);
+        // 橋を架けられるなら粗い側でも溶岩を通す。ここを一律ALLOWにすると、溶岩の海の縁では
+        // 出発点自身のセルがLAVA＝通行不能になって区間分割が1つも作れず、溶岩の海を1回の探索で
+        // 渡ろうとして予算を焼き切る（実機で踏んだ: ステップ数0のまま20万ノード）
+        CoarseRouter.LavaPolicy lavaPolicy = view.lavaBridgingEnabled()
+                ? CoarseRouter.LavaPolicy.BRIDGE : CoarseRouter.LavaPolicy.ALLOW;
+        CoarseRouter.Route route = CoarseRouter.findRoute(coarseMap, start, goal, false, lavaPolicy);
+        // 粗い地図が空のまま「経路あり」になるのが最悪の失敗（全セルNO_DATAは通行可能なので、
+        // 溶岩を無視した直線が引けてしまう）。知られたセル数を出しておかないと、
+        // 「区間分割が下手」なのか「そもそも地形が見えていない」のかを切り分けられない
+        LOGGER.info("XaeroNav: 粗い経由地チェーンの地図 (既知セル={}/{}, 中間目標={}個, 溶岩={})",
+                coarseMap.knownCells(), coarseMap.totalCells(), route.waypoints().size(), lavaPolicy);
         if (route.waypoints().isEmpty()) {
             // 粗い側でも道が見つからない（孤立した地形等）。直接探索と同じ結果に留める
             return search(view, limits, cancelled, (pathfinder, c) ->

@@ -61,6 +61,21 @@ final class PathProgress {
         return result == source ? index : 0;
     }
 
+    /**
+     * 末尾に区間を継ぎ足しただけの経路へ、対応づけをそのまま引き継ぐ。継ぎ足しは手前のステップの
+     * 添字を変えないので、いま指している位置はそのまま通用する。
+     *
+     * <p>これを呼ばずに新しい{@link PathResult}を渡すと、{@link #update}が別経路とみなして
+     * 添字を0に戻し、窓の外なので全体走査に落ちる。全体走査は経路が自分自身の近くを通る地形
+     * （洞窟の折り返し階段）で遠くの区間へ飛び移る——先読みで経路が長くなるほど確率が上がる。
+     */
+    void carryOver(PathResult extended) {
+        if (source == null) {
+            return;
+        }
+        source = extended;
+    }
+
     /** 直近に測った経路までの距離（ブロック）。対応づけが無ければ{@link Double#MAX_VALUE}。 */
     double distance() {
         return distance;

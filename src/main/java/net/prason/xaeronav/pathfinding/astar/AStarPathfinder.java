@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongPredicate;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
@@ -724,11 +725,16 @@ public final class AStarPathfinder {
 
     /**
      * 床が存在しない空洞（ジ・エンドの島間など）をブロックを置いて渡る移動。design doc §4-1のPillarの
-     * 水平版。掘削とは逆に、床セルが完全な空虚（{@code passableEmpty}）である場合のみ許可する — 水面や
-     * 溶岩の上には置かない（design doc §3-3の安全確認とは別に、そもそも設置対象として扱わない）。
+     * 水平版。掘削とは逆に、床セルが完全な空虚（{@code passableEmpty}）である場合のみ許可する — 水面の
+     * 上には置かない（design doc §3-3の安全確認とは別に、そもそも設置対象として扱わない）。
      *
      * <p>水面のすぐ上も空気なので、床セルだけを見ても空虚と区別がつかない。海の上にブロックを敷いて
      * 渡るのは泳いで渡れる場所にわざわざ足場を作ることになるので、下に水が見えたらこの移動を作らない。
+     *
+     * <p>溶岩は{@link CellSource#lavaBridgingEnabled()}のときだけ、
+     * {@link ActionCosts#LAVA_BRIDGE_PENALTY_TICKS}を上乗せして許可する。床セルが溶岩そのものでも
+     * よい——置いたブロックが溶岩を置き換えるバニラの橋架けなので、身体が溶岩に入るわけではない
+     * （入る経路は{@link #standingBodyCost}が既にINFEASIBLEで弾く）。
      */
     private void addBridge(PathNode from, int dx, int dz, int obstacleY) {
         if (!view.canPlaceBlocks()) {
@@ -739,10 +745,12 @@ public final class AStarPathfinder {
         int z = from.z + dz;
 
         long floorCell = view.cell(x, y - 1, z);
-        if (CellData.standable(floorCell) || !CellData.passableEmpty(floorCell)) {
+        boolean overLava = CellData.lava(floorCell);
+        if (!overLava && (CellData.standable(floorCell) || !CellData.passableEmpty(floorCell))) {
             return;
         }
-        if (obstacleY != NOTHING_BELOW) {
+        // 床が溶岩なら、置くブロックがその溶岩を置き換える。何がそれを支えているかは関係ない
+        if (!overLava && obstacleY != NOTHING_BELOW) {
             long obstacle = view.cell(x, obstacleY, z);
             // 読めなかったセル（未ロード・探索範囲外）で走査が止まっただけの場所は、その下に何が
             // あるか分からない。水面の上に足場を敷けと言い出すのはこの取り違えから起きる
@@ -750,9 +758,12 @@ public final class AStarPathfinder {
                 return;
             }
         }
-        // 水・溶岩に接する場所へは置かない。水は流れ込んで足場ごと押し流され、溶岩は論外。
-        // 実際にやろうとすると難しいだけの指示になる
-        if (hasAdjacentFluid(x, y - 1, z)) {
+        // 水に接する場所へは置かない。流れ込んで足場ごと押し流される
+        if (hasAdjacentWater(x, y - 1, z)) {
+            return;
+        }
+        boolean lavaNearby = overLava || hasAdjacentLava(x, y - 1, z);
+        if (lavaNearby && !view.lavaBridgingEnabled()) {
             return;
         }
         double bodyCost = standingBodyCost(x, y, z, null);
@@ -760,6 +771,7 @@ public final class AStarPathfinder {
             return;
         }
         double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+                + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
                 + submerged(bodyCost, x, y + 1, z);
         relax(from, x, y, z, cost, MoveKind.BRIDGE);
     }
@@ -793,16 +805,20 @@ public final class AStarPathfinder {
         relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR);
     }
 
-    /** ブロックを置くセルの周り（真上を除く5面）に水・溶岩があるか。 */
-    private boolean hasAdjacentFluid(int x, int y, int z) {
-        return isFluid(x, y - 1, z)
-                || isFluid(x + 1, y, z) || isFluid(x - 1, y, z)
-                || isFluid(x, y, z + 1) || isFluid(x, y, z - 1);
+    /** ブロックを置くセルの周り（真上を除く5面）に水があるか。 */
+    private boolean hasAdjacentWater(int x, int y, int z) {
+        return hasAdjacent(x, y, z, CellData::water);
     }
 
-    private boolean isFluid(int x, int y, int z) {
-        long cell = view.cell(x, y, z);
-        return CellData.water(cell) || CellData.lava(cell);
+    /** ブロックを置くセルの周り（真上を除く5面）に溶岩があるか。 */
+    private boolean hasAdjacentLava(int x, int y, int z) {
+        return hasAdjacent(x, y, z, CellData::lava);
+    }
+
+    private boolean hasAdjacent(int x, int y, int z, LongPredicate test) {
+        return test.test(view.cell(x, y - 1, z))
+                || test.test(view.cell(x + 1, y, z)) || test.test(view.cell(x - 1, y, z))
+                || test.test(view.cell(x, y, z + 1)) || test.test(view.cell(x, y, z - 1));
     }
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {

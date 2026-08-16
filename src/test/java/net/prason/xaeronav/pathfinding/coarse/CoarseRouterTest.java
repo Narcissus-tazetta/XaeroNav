@@ -33,7 +33,8 @@ class CoarseRouterTest {
     void routesStraightAcrossOpenLand() {
         CoarseMap map = flatLand().build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
@@ -56,7 +57,8 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
@@ -77,7 +79,8 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), true);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), true,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
@@ -96,7 +99,8 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertEquals(20 * 16 + 8, last(route).getX());
@@ -112,7 +116,8 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         // 溶岩で完全に分断されているので、目的地へは到達できない
         assertFalse(route.reachedGoal());
@@ -135,7 +140,8 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertEquals(20 * 16 + 8, last(route).getX());
@@ -153,7 +159,8 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         for (BlockPos waypoint : route.waypoints()) {
@@ -161,6 +168,91 @@ class CoarseRouterTest {
             int chunkZ = waypoint.getZ() >> 4;
             boolean insideMixedLava = chunkX >= 4 && chunkX <= 6 && chunkZ >= -2 && chunkZ <= 2;
             assertFalse(insideMixedLava, "迂回できるのに溶岩混じりを突っ切った: " + waypoint);
+        }
+    }
+
+    /**
+     * {@link CoarseRouter.LavaPolicy#AVOID}は溶岩混じりも通行不能にする。ネザーではこれで
+     * 経路が繋がらなくなることが多いが、それは呼び出し側が次の段へ進む合図になる。
+     */
+    @Test
+    void avoidPolicyRefusesMixedLavaEvenWhenItIsTheOnlyWay() {
+        CoarseMapBuilder builder = flatLand();
+        for (int x = 4; x <= 6; x++) {
+            for (int z = -RADIUS; z < RADIUS; z++) {
+                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+            }
+        }
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.AVOID);
+
+        assertFalse(route.reachedGoal());
+        for (BlockPos waypoint : route.waypoints()) {
+            assertTrue(waypoint.getX() < 4 * 16, "溶岩混じりに踏み込んだ: " + waypoint);
+        }
+    }
+
+    /** 迂回路があるなら{@code AVOID}でも当然そちらを通って到達する。 */
+    @Test
+    void avoidPolicyStillReachesGoalByDetouring() {
+        CoarseMapBuilder builder = flatLand();
+        for (int x = 4; x <= 6; x++) {
+            for (int z = -2; z <= 2; z++) {
+                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+            }
+        }
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.AVOID);
+
+        assertTrue(route.reachedGoal());
+        assertEquals(20 * 16 + 8, last(route).getX());
+    }
+
+    /** {@code BRIDGE}は、他のどのポリシーでも通れない溶岩の帯を橋で渡る前提で横断する。 */
+    @Test
+    void bridgePolicyCrossesFullLavaThatBlocksEveryOtherPolicy() {
+        CoarseMapBuilder builder = flatLand();
+        for (int x = 4; x <= 6; x++) {
+            for (int z = -RADIUS; z < RADIUS; z++) {
+                builder.put(x, z, CoarseMap.LAVA, 62);
+            }
+        }
+        CoarseMap map = builder.build();
+
+        assertFalse(CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW).reachedGoal());
+
+        CoarseRouter.Route bridged = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.BRIDGE);
+
+        assertTrue(bridged.reachedGoal());
+        assertEquals(20 * 16 + 8, last(bridged).getX());
+    }
+
+    /** {@code BRIDGE}でも、溶岩を避けられるならそちらを通る——最後の手段であって近道ではない。 */
+    @Test
+    void bridgePolicyStillPrefersCleanGround() {
+        CoarseMapBuilder builder = flatLand();
+        for (int x = 4; x <= 6; x++) {
+            for (int z = -2; z <= 2; z++) {
+                builder.put(x, z, CoarseMap.LAVA, 62);
+            }
+        }
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.BRIDGE);
+
+        assertTrue(route.reachedGoal());
+        for (BlockPos waypoint : route.waypoints()) {
+            int chunkX = waypoint.getX() >> 4;
+            int chunkZ = waypoint.getZ() >> 4;
+            boolean insideLava = chunkX >= 4 && chunkX <= 6 && chunkZ >= -2 && chunkZ <= 2;
+            assertFalse(insideLava, "迂回できるのに溶岩を渡った: " + waypoint);
         }
     }
 
@@ -178,7 +270,8 @@ class CoarseRouterTest {
         builder.put(20, 0, CoarseMap.LAND, 64);
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         // 未知を突っ切る直線より、分かっている陸の帯へ寄る
@@ -190,7 +283,8 @@ class CoarseRouterTest {
     void reportsFailureWhenGoalIsOutsideTheMap() {
         CoarseMap map = flatLand().build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(RADIUS + 10, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(RADIUS + 10, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertFalse(route.reachedGoal());
         assertTrue(route.isEmpty());
@@ -205,7 +299,8 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         for (BlockPos waypoint : route.waypoints()) {
@@ -223,7 +318,8 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
 
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertTrue(route.waypoints().stream().anyMatch(waypoint -> waypoint.getZ() != 8),

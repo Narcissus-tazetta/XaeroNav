@@ -80,7 +80,58 @@ public final class XaeroMapReader {
      */
     private static final int MAX_CAVE_LAYERS = 4;
 
+    /**
+     * 1つの洞窟レイヤーが持つスライスの厚さ（ブロック）。Xaeroの{@code CAVE_MODE_DEPTH}既定値で、
+     * {@code caveStart}からこのぶん下までしか記録されない。これより近い参照Yの差は
+     * ほぼ同じ地形しか見えないので、再挑戦の候補として意味がない。
+     */
+    private static final int CAVE_MODE_DEPTH = 30;
+
     private XaeroMapReader() {
+    }
+
+    /**
+     * 同じ場所を別の高さから読み直すための参照Y候補を、{@code referenceY}に近い順で返す。
+     * 先頭は必ず{@code referenceY}自身。
+     *
+     * <p>ネザーでは地図がY帯ごとの洞窟レイヤーに分かれており、参照Yを変えると{@link #layersFor}が
+     * 選ぶレイヤーと{@link LayerMerge}がセルごとに採用する高さの両方が変わる——つまり<b>見える地形
+     * そのものが変わる</b>。溶岩の海の上を通る通路のように、ある高さからは存在しない道が別の高さでは
+     * 見つかる。層1のルートが引けなかったときの再挑戦に使う。
+     *
+     * <p>候補は{@code caveStart}の式から予測せず、実際にメモリへ載っているレイヤーだけから採る
+     * （{@code caveStart}は頭上の地形次第で決まるため）。天井の無い次元は地表レイヤー1枚しか
+     * 無いので{@code referenceY}だけが返り、呼び出し側の再挑戦ループは自然に1回で終わる。
+     */
+    public static List<Integer> referenceYCandidates(int referenceY, int limit) {
+        List<Integer> candidates = new ArrayList<>();
+        candidates.add(referenceY);
+        MapProcessor processor = processor();
+        Level level = Minecraft.getInstance().level;
+        if (processor == null || level == null || !level.dimensionType().hasCeiling()) {
+            return List.copyOf(candidates);
+        }
+        List<Integer> layerYs = new ArrayList<>();
+        for (int layer : loadedLayers(processor)) {
+            if (layer == SURFACE_LAYER) {
+                continue;
+            }
+            int centerY = layerCenterY(layer);
+            // 同じレイヤーが選ばれるだけの候補は再読み込みの無駄。CAVE_MODE_DEPTH(30)より
+            // 近い候補は元の参照Yとほぼ同じ地形しか見えない
+            if (Math.abs(centerY - referenceY) < CAVE_MODE_DEPTH) {
+                continue;
+            }
+            layerYs.add(centerY);
+        }
+        layerYs.sort(Comparator.comparingInt(y -> Math.abs(y - referenceY)));
+        for (int y : layerYs) {
+            if (candidates.size() >= limit) {
+                break;
+            }
+            candidates.add(y);
+        }
+        return List.copyOf(candidates);
     }
 
     /**
@@ -436,8 +487,11 @@ public final class XaeroMapReader {
         int waterSamples = 0;
         int lavaSamples = 0;
         int heightSum = 0;
+        int heightSamples = 0;
         int minHeight = Integer.MAX_VALUE;
         int maxHeight = Integer.MIN_VALUE;
+        // 溶岩面の高さの平均。samplesが全部溶岩だった稀なケース（下記）だけで使う
+        int lavaHeightSum = 0;
         int samples = 0;
 
         for (int x = 0; x < 16; x += SAMPLE_STEP) {
@@ -448,15 +502,22 @@ public final class XaeroMapReader {
                 }
                 samples++;
                 boolean water = isWater(block);
-                if (water) {
-                    waterSamples++;
-                } else if (isLava(block)) {
-                    lavaSamples++;
-                }
+                boolean lava = !water && isLava(block);
                 // 水面の高さを使うのは、粗いルートが見るのが「そこを通れるか」だから。
                 // 水底の高さで段差を測ると、深い海が巨大な崖として現れて経路が歪む
                 int sampleHeight = water ? block.getTopHeight() : block.getHeight();
+                if (water) {
+                    waterSamples++;
+                } else if (lava) {
+                    lavaSamples++;
+                    lavaHeightSum += sampleHeight;
+                    // 溶岩面は代表高さ（＝waypointのY）から除く。溶岩は立てないので、
+                    // その高さを混ぜるとwaypointが溶岩の海の水面に落ち、層2の
+                    // resolveStandableが到達できなくなる
+                    continue;
+                }
                 heightSum += sampleHeight;
+                heightSamples++;
                 minHeight = Math.min(minHeight, sampleHeight);
                 maxHeight = Math.max(maxHeight, sampleHeight);
             }
@@ -478,11 +539,15 @@ public final class XaeroMapReader {
         } else {
             kind = CoarseMap.LAND;
         }
-        int averageHeight = heightSum / samples;
+        // heightSamples==0はサンプル全部が溶岩のときだけ（＝kindは必ずLAVA）。ここは溶岩面の高さで
+        // 正しい——LavaPolicy.BRIDGEでこのセルを渡るとき、足場を置くのがまさにその高さになる
+        int averageHeight = heightSamples > 0 ? heightSum / heightSamples : lavaHeightSum / lavaSamples;
+        int representativeMin = heightSamples > 0 ? minHeight : averageHeight;
+        int representativeMax = heightSamples > 0 ? maxHeight : averageHeight;
         if (!merge.accept(tile.getChunkX(), tile.getChunkZ(), averageHeight)) {
             return;
         }
-        builder.put(tile.getChunkX(), tile.getChunkZ(), kind, averageHeight, minHeight, maxHeight);
+        builder.put(tile.getChunkX(), tile.getChunkZ(), kind, averageHeight, representativeMin, representativeMax);
     }
 
     private static void readRegionDetailed(MapProcessor processor, int caveLayer, int regionX, int regionZ,

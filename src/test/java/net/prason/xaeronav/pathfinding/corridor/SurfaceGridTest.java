@@ -33,4 +33,12 @@ class SurfaceGridTest {
 
         assertNull(builder.build().resolveStandable(1, 1));
     }
+
+    @Test
+    void returnsNullForLavaInsteadOfOneAboveTheLavaSurface() {
+        SurfaceGridBuilder builder = new SurfaceGridBuilder(0, 0, 4, 4);
+        builder.put(1, 1, CoarseMap.LAVA, 31);
+
+        assertNull(builder.build().resolveStandable(1, 1));
+    }
 }

@@ -60,6 +60,16 @@ public final class CoarseRouter {
     private static final double LAVA_MIXED_MULTIPLIER = 2.5;
 
     /**
+     * {@link LavaPolicy#BRIDGE}で溶岩セルを渡る倍率。層1と層3はコストの単位をtickで揃えてあるので、
+     * ここは勘ではなく層3の実コストから導く——1ブロックあたり
+     * {@code SPRINT_ONE_BLOCK + PLACE_BLOCK_OVERHEAD_TICKS + LAVA_BRIDGE_PENALTY_TICKS ≒ 35.6}tick、
+     * 通常の陸が3.564なので比は約10倍になる。
+     */
+    private static final double LAVA_BRIDGE_MULTIPLIER =
+            (ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+                    + ActionCosts.LAVA_BRIDGE_PENALTY_TICKS) / ActionCosts.SPRINT_ONE_BLOCK;
+
+    /**
      * 高低差1ブロックあたりの追加コスト。登りも下りも同じだけ掛ける。
      * 粗いセルでは崖と緩斜面を区別できないので、どちらつかずの中間の重みにしておき、
      * 「同じくらいの距離なら平坦な方」を選ばせるためだけに使う。
@@ -117,7 +127,25 @@ public final class CoarseRouter {
         }
     }
 
-    public static Route findRoute(CoarseMap map, BlockPos start, BlockPos goal, boolean boatAvailable) {
+    /**
+     * 溶岩セルの扱い。呼び出し側は{@link #AVOID}から順に試し、届かなかったときだけ緩める
+     * （{@code PathfindingState#computeCoarseRoute}のエスカレーション梯子）。
+     *
+     * <p>層1が溶岩地帯を突っ切ると決めると、そのwaypointへは詳細探索が原理的に到達できない
+     * （溶岩の上は歩けない）。段階を分けるのは「大きく迂回してでも溶岩を避ける道」を必ず先に
+     * 探させるため——迂回や後戻りはA*が勝手に見つけるので、ここで表現するのは可否だけでよい。
+     */
+    public enum LavaPolicy {
+        /** 溶岩の混じるセルを一切通らない。大回りでも溶岩を避けた道があるならそれを見つける。 */
+        AVOID,
+        /** 溶岩が混じるセルは通れるが高い。過半数が溶岩のセルは通行不能。 */
+        ALLOW,
+        /** 過半数が溶岩のセルも橋を架けて渡る前提で通す。最後の手段。 */
+        BRIDGE
+    }
+
+    public static Route findRoute(CoarseMap map, BlockPos start, BlockPos goal, boolean boatAvailable,
+                                   LavaPolicy lavaPolicy) {
         int startX = start.getX() >> 4;
         int startZ = start.getZ() >> 4;
         int goalX = goal.getX() >> 4;
@@ -167,7 +195,7 @@ public final class CoarseRouter {
                         continue;
                     }
                     relax(map, cost, previous, closed, open, x, z, dx, dz, goalX, goalZ,
-                            bestSoFar, bestHeuristic, waterMultiplier);
+                            bestSoFar, bestHeuristic, waterMultiplier, lavaPolicy);
                 }
             }
         }
@@ -179,7 +207,7 @@ public final class CoarseRouter {
     private static void relax(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
                               PriorityQueue<Candidate> open, int x, int z, int dx, int dz,
                               int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
-                              double waterMultiplier) {
+                              double waterMultiplier, LavaPolicy lavaPolicy) {
         int nextX = x + dx;
         int nextZ = z + dz;
         if (!map.containsChunk(nextX, nextZ)) {
@@ -189,7 +217,7 @@ public final class CoarseRouter {
         if (closed[nextIndex]) {
             return;
         }
-        double step = stepCost(map, x, z, nextX, nextZ, dx != 0 && dz != 0, waterMultiplier);
+        double step = stepCost(map, x, z, nextX, nextZ, dx != 0 && dz != 0, waterMultiplier, lavaPolicy);
         if (Double.isInfinite(step)) {
             return;
         }
@@ -231,16 +259,17 @@ public final class CoarseRouter {
     }
 
     private static double stepCost(CoarseMap map, int fromX, int fromZ, int toX, int toZ, boolean diagonal,
-                                   double waterMultiplier) {
+                                   double waterMultiplier, LavaPolicy lavaPolicy) {
         byte kind = map.kindAtChunk(toX, toZ);
-        if (kind == CoarseMap.LAVA) {
+        double lavaMultiplier = lavaMultiplier(kind, lavaPolicy);
+        if (Double.isInfinite(lavaMultiplier)) {
             return ActionCosts.INFEASIBLE;
         }
         double base = diagonal ? DIAGONAL_COST : STRAIGHT_COST;
         double multiplier = switch (kind) {
             case CoarseMap.WATER -> waterMultiplier;
             case CoarseMap.NO_DATA -> UNKNOWN_MULTIPLIER;
-            case CoarseMap.LAVA_MIXED -> LAVA_MIXED_MULTIPLIER;
+            case CoarseMap.LAVA, CoarseMap.LAVA_MIXED -> lavaMultiplier;
             default -> 1.0;
         };
 
@@ -253,6 +282,20 @@ public final class CoarseRouter {
             heightPenalty = Math.abs(toHeight - fromHeight) * HEIGHT_COST_PER_BLOCK;
         }
         return base * multiplier + heightPenalty + cliffPenalty(map, toX, toZ);
+    }
+
+    /**
+     * 溶岩を含むセルの倍率。溶岩を含まないセルには1.0を返す（呼び出し側が他の倍率を使う）。
+     * {@link ActionCosts#INFEASIBLE}なら通行不能。
+     */
+    private static double lavaMultiplier(byte kind, LavaPolicy lavaPolicy) {
+        if (kind == CoarseMap.LAVA) {
+            return lavaPolicy == LavaPolicy.BRIDGE ? LAVA_BRIDGE_MULTIPLIER : ActionCosts.INFEASIBLE;
+        }
+        if (kind == CoarseMap.LAVA_MIXED) {
+            return lavaPolicy == LavaPolicy.AVOID ? ActionCosts.INFEASIBLE : LAVA_MIXED_MULTIPLIER;
+        }
+        return 1.0;
     }
 
     /** 踏み込み先セルの起伏が大きいときの追加コスト。起伏が分からなければ平坦扱い（0）。 */

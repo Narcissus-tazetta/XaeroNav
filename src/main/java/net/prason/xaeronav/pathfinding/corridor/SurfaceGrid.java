@@ -70,13 +70,17 @@ public final class SurfaceGrid {
     /**
      * この列(x,z)で実際に立てる高さへ解決する。陸は地面の1つ上、水は水面そのもの
      * （{@code SurfaceCellSource#cell}が水面をWATERセルとして扱うため、+1すると空気に解決されてしまう）。
-     * データが無ければ{@code null}。
+     * 溶岩は立てる場所が無いので{@code null}（{@code groundHeightAt}が返すのは溶岩面の高さであって、
+     * その1つ上は溶岩の中か水没した空気でしかない）。データが無ければ同じく{@code null}。
      */
     public BlockPos resolveStandable(int x, int z) {
         byte kind = kindAt(x, z);
         if (kind == CoarseMap.WATER) {
             short surface = surfaceHeightAt(x, z);
             return surface == UNKNOWN_HEIGHT ? null : new BlockPos(x, surface, z);
+        }
+        if (kind == CoarseMap.LAVA) {
+            return null;
         }
         short ground = groundHeightAt(x, z);
         return ground == UNKNOWN_HEIGHT ? null : new BlockPos(x, ground + 1, z);

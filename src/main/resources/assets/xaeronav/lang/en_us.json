@@ -8,6 +8,7 @@
 
   "hud.xaeronav.searching": "Finding a route...",
   "hud.xaeronav.no_route": "No route found",
+  "hud.xaeronav.rerouted": "Route changed (the way ahead became unusable)",
   "hud.xaeronav.flying": "Gliding — routing paused",
   "hud.xaeronav.direct_distance": "%d blocks away in a straight line",
   "hud.xaeronav.arriving": "Arriving",
@@ -37,6 +38,8 @@
   "gui.xaeronav.config.title": "XaeroNav Settings",
   "gui.xaeronav.config.digging_enabled": "Allow digging in routes",
   "gui.xaeronav.config.bridging_enabled": "Allow block placement (bridging, pillaring) in routes",
+  "gui.xaeronav.config.lava_bridging_enabled": "Cross lava by placing blocks (last resort)",
+  "gui.xaeronav.config.deep_look_ahead_enabled": "Keep extending the route ahead while walking",
   "gui.xaeronav.config.jump_gap_enabled": "Allow jumping gaps (up to 3 blocks) in routes",
   "gui.xaeronav.config.fall_damage_tolerance_enabled": "Tolerate fall damage (up to 1/3 health)",
   "gui.xaeronav.config.hud_enabled": "Guidance HUD",

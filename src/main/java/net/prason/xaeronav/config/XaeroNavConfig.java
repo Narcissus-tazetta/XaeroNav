@@ -26,6 +26,8 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue diggingEnabled;
     private final ModConfigSpec.BooleanValue bridgingEnabled;
     private final ModConfigSpec.BooleanValue jumpGapEnabled;
+    private final ModConfigSpec.BooleanValue lavaBridgingEnabled;
+    private final ModConfigSpec.BooleanValue deepLookAheadEnabled;
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
@@ -48,8 +50,15 @@ public final class XaeroNavConfig {
 
         bridgingEnabled = builder
                 .comment("空洞を渡る・断崖を登るためのブロック設置を経路に含めることを許可するか",
-                        "trueでも、ホットバーに置けるブロックが無い場合と、水・溶岩に接する場所には設置を提示しない")
+                        "trueでも、ホットバーに置けるブロックが無い場合と、水に接する場所には設置を提示しない")
                 .define("bridgingEnabled", true);
+
+        lavaBridgingEnabled = builder
+                .comment("溶岩に足場を置いて渡る移動を経路に含めることを許可するか（bridgingEnabledも必要）",
+                        "溶岩を避けた道が一切見つからない場合の最後の手段。非常に高いコストを付けてあるので、",
+                        "遠回りでも溶岩を避けられるならそちらが選ばれる",
+                        "falseなら、溶岩に阻まれた目的地へは経路が出ないまま詰む")
+                .define("lavaBridgingEnabled", true);
 
         jumpGapEnabled = builder
                 .comment("隙間を飛び越える移動を経路に含めることを許可するか（最大3マスの隙間まで）",
@@ -63,6 +72,13 @@ public final class XaeroNavConfig {
                         "水バケツを持っている場合は、着地寸前に水を置いてダメージを消す降下（MLG）も候補に入る",
                         "falseなら安全に降りられる高さ(3マス)までしか降下しない")
                 .define("fallDamageToleranceEnabled", false);
+
+        deepLookAheadEnabled = builder
+                .comment("歩いている間、経路の先を読み込み済みチャンクの限界まで伸ばし続けるか",
+                        "trueなら進むほど先の経路が長く描かれ、次の区間を待つ間の途切れが無くなる",
+                        "falseなら常に「今の区間＋次の1区間」だけを保つ（描かれる経路は短いが探索は軽い）",
+                        "どちらでも、すでに歩いている手前側の経路が引き直されることはない")
+                .define("deepLookAheadEnabled", true);
 
         searchHorizontalMargin = builder
                 .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
@@ -144,6 +160,22 @@ public final class XaeroNavConfig {
 
     public void setBridgingEnabled(boolean value) {
         bridgingEnabled.set(value);
+    }
+
+    public boolean lavaBridgingEnabled() {
+        return lavaBridgingEnabled.get();
+    }
+
+    public void setLavaBridgingEnabled(boolean value) {
+        lavaBridgingEnabled.set(value);
+    }
+
+    public boolean deepLookAheadEnabled() {
+        return deepLookAheadEnabled.get();
+    }
+
+    public void setDeepLookAheadEnabled(boolean value) {
+        deepLookAheadEnabled.set(value);
     }
 
     public boolean jumpGapEnabled() {
