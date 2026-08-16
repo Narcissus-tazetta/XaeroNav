@@ -344,6 +344,42 @@ class AStarPathfinderTest {
     }
 
     @Test
+    void doesNotJumpOffSoulSand() {
+        // 1マスの割れ目。踏み切り地点(x=1)だけをソウルサンドにする
+        CellSource cells = chasm(1).set(1, 60, 0, FakeCells.SOUL_SAND);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(3, 61, 0));
+
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "減速したまま踏み切ると届かない。跳べと言ってはいけない: " + movements(result));
+    }
+
+    @Test
+    void doesNotJumpOverLava() {
+        // 1マスの割れ目の底を溶岩で埋める。跳べる幅ではあるが、外せば死ぬ
+        FakeCells cells = chasm(1);
+        cells.set(2, 60, 0, FakeCells.LAVA);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(3, 61, 0));
+
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "溶岩の上は跳ばない: " + movements(result));
+    }
+
+    @Test
+    void stillJumpsWhenThereIsAFloorAboveTheLava() {
+        // 溶岩はあるが、その上に床がある割れ目。落ちても溶岩には触れないので跳んでよい
+        FakeCells cells = chasm(1);
+        cells.set(2, 55, 0, FakeCells.LAVA).set(2, 56, 0, FakeCells.STONE);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(3, 61, 0));
+
+        assertTrue(result.complete());
+        assertTrue(movements(result).contains(MovementType.JUMP),
+                "溶岩との間に床があるなら跳べる: " + movements(result));
+    }
+
+    @Test
     void doesNotJumpGapsBeyondSprintJumpRange() {
         // 4マスの割れ目は疾走ジャンプの到達限界を超える
         CellSource cells = chasm(4);

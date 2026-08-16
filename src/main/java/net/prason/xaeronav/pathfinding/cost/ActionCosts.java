@@ -57,11 +57,12 @@ public final class ActionCosts {
      * 疾走の最高速度が乗っている必要があり、助走の取り直しや踏み切り位置の調整が要る。
      * 3マスの隙間（着地は4マス先）は疾走ジャンプの到達限界そのもので、外せば落ちる。
      *
-     * <p>値はBaritoneの{@code jumpPenalty}（既定2.0、ascend/pillar/parkourに一律加算）に合わせた。
-     * これにより「同じ距離を平地で歩く方が安い」（隙間3マス: 跳躍16.5 &gt; 徒歩4マス14.3）が保たれ、
-     * 迂回路があるうちは跳ばない。
+     * <p>Baritoneの{@code jumpPenalty}（既定2.0）より重くしてある。Baritoneは自分で操作するので
+     * 踏み切り位置を1ブロック単位で合わせられるが、こちらは人間に「跳べ」と指示するだけで、
+     * 外したときに落ちるのは人間の方。同じ距離なら回り込む案内の方が親切なので、迂回を選ぶ範囲を
+     * 広げている（隙間3マス: 跳躍20.5 ≒ 徒歩5.7マス。以前は4.6マスで釣り合っていた）。
      */
-    public static final double JUMP_REACH_PENALTY = 2.0;
+    public static final double JUMP_REACH_PENALTY = 4.0;
 
     public static final double DESCEND_ONE_BLOCK = fallCost(1);
 
@@ -124,8 +125,12 @@ public final class ActionCosts {
      * <p>橋を架けながらの前進は「一度止まって足元の縁へ向き直り、狙って置く」の繰り返しなので、
      * 走るのに比べて1/3程度の速さしか出ない。ここを数tickに見積もると1マスあたり徒歩(4.63)より
      * 安くなり、数マス迂回すれば済む場所でも常に設置が選ばれてしまう。
+     *
+     * <p>{@link #DIG_OVERHEAD_TICKS}より十分重くしてあるのは、掘るのと積むのが同じくらいの手数に
+     * 見える場面では掘る方を選ばせたいから。設置は手持ちのブロックを消費するうえ、置いた足場が
+     * そのまま地形として残る（次に通ったときの地形が変わる）。掘る方は素材が増える側に働く。
      */
-    public static final double PLACE_BLOCK_OVERHEAD_TICKS = 8.0;
+    public static final double PLACE_BLOCK_OVERHEAD_TICKS = 16.0;
 
     /**
      * 落下ダメージ許容時、ダメージ1点(0.5ハート)あたりの追加ペナルティ。{@link #JUMP_REACH_PENALTY}と

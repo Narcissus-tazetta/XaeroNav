@@ -201,7 +201,10 @@ public final class CellData {
 
     /** このブロックの上を進むときの速度倍率を100倍して詰める。等速（1.0）なら詰めない。 */
     private static long speedFactorBits(BlockState state) {
-        float factor = travelSpeedFactor(state);
+        return speedFactorBits(travelSpeedFactor(state));
+    }
+
+    private static long speedFactorBits(float factor) {
         if (factor == 1.0f) {
             return 0L;
         }
@@ -250,6 +253,11 @@ public final class CellData {
 
     public static long withDigTicks(long flags, double digTicks) {
         return flags | (Integer.toUnsignedLong(Float.floatToRawIntBits((float) digTicks)) << 32);
+    }
+
+    /** 速度倍率を差し込む。実データは{@link #flagsOf}が詰めるので、これはテストの地形記述用。 */
+    static long withSpeedFactor(long flags, float factor) {
+        return flags | speedFactorBits(factor);
     }
 
     public static boolean present(long cell) {
