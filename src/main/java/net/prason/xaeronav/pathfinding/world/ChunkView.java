@@ -146,7 +146,9 @@ public final class ChunkView implements CellSource {
 
         int maxFallDamagePoints = fallDamageToleranceEnabled
                 ? (int) (player.getHealth() / FALL_DAMAGE_HEALTH_FRACTION) : 0;
-        boolean canMlgWaterBucket = fallDamageToleranceEnabled
+        // ultraWarmな次元（ネザー）は水を置いても即座に蒸発するので、着地寸前に水バケツを置く
+        // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
+        boolean canMlgWaterBucket = fallDamageToleranceEnabled && !level.dimensionType().ultraWarm()
                 && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
 
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);

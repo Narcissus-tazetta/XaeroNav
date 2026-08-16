@@ -414,14 +414,16 @@ public final class XaeroNavCommands {
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_no_digging_skipped"), false);
         }
 
-        // 展開ノード数が上限に達しての未到達は、箱を広げても同じ上限に同じように当たるだけで
+        // 予算切れ（ノード数上限・時間上限）での未到達は、箱を広げても同じ上限に同じように当たるだけで
         // 結果は変わらない（実機で確認済み: 通常マージンと拡大後で展開ノード数が完全一致していた）。
-        // ここで弾かないと、無駄なA*をもう1回投げたうえ「箱が原因」と誤読させる出力になる
+        // ここで弾かないと、無駄なA*をもう1回投げたうえ「箱が原因」と誤読させる出力になる。
+        // 時間上限で切れた回もここに含める——展開数だけを見ると「範囲が狭い」と誤読して
+        // widenTriggeredに倒れてしまう
         int maxExpandedNodes = XaeroNavConfig.INSTANCE.maxExpandedNodes();
-        boolean hitNodeBudget = normal.result().expandedNodes() >= maxExpandedNodes;
-        boolean widenTriggered = !normal.result().complete() && !hitNodeBudget
+        boolean budgetExhausted = normal.result().budgetExhausted();
+        boolean widenTriggered = !normal.result().complete() && !budgetExhausted
                 && horizontalDistance(start, goal) <= renderRadius && normalMargin < renderRadius;
-        if (!normal.result().complete() && hitNodeBudget) {
+        if (!normal.result().complete() && budgetExhausted) {
             source.sendSuccess(() -> Component.translatable(
                     "commands.xaeronav.probe_widen_skipped_budget", maxExpandedNodes), false);
             // 上限に張り付いた回どうしを比べても展開ノード数は必ず一致するので、そこからは何も分からない。

@@ -105,6 +105,51 @@ class LiveCoarseSamplerTest {
         assertEquals(CoarseMap.LAVA, map.kindAtChunk(0, 0), "溶岩の海が地図に載らなければ迂回もできない");
     }
 
+    /**
+     * ネザーの3D迷路。探索範囲の上端が岩の中に埋まっている列で、その上端を地面と report しては
+     * ならない。全列が同じ高さになって起伏0＝崖ペナルティ0の平坦な最安地形に見えるうえ、
+     * 足元の溶岩の海が地図から丸ごと消える。
+     */
+    @Test
+    void doesNotReportTheTopOfBoundsAsGroundWhenItIsInsideRock() {
+        SearchBounds bounds = new SearchBounds(0, 10, 0, 15, 72, 15);
+        FakeCells cells = FakeCells.empty(bounds);
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                // 範囲上端(72)から50までを岩で埋める。その下は空洞で、床は溶岩の海
+                for (int y = 50; y <= 72; y++) {
+                    cells.set(x, y, z, FakeCells.STONE);
+                }
+                cells.set(x, 31, z, FakeCells.LAVA);
+            }
+        }
+        cells.openSkyYOverride(200);
+
+        CoarseMap map = LiveCoarseSampler.sample(cells, bounds);
+
+        assertEquals(CoarseMap.LAVA, map.kindAtChunk(0, 0), "天井側の岩を地面と読むと溶岩の海が地図から消える");
+        assertEquals(31, map.heightAtChunk(0, 0));
+    }
+
+    /** 上から下まで岩で詰まった列は「不明」。天井の岩を地面と読んではいけない。 */
+    @Test
+    void columnsFilledWithRockAreLeftUnknown() {
+        SearchBounds bounds = new SearchBounds(0, 60, 0, 15, 72, 15);
+        FakeCells cells = FakeCells.empty(bounds);
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                for (int y = 60; y <= 72; y++) {
+                    cells.set(x, y, z, FakeCells.STONE);
+                }
+            }
+        }
+        cells.openSkyYOverride(200);
+
+        CoarseMap map = LiveCoarseSampler.sample(cells, bounds);
+
+        assertEquals(0, map.knownCells());
+    }
+
     @Test
     void columnsWithNoDataAreLeftUnknown() {
         SearchBounds bounds = new SearchBounds(0, 50, 0, 15, 80, 15);

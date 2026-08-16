@@ -56,10 +56,17 @@ public final class AStarPathfinder {
      * 踏み出した先の下を辿る深さ。着地点・水面・空虚のどれなのかを見分けるためのもので、
      * 落下（{@link #addFall}）とブロック設置（{@link #addBridge}）が同じ結果を使う。
      *
-     * <p>空気が続く限りしか下りないので、地形のある場所では1〜2マスで止まる。深さが効くのは
-     * 空虚の上（ジ・エンド）だけで、そこでは全ノードがこの走査を通るため、無制限にはしない。
+     * <p>空気が続く限りしか下りないので、地形のある場所では1〜2マスで止まる。探索範囲の外
+     * （未ロード・範囲外）に出ると{@code cell()}が{@link CellData#ABSENT}を返し、それは
+     * {@code passableEmpty}ではないのでその場で止まる——毎ノード×4方向呼ばれるこの走査が
+     * 際限なく続くことはない。深さが効くのは範囲内に本当に空気が続く場所（ジ・エンドの空虚、
+     * ネザーの溶岩の海の上）だけ。
+     *
+     * <p>層1の{@code LiveCoarseSampler}が同じ理由で使っている値（128）に揃えてある。
+     * 以前は32だったため、32マスを超える空洞の下にある溶岩を見逃し、溶岩の上へ跳躍を
+     * 提示することがあった。
      */
-    private static final int COLUMN_SCAN_DEPTH = 32;
+    private static final int COLUMN_SCAN_DEPTH = 128;
 
     /** {@link #firstNonAirBelow}が走査範囲内で何も見つけられなかったことを表す。 */
     private static final int NOTHING_BELOW = Integer.MIN_VALUE;
@@ -71,7 +78,8 @@ public final class AStarPathfinder {
     private static final int MAX_JUMP_GAP_BLOCKS = 3;
 
     /**
-     * 隙間の下に溶岩が無いかを確かめる深さ（ブロック）。{@link #COLUMN_SCAN_DEPTH}と揃える。
+     * 隙間の下に溶岩が無いかを確かめる深さ（ブロック）。{@link #COLUMN_SCAN_DEPTH}と揃える
+     * （揃えないと、落下では見える深さの溶岩が跳躍では見えないという食い違いが起きる）。
      *
      * <p>「落ちても平気な高さ」で切ってはいけない。溶岩は深さに関わらず落ちれば死ぬので、
      * 落下ダメージの許容量とは別の話になる（実機で、深い割れ目の底の溶岩へ跳び損ねて死んだ）。
@@ -181,22 +189,35 @@ public final class AStarPathfinder {
         long deadline = System.currentTimeMillis() + timeLimitMillis;
         int expanded = 0;
 
-        while (!open.isEmpty() && expanded < maxExpandedNodes) {
-            if ((expanded & CHECK_INTERVAL_MASK) == 0
-                    && (cancelled.getAsBoolean() || System.currentTimeMillis() >= deadline)) {
+        // openが尽きるまで回り切ったなら、探索範囲の中に到達手段が無かったということ。
+        // 予算切れと区別しないと、意味の無い再挑戦を延々と仕掛けることになる
+        PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
+        while (!open.isEmpty()) {
+            if (expanded >= maxExpandedNodes) {
+                termination = PathResult.Termination.NODE_BUDGET;
                 break;
+            }
+            if ((expanded & CHECK_INTERVAL_MASK) == 0) {
+                if (cancelled.getAsBoolean()) {
+                    termination = PathResult.Termination.CANCELLED;
+                    break;
+                }
+                if (System.currentTimeMillis() >= deadline) {
+                    termination = PathResult.Termination.TIME_LIMIT;
+                    break;
+                }
             }
 
             PathNode current = open.removeLowest();
             current.closed = true;
             expanded++;
             if (reachedGoal(current)) {
-                return buildResult(startNode, current, true, expanded);
+                return buildResult(startNode, current, PathResult.Termination.REACHED_GOAL, expanded);
             }
             expand(current);
         }
 
-        return buildResult(startNode, selectFallback(startNode), false, expanded);
+        return buildResult(startNode, selectFallback(startNode), termination, expanded);
     }
 
     private boolean reachedGoal(PathNode node) {
@@ -225,7 +246,8 @@ public final class AStarPathfinder {
         return startNode;
     }
 
-    private PathResult buildResult(PathNode startNode, PathNode end, boolean complete, int expanded) {
+    private PathResult buildResult(PathNode startNode, PathNode end, PathResult.Termination termination,
+                                   int expanded) {
         List<PathStep> steps = new ArrayList<>();
         for (PathNode cursor = end; cursor != startNode && cursor.previous != null; cursor = cursor.previous) {
             PathNode from = cursor.previous;
@@ -237,7 +259,7 @@ public final class AStarPathfinder {
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
         }
         Collections.reverse(steps);
-        return new PathResult(steps, complete, expanded, nodes.size());
+        return new PathResult(steps, termination, expanded, nodes.size());
     }
 
     /**

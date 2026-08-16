@@ -146,10 +146,14 @@ public final class PathfindingExecutor {
         boolean complete = false;
         int totalExpanded = 0;
         int totalDistinct = 0;
+        // チェーン全体の打ち切り理由は最後に解いた区間のもの。全区間が「範囲内に道が無い」で
+        // 終わったときだけEXHAUSTEDのまま残り、本物の詰みとして呼び出し側に伝わる
+        PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
         BlockPos legStart = StanceFinder.resolveStart(view, start);
         for (int i = 0; i < rawLegGoals.size(); i++) {
             long remainingMillis = chainDeadline - System.currentTimeMillis();
             if (remainingMillis <= 0) {
+                termination = PathResult.Termination.TIME_LIMIT;
                 break;
             }
             SearchLimits thisLegLimits = remainingMillis >= COARSE_GUIDED_LEG_TIME_LIMIT_MILLIS
@@ -162,6 +166,9 @@ public final class PathfindingExecutor {
             totalExpanded += legResult.expandedNodes();
             totalDistinct += legResult.distinctNodes();
             boolean lastLeg = i == rawLegGoals.size() - 1;
+            if (!legResult.complete()) {
+                termination = legResult.termination();
+            }
 
             if (legResult.complete()) {
                 steps.addAll(legResult.steps());
@@ -182,7 +189,8 @@ public final class PathfindingExecutor {
             // 最後の区間は必ず本来の目的地なので、経由地が全滅しても直接探索と同じ結果に落ち着く。
             // 部分経路を継ぎ足さないのは、次の区間を同じ地点から引き直す以上そこで経路が飛ぶため
         }
-        return new PathResult(steps, complete, totalExpanded, totalDistinct);
+        return new PathResult(steps, complete ? PathResult.Termination.REACHED_GOAL : termination,
+                totalExpanded, totalDistinct);
     }
 
     private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled, SearchCall run) {

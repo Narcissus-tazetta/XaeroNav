@@ -40,7 +40,11 @@ public final class ForbiddenBlocks {
 
     public static boolean isForbidden(BlockState state) {
         Block block = state.getBlock();
-        return DEFAULTS.contains(block) || extra.contains(block) || state.is(BlockTags.LOGS);
+        // BlockTags.LOGSは地上の原木だけでなくネザーのcrimson/warped stem（きのこの幹）も含む。
+        // 「木を切らせない」意図は地上専用で、ネザーの3D迷路ではこの幹が壁一枚を占めることが
+        // 珍しくないため、そこだけ掘削禁止から除外する
+        return DEFAULTS.contains(block) || extra.contains(block)
+                || (state.is(BlockTags.LOGS) && !state.is(BlockTags.CRIMSON_STEMS) && !state.is(BlockTags.WARPED_STEMS));
     }
 
     /** 設定ファイルの{@code additionalForbiddenBlocks}（例: "minecraft:chest"）を反映する。 */

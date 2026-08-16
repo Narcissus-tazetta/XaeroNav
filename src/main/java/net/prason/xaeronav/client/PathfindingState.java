@@ -104,6 +104,13 @@ public final class PathfindingState {
     private static final int MAX_REFERENCE_Y_ATTEMPTS = 3;
 
     /**
+     * 参照Y候補をstart/goalのYレンジからどれだけ外れるまで許すか（ブロック）。Xaeroの
+     * {@code CAVE_MODE_DEPTH}既定値と同じ——これより近ければどうせほぼ同じ地形しか見えず、
+     * 遠ければ「メモリに載ってはいるが行けない階層」を掴む危険が高い（例: ネザーの屋根）。
+     */
+    private static final int CAVE_MODE_DEPTH_GUARD = 30;
+
+    /**
      * 層2廊下で精緻化したwaypoint列を間引く最小間隔（ブロック）。層2はブロック単位の点列を返すため、
      * 間引かないとHUDの「長距離ルート N/M」やwaypoint数が層1の頃と比べて桁違いに増える。
      */
@@ -901,8 +908,8 @@ public final class PathfindingState {
                 // 1歩も進まない中継（＝探索から見ればもう地上）も同じ扱いにする。どちらも
                 // この付近では中継を諦め、本来の目的地へ直接向かう（次tickで引き直される）
                 surfaceLegFailedAt = start;
-                displayed = new DisplayedPath(new PathResult(List.of(), false, result.expandedNodes(),
-                        result.distinctNodes()), PathMode.TO_SURFACE, -1);
+                displayed = new DisplayedPath(new PathResult(List.of(), result.termination(),
+                        result.expandedNodes(), result.distinctNodes()), PathMode.TO_SURFACE, -1);
                 return;
             }
             // 中継区間（TO_SURFACE）だけは対象外。ゴールが1点ではなく「空の下ならどこでも」なので
@@ -917,8 +924,11 @@ public final class PathfindingState {
                 // エスカレーションはしない。複数区間の合算expandedNodesは単一探索の上限と単純比較
                 // できないうえ、ここで再びtrueにすると次tickでまた同じ粗い経由地チェーンを試み、
                 // また同じ理由で失敗し…と無限往復する。エスカレーションは1段階までに留める
-                boolean hitNodeBudget = !finalCoarseGuided
-                        && result.expandedNodes() >= XaeroNavConfig.INSTANCE.maxExpandedNodes();
+                //
+                // 打ち切り理由はPathResultが持っている。展開数だけを見ていた頃は、2秒の時間上限が
+                // 先に効いた探索が「予算切れではない」＝範囲が狭いと誤判定され、粗い経由地チェーンの
+                // 代わりに無意味な箱の拡大が選ばれていた（しかもdetailReachも更新されなかった）
+                boolean budgetExhausted = !finalCoarseGuided && result.budgetExhausted();
                 // 距離上限は再挑戦の予約フラグより先に書くこと。クライアントスレッドは
                 // pendingCoarseGuideRetryを見た次の瞬間にrecalculateへ入り、そこでdetailReachを読んで
                 // 目標を選び直す。順序が逆だと、絞ったはずの上限が間に合わず、届かないと分かった
@@ -927,15 +937,15 @@ public final class PathfindingState {
                 // 粗い経由地チェーンも計算資源を使い切った側。区間ごとの合算なのでhitNodeBudgetでは
                 // 拾えないが、発動条件が「直前がノード上限に当たった」なので予算切れなのは確定している
                 updateDetailReach(searchDimension, start, finalTarget, result, renderRadius,
-                        hitNodeBudget || finalCoarseGuided);
+                        budgetExhausted || finalCoarseGuided);
                 // 再挑戦の予約は、実際に発動できるときだけ立てる。どちらの再挑戦もrenderRadius以内の
                 // ゴールを前提にしている（箱を広げる側は広げ先がrenderRadius、粗い経由地チェーン側は
                 // 読み込み済みチャンクからしか粗い地図を作れない）。予約だけ立てて発動条件が
                 // 通らないと、次tickで同じ探索をやり直しては同じ予約を立て直す無限ループになる
                 boolean retryTargetInBox = horizontalDistance(start, finalTarget) <= renderRadius;
-                boolean needsWideRetry = !result.complete() && !hitNodeBudget && !finalCoarseGuided
+                boolean needsWideRetry = !result.complete() && !budgetExhausted && !finalCoarseGuided
                         && retryTargetInBox;
-                boolean needsCoarseGuideRetry = !result.complete() && hitNodeBudget && !finalCoarseGuided
+                boolean needsCoarseGuideRetry = !result.complete() && budgetExhausted && !finalCoarseGuided
                         && retryTargetInBox;
                 // 成功した・広げても無駄だったときは通常マージンに戻す。pendingWideRetryはこの書き込みの
                 // 後に立てること（クライアントスレッドはpendingWideRetryを見てからwideSearchNeededTargetを読む）
@@ -1047,7 +1057,7 @@ public final class PathfindingState {
         // completeは「この経路が狙った先まで届いたか」であって「最終目的地に着いたか」ではない
         // （中間目標へ向かう経路も、その中間目標に届いていればcomplete）。ここを reachesGoal に
         // すると、継ぎ足した瞬間に未到達扱いになってshouldExtendが止まり、1回しか伸びなくなる
-        PathResult combined = new PathResult(List.copyOf(merged), tail.complete(),
+        PathResult combined = new PathResult(List.copyOf(merged), tail.termination(),
                 tail.expandedNodes(), tail.distinctNodes());
         List<PathSegment> segments = new ArrayList<>(current.segments());
         segments.add(new PathSegment(merged.size() - 1, tailWaypointIndex));
@@ -1381,10 +1391,20 @@ public final class PathfindingState {
             return best;
         }
 
+        // 候補は「メモリに載っているレイヤー」というだけで、プレイヤーがそこへ行けるかは見ていない
+        // （XaeroMapReaderは次元の3Dデータを持たず判定できない）。ネザーの屋根（岩盤天井の上）は
+        // 溶岩が無いのでAVOIDが必ず綺麗に通り、実際には登れない高さの経路を掴んでしまう。
+        // start/goalのYレンジから大きく外れる候補は却下する——本来の判定は層1の3D化（段階3）で
+        // レイヤー間の遷移コストとして表現するのが筋だが、それまでの暫定ガード
+        int minReachableY = Math.min(start.getY(), goal.getY()) - CAVE_MODE_DEPTH_GUARD;
+        int maxReachableY = Math.max(start.getY(), goal.getY()) + CAVE_MODE_DEPTH_GUARD;
         List<Integer> candidates = XaeroMapReader.referenceYCandidates(referenceY, MAX_REFERENCE_Y_ATTEMPTS);
         // 先頭は referenceY 自身（読み済み）なので飛ばす
         for (int i = 1; i < candidates.size(); i++) {
             int candidateY = candidates.get(i);
+            if (candidateY < minReachableY || candidateY > maxReachableY) {
+                continue;
+            }
             CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, candidateY);
             CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                     CoarseRouter.LavaPolicy.AVOID);

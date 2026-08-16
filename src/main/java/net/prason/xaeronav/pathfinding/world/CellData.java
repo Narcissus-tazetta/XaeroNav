@@ -83,6 +83,13 @@ public final class CellData {
     /** 氷の上を進むときの速度倍率（{@link #travelSpeedFactor}）。 */
     private static final float ICE_SPEED_FACTOR = 1.2f;
 
+    /**
+     * マグマブロックの上を進むときの速度倍率（{@link #travelSpeedFactor}）。バニラの
+     * {@code isSteppingCarefully}（スニーク中）はダメージを受けない代わりに移動速度が
+     * 疾走の約0.3倍まで落ちる——通行不能にはせず、その遅さをそのままコストにする。
+     */
+    private static final float MAGMA_SPEED_FACTOR = 0.3f;
+
     private CellData() {
     }
 
@@ -183,8 +190,10 @@ public final class CellData {
      */
     private static boolean harmful(BlockState state) {
         Block block = state.getBlock();
+        // MagmaBlockはここに含めない。当たり判定を持つ完全な足場で、スニークすれば無傷で歩ける
+        // （バニラの{@code isSteppingCarefully}）——遅いが安全な道として通行可にし、
+        // {@link #travelSpeedFactor}でそのぶんの遅さをコストに反映する
         return block instanceof BaseFireBlock                       // 火・魂の火。当たり判定が無い
-                || block instanceof MagmaBlock                      // 完全な足場なので放っておくと最短経路に選ばれる
                 || block instanceof SweetBerryBushBlock             // 棘のダメージ＋大幅な減速
                 || block instanceof WitherRoseBlock                 // 接触で衰弱
                 || block instanceof PowderSnowBlock                 // 落ちると凍える。雪原では地面と見分けがつかない
@@ -226,6 +235,9 @@ public final class CellData {
      */
     private static float travelSpeedFactor(BlockState state) {
         Block block = state.getBlock();
+        if (block instanceof MagmaBlock) {
+            return MAGMA_SPEED_FACTOR;
+        }
         float speedFactor = block.getSpeedFactor();
         if (speedFactor < 1.0f) {
             return speedFactor;

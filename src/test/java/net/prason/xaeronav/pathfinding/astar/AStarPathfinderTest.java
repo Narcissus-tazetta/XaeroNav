@@ -628,6 +628,40 @@ class AStarPathfinderTest {
                 "軽いダメージで済む落下に、わざわざ水バケツの手間はかけない");
     }
 
+    /**
+     * {@link PathResult#termination()}が打ち切り理由を正しく区別すること。展開数上限で切ったときと、
+     * openが尽きるまで探索し切って範囲内に道が無かったときとでは、呼び出し側の再挑戦の要否が
+     * まったく違う——両方を区別せず「未到達」だけで扱っていた頃は、詰みに対して延々と
+     * 無意味な再挑戦を仕掛け続けるバグがあった。
+     */
+    @Test
+    void distinguishesNodeBudgetFromAnExhaustedSearchSpace() {
+        // 岩盤の箱に閉じ込められた1マスの空間。四方・天井・床すべて掘れない岩盤なので、
+        // 始点を展開しても後継が1つも生成されず、1回展開しただけでopenが尽きる
+        SearchBounds sealedBounds = new SearchBounds(-8, 55, -8, 8, 70, 8);
+        CellSource sealed = FakeCells.empty(sealedBounds).fillWith(FakeCells.BEDROCK)
+                .set(0, 61, 0, FakeCells.AIR)
+                .set(0, 62, 0, FakeCells.AIR);
+        PathResult exhausted = new AStarPathfinder(sealed)
+                .search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+
+        assertFalse(exhausted.complete());
+        assertEquals(PathResult.Termination.EXHAUSTED, exhausted.termination());
+        assertFalse(exhausted.budgetExhausted(), "openが尽きたのは予算切れではなく詰み");
+
+        // 同じ地形でも、展開数の上限を1に絞れば始点を展開する前に上限へ当たる
+        CellSource sameTerrain = FakeCells.empty(sealedBounds).fillWith(FakeCells.BEDROCK)
+                .set(0, 61, 0, FakeCells.AIR)
+                .set(0, 62, 0, FakeCells.AIR);
+        SearchLimits tinyBudget = new SearchLimits(0, 2000, 1.5);
+        PathResult budgetHit = new AStarPathfinder(sameTerrain, tinyBudget)
+                .search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+
+        assertFalse(budgetHit.complete());
+        assertEquals(PathResult.Termination.NODE_BUDGET, budgetHit.termination());
+        assertTrue(budgetHit.budgetExhausted(), "ノード上限に当たったのは予算切れ扱いにする");
+    }
+
     private static PathStep last(PathResult result) {
         return result.steps().get(result.steps().size() - 1);
     }

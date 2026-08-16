@@ -125,13 +125,21 @@ public final class LiveCoarseSampler {
     private static ColumnSample sampleColumn(CellSource view, SearchBounds bounds, int x, int z) {
         int top = Math.min(view.openSkyY(x, z), bounds.maxY());
         int bottom = Math.max(bounds.minY(), top - MAX_SCAN_DEPTH);
+        // 走査の開始点が岩の中でありうる。天井のある次元ではopenSkyYが岩盤天井を指すのでtopは
+        // 探索範囲の上端に張り付き、そこが固形なら「上端そのものが地面」になってしまう。
+        // 空気を1つも見ないうちに当たった固形は地面ではなく、ただの天井側の岩。
+        boolean airSeen = false;
         for (int y = top; y >= bottom; y--) {
             long cell = view.cell(x, y, z);
             if (!CellData.present(cell)) {
                 // 未ロードチャンク。この列は分からないものとして扱う（範囲外はbottomで止まる）
                 return null;
             }
-            if (!CellData.passableEmpty(cell)) {
+            if (CellData.passableEmpty(cell)) {
+                airSeen = true;
+                continue;
+            }
+            if (airSeen) {
                 return new ColumnSample(kindOf(cell), y);
             }
         }
