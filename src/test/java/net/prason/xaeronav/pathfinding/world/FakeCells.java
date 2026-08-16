@@ -36,12 +36,17 @@ public final class FakeCells implements CellSource {
     public static final char WATER = '~';
     /** 溶岩。 */
     public static final char LAVA = 'L';
+    /** ソウルサンド。石と同じ足場だが、上を通ると{@link #SOUL_SAND_SPEED_FACTOR}まで減速する。 */
+    public static final char SOUL_SAND = 'S';
     /** 梯子。掴んで上下できる。 */
     public static final char LADDER = 'H';
     /** 範囲外・未ロード扱い（{@link CellData#ABSENT}）。 */
     public static final char ABSENT = '?';
 
     public static final double STONE_DIG_TICKS = 40.0;
+
+    /** バニラの{@code Blocks.SOUL_SAND}の{@code speedFactor(0.4F)}そのもの。 */
+    public static final float SOUL_SAND_SPEED_FACTOR = 0.4f;
 
     private final Long2LongOpenHashMap cells = new Long2LongOpenHashMap();
     private SearchBounds bounds;
@@ -144,6 +149,9 @@ public final class FakeCells implements CellSource {
             // 水は当たり判定を持たないので足場にはならないが、掘らずに体を置ける
             case WATER -> CellData.withDigTicks(CellData.PRESENT | CellData.WATER, 0.0);
             case LAVA -> CellData.withDigTicks(CellData.PRESENT | CellData.LAVA, Double.POSITIVE_INFINITY);
+            case SOUL_SAND -> CellData.withSpeedFactor(
+                    CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE, STONE_DIG_TICKS),
+                    SOUL_SAND_SPEED_FACTOR);
             case LADDER -> CellData.withDigTicks(CellData.PRESENT | CellData.CLIMBABLE, 0.0);
             case ABSENT -> CellData.ABSENT;
             default -> throw new IllegalArgumentException("未知の地形記号: " + symbol);

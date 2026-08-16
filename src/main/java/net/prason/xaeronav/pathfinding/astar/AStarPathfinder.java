@@ -70,6 +70,14 @@ public final class AStarPathfinder {
     private static final int MAX_JUMP_GAP_BLOCKS = 3;
 
     /**
+     * 隙間の下に溶岩が無いかを確かめる深さ（ブロック）。{@link #COLUMN_SCAN_DEPTH}と揃える。
+     *
+     * <p>「落ちても平気な高さ」で切ってはいけない。溶岩は深さに関わらず落ちれば死ぬので、
+     * 落下ダメージの許容量とは別の話になる（実機で、深い割れ目の底の溶岩へ跳び損ねて死んだ）。
+     */
+    private static final int JUMP_LAVA_SCAN_DEPTH = COLUMN_SCAN_DEPTH;
+
+    /**
      * ゴールに到達できなかった場合の到達点候補を、{@code h + g / 係数}という複数の指標で同時に追う。
      * ヒューリスティック単独で最良の点を選ぶと、ゴールに近いだけで行き止まりの地点（崖の縁など）を
      * 掴んでしまう。係数が小さいほど「実際に進んだ距離」を重く見る。
@@ -525,6 +533,12 @@ public final class AStarPathfinder {
         if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
             return;
         }
+        // ソウルサンド・蜂蜜の上からは疾走の最高速度が出ない。到達距離は踏み切り時の水平速度で
+        // 決まる（滞空時間は距離に依らず一定）ので、減速したまま跳ぶと必ず隙間に落ちる。
+        // 倍率の探し方は歩行コスト（{@link #stepCost}）と同じくバニラの{@code getBlockSpeedFactor}に倣う
+        if (slowedTakeoff(from.x, y, from.z)) {
+            return;
+        }
 
         for (int gap = 1; gap <= MAX_JUMP_GAP_BLOCKS; gap++) {
             int gapX = from.x + gap * dx;
@@ -532,6 +546,11 @@ public final class AStarPathfinder {
             // 跳び越える空間が塞がっていれば、その先へはどれだけ助走しても届かない
             if (!clearWithoutDigging(gapX, y, gapZ)
                     || !CellData.occupiableWithoutDigging(view.cell(gapX, y + 2, gapZ))) {
+                return;
+            }
+            // 下が溶岩の隙間は跳ばない。跳躍は外せば落ちるという前提でコストを積んであるが、
+            // 溶岩ではその「外したとき」が死なので、コストの多寡で釣り合う話ではなくなる
+            if (lavaBelow(gapX, y, gapZ)) {
                 return;
             }
             int x = from.x + (gap + 1) * dx;
@@ -546,6 +565,30 @@ public final class AStarPathfinder {
             relax(from, x, y, z, ActionCosts.jumpAcrossGap(gap), MoveKind.JUMP);
             return;
         }
+    }
+
+    /** 踏み切り地点が減速ブロックの上か（バニラの{@code Entity#getBlockSpeedFactor}と同じ探し方）。 */
+    private boolean slowedTakeoff(int x, int y, int z) {
+        double speedFactor = CellData.speedFactor(view.cell(x, y, z));
+        if (speedFactor == 1.0) {
+            speedFactor = CellData.speedFactor(view.cell(x, y - 1, z));
+        }
+        return speedFactor < 1.0;
+    }
+
+    /** 跳び損ねたときに落ちる先が溶岩か。足元から{@link #JUMP_LAVA_SCAN_DEPTH}マス下までを見る。 */
+    private boolean lavaBelow(int x, int y, int z) {
+        for (int depth = 1; depth <= JUMP_LAVA_SCAN_DEPTH; depth++) {
+            long cell = view.cell(x, y - depth, z);
+            if (CellData.lava(cell)) {
+                return true;
+            }
+            if (CellData.standable(cell)) {
+                // 溶岩より先に床がある。ここへ落ちても溶岩には触れない
+                return false;
+            }
+        }
+        return false;
     }
 
     /**
