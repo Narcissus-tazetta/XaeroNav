@@ -397,7 +397,7 @@ public final class XaeroNavCommands {
                 XaeroNavConfig.INSTANCE.diggingEnabled(), XaeroNavConfig.INSTANCE.bridgingEnabled(),
                 XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
-        reportGoalCell(source, normalView, normalBounds, goal);
+        reportGoalCell(source, normalView, normalBounds, start, goal, renderRadius);
 
         ProbeRun normal = runProbe(normalView, normalBounds, start, goal);
         reportProbeRun(source, "commands.xaeronav.probe_normal", normal);
@@ -452,12 +452,15 @@ public final class XaeroNavCommands {
      * 到達不能として扱う。素の空きかどうかで判定すると、掘れば普通に到達する目的地まで不能と報告する。
      */
     private static void reportGoalCell(CommandSourceStack source, ChunkView view, SearchBounds bounds,
-                                        BlockPos goal) {
+                                        BlockPos start, BlockPos goal, int renderRadius) {
         int x = goal.getX();
         int y = goal.getY();
         int z = goal.getZ();
         if (!bounds.contains(x, y, z)) {
-            source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_goal_outside_bounds"), false);
+            // 箱はゴール方向へrenderRadiusで切られる。長距離ナビの目的地をそのまま渡すと必ずここへ
+            // 落ちるので、どこまでなら測れるのかを併せて出さないと同じ指定を繰り返すことになる
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_goal_outside_bounds",
+                    Math.round(horizontalDistance(start, goal)), renderRadius), false);
             return;
         }
         long feetCell = view.cell(x, y, z);
