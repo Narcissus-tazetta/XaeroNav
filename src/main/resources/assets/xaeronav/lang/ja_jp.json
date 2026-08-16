@@ -76,7 +76,7 @@
   "commands.xaeronav.probe_goal_cell_dig": "要掘削",
   "commands.xaeronav.probe_goal_cell_blocked": "NG",
   "commands.xaeronav.probe_goal_ok": "  ゴールセル: 到達可能（足元の地面=OK、足の位置=%1$s、頭の位置=%2$s）",
-  "commands.xaeronav.probe_goal_outside_bounds": "  ※ゴールが探索範囲の箱の外にあります。この探索は原理的に到達しません",
+  "commands.xaeronav.probe_goal_outside_bounds": "  ※ゴールが探索範囲の箱の外にあります（%s ブロック先／箱は描画距離の %s ブロックで切られます）。この探索は原理的に到達しません",
   "commands.xaeronav.probe_goal_blocked": "  ※ゴールセルに立てません（足元の地面=%1$s、足の位置=%2$s、頭の位置=%3$s）。到達判定は座標の完全一致なので、この探索は原理的に到達しません",
   "commands.xaeronav.probe_normal": "通常",
   "commands.xaeronav.probe_widened": "拡大再挑戦",

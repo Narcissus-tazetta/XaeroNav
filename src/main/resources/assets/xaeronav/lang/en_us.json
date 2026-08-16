@@ -76,7 +76,7 @@
   "commands.xaeronav.probe_goal_cell_dig": "needs digging",
   "commands.xaeronav.probe_goal_cell_blocked": "NG",
   "commands.xaeronav.probe_goal_ok": "  goal cell: reachable (ground below=OK, feet=%1$s, head=%2$s)",
-  "commands.xaeronav.probe_goal_outside_bounds": "  * the goal lies outside the search area box; this search can never reach it",
+  "commands.xaeronav.probe_goal_outside_bounds": "  * the goal lies outside the search area box (%s blocks away; the box is clipped at the render distance of %s blocks); this search can never reach it",
   "commands.xaeronav.probe_goal_blocked": "  * cannot stand at the goal cell (ground below=%1$s, feet=%2$s, head=%3$s). Arrival requires an exact coordinate match, so this search can never reach it",
   "commands.xaeronav.probe_normal": "normal",
   "commands.xaeronav.probe_widened": "widened retry",
