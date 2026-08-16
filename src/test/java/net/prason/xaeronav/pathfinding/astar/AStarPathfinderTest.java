@@ -478,6 +478,60 @@ class AStarPathfinderTest {
         assertTrue(result.steps().stream().noneMatch(PathStep::bridging), "積む区間は出ない: " + result.steps());
     }
 
+    /**
+     * 岩盤に囲まれた溶岩の水路。足元(y=60)の4マスが溶岩なので、歩くには広すぎ跳ぶには遠すぎる。
+     * 周囲を岩盤で埋めてあるので、迂回も掘削も空中への足場設置もできない——渡る唯一の手が
+     * 溶岩そのものに足場を置くことになる。
+     */
+    private static FakeCells lavaPond() {
+        return FakeCells.of(0, 60, 0, """
+                ......
+                ......
+                #LLLL#""")
+                .fillWith(FakeCells.BEDROCK)
+                .canPlaceBlocks(true);
+    }
+
+    @Test
+    void bridgesOverLavaWhenThereIsNoOtherWay() {
+        CellSource cells = lavaPond();
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertTrue(result.complete(), "詰むくらいなら溶岩に足場を置いて渡る");
+        assertTrue(result.steps().stream().anyMatch(PathStep::bridging),
+                "溶岩の上は設置で渡る: " + movements(result));
+    }
+
+    @Test
+    void doesNotBridgeOverLavaWhenDisabled() {
+        CellSource cells = lavaPond().lavaBridgingEnabled(false);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertFalse(result.complete(), "切っている以上、溶岩は渡れないままでよい");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "溶岩に足場を置く案内はしない: " + result.steps());
+    }
+
+    /** 溶岩の橋は最後の手段。乾いた迂回路があるなら、多少遠回りでもそちらを通る。 */
+    @Test
+    void prefersADryDetourOverBridgingLava() {
+        // 溶岩の水路と同じ地形に、z=1側だけ素の地面の迂回路を彫る
+        FakeCells cells = lavaPond();
+        for (int x = 0; x <= 5; x++) {
+            cells.set(x, 60, 1, FakeCells.STONE);
+            cells.set(x, 61, 1, FakeCells.AIR);
+            cells.set(x, 62, 1, FakeCells.AIR);
+        }
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertTrue(result.complete(), "迂回路があるので到達できる");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "迂回できるのに溶岩へ足場を置いた: " + movements(result));
+    }
+
     @Test
     void doesNotPillarWhileFloatingInWater() {
         // 水中に浮いている状態。踏み切って真下にブロックを置くことはできない

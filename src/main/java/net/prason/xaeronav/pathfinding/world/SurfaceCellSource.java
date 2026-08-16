@@ -75,6 +75,12 @@ public final class SurfaceCellSource implements CellSource {
         return jumpGapEnabled;
     }
 
+    /** {@link #canPlaceBlocks()}がfalseなので橋自体を提示しない。 */
+    @Override
+    public boolean lavaBridgingEnabled() {
+        return false;
+    }
+
     /** 層2はプレイヤーの状態（体力・持ち物）を知らないので、痛い降下も水バケツMLGも提案しない。 */
     @Override
     public int maxFallDamagePoints() {

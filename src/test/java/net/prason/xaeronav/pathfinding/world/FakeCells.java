@@ -48,16 +48,25 @@ public final class FakeCells implements CellSource {
     /** バニラの{@code Blocks.SOUL_SAND}の{@code speedFactor(0.4F)}そのもの。 */
     public static final float SOUL_SAND_SPEED_FACTOR = 0.4f;
 
+    private static final int NO_OVERRIDE = Integer.MIN_VALUE;
+
     private final Long2LongOpenHashMap cells = new Long2LongOpenHashMap();
     private SearchBounds bounds;
     private boolean canPlaceBlocks;
     /** 設定の既定値に合わせてtrue。跳躍を禁じたいテストだけが明示的に切る。 */
     private boolean jumpGapEnabled = true;
+    /** 設定の既定値に合わせてtrue。溶岩の橋を禁じたいテストだけが明示的に切る。 */
+    private boolean lavaBridgingEnabled = true;
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
     private boolean canMlgWaterBucket;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
+    /**
+     * {@link #openSkyY}が返す固定値。天井のある次元（ネザー）では実装の{@code ChunkView}が
+     * ハイトマップ由来の天井を返し、探索範囲より上になりうる——それを再現するため。
+     */
+    private int openSkyYOverride = NO_OVERRIDE;
 
     private FakeCells() {
         cells.defaultReturnValue(Long.MIN_VALUE);
@@ -125,6 +134,17 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    /** {@code openSkyY}を固定する。岩盤天井が探索範囲の外にある状況を作るため。 */
+    public FakeCells openSkyYOverride(int value) {
+        this.openSkyYOverride = value;
+        return this;
+    }
+
+    public FakeCells lavaBridgingEnabled(boolean value) {
+        this.lavaBridgingEnabled = value;
+        return this;
+    }
+
     public FakeCells maxFallDamagePoints(int value) {
         this.maxFallDamagePoints = value;
         return this;
@@ -187,6 +207,11 @@ public final class FakeCells implements CellSource {
     }
 
     @Override
+    public boolean lavaBridgingEnabled() {
+        return lavaBridgingEnabled;
+    }
+
+    @Override
     public boolean jumpGapEnabled() {
         return jumpGapEnabled;
     }
@@ -207,6 +232,9 @@ public final class FakeCells implements CellSource {
      */
     @Override
     public int openSkyY(int x, int z) {
+        if (openSkyYOverride != NO_OVERRIDE) {
+            return openSkyYOverride;
+        }
         for (int y = bounds.maxY(); y >= bounds.minY(); y--) {
             long flags = cell(x, y, z);
             if (CellData.present(flags) && !CellData.passableEmpty(flags)) {

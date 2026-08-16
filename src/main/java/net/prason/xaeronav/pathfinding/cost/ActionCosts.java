@@ -144,6 +144,25 @@ public final class ActionCosts {
      */
     public static final double MLG_WATER_OVERHEAD_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
 
+    /**
+     * 溶岩の上に足場を置いて渡る1ブロックあたりの追加ペナルティ。設置を1回でも外せば死ぬので
+     * 通常の設置より重くするが、<b>詳細探索が現実的な予算で橋を見つけられる範囲に収める</b>。
+     *
+     * <p>この上限は探索アルゴリズムの側から決まる。A*は安い辺から順に展開するので、橋1本が徒歩
+     * {@code n}ブロック相当なら、{@code m}ブロックの溶岩を渡る経路に手が届く前に「徒歩{@code n×m}
+     * ブロック分の陸地」を展開し尽くす。ここを徒歩28ブロック相当（ペナルティ80）にしたところ、
+     * 20ブロックの溶岩を渡るのに半径559ブロック相当の展開が先に必要になり、ネザーの3D迷路では
+     * 20万ノードを焼いても橋に一度も到達しなかった（実機で確認）。
+     *
+     * <p>{@link #PLACE_BLOCK_OVERHEAD_TICKS}と同値にすると1ブロック約35.6tick＝徒歩10ブロック相当。
+     * 20ブロックの溶岩横断が徒歩200ブロックの迂回と釣り合い、詳細探索の箱（描画距離）に収まる
+     * 迂回路を一通り試してから橋を選ぶ、というちょうどの重みになる。
+     *
+     * <p>これより大きく迂回すべきかどうかは層1（{@code CoarseRouter.LavaPolicy}）が決める。
+     * 描画距離の外の迂回路は詳細探索にはそもそも見えないので、ここで表現しようとしてはいけない。
+     */
+    public static final double LAVA_BRIDGE_PENALTY_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
+
     public static final double INFEASIBLE = Double.POSITIVE_INFINITY;
 
     private ActionCosts() {

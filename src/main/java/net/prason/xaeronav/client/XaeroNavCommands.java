@@ -177,7 +177,8 @@ public final class XaeroNavCommands {
         }
         CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ,
                 (start.getY() + goal.getY()) / 2);
-        return CoarseRouter.findRoute(map, start, goal, boatAvailable);
+        // 診断コマンドは既定の重み付けをそのまま見せる（溶岩の梯子はPathfindingState側の話）
+        return CoarseRouter.findRoute(map, start, goal, boatAvailable, CoarseRouter.LavaPolicy.ALLOW);
     }
 
     /**
@@ -395,7 +396,7 @@ public final class XaeroNavCommands {
                 renderRadius);
         ChunkView normalView = ChunkView.capture(level, player, normalBounds,
                 XaeroNavConfig.INSTANCE.diggingEnabled(), XaeroNavConfig.INSTANCE.bridgingEnabled(),
-                XaeroNavConfig.INSTANCE.jumpGapEnabled(),
+                XaeroNavConfig.INSTANCE.jumpGapEnabled(), XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         reportGoalCell(source, normalView, normalBounds, start, goal, renderRadius);
 
@@ -495,6 +496,7 @@ public final class XaeroNavCommands {
         SearchBounds bounds = SearchBounds.around(level, start, goal, horizontalMargin, verticalMargin, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
+                XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         return runProbe(view, bounds, start, goal);
     }
