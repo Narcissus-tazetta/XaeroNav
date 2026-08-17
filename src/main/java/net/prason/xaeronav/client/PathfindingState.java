@@ -1185,9 +1185,15 @@ public final class PathfindingState {
             // 最後だけ本来の目的地に差し替える
             waypoints = replaceLast(waypoints, currentGoal);
         }
-        coarseRoute = new CoarseRoute(currentGoal, waypoints);
+        CoarseRoute thisRoute = new CoarseRoute(currentGoal, waypoints);
+        coarseRoute = thisRoute;
+        // 古い世代の精緻化結果を持ち越さない。goalが変わっていない再navigateでは
+        // refinedRoute.goal()の一致判定だけでは古い世代を弾けず、この新しいcoarseRouteに
+        // 対応する精緻化が終わるまでの間、前の世代の（形が食い違う）精緻化済み経路が
+        // 表示され続けてしまう
+        refinedRoute = null;
         if (!waypoints.isEmpty()) {
-            refineRouteAsync(start, currentGoal, waypoints);
+            refineRouteAsync(start, currentGoal, waypoints, thisRoute);
         }
         return waypoints;
     }
@@ -1207,8 +1213,16 @@ public final class PathfindingState {
      *
      * <p>区間ごとに地表データが無ければ、その区間だけ生のwaypoint1点にフォールバックする
      * （区間単位の段階的劣化——1区間のデータ欠如で経路全体の精緻化を諦めない）。
+     *
+     * <p>{@code forRoute}は「この精緻化がどの{@link #coarseRoute}世代に属すか」の目印。
+     * {@code goal}の一致だけでは、同じ目的地へ引き直した（{@code clear()}後に同じ座標へ
+     * 再度向かった等）場合に、古い世代の精緻化が新しい{@link #coarseRoute}を追い越して完了して
+     * 上書きするのを検出できない——目的地の座標は変わっていないので一致判定を素通りしてしまう。
+     * {@code coarseRoute}フィールドが今も{@code forRoute}と同一インスタンスかを見ることで、
+     * 世代を問わず正しく検出する（{@link #freshRoute}が呼ばれるたびに新しいインスタンスを作るため）。
      */
-    private void refineRouteAsync(BlockPos start, BlockPos currentGoal, List<BlockPos> waypoints) {
+    private void refineRouteAsync(BlockPos start, BlockPos currentGoal, List<BlockPos> waypoints,
+                                  CoarseRoute forRoute) {
         List<BlockPos> legs = new ArrayList<>();
         legs.add(start);
         legs.addAll(waypoints);
@@ -1228,8 +1242,9 @@ public final class PathfindingState {
             }));
         }
         chain.whenComplete((legPoints, error) -> {
-            if (error != null || !currentGoal.equals(goal)) {
-                // 目的地が変わっていた・失敗した場合は何もしない。今のcoarseRoute/goalが
+            if (error != null || !currentGoal.equals(goal) || coarseRoute != forRoute) {
+                // 目的地が変わっていた・失敗した・この精緻化の元になったcoarseRouteが
+                // すでに新しい世代へ差し替わっていた場合は何もしない。今のcoarseRoute/goalが
                 // そのまま使われる（発動条件が一つでも欠けたら従来動作へフォールバック、と同じ考え方）
                 return;
             }
