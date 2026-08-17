@@ -532,6 +532,50 @@ class AStarPathfinderTest {
                 "迂回できるのに溶岩へ足場を置いた: " + movements(result));
     }
 
+    /**
+     * 割れ目の底が見えない空洞で、遥か下（20マス）に溶岩がある。足元1マス下は空気なので、
+     * 隣接判定（{@code hasAdjacentLava}）だけでは溶岩に気付かない——{@code addBridge}の
+     * lavaFarBelow判定が無いと「危険なし」として溶岩橋切り禁止をすり抜けてしまう。
+     */
+    private static FakeCells voidWithLavaFarBelow(int gapBlocks) {
+        FakeCells cells = chasm(gapBlocks);
+        for (int x = 2; x < 2 + gapBlocks; x++) {
+            cells.set(x, 40, 0, FakeCells.LAVA);
+        }
+        return cells;
+    }
+
+    @Test
+    void doesNotBridgeOverAVoidWithLavaFarBelowWhenLavaBridgingDisabled() {
+        CellSource cells = voidWithLavaFarBelow(2)
+                .jumpGapEnabled(false)
+                .canPlaceBlocks(true)
+                .lavaBridgingEnabled(false);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertFalse(result.complete(), "遥か下が溶岩でも、溶岩橋を切っている以上渡ってはいけない");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "足元が空気に見えるだけで、遥か下の溶岩を見逃して橋を架けてはいけない: " + result.steps());
+    }
+
+    @Test
+    void prefersADryDetourOverBridgingAVoidWithLavaFarBelow() {
+        // 遥か下が溶岩の割れ目と同じ地形に、z=1側だけ素の地面の迂回路を彫る
+        FakeCells cells = voidWithLavaFarBelow(2);
+        for (int x = 0; x <= 5; x++) {
+            cells.set(x, 60, 1, FakeCells.STONE);
+            cells.set(x, 61, 1, FakeCells.AIR);
+            cells.set(x, 62, 1, FakeCells.AIR);
+        }
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertTrue(result.complete(), "迂回路があるので到達できる");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "遥か下が溶岩と気付かず、迂回できるのに橋を架けた: " + movements(result));
+    }
+
     @Test
     void doesNotPillarWhileFloatingInWater() {
         // 水中に浮いている状態。踏み切って真下にブロックを置くことはできない

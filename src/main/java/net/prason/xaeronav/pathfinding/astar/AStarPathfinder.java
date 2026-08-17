@@ -799,6 +799,7 @@ public final class AStarPathfinder {
             return;
         }
         // 床が溶岩なら、置くブロックがその溶岩を置き換える。何がそれを支えているかは関係ない
+        boolean lavaFarBelow = false;
         if (!overLava && obstacleY != NOTHING_BELOW) {
             long obstacle = view.cell(x, obstacleY, z);
             // 読めなかったセル（未ロード・探索範囲外）で走査が止まっただけの場所は、その下に何が
@@ -806,12 +807,16 @@ public final class AStarPathfinder {
             if (!CellData.present(obstacle) || CellData.water(obstacle)) {
                 return;
             }
+            // 足元・隣接には溶岩が無くても、遥か下（ネザーの開けた空洞の底など）が溶岩なら
+            // 設置を外したときの結末は変わらない。hasAdjacentLavaは足元1マス下しか見ないので、
+            // ここを見ないと「空中で溶岩の上を長々と橋渡しする」経路が無傷の橋と同じ扱いになる
+            lavaFarBelow = CellData.lava(obstacle);
         }
         // 水に接する場所へは置かない。流れ込んで足場ごと押し流される
         if (hasAdjacentWater(x, y - 1, z)) {
             return;
         }
-        boolean lavaNearby = overLava || hasAdjacentLava(x, y - 1, z);
+        boolean lavaNearby = overLava || lavaFarBelow || hasAdjacentLava(x, y - 1, z);
         if (lavaNearby && !view.lavaBridgingEnabled()) {
             return;
         }
