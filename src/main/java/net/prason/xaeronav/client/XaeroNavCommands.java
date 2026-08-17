@@ -389,7 +389,7 @@ public final class XaeroNavCommands {
 
         BlockPos start = player.blockPosition();
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
-        int verticalMargin = XaeroNavConfig.INSTANCE.searchVerticalMargin();
+        int verticalMargin = PathfindingState.verticalSearchMargin(level, false);
         int normalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
 
         SearchBounds normalBounds = SearchBounds.around(level, start, goal, normalMargin, verticalMargin,
@@ -439,7 +439,8 @@ public final class XaeroNavCommands {
                     ? "commands.xaeronav.probe_widen_triggered" : "commands.xaeronav.probe_widen_skipped"), false);
         }
         if (widenTriggered) {
-            ProbeRun widened = runProbe(level, player, start, goal, renderRadius, verticalMargin, renderRadius);
+            ProbeRun widened = runProbe(level, player, start, goal, renderRadius,
+                    PathfindingState.verticalSearchMargin(level, true), renderRadius);
             reportProbeRun(source, "commands.xaeronav.probe_widened", widened);
         }
         return 1;

@@ -92,6 +92,18 @@ public final class CoarseRouter {
     private static final double CLIFF_COST_PER_BLOCK = ActionCosts.JUMP_ONE_BLOCK;
 
     /**
+     * 崖ペナルティの上限。線形加算のままだと、起伏が激しい地形（ネザーの3D迷路では常態）で
+     * {@link #LAVA_MIXED_MULTIPLIER}による溶岩の追加コストをあっさり上回り、「平坦な溶岩の海」が
+     * 「起伏のある本物の地形」より安く見えてしまう（実測: 起伏30ブロック程度でLAND側が逆転する）。
+     *
+     * <p>不変条件として「崖ペナルティの上限 &lt; 溶岩混じりセルの追加コスト」を保つ。直進1セルぶんの
+     * 追加コスト（{@code STRAIGHT_COST * (LAVA_MIXED_MULTIPLIER - 1)}）を基準にする——斜めより
+     * 直進の方が基準コストが小さく、条件が厳しい側なのでここで揃えておけば両方で成り立つ。
+     * 安全マージンとして9割に抑える。
+     */
+    private static final double CLIFF_PENALTY_CAP = STRAIGHT_COST * (LAVA_MIXED_MULTIPLIER - 1.0) * 0.9;
+
+    /**
      * 中間目標を置く間隔（セル＝チャンク）。詳細探索が一度に解ける距離より短くしないと、
      * 次の目標が読み込み済みチャンクの外に出てしまう。
      */
@@ -309,7 +321,7 @@ public final class CoarseRouter {
         if (relief <= CLIFF_THRESHOLD_BLOCKS) {
             return 0.0;
         }
-        return (relief - CLIFF_THRESHOLD_BLOCKS) * CLIFF_COST_PER_BLOCK;
+        return Math.min((relief - CLIFF_THRESHOLD_BLOCKS) * CLIFF_COST_PER_BLOCK, CLIFF_PENALTY_CAP);
     }
 
     /**

@@ -838,7 +838,7 @@ public final class PathfindingState {
             coarseGuided = true;
         }
         SearchBounds bounds = SearchBounds.around(level, start, target,
-                horizontalMargin, XaeroNavConfig.INSTANCE.searchVerticalMargin(),
+                horizontalMargin, verticalSearchMargin(level, wideSearch),
                 renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
@@ -1003,7 +1003,7 @@ public final class PathfindingState {
 
         SearchBounds bounds = SearchBounds.around(level, from, target,
                 XaeroNavConfig.INSTANCE.searchHorizontalMargin(),
-                XaeroNavConfig.INSTANCE.searchVerticalMargin(), renderRadius);
+                verticalSearchMargin(level, false), renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
@@ -1440,6 +1440,24 @@ public final class PathfindingState {
         double dx = a.getX() - b.getX();
         double dz = a.getZ() - b.getZ();
         return Math.sqrt(dx * dx + dz * dz);
+    }
+
+    /**
+     * 探索範囲の垂直マージン。既定の{@code searchVerticalMargin}は水平マージンと違って
+     * 一度も広がらず、天井のある次元（ネザー）ではこれが致命的になる——既定32だとY方向
+     * 65ブロック厚のスライスしか見えず、溶岩の海を上下に大きく迂回する経路がそもそも
+     * 探索範囲の外という理由だけで存在しなくなる（箱の外は掘れない壁として扱われるため）。
+     *
+     * <p>天井のある次元は{@code getHeight()}自体が高々128前後しかないので、常に全高を
+     * 使っても探索コストは些細。{@code widen}（水平と同じ再挑戦トリガー）でも同様に広げる——
+     * 「範囲が狭くて届かない」という失敗のしかたを、垂直方向でも取り除く。
+     */
+    static int verticalSearchMargin(Level level, boolean widen) {
+        int configured = XaeroNavConfig.INSTANCE.searchVerticalMargin();
+        if (level.dimensionType().hasCeiling() || widen) {
+            return Math.max(configured, level.getHeight());
+        }
+        return configured;
     }
 
     /**

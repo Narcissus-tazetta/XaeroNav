@@ -326,6 +326,39 @@ class CoarseRouterTest {
                 "起伏の大きいセルを避けず素通りした: " + route.waypoints());
     }
 
+    /**
+     * 崖ペナルティに上限が無いと、極端に起伏の激しい1マス（実測ではありえない値だが、境界の
+     * 検証として意図的に大きくする）を通るより、壁を大きく迂回する方が常に安くなってしまう。
+     * ネザーでは起伏30ブロック程度でも溶岩混じりセルより高くつく（design doc参照）ので、
+     * この上限は「どれだけ起伏があっても、迂回が数セル分ぶんより高くならない」ことを保証する。
+     */
+    @Test
+    void cliffPenaltyCapLetsARuggedShortcutBeatALongDetour() {
+        CoarseMapBuilder builder = flatLand();
+        // x=0の1列だけを南北に溶岩の壁にし、z=0だけ開ける。開けた1マスは起伏10000という
+        // 極端な崖（highMax=10000はshortの範囲内——32767を超えると6引数putのキャストで
+        // オーバーフローし、意図と逆に「起伏0」へ丸められてしまうので注意）。
+        // 壁を迂回するには斜め移動でz方向に最低6マス分の往復が要り、その分（斜め12マス、
+        // 直進より約283tick高い）は崖ペナルティの上限（約77tick）を明確に上回る——
+        // 上限が効いていなければ壁を迂回する方が安くなる
+        for (int z = -5; z <= 5; z++) {
+            if (z == 0) {
+                continue;
+            }
+            builder.put(0, z, CoarseMap.LAVA, 64);
+        }
+        builder.put(0, 0, CoarseMap.LAND, 64, 0, 10_000);
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(-20, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
+
+        assertTrue(route.reachedGoal());
+        // 迂回した場合はz=8から一時的に外れるはず。崖の1マスを素通りしたなら終始z=8のまま
+        assertTrue(route.waypoints().stream().allMatch(waypoint -> waypoint.getZ() == 8),
+                "壁を迂回した＝崖ペナルティの上限が効いていない: " + route.waypoints());
+    }
+
     private static BlockPos last(CoarseRouter.Route route) {
         List<BlockPos> waypoints = route.waypoints();
         return waypoints.get(waypoints.size() - 1);
