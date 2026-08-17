@@ -98,19 +98,6 @@ public final class PathfindingState {
     private static final int COARSE_ROUTE_MAX_SPAN_CHUNKS = 1024;
 
     /**
-     * 溶岩を避ける長距離ルートを探すときに試す参照Yの数（最初のY自身を含む）。1つ増やすごとに
-     * {@link XaeroMapReader#readSurface}のメインスレッド1回分が増えるので、少数に留める。
-     */
-    private static final int MAX_REFERENCE_Y_ATTEMPTS = 3;
-
-    /**
-     * 参照Y候補をstart/goalのYレンジからどれだけ外れるまで許すか（ブロック）。Xaeroの
-     * {@code CAVE_MODE_DEPTH}既定値と同じ——これより近ければどうせほぼ同じ地形しか見えず、
-     * 遠ければ「メモリに載ってはいるが行けない階層」を掴む危険が高い（例: ネザーの屋根）。
-     */
-    private static final int CAVE_MODE_DEPTH_GUARD = 30;
-
-    /**
      * 層2廊下で精緻化したwaypoint列を間引く最小間隔（ブロック）。層2はブロック単位の点列を返すため、
      * 間引かないとHUDの「長距離ルート N/M」やwaypoint数が層1の頃と比べて桁違いに増える。
      */
@@ -1356,21 +1343,23 @@ public final class PathfindingState {
      * 始点と終点を含むバウンディングボックス+{@link #COARSE_ROUTE_PADDING_CHUNKS}の範囲でXaeroの
      * 地図データを読み、{@link CoarseRouter}で中間目標列を引く。
      *
-     * <p>溶岩の扱いを3段階でエスカレーションする。層1が溶岩地帯を突っ切ると決めると、そのwaypointへは
+     * <p>溶岩の扱いを2段階でエスカレーションする。層1が溶岩地帯を突っ切ると決めると、そのwaypointへは
      * 詳細探索が原理的に到達できない（溶岩の上は歩けない）ため、ネザーの溶岩の海の縁で詰む:
      *
      * <ol>
      *   <li>{@link CoarseRouter.LavaPolicy#AVOID} — 溶岩を完全に避ける。大きく迂回・後戻りする道が
      *       あればA*が見つける</li>
-     *   <li>参照Yを変えて{@code AVOID}をやり直す。ネザーでは地図がY帯ごとのレイヤーに分かれており、
-     *       参照Yを変えると見える地形そのものが変わる（{@link XaeroMapReader#referenceYCandidates}）</li>
      *   <li>{@link CoarseRouter.LavaPolicy#BRIDGE} — 橋を架けて渡る前提で通す。最後の手段だが詰むよりはマシ</li>
      * </ol>
      *
-     * <p>重いのは{@link CoarseRouter}のA*ではなく{@link XaeroMapReader#readSurface}（メインスレッド）
-     * なので、最初の参照Yの地図は1回だけ読んで{@code AVOID}と{@code BRIDGE}で使い回す。再読み込みが
-     * 要るのは高さ再挑戦だけで、そこに{@link #MAX_REFERENCE_Y_ATTEMPTS}を掛ける。この梯子が走るのは
-     * {@link #freshRoute}（目的地ごとにキャッシュ）のときだけで毎tickではない。
+     * <p>地図は1回だけ読んで{@code AVOID}と{@code BRIDGE}で使い回す（{@link XaeroMapReader#readSurface}が
+     * メインスレッドで重いため）。この梯子が走るのは{@link #freshRoute}（目的地ごとにキャッシュ）の
+     * ときだけで毎tickではない。
+     *
+     * <p>以前はここに参照Yを変えて読み直す3段の梯子もあった（{@link CoarseMap}が1セル1階層
+     * しか持てず、天井のある次元で見える地形が参照Y次第で変わっていたため）。{@link CoarseMap}が
+     * 複数の床を同時に持てるようになったので、1回の{@code readSurface}で参照Y付近の全レイヤーが
+     * 床として揃い、梯子は不要になった。
      */
     private static CoarseRouter.Route computeCoarseRoute(BlockPos start, BlockPos goal, boolean boatAvailable) {
         int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - COARSE_ROUTE_PADDING_CHUNKS;
@@ -1384,45 +1373,20 @@ public final class PathfindingState {
         }
 
         int referenceY = (start.getY() + goal.getY()) / 2;
-        CoarseMap firstMap = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
-        CoarseRouter.Route best = CoarseRouter.findRoute(firstMap, start, goal, boatAvailable,
+        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
+        CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.LavaPolicy.AVOID);
-        if (best.reachedGoal()) {
-            return best;
+        if (avoided.reachedGoal()) {
+            return avoided;
         }
 
-        // 候補は「メモリに載っているレイヤー」というだけで、プレイヤーがそこへ行けるかは見ていない
-        // （XaeroMapReaderは次元の3Dデータを持たず判定できない）。ネザーの屋根（岩盤天井の上）は
-        // 溶岩が無いのでAVOIDが必ず綺麗に通り、実際には登れない高さの経路を掴んでしまう。
-        // start/goalのYレンジから大きく外れる候補は却下する——本来の判定は層1の3D化（段階3）で
-        // レイヤー間の遷移コストとして表現するのが筋だが、それまでの暫定ガード
-        int minReachableY = Math.min(start.getY(), goal.getY()) - CAVE_MODE_DEPTH_GUARD;
-        int maxReachableY = Math.max(start.getY(), goal.getY()) + CAVE_MODE_DEPTH_GUARD;
-        List<Integer> candidates = XaeroMapReader.referenceYCandidates(referenceY, MAX_REFERENCE_Y_ATTEMPTS);
-        // 先頭は referenceY 自身（読み済み）なので飛ばす
-        for (int i = 1; i < candidates.size(); i++) {
-            int candidateY = candidates.get(i);
-            if (candidateY < minReachableY || candidateY > maxReachableY) {
-                continue;
-            }
-            CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, candidateY);
-            CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, boatAvailable,
-                    CoarseRouter.LavaPolicy.AVOID);
-            if (route.reachedGoal()) {
-                LOGGER.info("XaeroNav: 参照Yを{}へ変えて溶岩を避ける長距離ルートが引けました (元の参照Y={})",
-                        candidateY, referenceY);
-                return route;
-            }
-            best = furtherRoute(best, route);
-        }
-
-        CoarseRouter.Route bridged = CoarseRouter.findRoute(firstMap, start, goal, boatAvailable,
+        CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.LavaPolicy.BRIDGE);
         if (bridged.reachedGoal()) {
             LOGGER.info("XaeroNav: 溶岩を避ける道が見つからないため、橋を架けて渡る長距離ルートに切り替えました");
             return bridged;
         }
-        return furtherRoute(best, bridged);
+        return furtherRoute(avoided, bridged);
     }
 
     /** 目的地まで届かなかったルート同士の比較。中間目標が多い方＝より遠くまで進めた方を採る。 */

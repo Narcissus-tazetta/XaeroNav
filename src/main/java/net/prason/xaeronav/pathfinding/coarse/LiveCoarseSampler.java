@@ -1,24 +1,20 @@
 package net.prason.xaeronav.pathfinding.coarse;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 
 /**
- * {@link CoarseMap}を、Xaeroの地図ではなく{@link CellSource}(読み込み済みチャンクの生ブロックデータ)
- * から組み立てる。描画距離の内側では層3(詳細A*)の方が層2(Xaero地図)より詳細な情報を持つため、
- * 局所的な崖・湖で詳細A*が頭打ちになったときの再挑戦に、この粗い地図を使う
- * （design doc外・{@link net.prason.xaeronav.pathfinding.async.PathfindingExecutor#submitCoarseGuided}）。
- *
- * <p>集計方法は{@code XaeroMapReader#readTile}と同じ（1チャンクを4×4=16点サンプリングし、水/溶岩の
- * 比率で種別を、最小・最大・平均高さを集計する）。{@link CoarseMap}/{@link CoarseMapBuilder}/
- * {@link CoarseRouter}は読み出し元を知らない設計なので、そのまま流用できる。
+ * 読み込み済みチャンクの実データから{@link CoarseMap}を組む。層3の予算切れ時の再挑戦
+ * （粗い経由地チェーン）が使う——Xaeroの地図に依存しないので、Xaero未導入でも動く。
  */
 public final class LiveCoarseSampler {
 
     /** 1チャンク内で何ブロックおきに見るか。{@code XaeroMapReader}の値と揃える。 */
     private static final int SAMPLE_STEP = 4;
-    private static final int SAMPLES_PER_CHUNK = (16 / SAMPLE_STEP) * (16 / SAMPLE_STEP);
     /** {@code XaeroMapReader}と同じ3段階の溶岩分類にする（層1と層3で同じ地形が違って見えないように）。 */
     private static final int LAVA_MIXED_NUMERATOR = 4;
 
@@ -32,6 +28,14 @@ public final class LiveCoarseSampler {
      * 届かず、海そのものが地図に載らなかった。
      */
     private static final int MAX_SCAN_DEPTH = 128;
+
+    /**
+     * 1チャンク内の異なる列で見つかった床同士を「同じ床」とみなす高さの許容差（ブロック）。
+     * Xaeroの洞窟レイヤーは{@code CAVE_MODE_DEPTH}(30)ブロック単位で分かれる——実在の別レイヤーは
+     * まず30ブロック以上離れる。一方、同じ床でもチャンク内の地形の起伏で数ブロックはずれうる。
+     * その間を取った値で、緩い坂は同じ床にまとめつつ、別レイヤーは分けるのを狙う。
+     */
+    private static final int FLOOR_CLUSTER_THRESHOLD_BLOCKS = 12;
 
     private LiveCoarseSampler() {
     }
@@ -53,97 +57,76 @@ public final class LiveCoarseSampler {
         return builder.build();
     }
 
+    /**
+     * このチャンク内の16列それぞれで見つかった床を、高さが近いもの同士でまとめてから
+     * {@link CoarseMapBuilder}へ渡す。1列につき複数の床がありうる（天井のある次元で
+     * 上下に独立した通路が重なる場合）ので、単純な1列1値の集計では表現できない。
+     */
     private static void sampleChunk(CellSource view, SearchBounds bounds, int chunkX, int chunkZ,
                                      CoarseMapBuilder builder) {
         int baseX = chunkX << 4;
         int baseZ = chunkZ << 4;
-
-        int waterSamples = 0;
-        int lavaSamples = 0;
-        int heightSum = 0;
-        int heightSamples = 0;
-        int minHeight = Integer.MAX_VALUE;
-        int maxHeight = Integer.MIN_VALUE;
-        // 溶岩面の高さの平均。samplesが全部溶岩だった稀なケース（下記）だけで使う
-        int lavaHeightSum = 0;
-        int samples = 0;
+        List<FloorAccumulator> floors = new ArrayList<>(CoarseMap.MAX_FLOORS);
 
         for (int dx = 0; dx < 16; dx += SAMPLE_STEP) {
             for (int dz = 0; dz < 16; dz += SAMPLE_STEP) {
-                ColumnSample sample = sampleColumn(view, bounds, baseX + dx, baseZ + dz);
-                if (sample == null) {
-                    continue;
+                for (ColumnSample sample : sampleColumnFloors(view, bounds, baseX + dx, baseZ + dz)) {
+                    accumulate(floors, sample);
                 }
-                samples++;
-                if (sample.kind == CoarseMap.LAVA) {
-                    lavaSamples++;
-                    lavaHeightSum += sample.height;
-                    // 溶岩面は代表高さから除く（XaeroMapReader#readTileと同じ理由:
-                    // 溶岩は立てないので混ぜるとwaypointが溶岩面に落ちる）
-                    continue;
-                }
-                if (sample.kind == CoarseMap.WATER) {
-                    waterSamples++;
-                }
-                heightSum += sample.height;
-                heightSamples++;
-                minHeight = Math.min(minHeight, sample.height);
-                maxHeight = Math.max(maxHeight, sample.height);
             }
         }
+        for (FloorAccumulator floor : floors) {
+            floor.emit(chunkX, chunkZ, builder);
+        }
+    }
 
-        if (samples == 0) {
-            return;
+    /** 高さが近い既存の集計へ足す。無ければ新しい集計を作る（クラスタ数は自然にMAX_FLOORS程度で頭打ちになる）。 */
+    private static void accumulate(List<FloorAccumulator> floors, ColumnSample sample) {
+        FloorAccumulator closest = null;
+        int closestDistance = FLOOR_CLUSTER_THRESHOLD_BLOCKS + 1;
+        for (FloorAccumulator candidate : floors) {
+            int distance = Math.abs(candidate.approxHeight() - sample.height);
+            if (distance <= FLOOR_CLUSTER_THRESHOLD_BLOCKS && distance < closestDistance) {
+                closest = candidate;
+                closestDistance = distance;
+            }
         }
-        byte kind;
-        if (lavaSamples * 2 >= samples) {
-            kind = CoarseMap.LAVA;
-        } else if (lavaSamples * LAVA_MIXED_NUMERATOR >= samples) {
-            kind = CoarseMap.LAVA_MIXED;
-        } else if (waterSamples * 2 >= samples) {
-            kind = CoarseMap.WATER;
-        } else {
-            kind = CoarseMap.LAND;
+        if (closest == null) {
+            closest = new FloorAccumulator();
+            floors.add(closest);
         }
-        // heightSamples==0はサンプル全部が溶岩のときだけ（＝kindは必ずLAVA）。ここは溶岩面の高さで
-        // 正しい——LavaPolicy.BRIDGEでこのセルを渡るとき、足場を置くのがまさにその高さになる
-        int averageHeight = heightSamples > 0 ? heightSum / heightSamples : lavaHeightSum / lavaSamples;
-        int representativeMin = heightSamples > 0 ? minHeight : averageHeight;
-        int representativeMax = heightSamples > 0 ? maxHeight : averageHeight;
-        builder.put(chunkX, chunkZ, kind, averageHeight, representativeMin, representativeMax);
+        closest.add(sample);
     }
 
     /**
-     * 列(x,z)で最初に当たる地面。見つからなければ{@code null}。
+     * 列(x,z)にある立てる床をすべて探す。上端が固形でも、そこから真の地面までは掘らず
+     * 素通りする（{@link CellData#passableEmpty}が続く限りしか床と認めない——探索範囲の上端が
+     * 岩の中の場合、それを地面と誤読すると足元の溶岩の海が地図から消える）。
      *
-     * <p>走査開始を<b>探索範囲の上端で頭打ちにする</b>のが要点。{@link CellSource#openSkyY}は
-     * ハイトマップ由来で、天井のある次元では岩盤天井（ネザーならY≒128）を指す。そのまま始点に
-     * すると探索範囲の外を読むことになり、{@code cell}が{@link CellData#ABSENT}を返して
-     * <b>全列がnull＝粗い地図が1セルも埋まらない</b>。空の地図は全セルNO_DATA（通行可能）なので、
-     * 粗いルートは溶岩を無視した直線を引き、その中間目標へ詳細探索が延々と予算を焼く。
+     * <p>1つの床を記録したら、次の床を認めるには再び空気を見る必要がある——同じ固まりの
+     * 中で連続する固体セルを複数の床として二重に数えないため。
      */
-    private static ColumnSample sampleColumn(CellSource view, SearchBounds bounds, int x, int z) {
+    private static List<ColumnSample> sampleColumnFloors(CellSource view, SearchBounds bounds, int x, int z) {
         int top = Math.min(view.openSkyY(x, z), bounds.maxY());
         int bottom = Math.max(bounds.minY(), top - MAX_SCAN_DEPTH);
-        // 走査の開始点が岩の中でありうる。天井のある次元ではopenSkyYが岩盤天井を指すのでtopは
-        // 探索範囲の上端に張り付き、そこが固形なら「上端そのものが地面」になってしまう。
-        // 空気を1つも見ないうちに当たった固形は地面ではなく、ただの天井側の岩。
+        List<ColumnSample> floors = new ArrayList<>(CoarseMap.MAX_FLOORS);
         boolean airSeen = false;
-        for (int y = top; y >= bottom; y--) {
+        for (int y = top; y >= bottom && floors.size() < CoarseMap.MAX_FLOORS; y--) {
             long cell = view.cell(x, y, z);
             if (!CellData.present(cell)) {
-                // 未ロードチャンク。この列は分からないものとして扱う（範囲外はbottomで止まる）
-                return null;
+                // 未ロードチャンク。この先は分からないので打ち切る（範囲外はbottomで止まる）
+                return floors;
             }
             if (CellData.passableEmpty(cell)) {
                 airSeen = true;
                 continue;
             }
             if (airSeen) {
-                return new ColumnSample(kindOf(cell), y);
+                floors.add(new ColumnSample(kindOf(cell), y));
+                airSeen = false;
             }
         }
-        return null;
+        return floors;
     }
 
     private static byte kindOf(long cell) {
@@ -157,5 +140,58 @@ public final class LiveCoarseSampler {
     }
 
     private record ColumnSample(byte kind, int height) {
+    }
+
+    /** 同じ床とみなされた複数列ぶんのサンプルを、{@code XaeroMapReader#readTile}と同じ規則で集計する。 */
+    private static final class FloorAccumulator {
+        private int waterSamples;
+        private int lavaSamples;
+        private int heightSum;
+        private int heightSamples;
+        private int minHeight = Integer.MAX_VALUE;
+        private int maxHeight = Integer.MIN_VALUE;
+        // 溶岩面の高さの平均。samplesが全部溶岩だった場合だけ使う
+        private int lavaHeightSum;
+        private int samples;
+
+        void add(ColumnSample sample) {
+            samples++;
+            if (sample.kind() == CoarseMap.LAVA) {
+                lavaSamples++;
+                lavaHeightSum += sample.height();
+                // 溶岩面は代表高さから除く（XaeroMapReader#readTileと同じ理由:
+                // 溶岩は立てないので混ぜるとwaypointが溶岩面に落ちる）
+                return;
+            }
+            if (sample.kind() == CoarseMap.WATER) {
+                waterSamples++;
+            }
+            heightSum += sample.height();
+            heightSamples++;
+            minHeight = Math.min(minHeight, sample.height());
+            maxHeight = Math.max(maxHeight, sample.height());
+        }
+
+        /** クラスタリング中に使う代表高さ。まだ溶岩しか無ければ溶岩面の高さ。 */
+        int approxHeight() {
+            return heightSamples > 0 ? heightSum / heightSamples : lavaHeightSum / lavaSamples;
+        }
+
+        void emit(int chunkX, int chunkZ, CoarseMapBuilder builder) {
+            byte kind;
+            if (lavaSamples * 2 >= samples) {
+                kind = CoarseMap.LAVA;
+            } else if (lavaSamples * LAVA_MIXED_NUMERATOR >= samples) {
+                kind = CoarseMap.LAVA_MIXED;
+            } else if (waterSamples * 2 >= samples) {
+                kind = CoarseMap.WATER;
+            } else {
+                kind = CoarseMap.LAND;
+            }
+            int averageHeight = approxHeight();
+            int representativeMin = heightSamples > 0 ? minHeight : averageHeight;
+            int representativeMax = heightSamples > 0 ? maxHeight : averageHeight;
+            builder.putFloor(chunkX, chunkZ, kind, averageHeight, representativeMin, representativeMax);
+        }
     }
 }

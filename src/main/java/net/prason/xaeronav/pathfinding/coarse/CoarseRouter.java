@@ -14,9 +14,15 @@ import net.prason.xaeronav.pathfinding.cost.ActionCosts;
  * {@link CoarseMap}の上で、目的地までのおおまかな道筋を1チャンク単位で引く。
  *
  * <p>結果は経路そのものではなく<b>中間目標の列</b>として使う。ここで決めるのは「海をどちら回りで
- * 避けるか」「どの谷を通るか」という大局だけで、実際に辿る経路は読み込み済みチャンクを見る詳細探索が
- * 中間目標ごとに引き直す。粗い側が1マス単位の通行可否を持たない以上、ここで出した線をそのまま
- * 歩けるとは限らない。
+ * 避けるか」「どの谷を通るか」「（天井のある次元では）どの階層を通るか」という大局だけで、
+ * 実際に辿る経路は読み込み済みチャンクを見る詳細探索が中間目標ごとに引き直す。粗い側が
+ * 1マス単位の通行可否を持たない以上、ここで出した線をそのまま歩けるとは限らない。
+ *
+ * <p>探索の状態は{@code (chunkX, chunkZ, floor)}——{@link CoarseMap}のセル単位の床。
+ * 同じXZに複数の独立した階層が重なる次元（ネザー）で、階層をまたぐ移動を「安い段差」として
+ * 誤魔化さず、専用のコスト（{@link #LAYER_TRANSITION_PENALTY}）を持つ独立した辺として扱う。
+ * 床数が常に1になる次元（地上・ジ・エンド）では、この状態空間は旧来の{@code (chunkX, chunkZ)}と
+ * 完全に同じになる。
  *
  * <p>コストは詳細探索と同じtick単位で見積もる。単位を揃えておかないと、「粗い側では最短なのに
  * 詳細側では明らかな遠回り」という食い違いが起きたときに、どちらの見積もりが外れているのか
@@ -104,10 +110,27 @@ public final class CoarseRouter {
     private static final double CLIFF_PENALTY_CAP = STRAIGHT_COST * (LAVA_MIXED_MULTIPLIER - 1.0) * 0.9;
 
     /**
-     * 中間目標を置く間隔（セル＝チャンク）。詳細探索が一度に解ける距離より短くしないと、
+     * 同じセル内で階層をまたぐ（床i↔床i+1）移動の割増倍率。粗い地図はその階層間に実際に
+     * 通れる縦穴があるかまでは分からない——{@code Δheight × HEIGHT_COST_PER_BLOCK}に、
+     * 「本当に繋がっているか分からない」ぶんの割増を掛ける。{@link #UNKNOWN_MULTIPLIER}や
+     * {@link #LAVA_MIXED_MULTIPLIER}と同じ「通れなくはないが、確実な道より高くつく」という
+     * 設計思想の値で、実測に基づく係数ではない（要調整）。
+     */
+    private static final double LAYER_TRANSITION_PENALTY = 2.0;
+
+    /**
+     * 中間目標を置く水平間隔（セル＝チャンク）。詳細探索が一度に解ける距離より短くしないと、
      * 次の目標が読み込み済みチャンクの外に出てしまう。
      */
     private static final int WAYPOINT_SPACING_CELLS = 6;
+
+    /**
+     * 中間目標を置く垂直間隔（ブロック）。水平の間隔（{@link #WAYPOINT_SPACING_CELLS}）だけで
+     * 間引くと、同じXZで階層を何段も登る区間（水平移動が0のまま）がwaypoint無しの1区間に
+     * 圧縮され、詳細探索が「現在地から遥か上」という1つの目標をいきなり狙う羽目になる。
+     * {@code PathfindingState#REFINED_WAYPOINT_MIN_SPACING_BLOCKS}と同じ値に揃えてある。
+     */
+    private static final int WAYPOINT_VERTICAL_SPACING_BLOCKS = 24;
 
     /**
      * ゴールに届かなかったときの到達点候補を、{@code h + g / 係数}という複数の指標で同時に追う。
@@ -119,7 +142,7 @@ public final class CoarseRouter {
     private static final double[] COEFFICIENTS = {1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0};
 
     /**
-     * これ未満しか進めない暫定ルートは提示する価値がない（セル＝チャンク）。
+     * これ未満しか進めない暫定ルートは提示する価値がない（セル＝チャンク、XZ平面上の距離）。
      * {@link net.prason.xaeronav.pathfinding.astar.AStarPathfinder#MIN_DIST_PATH}と同じ役割だが、
      * 単位がブロックではなくチャンクなのでこちらは1セルにしておく。
      */
@@ -140,8 +163,7 @@ public final class CoarseRouter {
     }
 
     /**
-     * 溶岩セルの扱い。呼び出し側は{@link #AVOID}から順に試し、届かなかったときだけ緩める
-     * （{@code PathfindingState#computeCoarseRoute}のエスカレーション梯子）。
+     * 溶岩セルの扱い。呼び出し側は{@link #AVOID}から順に試し、届かなかったときだけ緩める。
      *
      * <p>層1が溶岩地帯を突っ切ると決めると、そのwaypointへは詳細探索が原理的に到達できない
      * （溶岩の上は歩けない）。段階を分けるのは「大きく迂回してでも溶岩を避ける道」を必ず先に
@@ -168,14 +190,17 @@ public final class CoarseRouter {
         double waterMultiplier = boatAvailable ? BOAT_MULTIPLIER : WATER_MULTIPLIER;
 
         int cells = map.chunksX() * map.chunksZ();
-        double[] cost = new double[cells];
-        int[] previous = new int[cells];
-        boolean[] closed = new boolean[cells];
+        int states = cells * CoarseMap.MAX_FLOORS;
+        double[] cost = new double[states];
+        int[] previous = new int[states];
+        boolean[] closed = new boolean[states];
         Arrays.fill(cost, Double.POSITIVE_INFINITY);
         Arrays.fill(previous, -1);
 
-        int startIndex = index(map, startX, startZ);
-        int goalIndex = index(map, goalX, goalZ);
+        int startFloor = resolveFloor(map, startX, startZ, start.getY());
+        int goalFloor = resolveFloor(map, goalX, goalZ, goal.getY());
+        int startIndex = stateIndex(map, startX, startZ, startFloor);
+        int goalIndex = stateIndex(map, goalX, goalZ, goalFloor);
         cost[startIndex] = 0.0;
 
         PriorityQueue<Candidate> open =
@@ -189,7 +214,7 @@ public final class CoarseRouter {
 
         while (!open.isEmpty()) {
             Candidate current = open.poll();
-            // decrease-keyの代わりに同じセルを複数回積むので、古い方はここで捨てる
+            // decrease-keyの代わりに同じ状態を複数回積むので、古い方はここで捨てる
             if (closed[current.index()]) {
                 continue;
             }
@@ -198,48 +223,118 @@ public final class CoarseRouter {
                 return buildRoute(map, previous, goalIndex, startIndex, true, start.getY());
             }
 
-            int x = cellX(map, current.index());
-            int z = cellZ(map, current.index());
+            int x = stateChunkX(map, current.index());
+            int z = stateChunkZ(map, current.index());
+            int floor = stateFloor(current.index());
 
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dz = -1; dz <= 1; dz++) {
                     if (dx == 0 && dz == 0) {
                         continue;
                     }
-                    relax(map, cost, previous, closed, open, x, z, dx, dz, goalX, goalZ,
+                    relaxHorizontal(map, cost, previous, closed, open, x, z, floor, dx, dz, goalX, goalZ,
                             bestSoFar, bestHeuristic, waterMultiplier, lavaPolicy);
                 }
             }
+            relaxVertical(map, cost, previous, closed, open, x, z, floor, goalX, goalZ,
+                    bestSoFar, bestHeuristic, waterMultiplier);
         }
 
         return buildRoute(map, previous, selectFallback(map, bestSoFar, startIndex), startIndex, false,
                 start.getY());
     }
 
-    private static void relax(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
-                              PriorityQueue<Candidate> open, int x, int z, int dx, int dz,
-                              int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
-                              double waterMultiplier, LavaPolicy lavaPolicy) {
+    /**
+     * 始点・終点の座標が実際にどの床を指すかを解決する。既知セルなら実際のYに最も近い床、
+     * 未知セルなら唯一の状態（{@code floor=0}、{@link #stateKind}が{@code NO_DATA}を返す）。
+     */
+    private static int resolveFloor(CoarseMap map, int chunkX, int chunkZ, int y) {
+        int floor = map.nearestFloor(chunkX, chunkZ, y);
+        return floor < 0 ? 0 : floor;
+    }
+
+    /**
+     * 水平方向の隣接セルへは、今の床に高さが最も近い床<b>だけ</b>へ繋ぐ（隣接セルの全床へではない）。
+     *
+     * <p>全床へ繋ぐと、階層をまたぐはずの移動が{@link #LAYER_TRANSITION_PENALTY}を経由せず、
+     * 普通の坂と同じ{@code heightPenalty}だけで隣のセルの遠い階層へ「水平移動のふりをして」
+     * 渡れてしまう——{@link #relaxVertical}で明示的に払わせているはずの「本当に繋がっているか
+     * 分からない」割増を、水平移動が迂回して素通りする抜け道になる。最寄りの床だけに絞れば、
+     * 緩やかな坂はそのまま辿れる一方、階層が急に変わる箇所は必ず垂直遷移を経由することになる。
+     */
+    private static void relaxHorizontal(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
+                                        PriorityQueue<Candidate> open, int x, int z, int floor, int dx, int dz,
+                                        int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
+                                        double waterMultiplier, LavaPolicy lavaPolicy) {
         int nextX = x + dx;
         int nextZ = z + dz;
         if (!map.containsChunk(nextX, nextZ)) {
             return;
         }
-        int nextIndex = index(map, nextX, nextZ);
-        if (closed[nextIndex]) {
-            return;
-        }
-        double step = stepCost(map, x, z, nextX, nextZ, dx != 0 && dz != 0, waterMultiplier, lavaPolicy);
+        boolean diagonal = dx != 0 && dz != 0;
+        int nextFloor = nearestConnectableFloor(map, x, z, floor, nextX, nextZ);
+        double step = horizontalStepCost(map, x, z, floor, nextX, nextZ, nextFloor, diagonal, waterMultiplier,
+                lavaPolicy);
         if (Double.isInfinite(step)) {
             return;
         }
-        double tentative = cost[index(map, x, z)] + step;
+        offer(map, cost, previous, closed, open, x, z, floor, nextX, nextZ, nextFloor, step, goalX, goalZ,
+                bestSoFar, bestHeuristic, waterMultiplier);
+    }
+
+    /** 隣接セルのうち、今の床の高さに最も近い床。相手が未知セルなら唯一の状態（floor=0）。 */
+    private static int nearestConnectableFloor(CoarseMap map, int fromX, int fromZ, int fromFloor,
+                                               int toX, int toZ) {
+        if (map.floorCount(toX, toZ) == 0) {
+            return 0;
+        }
+        short fromHeight = stateHeight(map, fromX, fromZ, fromFloor);
+        if (fromHeight == CoarseMap.UNKNOWN_HEIGHT) {
+            return 0;
+        }
+        return map.nearestFloor(toX, toZ, fromHeight);
+    }
+
+    /**
+     * 同じセル内で1つ上・1つ下の床への移動。床は高さ昇順に並んでいるので、隣接インデックスが
+     * そのまま「次に近い階層」になる。未知セル（床数0）には床が無いので発生しない。
+     */
+    private static void relaxVertical(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
+                                      PriorityQueue<Candidate> open, int x, int z, int floor,
+                                      int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
+                                      double waterMultiplier) {
+        int floorCount = map.floorCount(x, z);
+        if (floorCount == 0) {
+            return;
+        }
+        for (int nextFloor : new int[] {floor - 1, floor + 1}) {
+            if (nextFloor < 0 || nextFloor >= floorCount) {
+                continue;
+            }
+            double deltaHeight =
+                    Math.abs(map.heightAtFloor(x, z, nextFloor) - map.heightAtFloor(x, z, floor));
+            double step = deltaHeight * HEIGHT_COST_PER_BLOCK * LAYER_TRANSITION_PENALTY;
+            offer(map, cost, previous, closed, open, x, z, floor, x, z, nextFloor, step, goalX, goalZ,
+                    bestSoFar, bestHeuristic, waterMultiplier);
+        }
+    }
+
+    private static void offer(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
+                              PriorityQueue<Candidate> open, int fromX, int fromZ, int fromFloor,
+                              int toX, int toZ, int toFloor, double step, int goalX, int goalZ,
+                              int[] bestSoFar, double[] bestHeuristic, double waterMultiplier) {
+        int nextIndex = stateIndex(map, toX, toZ, toFloor);
+        if (closed[nextIndex]) {
+            return;
+        }
+        int fromIndex = stateIndex(map, fromX, fromZ, fromFloor);
+        double tentative = cost[fromIndex] + step;
         if (tentative >= cost[nextIndex]) {
             return;
         }
         cost[nextIndex] = tentative;
-        previous[nextIndex] = index(map, x, z);
-        double remaining = heuristic(map, nextX, nextZ, goalX, goalZ, waterMultiplier);
+        previous[nextIndex] = fromIndex;
+        double remaining = heuristic(map, toX, toZ, goalX, goalZ, waterMultiplier);
         open.add(new Candidate(nextIndex, tentative + remaining));
 
         for (int i = 0; i < COEFFICIENTS.length; i++) {
@@ -253,16 +348,16 @@ public final class CoarseRouter {
 
     /**
      * ゴールに届かなかったときの到達点を選ぶ。係数の小さい（＝実際に進んだ距離を重く見る）ものから順に、
-     * 始点から{@link #MIN_DIST_CELLS}以上離れている候補を採用する。どれも届かない場合は始点自身を返し、
-     * 空のルート＝「提示できるルートなし」として扱う。
+     * 始点からXZ平面上で{@link #MIN_DIST_CELLS}以上離れている候補を採用する。どれも届かない場合は
+     * 始点自身を返し、空のルート＝「提示できるルートなし」として扱う。
      */
     private static int selectFallback(CoarseMap map, int[] bestSoFar, int startIndex) {
-        int startX = cellX(map, startIndex);
-        int startZ = cellZ(map, startIndex);
+        int startX = stateChunkX(map, startIndex);
+        int startZ = stateChunkZ(map, startIndex);
         double thresholdSquared = MIN_DIST_CELLS * MIN_DIST_CELLS;
         for (int candidate : bestSoFar) {
-            double dx = cellX(map, candidate) - startX;
-            double dz = cellZ(map, candidate) - startZ;
+            double dx = stateChunkX(map, candidate) - startX;
+            double dz = stateChunkZ(map, candidate) - startZ;
             if (dx * dx + dz * dz > thresholdSquared) {
                 return candidate;
             }
@@ -270,9 +365,10 @@ public final class CoarseRouter {
         return startIndex;
     }
 
-    private static double stepCost(CoarseMap map, int fromX, int fromZ, int toX, int toZ, boolean diagonal,
-                                   double waterMultiplier, LavaPolicy lavaPolicy) {
-        byte kind = map.kindAtChunk(toX, toZ);
+    private static double horizontalStepCost(CoarseMap map, int fromX, int fromZ, int fromFloor,
+                                             int toX, int toZ, int toFloor, boolean diagonal,
+                                             double waterMultiplier, LavaPolicy lavaPolicy) {
+        byte kind = stateKind(map, toX, toZ, toFloor);
         double lavaMultiplier = lavaMultiplier(kind, lavaPolicy);
         if (Double.isInfinite(lavaMultiplier)) {
             return ActionCosts.INFEASIBLE;
@@ -286,14 +382,14 @@ public final class CoarseRouter {
         };
 
         double heightPenalty = 0.0;
-        short fromHeight = map.heightAtChunk(fromX, fromZ);
-        short toHeight = map.heightAtChunk(toX, toZ);
+        short fromHeight = stateHeight(map, fromX, fromZ, fromFloor);
+        short toHeight = stateHeight(map, toX, toZ, toFloor);
         // 片方でも高さが分からなければ段差は測れない。分からないことを段差0として扱うと、
         // 未知の領域が「平坦な近道」に見えてしまう
         if (fromHeight != CoarseMap.UNKNOWN_HEIGHT && toHeight != CoarseMap.UNKNOWN_HEIGHT) {
             heightPenalty = Math.abs(toHeight - fromHeight) * HEIGHT_COST_PER_BLOCK;
         }
-        return base * multiplier + heightPenalty + cliffPenalty(map, toX, toZ);
+        return base * multiplier + heightPenalty + cliffPenalty(map, toX, toZ, toFloor);
     }
 
     /**
@@ -310,10 +406,10 @@ public final class CoarseRouter {
         return 1.0;
     }
 
-    /** 踏み込み先セルの起伏が大きいときの追加コスト。起伏が分からなければ平坦扱い（0）。 */
-    private static double cliffPenalty(CoarseMap map, int chunkX, int chunkZ) {
-        short min = map.minHeightAtChunk(chunkX, chunkZ);
-        short max = map.maxHeightAtChunk(chunkX, chunkZ);
+    /** 踏み込み先の床の起伏が大きいときの追加コスト。起伏が分からなければ平坦扱い（0）。 */
+    private static double cliffPenalty(CoarseMap map, int chunkX, int chunkZ, int floor) {
+        short min = stateMinHeight(map, chunkX, chunkZ, floor);
+        short max = stateMaxHeight(map, chunkX, chunkZ, floor);
         if (min == CoarseMap.UNKNOWN_HEIGHT || max == CoarseMap.UNKNOWN_HEIGHT) {
             return 0.0;
         }
@@ -325,9 +421,10 @@ public final class CoarseRouter {
     }
 
     /**
-     * 残りコストの下限。{@code waterMultiplier}(ボート所持時は{@link #BOAT_MULTIPLIER}<1.0)を
-     * 掛けておかないと、経路が丸ごとボート水域だった場合の実コストがこの下限を下回り非許容になる。
-     * 陸・未知・段差はどれも倍率が1.0以上なのでこれより安くはならない。
+     * 残りコストの下限。XZ平面上の距離だけを見る——垂直方向（階層をまたぐコスト）を無視するのは
+     * 過小評価にしかならないので、下限としての正しさ（admissibility）は保たれる。
+     * {@code waterMultiplier}(ボート所持時は{@link #BOAT_MULTIPLIER}<1.0)を掛けておかないと、
+     * 経路が丸ごとボート水域だった場合の実コストがこの下限を下回り非許容になる。
      */
     private static double heuristic(CoarseMap map, int x, int z, int goalX, int goalZ, double waterMultiplier) {
         int dx = Math.abs(goalX - x);
@@ -340,40 +437,47 @@ public final class CoarseRouter {
 
     /**
      * 経路を中間目標へ間引く。全セルを返すと詳細探索が数チャンクごとに呼ばれることになり、
-     * 粗い線をなぞるだけの案内になってしまう。
+     * 粗い線をなぞるだけの案内になってしまう。水平・垂直どちらかの間隔を超えたら区切る——
+     * 階層を何段も登る区間は水平に進まないので、垂直側の間隔が無いと丸ごと1区間に潰れる。
      */
     private static Route buildRoute(CoarseMap map, int[] previous, int endIndex, int startIndex,
                                     boolean reachedGoal, int startY) {
-        List<Integer> cells = new ArrayList<>();
+        List<Integer> states = new ArrayList<>();
         for (int cursor = endIndex; cursor != -1; cursor = previous[cursor]) {
-            cells.add(cursor);
+            states.add(cursor);
             if (cursor == startIndex) {
                 break;
             }
         }
-        Collections.reverse(cells);
-        if (cells.size() <= 1) {
+        Collections.reverse(states);
+        if (states.size() <= 1) {
             return new Route(List.of(), reachedGoal);
         }
 
         List<BlockPos> waypoints = new ArrayList<>();
-        int lastX = cellX(map, cells.get(0));
-        int lastZ = cellZ(map, cells.get(0));
-        // 高さが分からないセルのフォールバックは、直前に分かった高さを引き継ぐ（無ければ出発点）。
+        int lastX = stateChunkX(map, states.get(0));
+        int lastZ = stateChunkZ(map, states.get(0));
+        // 高さが分からない状態のフォールバックは、直前に分かった高さを引き継ぐ（無ければ出発点）。
         // 固定の0だと、ネザーのように地形の主要な高さ帯が0から遠い次元で、詳細探索が
         // 奈落の底へ経路を引こうとしてノード上限を焼き切る
         int fallbackHeight = startY;
-        for (int i = 1; i < cells.size(); i++) {
-            int cell = cells.get(i);
-            int x = cellX(map, cell);
-            int z = cellZ(map, cell);
-            boolean last = i == cells.size() - 1;
+        int lastWaypointHeight = startY;
+        for (int i = 1; i < states.size(); i++) {
+            int state = states.get(i);
+            int x = stateChunkX(map, state);
+            int z = stateChunkZ(map, state);
+            int floor = stateFloor(state);
+            boolean last = i == states.size() - 1;
             int spanX = Math.abs(x - lastX);
             int spanZ = Math.abs(z - lastZ);
-            if (last || Math.max(spanX, spanZ) >= WAYPOINT_SPACING_CELLS) {
-                BlockPos waypoint = toBlockPos(map, x, z, fallbackHeight);
+            short height = stateHeight(map, x, z, floor);
+            int spanY = height == CoarseMap.UNKNOWN_HEIGHT ? 0 : Math.abs(height - lastWaypointHeight);
+            if (last || Math.max(spanX, spanZ) >= WAYPOINT_SPACING_CELLS
+                    || spanY >= WAYPOINT_VERTICAL_SPACING_BLOCKS) {
+                BlockPos waypoint = toBlockPos(x, z, height, fallbackHeight);
                 waypoints.add(waypoint);
                 fallbackHeight = waypoint.getY();
+                lastWaypointHeight = waypoint.getY();
                 lastX = x;
                 lastZ = z;
             }
@@ -381,24 +485,60 @@ public final class CoarseRouter {
         return new Route(List.copyOf(waypoints), reachedGoal);
     }
 
-    /** セルの中心。高さが分からないセルは{@code fallbackHeight}を使う。 */
-    private static BlockPos toBlockPos(CoarseMap map, int chunkX, int chunkZ, int fallbackHeight) {
-        short height = map.heightAtChunk(chunkX, chunkZ);
+    /** セルの中心。高さが分からない状態は{@code fallbackHeight}を使う。 */
+    private static BlockPos toBlockPos(int chunkX, int chunkZ, short height, int fallbackHeight) {
         return new BlockPos(chunkX * CELL_BLOCKS + CELL_BLOCKS / 2,
                 height == CoarseMap.UNKNOWN_HEIGHT ? fallbackHeight : height,
                 chunkZ * CELL_BLOCKS + CELL_BLOCKS / 2);
     }
 
-    private static int index(CoarseMap map, int chunkX, int chunkZ) {
+    /**
+     * {@code floor}が実在するか（{@code floorCount>0}）で、未知セルの「未知」状態と
+     * 既知の床を区別する。未知セルは常に{@code floor==0}の1状態しか持たない。
+     */
+    private static boolean isUnknownState(CoarseMap map, int chunkX, int chunkZ) {
+        return map.floorCount(chunkX, chunkZ) == 0;
+    }
+
+    private static byte stateKind(CoarseMap map, int chunkX, int chunkZ, int floor) {
+        return isUnknownState(map, chunkX, chunkZ) ? CoarseMap.NO_DATA : map.kindAtFloor(chunkX, chunkZ, floor);
+    }
+
+    private static short stateHeight(CoarseMap map, int chunkX, int chunkZ, int floor) {
+        return isUnknownState(map, chunkX, chunkZ) ? CoarseMap.UNKNOWN_HEIGHT
+                : map.heightAtFloor(chunkX, chunkZ, floor);
+    }
+
+    private static short stateMinHeight(CoarseMap map, int chunkX, int chunkZ, int floor) {
+        return isUnknownState(map, chunkX, chunkZ) ? CoarseMap.UNKNOWN_HEIGHT
+                : map.minHeightAtFloor(chunkX, chunkZ, floor);
+    }
+
+    private static short stateMaxHeight(CoarseMap map, int chunkX, int chunkZ, int floor) {
+        return isUnknownState(map, chunkX, chunkZ) ? CoarseMap.UNKNOWN_HEIGHT
+                : map.maxHeightAtFloor(chunkX, chunkZ, floor);
+    }
+
+    private static int stateIndex(CoarseMap map, int chunkX, int chunkZ, int floor) {
+        return cellIndex(map, chunkX, chunkZ) * CoarseMap.MAX_FLOORS + floor;
+    }
+
+    private static int cellIndex(CoarseMap map, int chunkX, int chunkZ) {
         return (chunkZ - map.minChunkZ()) * map.chunksX() + (chunkX - map.minChunkX());
     }
 
-    private static int cellX(CoarseMap map, int index) {
-        return map.minChunkX() + index % map.chunksX();
+    private static int stateChunkX(CoarseMap map, int stateIndex) {
+        int cellIndex = stateIndex / CoarseMap.MAX_FLOORS;
+        return map.minChunkX() + cellIndex % map.chunksX();
     }
 
-    private static int cellZ(CoarseMap map, int index) {
-        return map.minChunkZ() + index / map.chunksX();
+    private static int stateChunkZ(CoarseMap map, int stateIndex) {
+        int cellIndex = stateIndex / CoarseMap.MAX_FLOORS;
+        return map.minChunkZ() + cellIndex / map.chunksX();
+    }
+
+    private static int stateFloor(int stateIndex) {
+        return stateIndex % CoarseMap.MAX_FLOORS;
     }
 
     private record Candidate(int index, double estimatedTotal) {

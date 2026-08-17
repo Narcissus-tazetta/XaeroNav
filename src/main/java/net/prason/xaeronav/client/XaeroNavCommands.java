@@ -292,17 +292,24 @@ public final class XaeroNavCommands {
         reportKindHistogram(source, map, centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side);
         reportMapLayers(source, centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side);
 
-        byte hereKind = map.kindAtChunk(centerChunkX, centerChunkZ);
-        // 実際に立っているYも並べる。粗い地図の高さは洞窟レイヤーのcaveStartから下向きに
-        // 走査した結果なので、足元と食い違っていないかはこの2つを比べないと分からない
+        // 実際に立っているYに最も近い床を報告する。粗い地図の高さは洞窟レイヤーのcaveStartから
+        // 下向きに走査した結果なので、足元と食い違っていないかはこの2つを比べないと分からない。
+        // このセルが複数の床を持つ（＝上下に独立した通路が重なっている）ことがある旨も添える
+        int hereFloorCount = map.floorCount(centerChunkX, centerChunkZ);
+        int hereFloor = map.nearestFloor(centerChunkX, centerChunkZ, referenceY);
+        byte hereKind = hereFloor < 0 ? CoarseMap.NO_DATA : map.kindAtFloor(centerChunkX, centerChunkZ, hereFloor);
+        int hereHeight = hereFloor < 0 ? 0 : map.heightAtFloor(centerChunkX, centerChunkZ, hereFloor);
         source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_here",
-                describeKind(hereKind), map.heightAtChunk(centerChunkX, centerChunkZ), referenceY), false);
+                describeKind(hereKind), hereHeight, referenceY, hereFloorCount), false);
         return 1;
     }
 
     /**
      * 粗い地図の地形種別の内訳。{@link CoarseRouter}で溶岩だけが通行不能（他は未知でも通れる）なので、
      * 長距離ルートが途中で打ち切られたとき、溶岩がどれだけ通行可能領域を削っているかがここで分かる。
+     *
+     * <p>セルではなく<b>床</b>単位で数える——1セルが複数の床を持ちうる（天井のある次元で
+     * 上下に独立した通路が重なる）ので、セル単位だと実際に読めているデータ量を過小に見せる。
      */
     private static void reportKindHistogram(CommandSourceStack source, CoarseMap map,
                                              int minChunkX, int minChunkZ, int side) {
@@ -313,12 +320,19 @@ public final class XaeroNavCommands {
         int noData = 0;
         for (int chunkX = minChunkX; chunkX < minChunkX + side; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ < minChunkZ + side; chunkZ++) {
-                switch (map.kindAtChunk(chunkX, chunkZ)) {
-                    case CoarseMap.LAND -> land++;
-                    case CoarseMap.WATER -> water++;
-                    case CoarseMap.LAVA -> lava++;
-                    case CoarseMap.LAVA_MIXED -> lavaMixed++;
-                    default -> noData++;
+                int floorCount = map.floorCount(chunkX, chunkZ);
+                if (floorCount == 0) {
+                    noData++;
+                    continue;
+                }
+                for (int floor = 0; floor < floorCount; floor++) {
+                    switch (map.kindAtFloor(chunkX, chunkZ, floor)) {
+                        case CoarseMap.LAND -> land++;
+                        case CoarseMap.WATER -> water++;
+                        case CoarseMap.LAVA -> lava++;
+                        case CoarseMap.LAVA_MIXED -> lavaMixed++;
+                        default -> noData++;
+                    }
                 }
             }
         }

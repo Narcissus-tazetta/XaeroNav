@@ -52,7 +52,7 @@
   "commands.xaeronav.mapdata_summary": "XaeroNav map data: %1$d blocks across — %2$d/%3$d chunks known (%4$d%%), read in %5$d ms",
   "commands.xaeronav.mapdata_regions": "  regions: %1$d loaded / %2$d awaiting load / %3$d in range",
   "commands.xaeronav.mapdata_requested": "  requested loading of %d region(s) — run again in a moment",
-  "commands.xaeronav.mapdata_here": "  here: %1$s, map height %2$d (actual Y %3$d)",
+  "commands.xaeronav.mapdata_here": "  here: %1$s, map height %2$d (actual Y %3$d, floors at this cell %4$d)",
   "commands.xaeronav.mapdata_land": "land",
   "commands.xaeronav.mapdata_water": "water",
   "commands.xaeronav.mapdata_lava": "lava",

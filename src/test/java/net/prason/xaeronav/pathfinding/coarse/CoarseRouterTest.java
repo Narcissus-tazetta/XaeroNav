@@ -19,7 +19,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
         for (int x = -RADIUS; x < RADIUS; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAND, 64);
+                builder.putFloor(x, z, CoarseMap.LAND, 64);
             }
         }
         return builder;
@@ -52,7 +52,7 @@ class CoarseRouterTest {
         // 目的地との間を塞ぐ湾。北側(Z<-6)は開いているので、そちらへ迂回できる
         for (int x = 4; x <= 16; x++) {
             for (int z = -6; z <= RADIUS - 1; z++) {
-                builder.put(x, z, CoarseMap.WATER, 62);
+                builder.replaceCell(x, z, CoarseMap.WATER, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -74,7 +74,7 @@ class CoarseRouterTest {
         // ボートは徒歩より速いので、ボートがあれば迂回せず突っ切る方が安くなるはず
         for (int x = 4; x <= 16; x++) {
             for (int z = -6; z <= RADIUS - 1; z++) {
-                builder.put(x, z, CoarseMap.WATER, 62);
+                builder.replaceCell(x, z, CoarseMap.WATER, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -94,7 +94,7 @@ class CoarseRouterTest {
         // 端から端まで塞ぐ海峡。迂回路が無いので、遠回りより泳ぐ方が安い
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.WATER, 62);
+                builder.replaceCell(x, z, CoarseMap.WATER, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -111,7 +111,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAVA, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -135,7 +135,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA_MIXED, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -154,7 +154,7 @@ class CoarseRouterTest {
         // 進路上に溶岩混じりの帯を置くが、Z方向に少し逸れれば素の陸で回り込める
         for (int x = 4; x <= 6; x++) {
             for (int z = -2; z <= 2; z++) {
-                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA_MIXED, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -180,7 +180,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA_MIXED, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -200,7 +200,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -2; z <= 2; z++) {
-                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA_MIXED, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -218,7 +218,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAVA, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -239,7 +239,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -2; z <= 2; z++) {
-                builder.put(x, z, CoarseMap.LAVA, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -263,11 +263,11 @@ class CoarseRouterTest {
         // 未知のペナルティが「遠回りしてでも避ける」ほど重くはないため（遠い帯なら直進が正しい）
         for (int x = -RADIUS; x < RADIUS; x++) {
             for (int z = 2; z <= 4; z++) {
-                builder.put(x, z, CoarseMap.LAND, 64);
+                builder.putFloor(x, z, CoarseMap.LAND, 64);
             }
         }
-        builder.put(0, 0, CoarseMap.LAND, 64);
-        builder.put(20, 0, CoarseMap.LAND, 64);
+        builder.putFloor(0, 0, CoarseMap.LAND, 64);
+        builder.putFloor(20, 0, CoarseMap.LAND, 64);
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
@@ -295,7 +295,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         // 目的地へ一直線の帯だけが高い尾根。1マス北へ避ければ平坦
         for (int x = 1; x <= 19; x++) {
-            builder.put(x, 0, CoarseMap.LAND, 140);
+            builder.replaceCell(x, 0, CoarseMap.LAND, 140);
         }
         CoarseMap map = builder.build();
 
@@ -314,7 +314,7 @@ class CoarseRouterTest {
         // 平均高さは周囲と同じ64だが、セル内の起伏（0〜128）が大きい＝崖のチャンク。
         // 平均だけを見る旧ロジックでは検出できず、1マス北の平坦な迂回路と無差別だった
         for (int x = 1; x <= 19; x++) {
-            builder.put(x, 0, CoarseMap.LAND, 64, 0, 128);
+            builder.putFloor(x, 0, CoarseMap.LAND, 64, 0, 128);
         }
         CoarseMap map = builder.build();
 
@@ -345,9 +345,9 @@ class CoarseRouterTest {
             if (z == 0) {
                 continue;
             }
-            builder.put(0, z, CoarseMap.LAVA, 64);
+            builder.putFloor(0, z, CoarseMap.LAVA, 64);
         }
-        builder.put(0, 0, CoarseMap.LAND, 64, 0, 10_000);
+        builder.putFloor(0, 0, CoarseMap.LAND, 64, 0, 10_000);
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(-20, 0), atChunk(20, 0), false,
@@ -357,6 +357,55 @@ class CoarseRouterTest {
         // 迂回した場合はz=8から一時的に外れるはず。崖の1マスを素通りしたなら終始z=8のまま
         assertTrue(route.waypoints().stream().allMatch(waypoint -> waypoint.getZ() == 8),
                 "壁を迂回した＝崖ペナルティの上限が効いていない: " + route.waypoints());
+    }
+
+    /**
+     * ネザーの3D迷路の核心: 同じセルに上下2本の独立した床があるとき、垂直遷移で繋いで
+     * 到達できる。始点・終点のYがそれぞれの床に近いことも{@link CoarseMap#nearestFloor}で
+     * 正しく解決される必要がある。
+     */
+    @Test
+    void connectsTwoStackedFloorsInTheSameCellViaAVerticalTransition() {
+        CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
+        builder.putFloor(0, 0, CoarseMap.LAND, 40);
+        builder.putFloor(0, 0, CoarseMap.LAND, 90);
+        CoarseMap map = builder.build();
+
+        BlockPos start = new BlockPos(8, 41, 8);
+        BlockPos goal = new BlockPos(8, 91, 8);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        assertTrue(route.reachedGoal());
+        assertFalse(route.isEmpty());
+        assertEquals(90, last(route).getY(), "登った先の床(90)の高さで終わるはず");
+    }
+
+    /**
+     * 水平移動は隣接セルの全床にではなく、今の床に最も近い床だけに繋がる。これが無いと、
+     * 階層をまたぐ移動が「本当に繋がっているか分からない階層間移動は必ず垂直遷移の
+     * 割増コストを払う」というルールを、水平移動のふりをして素通りしてしまう
+     * （隣接セルの遠い床へも普通の坂と同じ{@code heightPenalty}だけで渡れてしまい、
+     * {@link #connectsTwoStackedFloorsInTheSameCellViaAVerticalTransition}が課している
+     * 割増を迂回する抜け道になる）。
+     *
+     * <p>始点のセルは高さ40の床1つだけ。隣（目的地のセル）には高さ42（近い）と高さ90（遠い）の
+     * 2つの床がある。それでも目的地Y=90へは到達できる——最寄りの床(42)を経由して
+     * 垂直遷移で登る2段構えの経路になるだけで、90が「繋がっていない床」として消えることはない。
+     */
+    @Test
+    void horizontalStepReachesTheFarFloorOnlyThroughTheNearFloorAndAVerticalTransition() {
+        CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
+        builder.putFloor(0, 0, CoarseMap.LAND, 40);
+        builder.putFloor(1, 0, CoarseMap.LAND, 42);
+        builder.putFloor(1, 0, CoarseMap.LAND, 90);
+        CoarseMap map = builder.build();
+
+        BlockPos start = new BlockPos(8, 41, 8);
+        BlockPos goal = new BlockPos(24, 91, 8);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        assertTrue(route.reachedGoal());
+        assertEquals(90, last(route).getY());
     }
 
     private static BlockPos last(CoarseRouter.Route route) {
