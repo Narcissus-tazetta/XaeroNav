@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.PriorityQueue;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 
 /**
@@ -242,6 +243,146 @@ public final class CoarseRouter {
 
         return buildRoute(map, previous, selectFallback(map, bestSoFar, startIndex), startIndex, false,
                 start.getY());
+    }
+
+    /**
+     * ゴールから逆向きに全セル・全床への実コスト下限を計算する。層3のヒューリスティックが
+     * 併用するguide（{@link net.prason.xaeronav.pathfinding.astar.CostToGo}）の実体——壁や
+     * 溶岩の海を回避した見積もりを、幾何学的な直線距離の代わりに使えるようにする。
+     *
+     * <p>{@link #findRoute}と違い、ヒューリスティックを使わない素のDijkstraで
+     * openが尽きるまで（＝到達可能な全状態への最短距離が確定するまで）回す。
+     * {@link #stepCost}系は非対称（進入先セルの性質で決まる）なので、ゴールから逆走するときは
+     * 呼び出しの{@code from}/{@code to}を入れ替える——「セルAからBへ入るコスト」を、
+     * Bに立ってAへ向かって数える形になる。
+     *
+     * <p><b>近似であることの注意</b>: {@link #findRoute}の水平移動は隣接セルの最も高さが近い
+     * 床<b>だけ</b>に繋ぐ（階層をまたぐ移動が垂直遷移の割増を迂回しないため）。この関数を
+     * 正確に逆走するには「どの床がどの床から『最寄り』として選ばれうるか」を逆算する必要があり
+     * 複雑になるため、ここでは隣接セルの全床を候補にする単純化を採用する。結果は
+     * 「本当に繋がる場合より広く見積もる」方向にしか外れない——admissibleな
+     * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}とのmaxを取って使う設計
+     * （{@code AStarPathfinder#node}参照）なので、この近似が探索を壊すことはない
+     * （最悪でも幾何学的下限まで自然に落ちる）。
+     */
+    public static CostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable, LavaPolicy lavaPolicy) {
+        int goalX = goal.getX() >> 4;
+        int goalZ = goal.getZ() >> 4;
+        int states = map.chunksX() * map.chunksZ() * CoarseMap.MAX_FLOORS;
+        double[] cost = new double[states];
+        Arrays.fill(cost, Double.POSITIVE_INFINITY);
+        if (!map.containsChunk(goalX, goalZ)) {
+            return new CoarseCostToGo(map, cost);
+        }
+        double waterMultiplier = boatAvailable ? BOAT_MULTIPLIER : WATER_MULTIPLIER;
+        int goalFloor = resolveFloor(map, goalX, goalZ, goal.getY());
+        int goalIndex = stateIndex(map, goalX, goalZ, goalFloor);
+        cost[goalIndex] = 0.0;
+        boolean[] closed = new boolean[states];
+
+        PriorityQueue<Candidate> open =
+                new PriorityQueue<>(Comparator.comparingDouble(Candidate::estimatedTotal));
+        open.add(new Candidate(goalIndex, 0.0));
+
+        while (!open.isEmpty()) {
+            Candidate current = open.poll();
+            if (closed[current.index()]) {
+                continue;
+            }
+            closed[current.index()] = true;
+            int x = stateChunkX(map, current.index());
+            int z = stateChunkZ(map, current.index());
+            int floor = stateFloor(current.index());
+
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dz == 0) {
+                        continue;
+                    }
+                    relaxBackwardHorizontal(map, cost, closed, open, x, z, floor, dx, dz, waterMultiplier,
+                            lavaPolicy);
+                }
+            }
+            relaxBackwardVertical(map, cost, closed, open, x, z, floor);
+        }
+        return new CoarseCostToGo(map, cost);
+    }
+
+    /**
+     * {@link #costToGo}の結果をブロック座標で引けるようにする薄いラッパー。範囲外・データ無しの
+     * 座標は0を返す（層1に情報が無いだけで、{@code AStarPathfinder}側は幾何学的な
+     * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}とのmaxを取るので、0を返しても
+     * 「情報が無いので寄与しない」以上の害は無い——{@link Double#POSITIVE_INFINITY}を返すと、
+     * layer3の探索範囲がこの地図の読み取り範囲より広いだけで無限大に汚染されてしまう）。
+     */
+    private record CoarseCostToGo(CoarseMap map, double[] cost) implements CostToGo {
+        @Override
+        public double estimate(int x, int y, int z) {
+            int chunkX = x >> 4;
+            int chunkZ = z >> 4;
+            if (!map.containsChunk(chunkX, chunkZ)) {
+                return 0.0;
+            }
+            int floor = map.nearestFloor(chunkX, chunkZ, y);
+            if (floor < 0) {
+                return 0.0;
+            }
+            double value = cost[stateIndex(map, chunkX, chunkZ, floor)];
+            return Double.isInfinite(value) ? 0.0 : value;
+        }
+    }
+
+    private static void relaxBackwardHorizontal(CoarseMap map, double[] cost, boolean[] closed,
+                                                PriorityQueue<Candidate> open, int x, int z, int floor,
+                                                int dx, int dz, double waterMultiplier, LavaPolicy lavaPolicy) {
+        int neighborX = x + dx;
+        int neighborZ = z + dz;
+        if (!map.containsChunk(neighborX, neighborZ)) {
+            return;
+        }
+        boolean diagonal = dx != 0 && dz != 0;
+        int neighborFloorCount = Math.max(map.floorCount(neighborX, neighborZ), 1);
+        for (int neighborFloor = 0; neighborFloor < neighborFloorCount; neighborFloor++) {
+            // from/toを入れ替え: 「neighborからxへ入るコスト」を計算する（逆走なので）
+            double step = horizontalStepCost(map, neighborX, neighborZ, neighborFloor, x, z, floor, diagonal,
+                    waterMultiplier, lavaPolicy);
+            if (Double.isInfinite(step)) {
+                continue;
+            }
+            offerBackward(map, cost, closed, open, x, z, floor, neighborX, neighborZ, neighborFloor, step);
+        }
+    }
+
+    private static void relaxBackwardVertical(CoarseMap map, double[] cost, boolean[] closed,
+                                              PriorityQueue<Candidate> open, int x, int z, int floor) {
+        int floorCount = map.floorCount(x, z);
+        if (floorCount == 0) {
+            return;
+        }
+        for (int neighborFloor : new int[] {floor - 1, floor + 1}) {
+            if (neighborFloor < 0 || neighborFloor >= floorCount) {
+                continue;
+            }
+            double deltaHeight =
+                    Math.abs(map.heightAtFloor(x, z, neighborFloor) - map.heightAtFloor(x, z, floor));
+            double step = deltaHeight * HEIGHT_COST_PER_BLOCK * LAYER_TRANSITION_PENALTY;
+            offerBackward(map, cost, closed, open, x, z, floor, x, z, neighborFloor, step);
+        }
+    }
+
+    private static void offerBackward(CoarseMap map, double[] cost, boolean[] closed,
+                                      PriorityQueue<Candidate> open, int fromX, int fromZ, int fromFloor,
+                                      int toX, int toZ, int toFloor, double step) {
+        int nextIndex = stateIndex(map, toX, toZ, toFloor);
+        if (closed[nextIndex]) {
+            return;
+        }
+        double tentative = cost[stateIndex(map, fromX, fromZ, fromFloor)] + step;
+        if (tentative >= cost[nextIndex]) {
+            return;
+        }
+        cost[nextIndex] = tentative;
+        open.add(new Candidate(nextIndex, tentative));
     }
 
     /**

@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
+import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathSafetyChecker;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
@@ -53,10 +54,46 @@ public final class PathfindingExecutor {
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits) {
-        return submit(cancelled -> search(view, limits, cancelled, (pathfinder, c) ->
-                // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
-                // 寄せ直しなので、メインスレッドへ戻さずここで行う
-                pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal), c)));
+        return submit(view, start, goal, limits, true);
+    }
+
+    /**
+     * {@code costToGoGuideEnabled}を明示的に指定する版。既定（引数無しの{@link #submit}）はtrue——
+     * 層1のcost-to-go（{@link #buildCostToGoGuide}）を幾何学的なHeuristicと併用する。設定で
+     * 切れるようにする理由は{@code XaeroNavConfig#costToGoGuideEnabled}を参照。
+     *
+     * <p>この設定値をここで{@code XaeroNavConfig}から直接読まないのは、{@link PathfindingExecutor}が
+     * 単体テスト対象（{@code PathfindingExecutorCoarseGuidedTest}）で、NeoForgeの設定システムが
+     * ロードされていない環境からも呼べる必要があるため。読み出しは呼び出し側
+     * （{@code PathfindingState}）の責務にする。
+     */
+    public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
+                                                 boolean costToGoGuideEnabled) {
+        return submit(cancelled -> {
+            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, goal) : null;
+            return search(view, limits, cancelled, costToGo, (pathfinder, c) ->
+                    // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
+                    // 寄せ直しなので、メインスレッドへ戻さずここで行う
+                    pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
+                            c));
+        });
+    }
+
+    /**
+     * {@link LiveCoarseSampler}で組んだ粗い地図から、このゴールへのcost-to-goガイドを作る。
+     * {@code view.bounds()}の箱に限れば{@link CoarseRouter}の逆向きDijkstra1回は数msで終わる
+     * （描画距離32相当で65×65セル、最大4床）。Xaeroの地図に依存せず読み込み済みチャンクの
+     * 生データだけを見るので、ワーカースレッド上で完結できる（メインスレッド境界を動かさない）。
+     *
+     * <p>ボート所持の有無は見ない（{@code false}固定）。ガイドは{@code AStarPathfinder}側で
+     * 幾何学的なヒューリスティックとのmaxを取って使うだけなので、多少粗くても実害が無い——
+     * 損をするのは「ボートがあるのに引き締めが甘くなる」程度で、非許容にはならない。
+     */
+    private static CostToGo buildCostToGoGuide(CellSource view, BlockPos goal) {
+        CoarseMap coarseMap = LiveCoarseSampler.sample(view, view.bounds());
+        CoarseRouter.LavaPolicy lavaPolicy = view.lavaBridgingEnabled()
+                ? CoarseRouter.LavaPolicy.BRIDGE : CoarseRouter.LavaPolicy.ALLOW;
+        return CoarseRouter.costToGo(coarseMap, goal, false, lavaPolicy);
     }
 
     /**
@@ -104,11 +141,21 @@ public final class PathfindingExecutor {
      */
     public CompletableFuture<PathResult> submitCoarseGuided(CellSource view, SearchBounds bounds, BlockPos start,
                                                              BlockPos goal, SearchLimits limits) {
-        return submit(cancelled -> solveCoarseGuided(view, bounds, start, goal, limits, cancelled));
+        return submitCoarseGuided(view, bounds, start, goal, limits, true);
+    }
+
+    /** {@code costToGoGuideEnabled}を明示的に指定する版。{@link #submit(CellSource, BlockPos, BlockPos,
+     * SearchLimits, boolean)}と同じ理由で、設定の読み出しは呼び出し側に委ねる。 */
+    public CompletableFuture<PathResult> submitCoarseGuided(CellSource view, SearchBounds bounds, BlockPos start,
+                                                             BlockPos goal, SearchLimits limits,
+                                                             boolean costToGoGuideEnabled) {
+        return submit(cancelled -> solveCoarseGuided(view, bounds, start, goal, limits, cancelled,
+                costToGoGuideEnabled));
     }
 
     private static PathResult solveCoarseGuided(CellSource view, SearchBounds bounds, BlockPos start, BlockPos goal,
-                                                 SearchLimits limits, BooleanSupplier cancelled) {
+                                                 SearchLimits limits, BooleanSupplier cancelled,
+                                                 boolean costToGoGuideEnabled) {
         CoarseMap coarseMap = LiveCoarseSampler.sample(view, bounds);
         // 橋を架けられるなら粗い側でも溶岩を通す。ここを一律ALLOWにすると、溶岩の海の縁では
         // 出発点自身のセルがLAVA＝通行不能になって区間分割が1つも作れず、溶岩の海を1回の探索で
@@ -123,7 +170,9 @@ public final class PathfindingExecutor {
                 coarseMap.knownCells(), coarseMap.totalCells(), route.waypoints().size(), lavaPolicy);
         if (route.waypoints().isEmpty()) {
             // 粗い側でも道が見つからない（孤立した地形等）。直接探索と同じ結果に留める
-            return search(view, limits, cancelled, (pathfinder, c) ->
+            CostToGo directCostToGo = costToGoGuideEnabled
+                    ? CoarseRouter.costToGo(coarseMap, goal, false, lavaPolicy) : null;
+            return search(view, limits, cancelled, directCostToGo, (pathfinder, c) ->
                     pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
                             c));
         }
@@ -161,7 +210,11 @@ public final class PathfindingExecutor {
                     : new SearchLimits(legLimits.maxExpandedNodes(), remainingMillis, legLimits.heuristicWeight());
             BlockPos legGoal = StanceFinder.resolveGoal(view, rawLegGoals.get(i));
             BlockPos currentLegStart = legStart;
-            PathResult legResult = search(view, thisLegLimits, cancelled,
+            // 区間ごとのゴールに向けたガイド。同じcoarseMapを使い回すので逆向きDijkstraだけを
+            // ゴールの数だけ繰り返す（地図の読み取りは1回で済んでいる）
+            CostToGo legCostToGo = costToGoGuideEnabled
+                    ? CoarseRouter.costToGo(coarseMap, legGoal, false, lavaPolicy) : null;
+            PathResult legResult = search(view, thisLegLimits, cancelled, legCostToGo,
                     (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c));
             totalExpanded += legResult.expandedNodes();
             totalDistinct += legResult.distinctNodes();
@@ -194,7 +247,12 @@ public final class PathfindingExecutor {
     }
 
     private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled, SearchCall run) {
-        AStarPathfinder pathfinder = new AStarPathfinder(view, limits);
+        return search(view, limits, cancelled, null, run);
+    }
+
+    private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled,
+                                     CostToGo costToGo, SearchCall run) {
+        AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
         return PathSafetyChecker.annotate(view, run.search(pathfinder, cancelled));
     }
 

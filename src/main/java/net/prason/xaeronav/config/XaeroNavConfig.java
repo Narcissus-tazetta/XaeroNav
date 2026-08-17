@@ -28,6 +28,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue jumpGapEnabled;
     private final ModConfigSpec.BooleanValue lavaBridgingEnabled;
     private final ModConfigSpec.BooleanValue deepLookAheadEnabled;
+    private final ModConfigSpec.BooleanValue costToGoGuideEnabled;
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
@@ -79,6 +80,15 @@ public final class XaeroNavConfig {
                         "falseなら常に「今の区間＋次の1区間」だけを保つ（描かれる経路は短いが探索は軽い）",
                         "どちらでも、すでに歩いている手前側の経路が引き直されることはない")
                 .define("deepLookAheadEnabled", true);
+
+        costToGoGuideEnabled = builder
+                .comment("詳細探索のヒューリスティックに、層1（粗い地図）が壁や溶岩の海を回避した",
+                        "見積もりを併用するか（幾何学的な直線距離とのうち大きい方を使う）",
+                        "ネザーのような3D迷路では直線距離がほぼ無意味なので、これで探索が壁沿いに",
+                        "正しく伸びるようになる。層1のコストには断定的な重み（崖・未知・溶岩）が",
+                        "混じるため厳密な下限ではないが、直線距離を下回ることはないので損はしない",
+                        "falseにすると幾何学的な直線距離だけに戻る（比較用）")
+                .define("costToGoGuideEnabled", true);
 
         searchHorizontalMargin = builder
                 .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
@@ -176,6 +186,14 @@ public final class XaeroNavConfig {
 
     public void setDeepLookAheadEnabled(boolean value) {
         deepLookAheadEnabled.set(value);
+    }
+
+    public boolean costToGoGuideEnabled() {
+        return costToGoGuideEnabled.get();
+    }
+
+    public void setCostToGoGuideEnabled(boolean value) {
+        costToGoGuideEnabled.set(value);
     }
 
     public boolean jumpGapEnabled() {

@@ -50,9 +50,28 @@ class HeuristicTest {
         assertEquals(expected, Heuristic.estimate(0, 64, 0, dx, 64, dz), 1e-9);
     }
 
+    /**
+     * 水平移動を伴わない純粋な昇りは、水平移動を必要としない移動（梯子のClimbUpが最安）の
+     * コストで見積もる。以前はAscendの水平込みの値（JUMP_ONE_BLOCK）を使っていたが、
+     * 水平移動0の区間にAscendは使えない（Ascendは必ず水平1歩を伴う）ので下限として不正確だった。
+     */
     @Test
-    void ascendingUsesJumpCostPerBlock() {
-        assertEquals(5 * ActionCosts.JUMP_ONE_BLOCK, Heuristic.estimate(0, 64, 0, 0, 69, 0), 1e-9);
+    void pureVerticalAscendUsesTheClimbCostPerBlock() {
+        assertEquals(5 * ActionCosts.LADDER_UP_ONE_BLOCK, Heuristic.estimate(0, 64, 0, 0, 69, 0), 1e-9);
+    }
+
+    /**
+     * 締め直した下限（{@code LADDER_UP_ONE_BLOCK}）が、実際に純粋な昇りを実現する手段
+     * （ClimbUp・SwimUp・Pillar）のどれよりも高くなってはいけない——admissibilityの核心。
+     */
+    @Test
+    void pureVerticalAscendNeverExceedsAnyRealMoveThatAchievesIt() {
+        double estimate = Heuristic.estimate(0, 64, 0, 0, 65, 0);
+        assertTrue(estimate <= ActionCosts.LADDER_UP_ONE_BLOCK + 1e-9);
+        assertTrue(estimate <= ActionCosts.WALK_ONE_IN_WATER + 1e-9,
+                "SwimUpより高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.ASCEND_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS + 1e-9,
+                "Pillar（Ascend相当+設置オーバーヘッド）より高く見積もってはいけない");
     }
 
     @Test

@@ -114,6 +114,11 @@ public final class AStarPathfinder {
     private final int maxExpandedNodes;
     private final long timeLimitMillis;
     private final double heuristicWeight;
+    /**
+     * 層1のcost-to-goを併用するための差し替え口。{@code null}なら{@link #node}が
+     * {@link Heuristic}（既定の幾何学的下限）をそのまま使う。
+     */
+    private final CostToGo costToGo;
 
     /**
      * ノード表の初期サイズの上限。展開数上限を大きく設定されたときに、実際にはそこまで使わない表を
@@ -140,10 +145,19 @@ public final class AStarPathfinder {
     }
 
     public AStarPathfinder(CellSource view, SearchLimits limits) {
+        this(view, limits, null);
+    }
+
+    /**
+     * {@code costToGo}を明示的に指定するコンストラクタ。{@code null}なら
+     * {@link Heuristic}（既定の幾何学的下限）を使う既存の挙動と完全に同じになる。
+     */
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo) {
         this.view = view;
         this.maxExpandedNodes = limits.maxExpandedNodes();
         this.timeLimitMillis = limits.timeLimitMillis();
         this.heuristicWeight = limits.heuristicWeight();
+        this.costToGo = costToGo;
         // 展開したノードの周囲も含めるとノード数は展開数を超える。小さく作ると探索の途中で
         // 表の作り直しが何度も走り、そのたびに全エントリの再配置が起きる
         this.nodes = new Long2ObjectOpenHashMap<>(
@@ -295,10 +309,23 @@ public final class AStarPathfinder {
             return existing;
         }
         // 地上ゴールでは、すでにsurfaceY以上のセルはそれ自体がゴール（残コスト0）。
-        // 素通しでsurfaceYを渡すと、そこから下りる分を残コストとして数えてしまい過大評価になる
-        double heuristic = surfaceGoal
-                ? Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z)
-                : Heuristic.estimate(x, y, z, goalX, goalY, goalZ);
+        // 素通しでsurfaceYを渡すと、そこから下りる分を残コストとして数えてしまい過大評価になる。
+        // costToGoは特定のゴール座標に紐付いたテーブルなので、ゴールが1点に定まらない
+        // surfaceGoalモードでは使わない
+        double heuristic;
+        if (surfaceGoal) {
+            heuristic = Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
+        } else {
+            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ);
+            if (costToGo != null) {
+                // 両者の大きい方を使う。Heuristicは幾何学的な下限（admissible）、costToGoは
+                // 層1が壁や溶岩の海を回避した見積もりだが、崖ペナルティ等の「発明された」重みを
+                // 含むため厳密な下限ではない——大きい方を取っても許容性は壊れない
+                // （Heuristic単独で既にadmissibleなので、それより小さいcostToGoを使っても
+                // 損はしない。costToGoの方が大きい場面でだけ、より現実に近い見積もりへ差し替わる）
+                heuristic = Math.max(heuristic, costToGo.estimate(x, y, z));
+            }
+        }
         PathNode created = new PathNode(x, y, z, heuristic);
         nodes.put(key, created);
         return created;

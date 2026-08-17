@@ -25,6 +25,18 @@ public final class Heuristic {
     private static final double DIAGONAL_STEP = STRAIGHT * ActionCosts.DIAGONAL_DISTANCE;
     private static final double MIN_DIAGONAL_ASCEND = ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK;
 
+    /**
+     * 水平移動に相乗りできない純粋な昇り（{@code pureAscends}）1段の下限。{@code Ascend}系は
+     * 必ず水平1歩を伴うので、水平の相乗り先を使い切った残りの昇りを実現できる移動は
+     * 水平移動を伴わないもの（{@code ClimbUp}・{@code SwimUp}・{@code Pillar}）に限られる。
+     * その中で最安の{@code ClimbUp}（梯子、{@link ActionCosts#LADDER_UP_ONE_BLOCK}）を使う——
+     * 梯子が実際にあるかはヒューリスティックには分からないが、下限としては「最も安い可能性」を
+     * 使うのが正しい（無ければ実コストがこれを上回るだけで、下限であることは崩れない）。
+     * 以前は{@link ActionCosts#JUMP_ONE_BLOCK}(3.1634)を使っていたが、これは水平移動込みの
+     * {@code Ascend}の値であり、水平移動を伴わない残りの昇りには使えない値だった。
+     */
+    private static final double MIN_PURE_ASCEND = ActionCosts.LADDER_UP_ONE_BLOCK;
+
     private Heuristic() {
     }
 
@@ -48,7 +60,10 @@ public final class Heuristic {
                 + (diagonalSteps - diagonalAscends) * DIAGONAL_STEP
                 + cardinalAscends * ActionCosts.ASCEND_ONE_BLOCK
                 + (cardinalSteps - cardinalAscends) * STRAIGHT
-                + pureAscends * ActionCosts.JUMP_ONE_BLOCK;
+                + pureAscends * MIN_PURE_ASCEND;
+        // 下降は締め直さない。addFallのFALL_TO_WATER分岐はfallDamageToleranceEnabled等の
+        // 設定に関わらず常に生成される（着地先が水かどうかだけで決まる）ので、ヒューリスティックが
+        // 「この次元・設定では長い落下は無い」と仮定すると、実際に水があった場合に非許容になる
         double descend = down * ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
         return horizontalAndAscend + descend;
     }

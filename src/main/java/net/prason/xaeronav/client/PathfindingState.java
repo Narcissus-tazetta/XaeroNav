@@ -845,12 +845,13 @@ public final class PathfindingState {
         // そこではプレイヤーが既に別次元へ移動している可能性がある
         ResourceKey<Level> searchDimension = level.dimension();
         CompletableFuture<PathResult> future;
+        boolean costToGoGuideEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
         if (climbing) {
             future = executor.submitToSurface(view.withoutDigging(), view, start, groundLevel, limits);
         } else if (coarseGuided) {
-            future = executor.submitCoarseGuided(view, bounds, start, finalTarget, limits);
+            future = executor.submitCoarseGuided(view, bounds, start, finalTarget, limits, costToGoGuideEnabled);
         } else {
-            future = executor.submit(view, start, finalTarget, limits);
+            future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled);
         }
         future.whenComplete((result, error) -> {
             if (generation.get() != myGeneration) {
@@ -1002,7 +1003,8 @@ public final class PathfindingState {
         computing = true;
         boolean reachesGoal = target.equals(currentGoal);
         int newWaypointIndex = reachesGoal ? -1 : detail.waypointIndex();
-        executor.submit(view, from, target, limits).whenComplete((result, error) -> {
+        boolean costToGoGuideEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
+        executor.submit(view, from, target, limits, costToGoGuideEnabled).whenComplete((result, error) -> {
             if (generation.get() != myGeneration) {
                 return;
             }

@@ -662,6 +662,52 @@ class AStarPathfinderTest {
         assertTrue(budgetHit.budgetExhausted(), "ノード上限に当たったのは予算切れ扱いにする");
     }
 
+    /**
+     * {@link CostToGo}を注入する3引数コンストラクタの配線確認（段階4）。{@code null}を渡すと
+     * 2引数コンストラクタ（幾何学的な{@link Heuristic}のみ）と完全に同じ結果になる。
+     */
+    @Test
+    void nullCostToGoBehavesExactlyLikeTheTwoArgumentConstructor() {
+        CellSource cells = FakeCells.of(0, 60, 0, """
+                ......
+                ......
+                ######""");
+
+        PathResult withoutCostToGo = new AStarPathfinder(cells).search(new BlockPos(0, 61, 0),
+                new BlockPos(5, 61, 0), NOT_CANCELLED);
+        PathResult withNullCostToGo = new AStarPathfinder(cells, SearchLimits.DEFAULT, null)
+                .search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+
+        assertEquals(withoutCostToGo.expandedNodes(), withNullCostToGo.expandedNodes());
+        assertEquals(movements(withoutCostToGo), movements(withNullCostToGo));
+    }
+
+    /**
+     * 注入した{@link CostToGo}が実際に{@code node()}から呼ばれていること（配線の生きた確認）。
+     * 呼ばれた回数だけを見るので、値そのものの妥当性には依存しない——ここで確かめたいのは
+     * 「注入したインスタンスが探索の経路上に乗っているか」であって、ヒューリスティックとしての
+     * 良し悪しは{@link net.prason.xaeronav.pathfinding.coarse.CoarseRouterTest}や
+     * {@code PathfindingExecutorCoarseGuidedTest}が別に確認する。
+     */
+    @Test
+    void injectedCostToGoIsActuallyConsultedDuringSearch() {
+        CellSource cells = FakeCells.of(0, 60, 0, """
+                ......
+                ......
+                ######""");
+        int[] callCount = {0};
+        CostToGo counting = (x, y, z) -> {
+            callCount[0]++;
+            return 0.0;
+        };
+
+        PathResult result = new AStarPathfinder(cells, SearchLimits.DEFAULT, counting)
+                .search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+
+        assertTrue(result.complete());
+        assertTrue(callCount[0] > 0, "注入したCostToGoが一度も呼ばれていない＝配線が繋がっていない");
+    }
+
     private static PathStep last(PathResult result) {
         return result.steps().get(result.steps().size() - 1);
     }

@@ -9,6 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.astar.CostToGo;
 
 class CoarseRouterTest {
 
@@ -406,6 +407,83 @@ class CoarseRouterTest {
 
         assertTrue(route.reachedGoal());
         assertEquals(90, last(route).getY());
+    }
+
+    /**
+     * {@link CoarseRouter#costToGo}——段階4で層3のヒューリスティックへ併用するguide本体。
+     * ゴールから逆向きに全状態へのコストを計算し、ブロック座標で引けるラッパーを返す。
+     */
+    @Test
+    void costToGoIsZeroAtTheGoalItself() {
+        CoarseMap map = flatLand().build();
+        BlockPos goal = atChunk(5, 5);
+
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        assertEquals(0.0, guide.estimate(goal.getX(), goal.getY(), goal.getZ()), 1e-9);
+    }
+
+    @Test
+    void costToGoIncreasesWithDistanceOnFlatLand() {
+        CoarseMap map = flatLand().build();
+        BlockPos goal = atChunk(0, 0);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        double near = guide.estimate(atChunk(2, 0).getX(), 64, atChunk(2, 0).getZ());
+        double far = guide.estimate(atChunk(10, 0).getX(), 64, atChunk(10, 0).getZ());
+
+        assertTrue(near > 0.0);
+        assertTrue(far > near, "遠いセルの方がコストが高くなければならない: near=" + near + " far=" + far);
+    }
+
+    /**
+     * 探索範囲の外（この地図が知らない座標）を引いても、無限大ではなく0を返す。
+     * {@code AStarPathfinder}側は幾何学的なHeuristicとのmaxを取って使うので、0を返せば
+     * 「情報が無いので寄与しない」で済む——無限大を返すと、層3の探索範囲がこの地図の
+     * 読み取り範囲より広いだけで、範囲外の全ノードのヒューリスティックが汚染される。
+     */
+    @Test
+    void costToGoReturnsZeroOutsideTheMap() {
+        CoarseMap map = flatLand().build();
+        BlockPos goal = atChunk(0, 0);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        BlockPos farOutside = atChunk(RADIUS + 100, 0);
+        assertEquals(0.0, guide.estimate(farOutside.getX(), 64, farOutside.getZ()));
+    }
+
+    /**
+     * ゴールから完全に分断されたセル（溶岩の壁の向こう側）も、無限大ではなく0を返す。
+     * {@link #costToGoReturnsZeroOutsideTheMap}と同じ安全側の理由——到達不能を無限大で
+     * 表現すると、そのセルのヒューリスティックがmax経由で探索全体を壊しかねない。
+     */
+    @Test
+    void costToGoReturnsZeroForCellsUnreachableFromTheGoal() {
+        CoarseMapBuilder builder = flatLand();
+        for (int z = -RADIUS; z < RADIUS; z++) {
+            builder.replaceCell(0, z, CoarseMap.LAVA, 64);
+        }
+        CoarseMap map = builder.build();
+        BlockPos goal = atChunk(20, 0);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.AVOID);
+
+        BlockPos cutOff = atChunk(-20, 0);
+        assertEquals(0.0, guide.estimate(cutOff.getX(), 64, cutOff.getZ()));
+    }
+
+    /** 同じセル内の階層をまたぐcost-to-goは、垂直遷移のコスト（割増込み）を反映する。 */
+    @Test
+    void costToGoAccountsForVerticalTransitionsWithinTheSameCell() {
+        CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
+        builder.putFloor(0, 0, CoarseMap.LAND, 40);
+        builder.putFloor(0, 0, CoarseMap.LAND, 90);
+        CoarseMap map = builder.build();
+
+        BlockPos goal = new BlockPos(8, 91, 8);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        double atLowerFloor = guide.estimate(8, 41, 8);
+        assertTrue(atLowerFloor > 0.0, "50ブロックの階層差はコスト0では済まないはず");
     }
 
     private static BlockPos last(CoarseRouter.Route route) {
