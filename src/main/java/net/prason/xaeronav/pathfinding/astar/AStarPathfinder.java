@@ -472,8 +472,39 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.ASCEND_ONE_BLOCK + submerged(clearanceCost + bodyCost, x, y + 1, z),
-                MoveKind.ASCEND);
+        Reversal reversal = reversal(from.kind, from.reversalStreak, false);
+        relax(from, x, y, z, ActionCosts.ASCEND_ONE_BLOCK + reversal.penaltyTicks()
+                        + submerged(clearanceCost + bodyCost, x, y + 1, z),
+                MoveKind.ASCEND, 0, reversal.streak());
+    }
+
+    /** {@link #reversal}の結果。ペナルティと、次のノードへ引き継ぐ反転の連続回数を同時に返す。 */
+    private record Reversal(double penaltyTicks, int streak) {
+        private static final Reversal NONE = new Reversal(0.0, 0);
+    }
+
+    /**
+     * 直前の移動が反対向きの昇降だったときの追加コストと、反転が連続している回数。
+     *
+     * <p>回数に比例してペナルティを線形に強める（1回目={@link ActionCosts#VERTICAL_REVERSAL_PENALTY_TICKS}、
+     * 2回目はその2倍…）。1回だけの上下動（谷を越える等、地形として正当な起伏）は軽いまま留め、
+     * 同じ高さへ登り降りを繰り返す「往復」だけを狙い撃ちで重くするための設計——固定ペナルティのままだと
+     * 1マス刻みの反復（登って降りてを何度も繰り返す階段状の地形）に対して累進しない。
+     *
+     * <p>跳躍・落下・水中/梯子の昇降は対象外——地形なりの階段（ASCEND/DESCEND、斜め含む）だけを狙う。
+     */
+    private static Reversal reversal(MoveKind previous, int previousStreak, boolean descending) {
+        if (previous == null) {
+            return Reversal.NONE;
+        }
+        boolean reversed = descending
+                ? previous == MoveKind.ASCEND || previous == MoveKind.DIAGONAL_ASCEND
+                : previous == MoveKind.DESCEND || previous == MoveKind.DIAGONAL_DESCEND;
+        if (!reversed) {
+            return Reversal.NONE;
+        }
+        int streak = previousStreak + 1;
+        return new Reversal(streak * ActionCosts.VERTICAL_REVERSAL_PENALTY_TICKS, streak);
     }
 
     private void addDescend(PathNode from, int dx, int dz) {
@@ -492,8 +523,9 @@ public final class AStarPathfinder {
             return;
         }
         double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER : ActionCosts.DESCEND_ONE_BLOCK;
-        relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
-                intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
+        Reversal reversal = intoWater ? Reversal.NONE : reversal(from.kind, from.reversalStreak, true);
+        relax(from, x, y, z, baseCost + reversal.penaltyTicks() + submerged(bodyCost, x, y + 1, z),
+                intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND, 0, reversal.streak());
     }
 
     /**
@@ -525,7 +557,9 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK, MoveKind.DIAGONAL_ASCEND);
+        Reversal reversal = reversal(from.kind, from.reversalStreak, false);
+        relax(from, x, y, z, ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK + reversal.penaltyTicks(),
+                MoveKind.DIAGONAL_ASCEND, 0, reversal.streak());
     }
 
     /**
@@ -551,7 +585,9 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z) || !clearWithoutDigging(x, y + 1, z)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK, MoveKind.DIAGONAL_DESCEND);
+        Reversal reversal = reversal(from.kind, from.reversalStreak, true);
+        relax(from, x, y, z, ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK + reversal.penaltyTicks(),
+                MoveKind.DIAGONAL_DESCEND, 0, reversal.streak());
     }
 
     /**
@@ -824,10 +860,14 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
+        // 溶岩隣接の橋が連続した長さだけを追跡する。陸地や水上の橋を挟めば0に戻る——
+        // 危険なのは「溶岩の上をどれだけ長く渡り続けるか」であって、橋という移動種別そのものではない
+        int bridgeRun = lavaNearby ? from.bridgeRun + 1 : 0;
         double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
-                + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
+                + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS + ActionCosts.lavaBridgeRunPenalty(bridgeRun)
+                        : 0.0)
                 + submerged(bodyCost, x, y + 1, z);
-        relax(from, x, y, z, cost, MoveKind.BRIDGE);
+        relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun, 0);
     }
 
     /**
@@ -876,6 +916,15 @@ public final class AStarPathfinder {
     }
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
+        relax(from, x, y, z, edgeCost, kind, 0, 0);
+    }
+
+    /**
+     * {@code bridgeRun}・{@code reversalStreak}を明示的に渡す版。{@link #addBridge}と
+     * 昇降系（{@link #addAscend}等）だけが非0を渡す——それ以外の移動はどちらの連続も断つので0になる。
+     */
+    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
+                       int reversalStreak) {
         double tentativeCost = from.cost + edgeCost;
         PathNode neighbor = node(x, y, z);
         if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
@@ -886,6 +935,8 @@ public final class AStarPathfinder {
         neighbor.cost = tentativeCost;
         neighbor.combinedCost = tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal;
         neighbor.kind = kind;
+        neighbor.bridgeRun = bridgeRun;
+        neighbor.reversalStreak = reversalStreak;
         if (neighbor.isOpen()) {
             open.update(neighbor);
         } else {
