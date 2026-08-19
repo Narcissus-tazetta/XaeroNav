@@ -20,6 +20,13 @@ public final class PathSafetyChecker {
     private static final Direction[] DIRECTIONS = Direction.values();
 
     /**
+     * 設置区間の足元を溶岩まで見通す走査深さ。{@code AStarPathfinder#COLUMN_SCAN_DEPTH}と揃える——
+     * ここが浅いと、開けた空洞（ネザーの3D迷路）の遥か下が溶岩でも「足元は空気」としか見えず、
+     * 隣接判定（{@link #hasAdjacent}、足元1マス下しか見ない）をすり抜けて警告色が付かない。
+     */
+    private static final int BRIDGE_LAVA_SCAN_DEPTH = 128;
+
+    /**
      * 息継ぎなしで進んでよい水中の歩数。空気は300tickで尽き、そこからは2秒ごとにダメージが入る。
      * 水中1マスは{@link net.prason.xaeronav.pathfinding.cost.ActionCosts#WALK_ONE_IN_WATER}（約9tick）
      * なので300tickは約33マスだが、潜り始めに空気が満タンとは限らないので手前で警告に切り替える。
@@ -44,7 +51,7 @@ public final class PathSafetyChecker {
                     : new PathStep(step.pos(), step.movement(), step.cost(), step.bodyCells(), step.digCells(),
                             risk, step.placedBlockPos()));
         }
-        return new PathResult(annotated, result.complete(), result.expandedNodes(), result.distinctNodes());
+        return new PathResult(annotated, result.termination(), result.expandedNodes(), result.distinctNodes());
     }
 
     /**
@@ -80,8 +87,16 @@ public final class PathSafetyChecker {
 
     private static PathRisk assessRisk(CellSource view, PathStep step) {
         if (step.bridging()) {
-            // 置いた足場は渡っている間ずっと身体の真下にある。下が空虚なのは設置区間では前提なので見ない
-            return hasAdjacent(view, step.placedBlockPos(), CellData::lava) ? PathRisk.LAVA_ADJACENT : PathRisk.NONE;
+            // 置いた足場は渡っている間ずっと身体の真下にある。下が空虚なのは設置区間では前提なので見ない。
+            // 隣接だけでなく、開けた空洞の遥か下が溶岩の場合も警告する
+            // （lavaFarBelow、AStarPathfinder#addBridgeの同種の見落としと同じ理由）
+            boolean risky = hasAdjacent(view, step.placedBlockPos(), CellData::lava)
+                    || lavaFarBelow(view, step.placedBlockPos());
+            return risky ? PathRisk.LAVA_ADJACENT : PathRisk.NONE;
+        }
+        if (CellData.sneakRequired(view.cell(step.pos().getX(), step.pos().getY() - 1, step.pos().getZ()))) {
+            // 足元がマグマブロック。通行可にした以上、スニークが要ることを伝えないと案内として不完全
+            return PathRisk.SNEAK_OVER_MAGMA;
         }
         if (step.movement() == MovementType.FALL_DAMAGE) {
             return PathRisk.FALL_DAMAGE;
@@ -140,6 +155,26 @@ public final class PathSafetyChecker {
             long neighbor = view.cell(pos.getX() + dir.getStepX(), pos.getY() + dir.getStepY(), pos.getZ() + dir.getStepZ());
             if (test.test(neighbor)) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * この座標の真下、遠く離れていても構わず溶岩まで見通せるか。空気が続く間だけ下へ辿り、
+     * 溶岩に当たれば{@code true}、溶岩以外の何か（本当の床）に当たれば{@code false}。
+     */
+    private static boolean lavaFarBelow(CellSource view, BlockPos pos) {
+        for (int depth = 1; depth <= BRIDGE_LAVA_SCAN_DEPTH; depth++) {
+            long cell = view.cell(pos.getX(), pos.getY() - depth, pos.getZ());
+            if (!CellData.present(cell)) {
+                return false;
+            }
+            if (CellData.lava(cell)) {
+                return true;
+            }
+            if (!CellData.passableEmpty(cell)) {
+                return false;
             }
         }
         return false;

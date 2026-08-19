@@ -27,6 +27,8 @@ final class PathColors {
     static final float[] FALL_DAMAGE = {1.0f, 0.35f, 0.0f};
     /** 着地寸前の水バケツが要る降下。{@link #FALL_DAMAGE}と同系だが、水を使うことが分かる色にする。 */
     static final float[] MLG_REQUIRED = {0.0f, 0.85f, 0.8f};
+    /** スニークで渡るマグマブロック。溶岩そのもの（{@link #LAVA_ADJACENT}）ほど強くない警告色。 */
+    static final float[] SNEAK_OVER_MAGMA = {1.0f, 0.5f, 0.25f};
     static final float[] DIGGING = {1.0f, 0.55f, 0.1f};
     static final float[] SWIM = {0.1f, 0.4f, 1.0f};
     static final float[] JUMP = {0.95f, 0.6f, 0.9f};
@@ -51,6 +53,7 @@ final class PathColors {
             case DROWNING -> DROWNING;
             case FALL_DAMAGE -> FALL_DAMAGE;
             case MLG_REQUIRED -> MLG_REQUIRED;
+            case SNEAK_OVER_MAGMA -> SNEAK_OVER_MAGMA;
             case NONE -> null;
         };
         if (risk != null) {

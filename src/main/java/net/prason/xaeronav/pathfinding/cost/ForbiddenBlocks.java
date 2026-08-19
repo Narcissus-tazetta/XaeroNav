@@ -40,6 +40,11 @@ public final class ForbiddenBlocks {
 
     public static boolean isForbidden(BlockState state) {
         Block block = state.getBlock();
+        // BlockTags.LOGSは地上の原木に加えてネザーの幹（crimson/warped stem・hyphae）も含む。
+        // 幹だけが壁になり、カサ（nether_wart_block / warped_wart_block）とshroomlightは
+        // 地上の葉と同じく普通に掘れる——「幹＝壁、葉＝安い掘削」という地上の木の非対称が
+        // そのままネザーにも効く。巨大キノコの幹は通常1×1の縦柱（6%の確率でだけ3×3）なので、
+        // 迂回コストは地上の原木と変わらない
         return DEFAULTS.contains(block) || extra.contains(block) || state.is(BlockTags.LOGS);
     }
 

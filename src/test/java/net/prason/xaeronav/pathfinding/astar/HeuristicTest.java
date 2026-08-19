@@ -50,9 +50,71 @@ class HeuristicTest {
         assertEquals(expected, Heuristic.estimate(0, 64, 0, dx, 64, dz), 1e-9);
     }
 
+    /**
+     * 水平移動を伴わない純粋な昇りは、高さを1段稼ぐ全ての移動のうち最安の{@code Ascend}で見積もる。
+     * {@code Ascend}は水平1歩を伴うが、その1歩は折り返せば戻せるので、正味の水平変位0でも使える。
+     */
     @Test
-    void ascendingUsesJumpCostPerBlock() {
-        assertEquals(5 * ActionCosts.JUMP_ONE_BLOCK, Heuristic.estimate(0, 64, 0, 0, 69, 0), 1e-9);
+    void pureVerticalAscendUsesTheCheapestMoveThatGainsHeight() {
+        assertEquals(5 * ActionCosts.ASCEND_ONE_BLOCK, Heuristic.estimate(0, 64, 0, 0, 69, 0), 1e-9);
+    }
+
+    /**
+     * 純粋な昇りの下限が、それを実現する手段のどれよりも高くなってはいけない——admissibilityの核心。
+     * 梯子・遊泳・Pillarだけでなく<b>折り返し階段</b>（{@code Ascend}の往復）も手段に含める。
+     */
+    @Test
+    void pureVerticalAscendNeverExceedsAnyRealMoveThatAchievesIt() {
+        double estimate = Heuristic.estimate(0, 64, 0, 0, 65, 0);
+        assertTrue(estimate <= ActionCosts.ASCEND_ONE_BLOCK + 1e-9,
+                "折り返し階段（Ascendの往復）より高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.LADDER_UP_ONE_BLOCK + 1e-9);
+        assertTrue(estimate <= ActionCosts.WALK_ONE_IN_WATER + 1e-9,
+                "SwimUpより高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.ASCEND_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS + 1e-9,
+                "Pillar（Ascend相当+設置オーバーヘッド）より高く見積もってはいけない");
+    }
+
+    /**
+     * 折り返し階段。水平変位1・高さ3は{@code Ascend}3手（うち1手は水平を戻す）で登れるので、
+     * 見積もりが3手ぶんを超えてはいけない。梯子を下限に置いていた頃はここが 21.65 &gt; 13.90 で
+     * 非許容だった。
+     */
+    @Test
+    void switchbackStaircaseIsNotOverEstimated() {
+        double threeAscends = 3 * ActionCosts.ASCEND_ONE_BLOCK;
+        assertTrue(Heuristic.estimate(0, 64, 0, 1, 67, 0) <= threeAscends + 1e-9,
+                "折り返し階段の実コストを上回ってはいけない");
+    }
+
+    /**
+     * 締めた下降の下限が、実際に生成されうる下降移動のどれよりも高くなってはいけない。
+     * ネザー・落下ダメージ許容offなら落ちられるのは安全高さ(3マス)までなので、下限は
+     * {@code fallCost(3)/3}。これは1マス降り(9.321)・梯子(6.667)・遊泳(9.091)のどれも下回る。
+     */
+    @Test
+    void aTightenedDescentBoundStaysUnderEveryRealDescent() {
+        double tightened = ActionCosts.fallCost(ActionCosts.SAFE_FALL_BLOCKS) / ActionCosts.SAFE_FALL_BLOCKS;
+        double estimate = Heuristic.estimate(0, 64, 0, 0, 63, 0, tightened);
+
+        assertTrue(estimate <= ActionCosts.DESCEND_ONE_BLOCK + 1e-9, "1マス降りより高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.LADDER_DOWN_ONE_BLOCK + 1e-9, "梯子より高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.WALK_ONE_IN_WATER + 1e-9, "遊泳より高く見積もってはいけない");
+        for (int drop = 2; drop <= ActionCosts.SAFE_FALL_BLOCKS; drop++) {
+            assertTrue(Heuristic.estimate(0, 64, 0, 0, 64 - drop, 0, tightened)
+                            <= ActionCosts.fallCost(drop) + 1e-9,
+                    drop + "マス落下より高く見積もってはいけない");
+        }
+    }
+
+    /** 締めた下限は、緩い既定より実際に大きいこと（効いていることの確認）。 */
+    @Test
+    void theTightenedBoundIsActuallyTighter() {
+        double tightened = ActionCosts.fallCost(ActionCosts.SAFE_FALL_BLOCKS) / ActionCosts.SAFE_FALL_BLOCKS;
+
+        assertTrue(Heuristic.estimate(0, 74, 0, 0, 64, 0, tightened)
+                        > 10 * Heuristic.estimate(0, 74, 0, 0, 64, 0),
+                "締めた下限が既定より10倍以上大きくなっているはず");
     }
 
     @Test

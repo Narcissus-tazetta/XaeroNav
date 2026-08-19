@@ -38,6 +38,14 @@ public final class CorridorLegSolver {
      */
     public static final long LEG_TIME_LIMIT_MILLIS = 300;
 
+    /**
+     * 端点が溶岩列・未知列だったとき、代わりに立てる列を探す最大半径（ブロック）。
+     * ネザーの溶岩の海の縁で端点がそのまま溶岩に落ちることは珍しくなく、数ブロック隣に
+     * 陸があるだけで層2の廊下精緻化を丸ごと諦めるのは惜しい。広げすぎると廊下と無関係な
+     * 場所へ寄ってしまうので、waypoint間隔（24ブロック、design doc参照）より十分小さく保つ。
+     */
+    private static final int ENDPOINT_FALLBACK_RADIUS_BLOCKS = 8;
+
     public static final SearchLimits SEARCH_LIMITS = new SearchLimits(
             AStarPathfinder.DEFAULT_MAX_EXPANDED_NODES,
             LEG_TIME_LIMIT_MILLIS,
@@ -82,8 +90,9 @@ public final class CorridorLegSolver {
         }
 
         SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(minBlockX, minBlockZ, sizeX, sizeZ, referenceY);
-        BlockPos resolvedFrom = grid.resolveStandable(from.getX(), from.getZ());
-        BlockPos resolvedTo = grid.resolveStandable(to.getX(), to.getZ());
+        BlockPos resolvedFrom =
+                grid.resolveNearestStandable(from.getX(), from.getZ(), ENDPOINT_FALLBACK_RADIUS_BLOCKS);
+        BlockPos resolvedTo = grid.resolveNearestStandable(to.getX(), to.getZ(), ENDPOINT_FALLBACK_RADIUS_BLOCKS);
         if (resolvedFrom == null || resolvedTo == null) {
             return new PreparedLeg(null, null, null, pendingRegions);
         }

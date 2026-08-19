@@ -85,4 +85,41 @@ public final class SurfaceGrid {
         short ground = groundHeightAt(x, z);
         return ground == UNKNOWN_HEIGHT ? null : new BlockPos(x, ground + 1, z);
     }
+
+    /**
+     * {@link #resolveStandable}が{@code null}だった端点を、廊下内の最寄りの立てる列へ寄せて解決する。
+     * ネザーの溶岩の海の縁ではwaypointがそのまま溶岩列に落ちることが珍しくなく、そこで層2の廊下
+     * 精緻化を丸ごと諦めるのは惜しい——数ブロック隣に陸があるだけのことが多い。
+     *
+     * <p>{@code maxRadius}内で最も近い列を返す（同着はスキャン順で先着＝小さいZ・小さいXを優先、
+     * 呼び出しごとに結果が変わらないようにするため）。見つからなければ{@code null}。
+     */
+    public BlockPos resolveNearestStandable(int x, int z, int maxRadius) {
+        BlockPos direct = resolveStandable(x, z);
+        if (direct != null) {
+            return direct;
+        }
+        BlockPos best = null;
+        long bestDistanceSq = Long.MAX_VALUE;
+        int minSearchX = Math.max(minX, x - maxRadius);
+        int maxSearchX = Math.min(minX + sizeX - 1, x + maxRadius);
+        int minSearchZ = Math.max(minZ, z - maxRadius);
+        int maxSearchZ = Math.min(minZ + sizeZ - 1, z + maxRadius);
+        for (int candidateZ = minSearchZ; candidateZ <= maxSearchZ; candidateZ++) {
+            for (int candidateX = minSearchX; candidateX <= maxSearchX; candidateX++) {
+                long dx = candidateX - x;
+                long dz = candidateZ - z;
+                long distanceSq = dx * dx + dz * dz;
+                if (distanceSq > (long) maxRadius * maxRadius || distanceSq >= bestDistanceSq) {
+                    continue;
+                }
+                BlockPos resolved = resolveStandable(candidateX, candidateZ);
+                if (resolved != null) {
+                    best = resolved;
+                    bestDistanceSq = distanceSq;
+                }
+            }
+        }
+        return best;
+    }
 }

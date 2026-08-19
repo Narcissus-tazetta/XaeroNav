@@ -66,8 +66,10 @@ public final class ChunkView implements CellSource {
     private final boolean canPlaceBlocks;
     private final boolean jumpGapEnabled;
     private final boolean lavaBridgingEnabled;
+    private final int maxBridgeRunBlocks;
     private final int maxFallDamagePoints;
     private final boolean canMlgWaterBucket;
+    private final double minDescentTicksPerBlock;
     private final int minBuildHeight;
     private final int maxBuildHeight;
     private final int minSection;
@@ -88,8 +90,10 @@ public final class ChunkView implements CellSource {
 
     private ChunkView(Long2ObjectMap<LevelChunk> chunks, int totalChunksInBounds, SearchBounds bounds,
                       ItemStack[] hotbar, int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
-                      boolean jumpGapEnabled, boolean lavaBridgingEnabled, int maxFallDamagePoints,
-                      boolean canMlgWaterBucket, int minBuildHeight, int maxBuildHeight, int minSection) {
+                      boolean jumpGapEnabled, boolean lavaBridgingEnabled, int maxBridgeRunBlocks,
+                      int maxFallDamagePoints,
+                      boolean canMlgWaterBucket, double minDescentTicksPerBlock, int minBuildHeight,
+                      int maxBuildHeight, int minSection) {
         this.chunks = chunks;
         this.totalChunksInBounds = totalChunksInBounds;
         this.bounds = bounds;
@@ -99,8 +103,10 @@ public final class ChunkView implements CellSource {
         this.canPlaceBlocks = canPlaceBlocks;
         this.jumpGapEnabled = jumpGapEnabled;
         this.lavaBridgingEnabled = lavaBridgingEnabled;
+        this.maxBridgeRunBlocks = maxBridgeRunBlocks;
         this.maxFallDamagePoints = maxFallDamagePoints;
         this.canMlgWaterBucket = canMlgWaterBucket;
+        this.minDescentTicksPerBlock = minDescentTicksPerBlock;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
         this.minSection = minSection;
@@ -112,7 +118,8 @@ public final class ChunkView implements CellSource {
     /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
     public static ChunkView capture(Level level, Player player, SearchBounds bounds, boolean diggingEnabled,
                                      boolean bridgingEnabled, boolean jumpGapEnabled,
-                                     boolean lavaBridgingEnabled, boolean fallDamageToleranceEnabled) {
+                                     boolean lavaBridgingEnabled, int maxBridgeRunBlocks,
+                                     boolean fallDamageToleranceEnabled) {
         int minChunkX = bounds.minX() >> 4;
         int maxChunkX = bounds.maxX() >> 4;
         int minChunkZ = bounds.minZ() >> 4;
@@ -146,13 +153,29 @@ public final class ChunkView implements CellSource {
 
         int maxFallDamagePoints = fallDamageToleranceEnabled
                 ? (int) (player.getHealth() / FALL_DAMAGE_HEALTH_FRACTION) : 0;
-        boolean canMlgWaterBucket = fallDamageToleranceEnabled
+        // ultraWarmな次元（ネザー）は水を置いても即座に蒸発するので、着地寸前に水バケツを置く
+        // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
+        boolean canMlgWaterBucket = fallDamageToleranceEnabled && !level.dimensionType().ultraWarm()
                 && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
+
+        // 下降のヒューリスティックの下限は、実際に生成されうる最大の落差で決まる。
+        // FALL_TO_WATERは着水先に水があるときだけ生成され、ultraWarmな次元（ネザー）には水が
+        // 存在しない（置いても蒸発する——BucketItemがそう書いてある）。水も水バケツMLGも無く、
+        // 落下ダメージも許容しないなら、落ちられるのは安全高さまでで打ち止めになる
+        boolean deepFallPossible = !level.dimensionType().ultraWarm() || canMlgWaterBucket;
+        int maxDrop = ActionCosts.SAFE_FALL_BLOCKS + maxFallDamagePoints;
+        // fallCost(d)/d はdについて単調減少（終端速度に漸近する）ので、生成されうる最大の落差での
+        // 値が下限になる。深い落下がありうるなら終端速度の下限まで緩める以外にない。
+        // 梯子（LADDER_DOWN_ONE_BLOCK）はこれを上回るが、下限として取り違えないよう明示的に比べる
+        double minDescentTicksPerBlock = deepFallPossible
+                ? ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK
+                : Math.min(ActionCosts.fallCost(maxDrop) / maxDrop, ActionCosts.LADDER_DOWN_ONE_BLOCK);
 
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, diggingEnabled,
-                bridgingEnabled && canPlaceBlocks, jumpGapEnabled, lavaBridgingEnabled, maxFallDamagePoints,
-                canMlgWaterBucket, level.getMinBuildHeight(), level.getMaxBuildHeight(), level.getMinSection());
+                bridgingEnabled && canPlaceBlocks, jumpGapEnabled, lavaBridgingEnabled, maxBridgeRunBlocks,
+                maxFallDamagePoints, canMlgWaterBucket, minDescentTicksPerBlock, level.getMinBuildHeight(),
+                level.getMaxBuildHeight(), level.getMinSection());
     }
 
     public int loadedChunksInBounds() {
@@ -172,8 +195,8 @@ public final class ChunkView implements CellSource {
      */
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
-                jumpGapEnabled, lavaBridgingEnabled, maxFallDamagePoints, canMlgWaterBucket, minBuildHeight,
-                maxBuildHeight, minSection);
+                jumpGapEnabled, lavaBridgingEnabled, maxBridgeRunBlocks, maxFallDamagePoints, canMlgWaterBucket,
+                minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection);
     }
 
     /**
@@ -199,6 +222,11 @@ public final class ChunkView implements CellSource {
     }
 
     @Override
+    public int maxBridgeRunBlocks() {
+        return maxBridgeRunBlocks;
+    }
+
+    @Override
     public boolean jumpGapEnabled() {
         return jumpGapEnabled;
     }
@@ -206,6 +234,11 @@ public final class ChunkView implements CellSource {
     @Override
     public int maxFallDamagePoints() {
         return maxFallDamagePoints;
+    }
+
+    @Override
+    public double minDescentTicksPerBlock() {
+        return minDescentTicksPerBlock;
     }
 
     @Override

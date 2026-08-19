@@ -532,6 +532,273 @@ class AStarPathfinderTest {
                 "迂回できるのに溶岩へ足場を置いた: " + movements(result));
     }
 
+    /**
+     * ネザーのしだれツタ・ねじれツタは体が通り抜けられるが、バニラでは<b>replaceableではない</b>ので
+     * ブロックを置けない（狙っても隣のセルへ飛ぶ）。当たり判定の有無だけで設置可能と判断してはいけない。
+     */
+    @Test
+    void neverPlacesABlockWhereVanillaWouldRefuseIt() {
+        FakeCells cells = chasm(2).canPlaceBlocks(true).jumpGapEnabled(false);
+        // 隙間の床の高さをしだれツタで埋める。体は通り抜けられるが、そこへ足場は置けない
+        cells.set(2, 60, 0, FakeCells.NETHER_VINE);
+        cells.set(3, 60, 0, FakeCells.NETHER_VINE);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertTrue(result.steps().stream()
+                        .map(PathStep::placedBlockPos)
+                        .filter(pos -> pos != null)
+                        .noneMatch(pos -> pos.getY() == 60 && pos.getX() >= 2 && pos.getX() < 4),
+                "置けないしだれツタの位置へ足場を置いている: " + result.steps());
+    }
+
+    /**
+     * 梯子・ツタに掴まっている間は{@code onGround()}がfalseで{@code jumpFromGround()}が呼ばれない。
+     * 掴まったまま接地していても{@code handleOnClimbable}が水平速度を±0.15に固定する。
+     */
+    @Test
+    void doesNotJumpWhileHangingOnAClimbable() {
+        FakeCells cells = chasm(2).jumpGapEnabled(true).canPlaceBlocks(false);
+        for (int z = -1; z <= 1; z++) {
+            cells.set(1, 61, z, FakeCells.LADDER);
+        }
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "梯子に掴まったままでは跳べない: " + movements(result));
+    }
+
+    /**
+     * 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中はほとんど加速
+     * できないので、到達距離は踏み切り速度でそのまま決まる。1マス幅の足場からは自分のマスの中しか
+     * 助走できない。
+     */
+    @Test
+    void doesNotJumpFromAOneBlockPerchWithNoRunUp() {
+        FakeCells cells = chasm(2).jumpGapEnabled(true).canPlaceBlocks(false);
+        // 踏み切り(x=1)の手前を塞いで、助走できない1マス幅の足場にする
+        for (int z = -1; z <= 1; z++) {
+            cells.set(0, 61, z, FakeCells.BEDROCK);
+        }
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "助走できない足場から跳ばせてはいけない: " + movements(result));
+    }
+
+    /**
+     * ソウルサンドの平地の脇に、同じソウルサンドの1マスの尾根を置く。上がっても地面は同じで
+     * 何一つ速くならないので、上下動は純粋な損。
+     */
+    private static FakeCells soulSandFlatWithRidge(char ridgeTop) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 16, 76, 8));
+        for (int x = -1; x <= 6; x++) {
+            cells.set(x, 60, 0, FakeCells.SOUL_SAND);
+            cells.set(x, 60, 1, FakeCells.SOUL_SAND);
+            cells.set(x, 61, 1, ridgeTop);
+        }
+        return cells;
+    }
+
+    /**
+     * 速度倍率は水平移動にしか掛かっていなかったので、ソウルサンドの上では「1マス登る」(4.633)が
+     * 「1マス歩く」(8.909)より安く、鋸歯状に登り降りするのが最安経路になっていた。
+     */
+    @Test
+    void crossesSoulSandFlatInsteadOfHoppingOntoTheRidgeBeside() {
+        CellSource cells = soulSandFlatWithRidge(FakeCells.SOUL_SAND);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().allMatch(step -> step.pos().getY() == 61),
+                "同じソウルサンドなら尾根へ登る意味は無い: " + movements(result));
+    }
+
+    /**
+     * 「上下動を一律に嫌う」実装にしてはいけない。尾根の上が本当に速い地面なら、登る価値はある。
+     */
+    @Test
+    void stillClimbsOntoARidgeThatIsGenuinelyFaster() {
+        CellSource cells = soulSandFlatWithRidge(FakeCells.STONE);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().anyMatch(step -> step.pos().getY() > 61),
+                "石の尾根は本当に2.5倍速いので登るべき: " + movements(result));
+    }
+
+    /** 障害物の無い平坦な通路。ゴールの扱い（座標一致か領域か）だけを見るための地形。 */
+    private static FakeCells flatCorridor() {
+        return FakeCells.of(0, 60, 0, """
+                ..........
+                ..........
+                ##########""")
+                .extrudeZ(-1, 1);
+    }
+
+    /**
+     * 中間目標は「通る場所」ではなく「向かう方角」でしかないので、そこへ座標ぴったり寄せるために
+     * 遠回りしてはいけない。ゴールを半径付きの領域にすると、触れた時点で終われる。
+     */
+    @Test
+    void aRadiusGoalStopsAsSoonAsTheRegionIsTouched() {
+        FakeCells cells = flatCorridor();
+        BlockPos start = new BlockPos(0, 61, 0);
+        BlockPos goal = new BlockPos(9, 61, 0);
+
+        PathResult exact = new AStarPathfinder(cells).search(start, goal, NOT_CANCELLED);
+        PathResult region = new AStarPathfinder(cells).search(start, goal, NOT_CANCELLED, 4);
+
+        assertTrue(exact.complete() && region.complete());
+        assertTrue(region.steps().size() < exact.steps().size(),
+                "半径ぶん手前で終われるはず: " + region.steps().size() + " vs " + exact.steps().size());
+        assertEquals(5, region.steps().size(), "半径4なら x=5 で領域に触れる");
+    }
+
+    /** 半径0（本来の目的地）は従来どおり座標の完全一致。 */
+    @Test
+    void aZeroRadiusGoalStillRequiresAnExactMatch() {
+        PathResult result = new AStarPathfinder(flatCorridor())
+                .search(new BlockPos(0, 61, 0), new BlockPos(9, 61, 0), NOT_CANCELLED, 0);
+
+        assertTrue(result.complete());
+        assertEquals(new BlockPos(9, 61, 0), last(result).pos());
+    }
+
+    /**
+     * 中間目標が壁の中のような到達不能な点でも、領域なら近くを通り抜けるだけで済む。
+     * 層1はチャンク平均しか見ないので、waypointが到達不能な点に落ちること自体は避けられない。
+     */
+    @Test
+    void aRadiusGoalSucceedsEvenWhenItsCentreIsUnreachable() {
+        FakeCells cells = flatCorridor();
+        // 目標の座標そのものを岩盤で埋める。座標一致のゴールでは永久に到達しない
+        BlockPos unreachable = new BlockPos(5, 61, 0);
+        for (int z = -1; z <= 1; z++) {
+            cells.set(5, 61, z, FakeCells.BEDROCK);
+            cells.set(5, 62, z, FakeCells.BEDROCK);
+        }
+
+        PathResult exact = new AStarPathfinder(cells)
+                .search(new BlockPos(0, 61, 0), unreachable, NOT_CANCELLED, 0);
+        PathResult region = new AStarPathfinder(cells)
+                .search(new BlockPos(0, 61, 0), unreachable, NOT_CANCELLED, 4);
+
+        assertFalse(exact.complete(), "座標一致では岩盤の中には入れない");
+        assertTrue(region.complete(), "領域なら手前で触れて済む");
+    }
+
+    /**
+     * 幅{@code width}の溶岩の水路。両岸は岩盤で、渡るには溶岩へ足場を置き続けるしかない。
+     * {@link #lavaPond}を任意の幅にした版で、橋の連続長の上限を試すために使う。
+     */
+    private static FakeCells lavaChannel(int width) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 40, -8, width + 12, 80, 8))
+                .fillWith(FakeCells.BEDROCK)
+                .canPlaceBlocks(true);
+        for (int x = -1; x <= width + 1; x++) {
+            cells.set(x, 60, 0, x >= 1 && x <= width ? FakeCells.LAVA : FakeCells.BEDROCK);
+            cells.set(x, 61, 0, FakeCells.AIR);
+            cells.set(x, 62, 0, FakeCells.AIR);
+        }
+        return cells;
+    }
+
+    /**
+     * 上限は「コストを重くする」のではなく「移動そのものを作らない」で効かせている。重みで
+     * 抑えるとA*は安い辺から展開するので、橋に手を伸ばす前に周囲を展開し尽くして予算を焼く。
+     */
+    @Test
+    void refusesToBridgeBeyondTheConfiguredRun() {
+        CellSource cells = lavaChannel(12).maxBridgeRunBlocks(6);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(13, 61, 0));
+
+        assertFalse(result.complete(), "上限を超える橋しか無いなら渡らない");
+        assertTrue(result.steps().stream().filter(PathStep::bridging).count() <= 6,
+                "上限を超えて橋を伸ばしてはいけない: " + movements(result));
+    }
+
+    @Test
+    void stillBridgesWhenTheRunStaysUnderTheCap() {
+        CellSource cells = lavaChannel(4).maxBridgeRunBlocks(6);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertTrue(result.complete(), "上限内の橋は今までどおり渡れる");
+        assertTrue(result.steps().stream().anyMatch(PathStep::bridging), "" + movements(result));
+    }
+
+    /** 上限0は無制限。設定で切ったときに従来どおりの挙動へ戻ることの確認。 */
+    @Test
+    void aZeroCapMeansNoLimit() {
+        CellSource cells = lavaChannel(12).maxBridgeRunBlocks(0);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(13, 61, 0));
+
+        assertTrue(result.complete(), "上限0なら長さに関わらず渡る");
+    }
+
+    /** 上限で移動を捨てたかどうかは、上限を外して探し直す価値があるかの判定に使う。 */
+    @Test
+    void reportsWhetherTheCapActuallyBlockedAnything() {
+        AStarPathfinder blocked = new AStarPathfinder(lavaChannel(12).maxBridgeRunBlocks(6));
+        blocked.search(new BlockPos(0, 61, 0), new BlockPos(13, 61, 0), NOT_CANCELLED);
+        assertTrue(blocked.bridgeRunCapBlocked());
+
+        AStarPathfinder untouched = new AStarPathfinder(lavaChannel(4).maxBridgeRunBlocks(6));
+        untouched.search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+        assertFalse(untouched.bridgeRunCapBlocked());
+    }
+
+    /**
+     * 割れ目の底が見えない空洞で、遥か下（20マス）に溶岩がある。足元1マス下は空気なので、
+     * 隣接判定（{@code hasAdjacentLava}）だけでは溶岩に気付かない——{@code addBridge}の
+     * lavaFarBelow判定が無いと「危険なし」として溶岩橋切り禁止をすり抜けてしまう。
+     */
+    private static FakeCells voidWithLavaFarBelow(int gapBlocks) {
+        FakeCells cells = chasm(gapBlocks);
+        for (int x = 2; x < 2 + gapBlocks; x++) {
+            cells.set(x, 40, 0, FakeCells.LAVA);
+        }
+        return cells;
+    }
+
+    @Test
+    void doesNotBridgeOverAVoidWithLavaFarBelowWhenLavaBridgingDisabled() {
+        CellSource cells = voidWithLavaFarBelow(2)
+                .jumpGapEnabled(false)
+                .canPlaceBlocks(true)
+                .lavaBridgingEnabled(false);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertFalse(result.complete(), "遥か下が溶岩でも、溶岩橋を切っている以上渡ってはいけない");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "足元が空気に見えるだけで、遥か下の溶岩を見逃して橋を架けてはいけない: " + result.steps());
+    }
+
+    @Test
+    void prefersADryDetourOverBridgingAVoidWithLavaFarBelow() {
+        // 遥か下が溶岩の割れ目と同じ地形に、z=1側だけ素の地面の迂回路を彫る
+        FakeCells cells = voidWithLavaFarBelow(2);
+        for (int x = 0; x <= 5; x++) {
+            cells.set(x, 60, 1, FakeCells.STONE);
+            cells.set(x, 61, 1, FakeCells.AIR);
+            cells.set(x, 62, 1, FakeCells.AIR);
+        }
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertTrue(result.complete(), "迂回路があるので到達できる");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "遥か下が溶岩と気付かず、迂回できるのに橋を架けた: " + movements(result));
+    }
+
     @Test
     void doesNotPillarWhileFloatingInWater() {
         // 水中に浮いている状態。踏み切って真下にブロックを置くことはできない
@@ -626,6 +893,86 @@ class AStarPathfinderTest {
         assertTrue(result.complete());
         assertEquals(List.of(MovementType.FALL_DAMAGE), movements(result),
                 "軽いダメージで済む落下に、わざわざ水バケツの手間はかけない");
+    }
+
+    /**
+     * {@link PathResult#termination()}が打ち切り理由を正しく区別すること。展開数上限で切ったときと、
+     * openが尽きるまで探索し切って範囲内に道が無かったときとでは、呼び出し側の再挑戦の要否が
+     * まったく違う——両方を区別せず「未到達」だけで扱っていた頃は、詰みに対して延々と
+     * 無意味な再挑戦を仕掛け続けるバグがあった。
+     */
+    @Test
+    void distinguishesNodeBudgetFromAnExhaustedSearchSpace() {
+        // 岩盤の箱に閉じ込められた1マスの空間。四方・天井・床すべて掘れない岩盤なので、
+        // 始点を展開しても後継が1つも生成されず、1回展開しただけでopenが尽きる
+        SearchBounds sealedBounds = new SearchBounds(-8, 55, -8, 8, 70, 8);
+        CellSource sealed = FakeCells.empty(sealedBounds).fillWith(FakeCells.BEDROCK)
+                .set(0, 61, 0, FakeCells.AIR)
+                .set(0, 62, 0, FakeCells.AIR);
+        PathResult exhausted = new AStarPathfinder(sealed)
+                .search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+
+        assertFalse(exhausted.complete());
+        assertEquals(PathResult.Termination.EXHAUSTED, exhausted.termination());
+        assertFalse(exhausted.budgetExhausted(), "openが尽きたのは予算切れではなく詰み");
+
+        // 同じ地形でも、展開数の上限を1に絞れば始点を展開する前に上限へ当たる
+        CellSource sameTerrain = FakeCells.empty(sealedBounds).fillWith(FakeCells.BEDROCK)
+                .set(0, 61, 0, FakeCells.AIR)
+                .set(0, 62, 0, FakeCells.AIR);
+        SearchLimits tinyBudget = new SearchLimits(0, 2000, 1.5);
+        PathResult budgetHit = new AStarPathfinder(sameTerrain, tinyBudget)
+                .search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+
+        assertFalse(budgetHit.complete());
+        assertEquals(PathResult.Termination.NODE_BUDGET, budgetHit.termination());
+        assertTrue(budgetHit.budgetExhausted(), "ノード上限に当たったのは予算切れ扱いにする");
+    }
+
+    /**
+     * {@link CostToGo}を注入する3引数コンストラクタの配線確認（段階4）。{@code null}を渡すと
+     * 2引数コンストラクタ（幾何学的な{@link Heuristic}のみ）と完全に同じ結果になる。
+     */
+    @Test
+    void nullCostToGoBehavesExactlyLikeTheTwoArgumentConstructor() {
+        CellSource cells = FakeCells.of(0, 60, 0, """
+                ......
+                ......
+                ######""");
+
+        PathResult withoutCostToGo = new AStarPathfinder(cells).search(new BlockPos(0, 61, 0),
+                new BlockPos(5, 61, 0), NOT_CANCELLED);
+        PathResult withNullCostToGo = new AStarPathfinder(cells, SearchLimits.DEFAULT, null)
+                .search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+
+        assertEquals(withoutCostToGo.expandedNodes(), withNullCostToGo.expandedNodes());
+        assertEquals(movements(withoutCostToGo), movements(withNullCostToGo));
+    }
+
+    /**
+     * 注入した{@link CostToGo}が実際に{@code node()}から呼ばれていること（配線の生きた確認）。
+     * 呼ばれた回数だけを見るので、値そのものの妥当性には依存しない——ここで確かめたいのは
+     * 「注入したインスタンスが探索の経路上に乗っているか」であって、ヒューリスティックとしての
+     * 良し悪しは{@link net.prason.xaeronav.pathfinding.coarse.CoarseRouterTest}や
+     * {@code PathfindingExecutorCoarseGuidedTest}が別に確認する。
+     */
+    @Test
+    void injectedCostToGoIsActuallyConsultedDuringSearch() {
+        CellSource cells = FakeCells.of(0, 60, 0, """
+                ......
+                ......
+                ######""");
+        int[] callCount = {0};
+        CostToGo counting = (x, y, z) -> {
+            callCount[0]++;
+            return 0.0;
+        };
+
+        PathResult result = new AStarPathfinder(cells, SearchLimits.DEFAULT, counting)
+                .search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+
+        assertTrue(result.complete());
+        assertTrue(callCount[0] > 0, "注入したCostToGoが一度も呼ばれていない＝配線が繋がっていない");
     }
 
     private static PathStep last(PathResult result) {

@@ -160,6 +160,10 @@ public final class ActionCosts {
      *
      * <p>これより大きく迂回すべきかどうかは層1（{@code CoarseRouter.LavaPolicy}）が決める。
      * 描画距離の外の迂回路は詳細探索にはそもそも見えないので、ここで表現しようとしてはいけない。
+     *
+     * <p>「橋が長くなりすぎたら諦めて迂回する」はコストではなく
+     * {@code CellSource#maxBridgeRunBlocks()}（移動を生成しない上限）で表す。ここを重くして
+     * 表そうとすると、上の理由でそのまま展開ノード数の浪費になる。
      */
     public static final double LAVA_BRIDGE_PENALTY_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
 
@@ -170,7 +174,45 @@ public final class ActionCosts {
 
     /** 縁から踏み出して{@code blocks}マス落ち、着地してマスの中心に戻るまで。 */
     public static double fallCost(int blocks) {
-        return WALK_OFF_BLOCK + Math.max(FallPhysics.ticksToFall(blocks), CENTER_AFTER_FALL);
+        return fallCost(blocks, 1.0);
+    }
+
+    /**
+     * 踏み切り地点の水平速度倍率を織り込んだ版。
+     *
+     * <p>減速するのは<b>縁を踏み出す0.8マスだけ</b>。落下している間と着地後に中心へ戻る時間は
+     * 足元のブロックとは無関係なので倍率を掛けない。
+     */
+    public static double fallCost(int blocks, double speedFactor) {
+        return WALK_OFF_BLOCK / speedFactor + Math.max(FallPhysics.ticksToFall(blocks), CENTER_AFTER_FALL);
+    }
+
+    /**
+     * 踏み切り地点の水平速度倍率（{@code speedFactor}、1.0以下）を織り込んだ1段昇り。
+     *
+     * <p>跳んで上がる時間そのものは倍率の影響を受けない（バニラの{@code jumpFactor}は別の値で、
+     * ソウルサンドには設定されていない）。遅くなるのは水平成分だけなので、maxの中の水平側だけを割る。
+     *
+     * <p><b>1.0を超える倍率（氷）を渡してはいけない</b>。{@link net.prason.xaeronav.pathfinding.astar.Heuristic}
+     * は昇りの下限に{@link #ASCEND_ONE_BLOCK}を置いているので、そこを割ると非許容になる。
+     */
+    public static double ascendOneBlock(double speedFactor) {
+        return Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK / speedFactor);
+    }
+
+    /** {@link #ascendOneBlock}の1段降り版。 */
+    public static double descendOneBlock(double speedFactor) {
+        return fallCost(1, speedFactor);
+    }
+
+    /** {@link #ascendOneBlock}の斜め版。 */
+    public static double diagonalAscendOneBlock(double speedFactor) {
+        return Math.max(ascendOneBlock(speedFactor), WALK_ONE_BLOCK * DIAGONAL_DISTANCE / speedFactor);
+    }
+
+    /** {@link #descendOneBlock}の斜め版。 */
+    public static double diagonalDescendOneBlock(double speedFactor) {
+        return Math.max(descendOneBlock(speedFactor), WALK_ONE_BLOCK * DIAGONAL_DISTANCE / speedFactor);
     }
 
     /** {@code gapBlocks}マスの隙間を飛び越えるコスト。着地点は{@code gapBlocks + 1}マス先になる。 */

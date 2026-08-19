@@ -28,7 +28,10 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue jumpGapEnabled;
     private final ModConfigSpec.BooleanValue lavaBridgingEnabled;
     private final ModConfigSpec.BooleanValue deepLookAheadEnabled;
+    private final ModConfigSpec.BooleanValue costToGoGuideEnabled;
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
+    private final ModConfigSpec.IntValue detailHorizonBlocks;
+    private final ModConfigSpec.IntValue maxBridgeRunBlocks;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
     private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
@@ -79,6 +82,35 @@ public final class XaeroNavConfig {
                         "falseなら常に「今の区間＋次の1区間」だけを保つ（描かれる経路は短いが探索は軽い）",
                         "どちらでも、すでに歩いている手前側の経路が引き直されることはない")
                 .define("deepLookAheadEnabled", true);
+
+        costToGoGuideEnabled = builder
+                .comment("詳細探索のヒューリスティックに、層1（粗い地図）が壁や溶岩の海を回避した",
+                        "見積もりを併用するか（幾何学的な直線距離とのうち大きい方を使う）",
+                        "ネザーのような3D迷路では直線距離がほぼ無意味なので、これで探索が壁沿いに",
+                        "正しく伸びるようになる。層1のコストには断定的な重み（崖・未知・溶岩）が",
+                        "混じるため厳密な下限ではないが、直線距離を下回ることはないので損はしない",
+                        "falseにすると幾何学的な直線距離だけに戻る（比較用）")
+                .define("costToGoGuideEnabled", true);
+
+        detailHorizonBlocks = builder
+                .comment("詳細探索が一度に狙う最大の水平距離（ブロック）。これより遠い目的地には",
+                        "長距離ルートの中間目標を挟み、経路は末端から継ぎ足して伸ばしていく",
+                        "地形によらない固定値。かつては直近の探索が実際に引けた距離を測って使っていたが、",
+                        "プレイヤー周辺の既踏地形で測った値を末端から未踏地形へ伸ばす探索にも使うため、",
+                        "成功と失敗が交互に出て収束せず、そのたびに目標が動いて経路が引き直されていた",
+                        "既定96はネザーの実測（10万ノードで70〜90ブロック）に合わせてある。地上は",
+                        "もっと解けるので、探索を減らしたければ上げてよい")
+                .defineInRange("detailHorizonBlocks", 96, 24, 512);
+
+        maxBridgeRunBlocks = builder
+                .comment("空中に足場を置いて渡る橋を、何マス連続させたら諦めて迂回するか（0で無制限）",
+                        "ネザーの溶岩の海のように迂回路が長い地形では、コストの重みだけでは橋が",
+                        "選ばれ続ける。ここを超える橋は移動そのものを生成しないので、探索は最初から",
+                        "迂回路だけを見る——重いコストで抑え込む形と違い、展開ノード数を一切使わない",
+                        "（連続長は陸地を1マスでも踏めば数え直しになる）",
+                        "範囲内に迂回路が無く経路が一本も引けなかった場合に限り、上限を外して探し直す",
+                        "（詰むよりは長い橋の方がマシ、という優先順）")
+                .defineInRange("maxBridgeRunBlocks", 30, 0, 256);
 
         searchHorizontalMargin = builder
                 .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
@@ -162,6 +194,14 @@ public final class XaeroNavConfig {
         bridgingEnabled.set(value);
     }
 
+    public int detailHorizonBlocks() {
+        return detailHorizonBlocks.get();
+    }
+
+    public int maxBridgeRunBlocks() {
+        return maxBridgeRunBlocks.get();
+    }
+
     public boolean lavaBridgingEnabled() {
         return lavaBridgingEnabled.get();
     }
@@ -176,6 +216,14 @@ public final class XaeroNavConfig {
 
     public void setDeepLookAheadEnabled(boolean value) {
         deepLookAheadEnabled.set(value);
+    }
+
+    public boolean costToGoGuideEnabled() {
+        return costToGoGuideEnabled.get();
+    }
+
+    public void setCostToGoGuideEnabled(boolean value) {
+        costToGoGuideEnabled.set(value);
     }
 
     public boolean jumpGapEnabled() {

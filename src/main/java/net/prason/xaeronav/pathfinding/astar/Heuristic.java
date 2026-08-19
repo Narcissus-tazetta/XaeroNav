@@ -25,10 +25,41 @@ public final class Heuristic {
     private static final double DIAGONAL_STEP = STRAIGHT * ActionCosts.DIAGONAL_DISTANCE;
     private static final double MIN_DIAGONAL_ASCEND = ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK;
 
+    /**
+     * 水平移動に相乗りできない純粋な昇り（{@code pureAscends}）1段の下限。
+     *
+     * <p>「水平変位が要らないのだから梯子（{@link ActionCosts#LADDER_UP_ONE_BLOCK}）が下限」は誤り。
+     * {@code Ascend}を水平方向へ<b>往復させれば</b>、正味の水平変位0のまま高さだけ稼げる——
+     * 折り返し階段がその形で、実コストは1段あたり{@link ActionCosts#ASCEND_ONE_BLOCK}にしかならない。
+     * 梯子(8.511)を下限に置くと、この地形で見積もりが実コストを上回って非許容になる
+     * （実例: {@code (0,64,0)→(1,67,0)} は Ascend×3 = 13.90 なのに見積もりは 21.65 になっていた）。
+     *
+     * <p>{@code Ascend}系は必ず水平1歩を伴うが、その1歩は<b>戻せる</b>のが要点。高さを1段稼ぐ
+     * 全ての移動の中で最安なのは{@code Ascend}なので、水平の相乗り先を使い切ったあとも下限は
+     * これで変わらない（{@code DiagonalAscend}=6.551、{@code ClimbUp}=8.511、{@code SwimUp}=9.091、
+     * {@code Pillar}はさらに設置コストが乗る）。
+     */
+    private static final double MIN_PURE_ASCEND = ActionCosts.ASCEND_ONE_BLOCK;
+
     private Heuristic() {
     }
 
+    /** 下降の下限を指定しない版。どの次元・設定でも安全な{@code FALL_ASYMPTOTIC_MIN_PER_BLOCK}を使う。 */
     public static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ) {
+        return estimate(fromX, fromY, fromZ, toX, toY, toZ, ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK);
+    }
+
+    /**
+     * @param minDescentTicksPerBlock この探索で生成されうる下降移動のうち、1ブロックあたり最も安いもの
+     *                               （{@link net.prason.xaeronav.pathfinding.world.CellSource#minDescentTicksPerBlock}）。
+     *                               終端速度からの下限(0.2551)は<b>任意の深さの落下が起きうる</b>前提の値で、
+     *                               実際に生成される最大の落差が分かっていれば大きく締められる——
+     *                               ネザー・落下ダメージ許容offなら3マスが上限で 4.392、17倍の差になる。
+     *                               ここが緩いと、登った1マスを取り返す実コスト(9.321)がほぼ無料に見え、
+     *                               重み付きA*が上りの枝を系統的に優先して{@code closed}で確定させてしまう
+     */
+    public static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ,
+                                   double minDescentTicksPerBlock) {
         int dx = Math.abs(toX - fromX);
         int dz = Math.abs(toZ - fromZ);
         int dy = toY - fromY;
@@ -48,8 +79,8 @@ public final class Heuristic {
                 + (diagonalSteps - diagonalAscends) * DIAGONAL_STEP
                 + cardinalAscends * ActionCosts.ASCEND_ONE_BLOCK
                 + (cardinalSteps - cardinalAscends) * STRAIGHT
-                + pureAscends * ActionCosts.JUMP_ONE_BLOCK;
-        double descend = down * ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
+                + pureAscends * MIN_PURE_ASCEND;
+        double descend = down * minDescentTicksPerBlock;
         return horizontalAndAscend + descend;
     }
 }

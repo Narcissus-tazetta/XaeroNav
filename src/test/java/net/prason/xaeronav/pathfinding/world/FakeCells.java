@@ -6,6 +6,7 @@ import java.util.List;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 
 /**
  * テスト用の{@link CellSource}。地形を文字で書けるようにする。
@@ -38,6 +39,12 @@ public final class FakeCells implements CellSource {
     public static final char LAVA = 'L';
     /** ソウルサンド。石と同じ足場だが、上を通ると{@link #SOUL_SAND_SPEED_FACTOR}まで減速する。 */
     public static final char SOUL_SAND = 'S';
+    /** マグマブロック。足場だが、上を通るにはスニークが要る（走って踏むと燃える）。 */
+    public static final char MAGMA = 'M';
+    /** 普通のツタ。掴まって登れて、replaceableなのでブロックを置ける。 */
+    public static final char VINE = 'V';
+    /** ネザーのしだれツタ・ねじれツタ。掴まって登れるが<b>replaceableではない</b>ので置けない。 */
+    public static final char NETHER_VINE = 'N';
     /** 梯子。掴んで上下できる。 */
     public static final char LADDER = 'H';
     /** 範囲外・未ロード扱い（{@link CellData#ABSENT}）。 */
@@ -48,6 +55,9 @@ public final class FakeCells implements CellSource {
     /** バニラの{@code Blocks.SOUL_SAND}の{@code speedFactor(0.4F)}そのもの。 */
     public static final float SOUL_SAND_SPEED_FACTOR = 0.4f;
 
+    /** スニーク中の移動速度（{@code CellData}のマグマブロックの扱いに合わせる）。 */
+    public static final float MAGMA_SPEED_FACTOR = 0.3f;
+
     private static final int NO_OVERRIDE = Integer.MIN_VALUE;
 
     private final Long2LongOpenHashMap cells = new Long2LongOpenHashMap();
@@ -57,6 +67,8 @@ public final class FakeCells implements CellSource {
     private boolean jumpGapEnabled = true;
     /** 設定の既定値に合わせてtrue。溶岩の橋を禁じたいテストだけが明示的に切る。 */
     private boolean lavaBridgingEnabled = true;
+    private int maxBridgeRunBlocks;
+    private double minDescentTicksPerBlock = ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
     private boolean canMlgWaterBucket;
@@ -140,6 +152,12 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    /** 連続して架けてよい橋の長さ（ブロック）。既定の0は無制限。 */
+    public FakeCells maxBridgeRunBlocks(int value) {
+        this.maxBridgeRunBlocks = value;
+        return this;
+    }
+
     public FakeCells lavaBridgingEnabled(boolean value) {
         this.lavaBridgingEnabled = value;
         return this;
@@ -172,14 +190,23 @@ public final class FakeCells implements CellSource {
             case SOUL_SAND -> CellData.withSpeedFactor(
                     CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE, STONE_DIG_TICKS),
                     SOUL_SAND_SPEED_FACTOR);
+            case MAGMA -> CellData.withSpeedFactor(
+                    CellData.withDigTicks(
+                            CellData.PRESENT | CellData.STANDABLE | CellData.SNEAK_REQUIRED, STONE_DIG_TICKS),
+                    MAGMA_SPEED_FACTOR);
             case LADDER -> CellData.withDigTicks(CellData.PRESENT | CellData.CLIMBABLE, 0.0);
+            case VINE -> CellData.withDigTicks(CellData.PRESENT | CellData.PASSABLE_EMPTY
+                    | CellData.CLIMBABLE | CellData.REPLACEABLE, 0.0);
+            case NETHER_VINE -> CellData.withDigTicks(
+                    CellData.PRESENT | CellData.PASSABLE_EMPTY | CellData.CLIMBABLE, 0.0);
             case ABSENT -> CellData.ABSENT;
             default -> throw new IllegalArgumentException("未知の地形記号: " + symbol);
         };
     }
 
     private static long air() {
-        return CellData.withDigTicks(CellData.PRESENT | CellData.PASSABLE_EMPTY, 0.0);
+        return CellData.withDigTicks(
+                CellData.PRESENT | CellData.PASSABLE_EMPTY | CellData.REPLACEABLE, 0.0);
     }
 
     @Override
@@ -209,6 +236,22 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean lavaBridgingEnabled() {
         return lavaBridgingEnabled;
+    }
+
+    @Override
+    public int maxBridgeRunBlocks() {
+        return maxBridgeRunBlocks;
+    }
+
+    /** 既定は「どこでも安全な下限」。締めた版を試すテストだけが上書きする。 */
+    @Override
+    public double minDescentTicksPerBlock() {
+        return minDescentTicksPerBlock;
+    }
+
+    public FakeCells minDescentTicksPerBlock(double value) {
+        this.minDescentTicksPerBlock = value;
+        return this;
     }
 
     @Override

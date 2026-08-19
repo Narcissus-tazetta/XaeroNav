@@ -41,7 +41,7 @@ class MapPathOverlayTest {
         for (BlockPos pos : positions) {
             steps.add(new PathStep(pos, MovementType.TRAVERSE, 4.0, List.of(), List.of(), PathRisk.NONE, null));
         }
-        return new PathResult(steps, true, positions.size(), positions.size());
+        return new PathResult(steps, PathResult.Termination.REACHED_GOAL, positions.size(), positions.size());
     }
 
     private static boolean hasDotBetween(List<BlockPos> dots, int fromX, int toX) {

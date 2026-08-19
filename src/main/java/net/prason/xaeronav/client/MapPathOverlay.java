@@ -66,7 +66,11 @@ public final class MapPathOverlay {
     public static void draw(Snapshot snapshot, DotSink sink) {
         MapDots dots = snapshot.ground() == null ? null : MapDots.forPath(snapshot.ground());
         if (dots != null) {
-            for (int i = 0; i < dots.count; i++) {
+            // 通り過ぎた区間は描かない（PathRenderer.renderGroundPathと同じ理由）。継ぎ足しで
+            // 伸ばした経路は逸脱・到着まで引き直されないので、これが無いと歩いた跡がそのまま
+            // 地図に残り続け、線が際限なく増えていくように見える
+            int first = dots.firstDotFrom(PathProgress.INSTANCE.indexFor(snapshot.ground()));
+            for (int i = first; i < dots.count; i++) {
                 sink.dot(dots.x[i], dots.z[i],
                         dots.color[i * 3], dots.color[i * 3 + 1], dots.color[i * 3 + 2]);
             }
