@@ -164,14 +164,6 @@ public final class PathfindingState {
      */
     private static final int MIN_DETAIL_REACH_BLOCKS = REFINED_WAYPOINT_MIN_SPACING_BLOCKS;
 
-    /**
-     * 到達できたときに{@link #detailReach}を伸ばす幅（ブロック）。縮める側は「ここまでしか
-     * 届かなかった」という観測なので実測値へ一気に落とすが、伸ばす側は「もっと届くかもしれない」
-     * という推測でしかない。外すと探索1回分（既定の上限まで展開して部分経路だけ）を丸ごと捨てるので、
-     * 刻んで試す。
-     */
-    private static final int DETAIL_REACH_GROWTH_BLOCKS = REFINED_WAYPOINT_MIN_SPACING_BLOCKS;
-
     private final PathfindingExecutor executor = new PathfindingExecutor();
     // 層2廊下の精緻化専用。executorと共用すると、詳細探索の頻繁な再投入（逸脱・末端接近のたびに
     // 走る）のたびにsubmitが「前のジョブ」を打ち切ってしまい、廊下探索が終わる前に必ず潰れる
@@ -244,12 +236,6 @@ public final class PathfindingState {
     //
     // 地上のように予算内で解けている限りrenderRadiusに張り付くので、従来の挙動は変わらない。
     // whenComplete（ワーカースレッド）で書き、次のrecalculate（クライアントスレッド）で読む
-    private volatile int detailReach;
-    // detailReachを測った次元。次元が変わればセル密度も地形も別物なので測り直す
-    private volatile ResourceKey<Level> detailReachDimension;
-    // detailReachを最後に更新した位置。到達実績は「この辺りの地形ではここまで」という局所的な事実で、
-    // そこから離れれば期限切れになる。逆に言えば同じ場所に留まっている限り上限を上げる根拠は無い
-    private volatile BlockPos detailReachMeasuredAt;
     // 前回のdetail-targetが向いていたwaypoint（生座標）。ルート上で後ろへ戻らないための歯止め。
     // 添字ではなく座標で覚えるのは、ルートを引き直すと添字の意味が変わるため——新しい列に同じ点が
     // 無ければ歯止めは自動的に外れる
@@ -922,7 +908,7 @@ public final class PathfindingState {
             goalRadius = 0;
         } else {
             DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius,
-                    detailReachLimit(level.dimension(), renderRadius), boatAvailable, true, -1);
+                    renderRadius, boatAvailable, true, -1);
             target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
             waypointIndex = detail.waypointIndex();
@@ -1057,8 +1043,7 @@ public final class PathfindingState {
                 //
                 // 粗い経由地チェーンも計算資源を使い切った側。区間ごとの合算なのでhitNodeBudgetでは
                 // 拾えないが、発動条件が「直前がノード上限に当たった」なので予算切れなのは確定している
-                updateDetailReach(searchDimension, start, finalTarget, result, renderRadius,
-                        budgetExhausted || finalCoarseGuided, true);
+                logSearchReach(start, finalTarget, result);
                 // 再挑戦の予約は、実際に発動できるときだけ立てる。どちらの再挑戦もrenderRadius以内の
                 // ゴールを前提にしている（箱を広げる側は広げ先がrenderRadius、粗い経由地チェーン側は
                 // 読み込み済みチャンクからしか粗い地図を作れない）。予約だけ立てて発動条件が
@@ -1119,7 +1104,9 @@ public final class PathfindingState {
 
         // 末端基準の上限は、プレイヤー中心の読み込み済み正方形の「残り」で切る（extendLead参照）
         int lead = extendLead(player, from, renderRadius);
-        int reach = Math.min(detailReachLimit(searchDimension, renderRadius), lead);
+        // 目標は「読み込み済みチャンクの縁」。末端基準もプレイヤー基準も同じ量になるので、
+        // かつての detailReach のような両者で食い違う数値が存在しない
+        int reach = lead;
         DetailTarget detail = selectDetailTarget(from, currentGoal, lead, reach, boatAvailable, false,
                 shown.waypointIndex());
         BlockPos target = detail.target();
@@ -1166,10 +1153,7 @@ public final class PathfindingState {
             if (current != shown || !currentGoal.equals(goal)) {
                 return;
             }
-            // 継ぎ足しも「この地形・この予算でどこまで引けたか」の実測そのもの。ここで反映しないと、
-            // 到達距離の上限が縮まないまま届かない目標を投げ続ける（自己修復しない）
-            updateDetailReach(searchDimension, from, target, result, renderRadius, result.budgetExhausted(),
-                    false);
+            logSearchReach(from, target, result);
             if (result.steps().isEmpty()) {
                 // 1歩も進めなかった。手前の経路はそのまま残し、通常の再計算に委ねる
                 blockExtend(from, playerAt);
@@ -1266,89 +1250,24 @@ public final class PathfindingState {
     }
 
     /**
-     * detail-targetまでの許容距離。まだ実績が無い・別次元で測った値しか無いときはrenderRadius
-     * （楽観的に始めて、届かなかった実績が出た時点で絞る）。
+     * この探索がどこまで引けたかを記録に残す。かつてはこれを次回の目標距離の上限
+     * （{@code detailReach}）へ反映していたが、その仕組みは廃止した——プレイヤー周辺の
+     * 既踏地形で測った値を、経路の末端から未踏地形へ伸ばす探索の上限にも使っていたため、
+     * 「プレイヤー基準で成功して上がる → 末端基準で同じ値に失敗して下がる」を交互に
+     * 繰り返して収束しなかった（実機ログで 24→48→24→48… が規則的に並んだ）。
+     * 目標距離が変わるたびに経路が引き直されるので、これがそのまま「行ったり来たり」に見える。
+     *
+     * <p>いまは目標を「読み込み済みチャンクの縁」に置き、届かなければ部分経路をそのまま
+     * 案内に使う（打ち切り時も最良の部分経路が返る）。当てにいく数値そのものが無くなった。
      */
-    private int detailReachLimit(ResourceKey<Level> dimension, int renderRadius) {
-        int measured = detailReach;
-        if (measured <= 0 || !dimension.equals(detailReachDimension)) {
-            return renderRadius;
-        }
-        return Math.min(renderRadius, measured);
-    }
-
-    /**
-     * 詳細探索が実際にどこまで経路を引けたかを、次回のdetail-target選定の上限へ反映する。
-     *
-     * <p>計算資源を使い切って未到達だった回は、そのとき引けた距離が「この地形・この予算で届く距離」の
-     * 実測値そのもの。予算を余らせたまま未到達だった回（＝本当に道が無い）は到達距離の情報を持たない
-     * ので触らない。
-     *
-     * <p>上げる側と下げる側は対称ではない。上限を上げて外すと探索1回（既定10万ノード）を捨てるうえ、
-     * 目標は経路上の補間点なので<b>表示される経路ごと引き直される</b>——上限が上下すると案内が
-     * 行ったり来たりして見える。低すぎる場合の損は再計算が増えるだけなので、上げるには根拠が要る。
-     *
-     * <p>{@code mayGrow}がfalseなら縮める側だけを見る。<b>継ぎ足しはこちら</b>——成長の歯止めは
-     * 「測った場所から{@code reach}ぶん離れるまで上げない」だが、継ぎ足しの始点は経路の末端で
-     * 一度に数百ブロック飛ぶので、この条件が常に成立してしまう。実機では停止したまま0.8秒で
-     * 24→48→72→96→120と4段上がり、そのあと一気に24へ落ちる往復になった。縮める側は
-     * 「この探索はここまでしか引けなかった」という直接の観測なので、始点がどこでも成立する。
-     */
-    private void updateDetailReach(ResourceKey<Level> dimension, BlockPos start, BlockPos target,
-                                    PathResult result, int renderRadius, boolean budgetExhausted,
-                                    boolean mayGrow) {
-        List<PathStep> steps = result.steps();
-        if (steps.isEmpty()) {
+    private static void logSearchReach(BlockPos start, BlockPos target, PathResult result) {
+        if (!LOGGER.isDebugEnabled() || result.steps().isEmpty()) {
             return;
         }
-        boolean sameDimension = dimension.equals(detailReachDimension);
-        int previous = sameDimension && detailReach > 0 ? detailReach : renderRadius;
-        double targetDistance = horizontalDistance(start, target);
-        int updated;
-        if (result.complete()) {
-            if (!mayGrow) {
-                return;
-            }
-            // 上限よりずっと手前の目標に届いただけでは、上限そのものを試したことにはならない
-            if (targetDistance < previous - DETAIL_REACH_GROWTH_BLOCKS) {
-                return;
-            }
-            // 測定した場所から実際に離れるまでは上げない。同じ場所で上げ下げを繰り返すと、
-            // 目標の距離が毎回変わって経路が揺れる。離れた先は別の地形なので測り直す価値がある
-            BlockPos measuredAt = sameDimension ? detailReachMeasuredAt : null;
-            if (measuredAt != null && horizontalDistance(start, measuredAt) < previous) {
-                return;
-            }
-            updated = previous + DETAIL_REACH_GROWTH_BLOCKS;
-        } else if (budgetExhausted) {
-            double achieved = horizontalDistance(start, steps.get(steps.size() - 1).pos());
-            // 目標のすぐ手前まで引けているなら、上限が間違っているわけではない。目標は常に上限
-            // ちょうどに置くので、ここで数ブロックだけ縮めると次はその距離でまた僅差で失敗し…と
-            // 1ブロックずつ際限なく下がり続ける。そのたびに目標が動いて経路が引き直されるため、
-            // 案内が落ち着かない（実機で 122→116→115→114→113→110… と毎秒変わった）。
-            // 部分経路は案内として十分使えるので、大きく足りなかったときだけ測り直す
-            if (achieved * 2 >= targetDistance) {
-                return;
-            }
-            updated = (int) Math.round(achieved);
-        } else {
-            return;
-        }
-        // 下限より描画距離を優先する（描画距離を極端に下げた環境では renderRadius < 下限 になりうる。
-        // そこで下限を勝たせると、読み込まれてすらいないチャンクを目標に選ぶ元の失敗そのものになる）
-        int clamped = Math.min(renderRadius, Math.max(MIN_DETAIL_REACH_BLOCKS, updated));
-        if (clamped != detailReach || !sameDimension) {
-            // 案内が「なぜか近くしか指さない」ときに、絞られた結果なのかを確かめる唯一の手段。
-            // 落ち着けば変化しなくなるので、変わった時だけならinfoでも流れない。
-            // 目標の距離と現在地まで出さないと、上限・到達実績・目標の向きを突き合わせられない
-            LOGGER.info("XaeroNav: detail-targetの距離上限を更新しました"
-                            + " ({} → {} ブロック, 目標 {} ({} ブロック先), 現在地 {}, 到達={})",
-                    detailReach, clamped, target.toShortString(), Math.round(targetDistance),
-                    start.toShortString(), result.complete());
-        }
-        detailReach = clamped;
-        detailReachMeasuredAt = start;
-        detailReachDimension = dimension;
+        BlockPos end = result.steps().get(result.steps().size() - 1).pos();
+        LOGGER.debug("XaeroNav: 詳細探索 (目標 {} ({} ブロック先), 実到達 {} ブロック, {}, 展開 {})",
+                target.toShortString(), Math.round(horizontalDistance(start, target)),
+                Math.round(horizontalDistance(start, end)), result.termination(), result.expandedNodes());
     }
 
     /**
