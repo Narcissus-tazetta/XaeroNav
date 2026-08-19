@@ -160,6 +160,10 @@ public final class ActionCosts {
      *
      * <p>これより大きく迂回すべきかどうかは層1（{@code CoarseRouter.LavaPolicy}）が決める。
      * 描画距離の外の迂回路は詳細探索にはそもそも見えないので、ここで表現しようとしてはいけない。
+     *
+     * <p>「橋が長くなりすぎたら諦めて迂回する」はコストではなく
+     * {@code CellSource#maxBridgeRunBlocks()}（移動を生成しない上限）で表す。ここを重くして
+     * 表そうとすると、上の理由でそのまま展開ノード数の浪費になる。
      */
     public static final double LAVA_BRIDGE_PENALTY_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
 
@@ -171,32 +175,9 @@ public final class ActionCosts {
      */
     public static final double VERTICAL_REVERSAL_PENALTY_TICKS = SPRINT_ONE_BLOCK;
 
-    /**
-     * 溶岩の橋をこれ以上連続させたら、詳細探索の箱内にある迂回路を優先させたい長さ（ブロック）。
-     * ユーザー判断の値。
-     */
-    public static final int LAVA_BRIDGE_RUN_THRESHOLD_BLOCKS = 10;
-
-    /**
-     * 閾値を超えた分、1ブロックごとに積み増す追加ペナルティ。徒歩20ブロック相当——歩くだけで
-     * 迂回できる範囲なら必ずそちらが安くなる重み。{@link #LAVA_BRIDGE_PENALTY_TICKS}のような
-     * 固定値ではなく超過ブロック数に比例させるのは、閾値をわずかに超えた橋と大幅に超えた橋を
-     * 同列に扱わないため。長い橋になるほど迂回の相対的な魅力を強める。
-     */
-    private static final double LAVA_BRIDGE_RUN_ESCALATION_PER_BLOCK = SPRINT_ONE_BLOCK * 20.0;
-
     public static final double INFEASIBLE = Double.POSITIVE_INFINITY;
 
     private ActionCosts() {
-    }
-
-    /**
-     * 連続する溶岩隣接の橋が{@code bridgeRunBlocks}マス目に達したときの追加コスト。
-     * {@link #LAVA_BRIDGE_RUN_THRESHOLD_BLOCKS}以下は0。
-     */
-    public static double lavaBridgeRunPenalty(int bridgeRunBlocks) {
-        int excess = bridgeRunBlocks - LAVA_BRIDGE_RUN_THRESHOLD_BLOCKS;
-        return excess <= 0 ? 0.0 : excess * LAVA_BRIDGE_RUN_ESCALATION_PER_BLOCK;
     }
 
     /** 縁から踏み出して{@code blocks}マス落ち、着地してマスの中心に戻るまで。 */

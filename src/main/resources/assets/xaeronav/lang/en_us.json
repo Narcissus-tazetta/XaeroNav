@@ -19,6 +19,7 @@
   "hud.xaeronav.waypoint_ahead": "Waypoint ahead",
   "hud.xaeronav.drowning": "Long dive ahead — watch your air",
   "hud.xaeronav.fall_damage": "Route includes a drop that deals fall damage",
+  "hud.xaeronav.sneak_over_magma": "Route crosses magma blocks - sneak over them",
   "hud.xaeronav.mlg_required": "Route includes a drop needing a water bucket landing (MLG)",
   "hud.xaeronav.straight": "Continue straight",
   "hud.xaeronav.turn_left": "Turn left in %d blocks",

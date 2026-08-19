@@ -533,6 +533,69 @@ class AStarPathfinderTest {
     }
 
     /**
+     * 幅{@code width}の溶岩の水路。両岸は岩盤で、渡るには溶岩へ足場を置き続けるしかない。
+     * {@link #lavaPond}を任意の幅にした版で、橋の連続長の上限を試すために使う。
+     */
+    private static FakeCells lavaChannel(int width) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 40, -8, width + 12, 80, 8))
+                .fillWith(FakeCells.BEDROCK)
+                .canPlaceBlocks(true);
+        for (int x = -1; x <= width + 1; x++) {
+            cells.set(x, 60, 0, x >= 1 && x <= width ? FakeCells.LAVA : FakeCells.BEDROCK);
+            cells.set(x, 61, 0, FakeCells.AIR);
+            cells.set(x, 62, 0, FakeCells.AIR);
+        }
+        return cells;
+    }
+
+    /**
+     * 上限は「コストを重くする」のではなく「移動そのものを作らない」で効かせている。重みで
+     * 抑えるとA*は安い辺から展開するので、橋に手を伸ばす前に周囲を展開し尽くして予算を焼く。
+     */
+    @Test
+    void refusesToBridgeBeyondTheConfiguredRun() {
+        CellSource cells = lavaChannel(12).maxBridgeRunBlocks(6);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(13, 61, 0));
+
+        assertFalse(result.complete(), "上限を超える橋しか無いなら渡らない");
+        assertTrue(result.steps().stream().filter(PathStep::bridging).count() <= 6,
+                "上限を超えて橋を伸ばしてはいけない: " + movements(result));
+    }
+
+    @Test
+    void stillBridgesWhenTheRunStaysUnderTheCap() {
+        CellSource cells = lavaChannel(4).maxBridgeRunBlocks(6);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertTrue(result.complete(), "上限内の橋は今までどおり渡れる");
+        assertTrue(result.steps().stream().anyMatch(PathStep::bridging), "" + movements(result));
+    }
+
+    /** 上限0は無制限。設定で切ったときに従来どおりの挙動へ戻ることの確認。 */
+    @Test
+    void aZeroCapMeansNoLimit() {
+        CellSource cells = lavaChannel(12).maxBridgeRunBlocks(0);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(13, 61, 0));
+
+        assertTrue(result.complete(), "上限0なら長さに関わらず渡る");
+    }
+
+    /** 上限で移動を捨てたかどうかは、上限を外して探し直す価値があるかの判定に使う。 */
+    @Test
+    void reportsWhetherTheCapActuallyBlockedAnything() {
+        AStarPathfinder blocked = new AStarPathfinder(lavaChannel(12).maxBridgeRunBlocks(6));
+        blocked.search(new BlockPos(0, 61, 0), new BlockPos(13, 61, 0), NOT_CANCELLED);
+        assertTrue(blocked.bridgeRunCapBlocked());
+
+        AStarPathfinder untouched = new AStarPathfinder(lavaChannel(4).maxBridgeRunBlocks(6));
+        untouched.search(new BlockPos(0, 61, 0), new BlockPos(5, 61, 0), NOT_CANCELLED);
+        assertFalse(untouched.bridgeRunCapBlocked());
+    }
+
+    /**
      * 割れ目の底が見えない空洞で、遥か下（20マス）に溶岩がある。足元1マス下は空気なので、
      * 隣接判定（{@code hasAdjacentLava}）だけでは溶岩に気付かない——{@code addBridge}の
      * lavaFarBelow判定が無いと「危険なし」として溶岩橋切り禁止をすり抜けてしまう。

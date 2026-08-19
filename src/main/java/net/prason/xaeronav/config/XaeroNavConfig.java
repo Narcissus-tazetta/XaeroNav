@@ -30,6 +30,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue deepLookAheadEnabled;
     private final ModConfigSpec.BooleanValue costToGoGuideEnabled;
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
+    private final ModConfigSpec.IntValue maxBridgeRunBlocks;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
     private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
@@ -89,6 +90,16 @@ public final class XaeroNavConfig {
                         "混じるため厳密な下限ではないが、直線距離を下回ることはないので損はしない",
                         "falseにすると幾何学的な直線距離だけに戻る（比較用）")
                 .define("costToGoGuideEnabled", true);
+
+        maxBridgeRunBlocks = builder
+                .comment("空中に足場を置いて渡る橋を、何マス連続させたら諦めて迂回するか（0で無制限）",
+                        "ネザーの溶岩の海のように迂回路が長い地形では、コストの重みだけでは橋が",
+                        "選ばれ続ける。ここを超える橋は移動そのものを生成しないので、探索は最初から",
+                        "迂回路だけを見る——重いコストで抑え込む形と違い、展開ノード数を一切使わない",
+                        "（連続長は陸地を1マスでも踏めば数え直しになる）",
+                        "範囲内に迂回路が無く経路が一本も引けなかった場合に限り、上限を外して探し直す",
+                        "（詰むよりは長い橋の方がマシ、という優先順）")
+                .defineInRange("maxBridgeRunBlocks", 30, 0, 256);
 
         searchHorizontalMargin = builder
                 .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
@@ -170,6 +181,10 @@ public final class XaeroNavConfig {
 
     public void setBridgingEnabled(boolean value) {
         bridgingEnabled.set(value);
+    }
+
+    public int maxBridgeRunBlocks() {
+        return maxBridgeRunBlocks.get();
     }
 
     public boolean lavaBridgingEnabled() {

@@ -81,6 +81,12 @@ public final class SurfaceCellSource implements CellSource {
         return false;
     }
 
+    /** 橋を提示しないので上限に意味は無い。 */
+    @Override
+    public int maxBridgeRunBlocks() {
+        return 0;
+    }
+
     /** 層2はプレイヤーの状態（体力・持ち物）を知らないので、痛い降下も水バケツMLGも提案しない。 */
     @Override
     public int maxFallDamagePoints() {

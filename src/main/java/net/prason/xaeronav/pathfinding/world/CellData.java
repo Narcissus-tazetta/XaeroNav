@@ -61,6 +61,12 @@ public final class CellData {
     static final long OPENABLE = 1L << 8;
     static final long COBWEB = 1L << 9;
     static final long HAZARD = 1L << 10;
+    /**
+     * その上を進むにはスニークが要る床。マグマブロックだけ——踏むとダメージを受けるが、
+     * バニラの{@code isSteppingCarefully}（スニーク中）なら無傷で渡れる。通行可否ではなく
+     * 「案内に一言添える必要があるか」の印なので{@link #HAZARD}とは分けてある。
+     */
+    static final long SNEAK_REQUIRED = 1L << 11;
 
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
 
@@ -155,6 +161,9 @@ public final class CellData {
         }
         if (state.getBlock() instanceof WebBlock) {
             flags |= COBWEB;
+        }
+        if (state.getBlock() instanceof MagmaBlock) {
+            flags |= SNEAK_REQUIRED;
         }
         return flags | speedFactorBits(state);
     }
@@ -326,6 +335,11 @@ public final class CellData {
      * このセルの上を進むときの速度倍率（1.0で等速。ソウルサンド・蜂蜜ブロックは0.4、氷は1.2）。
      * バニラは足元のセルの係数を使い、それが1.0なら1つ下のブロックを見る（{@code Entity#getBlockSpeedFactor}）。
      */
+    /** その上を進むにはスニークが要る床か（マグマブロック）。 */
+    public static boolean sneakRequired(long cell) {
+        return (cell & SNEAK_REQUIRED) != 0;
+    }
+
     public static double speedFactor(long cell) {
         long raw = (cell & SPEED_FACTOR_MASK) >>> SPEED_FACTOR_SHIFT;
         return raw == 0L ? 1.0 : raw / 100.0;

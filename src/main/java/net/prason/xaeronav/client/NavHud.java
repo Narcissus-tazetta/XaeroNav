@@ -105,6 +105,10 @@ public final class NavHud {
             if (risks.contains(PathRisk.FALL_DAMAGE)) {
                 add(Component.translatable("hud.xaeronav.fall_damage"), WARNING_COLOR);
             }
+            if (risks.contains(PathRisk.SNEAK_OVER_MAGMA)) {
+                // 踏んでから気付くのでは遅い（走って乗ると即座に燃える）
+                add(Component.translatable("hud.xaeronav.sneak_over_magma"), WARNING_COLOR);
+            }
             if (!guidance.complete) {
                 add(Component.translatable("hud.xaeronav.incomplete"), WARNING_COLOR);
             }

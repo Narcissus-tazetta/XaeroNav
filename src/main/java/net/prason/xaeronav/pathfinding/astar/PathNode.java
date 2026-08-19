@@ -25,10 +25,15 @@ final class PathNode {
     MoveKind kind;
 
     /**
-     * ここまで連続した、溶岩に隣接する{@link MoveKind#BRIDGE}のブロック数。橋以外の移動や
-     * 溶岩に隣接しない橋では0に戻る。{@link AStarPathfinder#addBridge}が
-     * {@link net.prason.xaeronav.pathfinding.cost.ActionCosts#lavaBridgeRunPenalty}の
-     * 閾値判定に使う。
+     * ここまで連続した{@link MoveKind#BRIDGE}のブロック数。橋以外の移動を1つでも挟めば0に戻る
+     * （足場を1マスでも踏めば数え直し）。{@link AStarPathfinder#addBridge}が上限判定に使う。
+     *
+     * <p><b>このノードの同一性には含まれない</b>（キーは座標のみ）。同じセルへ短い橋で来た経路と
+     * 長い橋で来た経路は同じノードに集約され、先に最安で確定した方の連続長が残る。辺コスト自体は
+     * 連続長に依存しない（上限を超えた橋を作らないだけ）ので経路のコストは歪まないが、
+     * 上限の判定は「最安で到達した経路の連続長」に基づく近似になる——飛び石を挟めば安く渡れる
+     * 地形で、その飛び石経由の可能性を取りこぼしうる。取りこぼした結果「範囲内に道が無い」に
+     * なった場合は{@link AStarPathfinder#bridgeRunCapBlocked()}を見て上限を外して探し直す。
      */
     int bridgeRun;
 

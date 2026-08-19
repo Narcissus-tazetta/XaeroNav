@@ -120,6 +120,12 @@ public final class AStarPathfinder {
      */
     private final CostToGo costToGo;
 
+    /** 連続して架けてよい橋の長さ（ブロック）。0なら無制限。{@link CellSource#maxBridgeRunBlocks()}。 */
+    private final int maxBridgeRun;
+
+    /** この探索が{@link #maxBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
+    private boolean bridgeRunCapBlocked;
+
     /**
      * ノード表の初期サイズの上限。展開数上限を大きく設定されたときに、実際にはそこまで使わない表を
      * 先に確保してしまわないための頭打ち。
@@ -153,6 +159,16 @@ public final class AStarPathfinder {
      * {@link Heuristic}（既定の幾何学的下限）を使う既存の挙動と完全に同じになる。
      */
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo) {
+        this(view, limits, costToGo, view.maxBridgeRunBlocks());
+    }
+
+    /**
+     * 連続する橋の長さの上限を明示するコンストラクタ。0を渡すと無制限になる——
+     * 上限のせいで範囲内に道が一本も無くなった場合の、詰み回避の探し直しに使う
+     * （「マグマの橋は最後の手段だが、詰みよりはマシ」という優先順）。
+     */
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun) {
+        this.maxBridgeRun = maxBridgeRun;
         this.view = view;
         this.maxExpandedNodes = limits.maxExpandedNodes();
         this.timeLimitMillis = limits.timeLimitMillis();
@@ -162,6 +178,14 @@ public final class AStarPathfinder {
         // 表の作り直しが何度も走り、そのたびに全エントリの再配置が起きる
         this.nodes = new Long2ObjectOpenHashMap<>(
                 Math.min(limits.maxExpandedNodes(), MAX_PRESIZED_NODES), 0.75f);
+    }
+
+    /**
+     * この探索が、連続する橋の長さの上限を理由に移動を捨てたか。捨てていない場合、
+     * 上限を外して探し直しても結果は変わらない。
+     */
+    public boolean bridgeRunCapBlocked() {
+        return bridgeRunCapBlocked;
     }
 
     /**
@@ -856,16 +880,21 @@ public final class AStarPathfinder {
         if (lavaNearby && !view.lavaBridgingEnabled()) {
             return;
         }
+        // 連続した橋の長さで打ち切る。ここで「重いコスト」ではなく「移動を作らない」を選ぶのが要点——
+        // 重みで抑えると、A*は安い辺から展開するので橋に手を伸ばす前に周囲を展開し尽くし、
+        // 展開ノード数を焼き切ったうえで結局その先に進めない（ActionCosts#LAVA_BRIDGE_PENALTY_TICKS
+        // に記録された実測そのもの）。辺を作らなければ、探索は最初から迂回路だけを見る
+        int bridgeRun = from.bridgeRun + 1;
+        if (maxBridgeRun > 0 && bridgeRun > maxBridgeRun) {
+            bridgeRunCapBlocked = true;
+            return;
+        }
         double bodyCost = standingBodyCost(x, y, z, null);
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        // 溶岩隣接の橋が連続した長さだけを追跡する。陸地や水上の橋を挟めば0に戻る——
-        // 危険なのは「溶岩の上をどれだけ長く渡り続けるか」であって、橋という移動種別そのものではない
-        int bridgeRun = lavaNearby ? from.bridgeRun + 1 : 0;
         double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
-                + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS + ActionCosts.lavaBridgeRunPenalty(bridgeRun)
-                        : 0.0)
+                + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
                 + submerged(bodyCost, x, y + 1, z);
         relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun, 0);
     }

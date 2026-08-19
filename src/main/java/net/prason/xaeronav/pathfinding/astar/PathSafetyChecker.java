@@ -94,6 +94,10 @@ public final class PathSafetyChecker {
                     || lavaFarBelow(view, step.placedBlockPos());
             return risky ? PathRisk.LAVA_ADJACENT : PathRisk.NONE;
         }
+        if (CellData.sneakRequired(view.cell(step.pos().getX(), step.pos().getY() - 1, step.pos().getZ()))) {
+            // 足元がマグマブロック。通行可にした以上、スニークが要ることを伝えないと案内として不完全
+            return PathRisk.SNEAK_OVER_MAGMA;
+        }
         if (step.movement() == MovementType.FALL_DAMAGE) {
             return PathRisk.FALL_DAMAGE;
         }
