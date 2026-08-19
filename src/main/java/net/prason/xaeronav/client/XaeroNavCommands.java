@@ -21,6 +21,12 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.prason.xaeronav.XaeroNav;
+import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.item.FireworkRocketItem;
+import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
+import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
@@ -91,6 +97,10 @@ public final class XaeroNavCommands {
                 .then(Commands.literal("probe")
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> reportProbe(ctx.getSource(),
+                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
+                .then(Commands.literal("flight")
+                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                .executes(ctx -> reportFlight(ctx.getSource(),
                                         BlockPosArgument.getBlockPos(ctx, "pos")))))
                 .then(Commands.literal("version")
                         .executes(ctx -> {
@@ -393,6 +403,43 @@ public final class XaeroNavCommands {
      * 範囲内なのに届かなかった場合は、{@link PathfindingState}のPhase 2（探索範囲を読み込み済み
      * チャンクいっぱいまで広げる再挑戦）と同じ条件・同じ広さでもう一度探索し、その結果も併せて報告する。
      */
+    /**
+     * 空中経路を1回だけ解いて中身を出す。飛んでいる必要は無い——地上から投げて格子の粒度や
+     * 展開数を確かめられる方が、飛びながら画面を読むより遥かに測りやすい。
+     */
+    private static int reportFlight(CommandSourceStack source, BlockPos goal) {
+        Minecraft mc = Minecraft.getInstance();
+        Level level = mc.level;
+        Player player = mc.player;
+        if (level == null || player == null) {
+            return 0;
+        }
+
+        int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), goal,
+                renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
+        boolean rockets = player.getInventory().contains(stack -> stack.getItem() instanceof FireworkRocketItem);
+
+        long startedAt = System.nanoTime();
+        FlightRoute route = FlightRouter.route(view, player.position(), Vec3.atCenterOf(goal), rockets,
+                XaeroNavConfig.INSTANCE.flightCellBlocks(),
+                new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
+                        AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight()));
+        long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+
+        Vec3 tail = route.tail();
+        source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_result",
+                route.points().size(), route.termination().name(), route.expandedNodes(), elapsedMillis,
+                XaeroNavConfig.INSTANCE.flightCellBlocks(), rockets ? 1 : 0), false);
+        if (tail != null) {
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_tail",
+                    Mth.floor(tail.x), Mth.floor(tail.y), Mth.floor(tail.z),
+                    Mth.floor(Math.sqrt(tail.distanceToSqr(Vec3.atCenterOf(goal))))), false);
+        }
+        return 1;
+    }
+
     private static int reportProbe(CommandSourceStack source, BlockPos goal) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;

@@ -4,6 +4,8 @@
   "gui.xaeronav_clear_route": "経路をクリア",
 
   "commands.xaeronav.goal_walk": "XaeroNav: 目的地を設定・徒歩 (%s)",
+  "commands.xaeronav.flight_result": "XaeroNav: 空中経路 点%1$d / %2$s / 展開%3$d / %4$dms / 格子%5$dブロック / ロケット%6$d",
+  "commands.xaeronav.flight_tail": "XaeroNav: 末端 (%1$d, %2$d, %3$d) — 目的地まで残り%4$dブロック",
   "commands.xaeronav.cleared": "XaeroNav: 経路をクリア",
 
   "hud.xaeronav.searching": "経路を計算中…",
@@ -17,6 +19,7 @@
   "hud.xaeronav.rerouted": "経路を引き直しました（先が通れなくなりました）",
   "hud.xaeronav.flying": "滑空中の空中ルートを案内中",
   "hud.xaeronav.flying_no_route": "滑空中（空中の経路が引けません）",
+  "hud.xaeronav.flight_climb": "この先%dブロックの上昇あり（ロケット花火の用意を）",
   "hud.xaeronav.direct_distance": "目的地まで直線で%dブロック",
   "hud.xaeronav.arriving": "まもなく到着",
   "hud.xaeronav.arrived": "到着！",
@@ -50,6 +53,7 @@
   "gui.xaeronav.config.deep_look_ahead_enabled": "歩きながら先の経路を伸ばし続ける",
   "gui.xaeronav.config.jump_gap_enabled": "隙間跳び(最大3マス)を経路に含める",
   "gui.xaeronav.config.fall_damage_tolerance_enabled": "落下ダメージ許容(体力の1/3まで)",
+  "gui.xaeronav.config.flight_routing_enabled": "滑空中に空中の経路を計算する",
   "gui.xaeronav.config.hud_enabled": "案内表示(HUD)",
   "gui.xaeronav.config.straight_line_enabled": "未探索区間の点線表示",
   "hud.xaeronav.hud_on": "XaeroNav: 案内表示 オン",
