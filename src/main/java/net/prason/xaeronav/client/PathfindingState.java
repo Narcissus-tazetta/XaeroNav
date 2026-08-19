@@ -57,6 +57,19 @@ public final class PathfindingState {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    /**
+     * 空中経路を投げ直す下限間隔（tick）。逸脱と移動のきっかけは高速で飛んでいる間ほぼ毎tick
+     * 成立しうるので、これが無いとワーカースレッドへ探索を積み続ける。
+     */
+    private static final int MIN_FLIGHT_RECALC_INTERVAL_TICKS = 10;
+
+    /**
+     * 空中経路を計算した場所からこれだけ離れたら引き直す（ブロック）。読み込み済みチャンクは
+     * プレイヤー中心なので、動いた分だけ経路の末端の先が新しく読めるようになる——
+     * 末端から継ぎ足す専用の仕組みを持たなくても、ここで経路は前へ伸びていく。
+     */
+    private static final double FLIGHT_RECALC_MOVE_BLOCKS = 48.0;
+
     /** 到着表示を出しておく長さ（tick）。過ぎたら目的地ごと片付ける。 */
     private static final int ARRIVAL_DISPLAY_TICKS = 100;
 
@@ -279,6 +292,8 @@ public final class PathfindingState {
     private volatile boolean flying;
     // 滑空中の空中経路（太線で描く本体）。引けなければ空
     private volatile FlightRoute flightRoute = FlightRoute.NONE;
+    // flightRouteを計算したときのプレイヤー位置。ここから離れた＝新しいチャンクが読めている
+    private volatile BlockPos flightRouteComputedFrom;
     // 空中経路が引けなかったときの代替。目的地への点線を山の上・横へ曲げた2〜3点
     private volatile List<Vec3> flightGuideWaypoints;
 
@@ -420,6 +435,7 @@ public final class PathfindingState {
         this.flying = false;
         this.flightRoute = FlightRoute.NONE;
         this.flightGuideWaypoints = null;
+        this.flightRouteComputedFrom = null;
         this.arrivedTicks = 0;
     }
 
@@ -641,16 +657,17 @@ public final class PathfindingState {
                 displayed = null;
                 flightRoute = FlightRoute.NONE;
                 flightGuideWaypoints = null;
+                flightRouteComputedFrom = null;
                 recalculate();
                 return;
             }
         }
         if (flying) {
-            // 滑空中に見るのは到着判定と点線の引き直しだけ。経路追従・逸脱検知・A*の再計算は
-            // どれも地上の話なので止める
+            // 滑空中は地上の経路追従・A*の再計算を止め、空中経路だけを見る
             checkArrival(mc.player, currentGoal, null);
+            FlightProgress.INSTANCE.update(flightRoute, mc.player.position());
             ticksSinceFlightLineRecalc++;
-            if (ticksSinceFlightLineRecalc >= XaeroNavConfig.INSTANCE.flightRecalcIntervalTicks()) {
+            if (shouldRecalculateFlightRoute(mc.player)) {
                 recalculateFlightLine();
             }
             return;
@@ -854,10 +871,12 @@ public final class PathfindingState {
             // 未受信なら黙ってfalseに落ちるため（AbstractClientPlayer#isSpectator）
             flightRoute = FlightRoute.NONE;
             flightGuideWaypoints = null;
+            flightRouteComputedFrom = null;
             return;
         }
 
         Vec3 start = player.position();
+        BlockPos from = player.blockPosition();
         Vec3 goalVec = Vec3.atCenterOf(currentGoal);
         ResourceKey<Level> dimension = level.dimension();
         boolean rockets = hasRockets(player);
@@ -884,7 +903,7 @@ public final class PathfindingState {
                     List<Vec3> bend = route.isEmpty()
                             ? new FlightLineRouter(view).findGuideLine(start, goalVec)
                             : null;
-                    return new FlightGuidance(route, bend);
+                    return new FlightGuidance(route, bend, from);
                 }, flightLineExecutor)
                 .whenComplete((result, error) -> {
                     if (error != null) {
@@ -894,12 +913,43 @@ public final class PathfindingState {
                     if (flying && currentGoal.equals(goal) && dimension.equals(goalDimension)) {
                         flightRoute = result.route();
                         flightGuideWaypoints = result.bend();
+                        flightRouteComputedFrom = result.from();
                     }
                 });
     }
 
+    /**
+     * 空中経路を引き直すべきか。
+     *
+     * <p>3つのきっかけを見る。<b>周期だけでは足りない</b>——エリトラは1.5ブロック/tickで飛ぶので、
+     * 20tickの周期でも合間に30ブロック進む。逆に止まっている（＝クリエで浮いているだけ）ときは
+     * 読み込み済みチャンクも地形も変わらないので、同じ結果を得るために探索を回す意味が無い。
+     */
+    private boolean shouldRecalculateFlightRoute(Player player) {
+        if (ticksSinceFlightLineRecalc < MIN_FLIGHT_RECALC_INTERVAL_TICKS) {
+            // 逸脱・移動のきっかけが立て続けに成立しても、探索の投入間隔はここで頭打ちにする
+            return false;
+        }
+        if (FlightProgress.INSTANCE.deviated(XaeroNavConfig.INSTANCE.flightDeviationThresholdBlocks())) {
+            return true;
+        }
+        BlockPos position = player.blockPosition();
+        if (flightRouteComputedFrom != null
+                && Math.sqrt(flightRouteComputedFrom.distSqr(position)) >= FLIGHT_RECALC_MOVE_BLOCKS) {
+            // 計算した場所から離れた＝その先のチャンクが新しく読めるようになっている。
+            // 末端はここで自然に伸びるので、継ぎ足し専用の仕組みは要らない
+            return true;
+        }
+        if (ticksSinceFlightLineRecalc < XaeroNavConfig.INSTANCE.flightRecalcIntervalTicks()) {
+            return false;
+        }
+        // 周期が来た。ただし目的地まで届いている経路をその場に浮いたまま引き直しても結果は同じ
+        return !flightRoute.complete() || flightRouteComputedFrom == null
+                || !flightRouteComputedFrom.equals(position);
+    }
+
     /** 空中経路と、その代わりに使う曲がり点線。どちらを使うかは計算した側が決める。 */
-    private record FlightGuidance(FlightRoute route, List<Vec3> bend) {
+    private record FlightGuidance(FlightRoute route, List<Vec3> bend, BlockPos from) {
     }
 
     /**
@@ -920,6 +970,7 @@ public final class PathfindingState {
         displayed = null;
         flightRoute = FlightRoute.NONE;
         flightGuideWaypoints = null;
+        flightRouteComputedFrom = null;
         arrivedTicks = 0;
         arrived = true;
         stuckReason = null;
