@@ -120,10 +120,20 @@ public final class CoarseRouter {
     private static final double LAYER_TRANSITION_PENALTY = 2.0;
 
     /**
-     * 中間目標を置く水平間隔（セル＝チャンク）。詳細探索が一度に解ける距離より短くしないと、
-     * 次の目標が読み込み済みチャンクの外に出てしまう。
+     * 中間目標を置く水平間隔（セル＝チャンク）。
+     *
+     * <p><b>詳細探索が一度に狙う距離（{@code detailHorizonBlocks}、既定96）より必ず短く保つこと。</b>
+     * 間引きは「最大軸の差がこの値に達したら」で判定するので、斜めに続くルートでの実際の間隔は
+     * 最大{@code spacing * √2 * 16}ブロックになる——6セルだと最大135.8ブロックで、96を超えた分は
+     * 詳細探索が一度に狙えない。そうなると目標は<b>waypointへの直線上</b>に取るしかなくなり
+     * （{@code PathfindingState#pointAlongRoute}）、ルートが曲がっている所でその直線が角を切り落として、
+     * 層1が避けた溶岩の海のただ中に目標が落ちる。4セルなら最大90.5ブロックで常に96の内側に収まり、
+     * 「次の中間目標そのものを狙う」だけで済む。
+     *
+     * <p>間隔を詰めても詳細探索の回数は増えない。{@code reachableWaypointTarget}は
+     * <b>届く範囲で最も遠い</b>中間目標を狙うので、詰めた分は素通りされて解像度だけが上がる。
      */
-    private static final int WAYPOINT_SPACING_CELLS = 6;
+    private static final int WAYPOINT_SPACING_CELLS = 4;
 
     /**
      * 中間目標を置く垂直間隔（ブロック）。水平の間隔（{@link #WAYPOINT_SPACING_CELLS}）だけで

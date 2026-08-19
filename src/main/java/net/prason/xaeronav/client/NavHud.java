@@ -56,6 +56,7 @@ public final class NavHud {
         lines.clear();
         colors.clear();
         PathResult result = PathfindingState.INSTANCE.currentResult();
+        PathfindingState.StuckReason stuck = PathfindingState.INSTANCE.stuckReason();
         if (PathfindingState.INSTANCE.arrived()) {
             add(Component.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
         } else if (PathfindingState.INSTANCE.flying()) {
@@ -65,12 +66,24 @@ public final class NavHud {
             add(Component.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
         } else if (result == null || result.steps().isEmpty()) {
-            add(PathfindingState.INSTANCE.computing()
-                    ? Component.translatable("hud.xaeronav.searching")
-                    : Component.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
+            if (stuck != null) {
+                addUnreachable(stuck);
+            } else {
+                // 「経路なし」は今回の探索の結果でしかない。次の探索では出るかもしれないので、
+                // 結論（addUnreachable）とは違う言い方にする
+                add(PathfindingState.INSTANCE.computing()
+                        ? Component.translatable("hud.xaeronav.searching")
+                        : Component.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
+            }
             add(Component.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
         } else {
+            // 部分経路が出ていても、それが目的地へ通じていないと分かったなら先に言う。この経路は
+            // 「行ける所まで」であって案内の続きではないので、黙って曲がり角だけ出すと、
+            // 行き止まりまで歩いてから初めて気付くことになる
+            if (stuck != null) {
+                addUnreachable(stuck);
+            }
             boolean climbing = PathfindingState.INSTANCE.climbingToSurface();
             if (climbing) {
                 // 本来の目的地ではなく、まず地上へ出るまでの中継経路であることを示す。
@@ -109,7 +122,9 @@ public final class NavHud {
                 // 踏んでから気付くのでは遅い（走って乗ると即座に燃える）
                 add(Component.translatable("hud.xaeronav.sneak_over_magma"), WARNING_COLOR);
             }
-            if (!guidance.complete) {
+            // 詰みと判断済みなら「点線をたどってください」は嘘になる（その先に道が無いと
+            // 分かっているから詰みなので）。結論の方だけを残す
+            if (!guidance.complete && stuck == null) {
                 add(Component.translatable("hud.xaeronav.incomplete"), WARNING_COLOR);
             }
         }
@@ -120,6 +135,18 @@ public final class NavHud {
     private void add(Component line, int color) {
         lines.add(line);
         colors.add(color);
+    }
+
+    /**
+     * 「目的地へ行けない」という結論と、その理由・打つ手を出す。
+     *
+     * <p>結論と理由を分けるのが要点。結論だけでは何をすればいいか分からず、理由だけでは
+     * 「探索が続いているのか止まっているのか」が分からない。止まっていること（と再開の条件）は
+     * 結論の側に含める——止まっていると知らないまま待ち続けるのが一番損をする。
+     */
+    private void addUnreachable(PathfindingState.StuckReason reason) {
+        add(Component.translatable("hud.xaeronav.unreachable"), WARNING_COLOR);
+        add(Component.translatable(PathfindingState.stuckHintKey(reason)), SECONDARY_COLOR);
     }
 
     private Set<PathRisk> risksAhead(PathResult result) {

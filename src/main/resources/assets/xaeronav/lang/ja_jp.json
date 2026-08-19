@@ -8,6 +8,12 @@
 
   "hud.xaeronav.searching": "経路を計算中…",
   "hud.xaeronav.no_route": "経路が見つかりません",
+  "hud.xaeronav.unreachable": "目的地まで行けません（移動すると探索を再開します）",
+  "hud.xaeronav.unreachable_blocked": "ここから通じる道がありません — 別の方向から回り込むか、掘削・足場の設置を許可してください",
+  "hud.xaeronav.unreachable_blocked_detour": "ここから通じる道がありません — 別の方向から回り込んでみてください",
+  "hud.xaeronav.unreachable_too_hard": "地形が複雑で経路を計算しきれません — 手前の地点を目的地にすると通ることがあります",
+  "hud.xaeronav.unreachable_unmapped": "地図上で目的地まで繋がっていません — 目的地の周辺をまだ探索していない可能性があります",
+  "hud.xaeronav.unreachable_notice": "XaeroNav: 目的地まで行けません — %s",
   "hud.xaeronav.rerouted": "経路を引き直しました（先が通れなくなりました）",
   "hud.xaeronav.flying": "飛行中（経路の計算は止めています）",
   "hud.xaeronav.direct_distance": "目的地まで直線で%dブロック",
