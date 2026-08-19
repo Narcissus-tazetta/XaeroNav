@@ -51,6 +51,15 @@ public final class PathfindingExecutor {
      */
     private static final long COARSE_GUIDED_LEG_TIME_LIMIT_MILLIS = 800;
 
+    /**
+     * 粗い経由地チェーンの中間の経由地を、ゴールとして許す半径（ブロック）。
+     *
+     * <p>経由地は1セル＝1チャンク(16ブロック)の代表点なので、実際の通り道はその中心から
+     * 最大8ブロックずれていて当然。座標ぴったりを要求すると、そのための遠回りが経路に乗る。
+     * 半径はセルの半幅に合わせる。
+     */
+    private static final int COARSE_LEG_GOAL_RADIUS_BLOCKS = 8;
+
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits) {
@@ -69,13 +78,23 @@ public final class PathfindingExecutor {
      */
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
                                                  boolean costToGoGuideEnabled) {
+        return submit(view, start, goal, limits, costToGoGuideEnabled, 0);
+    }
+
+    /**
+     * {@code goalRadius}を明示する版。長距離ルートの中間目標のように「向かう方角」でしかない
+     * ゴールには半径を与えて、座標ぴったりへ寄せるための遠回りを避ける
+     * （{@link AStarPathfinder#search(BlockPos, BlockPos, BooleanSupplier, int)}参照）。
+     */
+    public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
+                                                 boolean costToGoGuideEnabled, int goalRadius) {
         return submit(cancelled -> {
             CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, start, goal, cancelled) : null;
             return search(view, limits, cancelled, costToGo, (pathfinder, c) ->
                     // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
                     // 寄せ直しなので、メインスレッドへ戻さずここで行う
                     pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
-                            c));
+                            c, goalRadius));
         });
     }
 
@@ -150,13 +169,20 @@ public final class PathfindingExecutor {
     public CompletableFuture<PathResult> submitCoarseGuided(CellSource view, SearchBounds bounds, BlockPos start,
                                                              BlockPos goal, SearchLimits limits,
                                                              boolean costToGoGuideEnabled) {
+        return submitCoarseGuided(view, bounds, start, goal, limits, costToGoGuideEnabled, 0);
+    }
+
+    /** {@code goalRadius}を明示する版。最終ゴールにだけ効く（区間の経由地は元から粗い点なので常に領域）。 */
+    public CompletableFuture<PathResult> submitCoarseGuided(CellSource view, SearchBounds bounds, BlockPos start,
+                                                             BlockPos goal, SearchLimits limits,
+                                                             boolean costToGoGuideEnabled, int goalRadius) {
         return submit(cancelled -> solveCoarseGuided(view, bounds, start, goal, limits, cancelled,
-                costToGoGuideEnabled));
+                costToGoGuideEnabled, goalRadius));
     }
 
     private static PathResult solveCoarseGuided(CellSource view, SearchBounds bounds, BlockPos start, BlockPos goal,
                                                  SearchLimits limits, BooleanSupplier cancelled,
-                                                 boolean costToGoGuideEnabled) {
+                                                 boolean costToGoGuideEnabled, int goalRadius) {
         CoarseMap coarseMap = LiveCoarseSampler.sample(view, bounds, start.getY(), cancelled);
         // 橋を架けられるなら粗い側でも溶岩を通す。ここを一律ALLOWにすると、溶岩の海の縁では
         // 出発点自身のセルがLAVA＝通行不能になって区間分割が1つも作れず、溶岩の海を1回の探索で
@@ -175,7 +201,7 @@ public final class PathfindingExecutor {
                     ? CoarseRouter.costToGo(coarseMap, goal, false, lavaPolicy) : null;
             return search(view, limits, cancelled, directCostToGo, (pathfinder, c) ->
                     pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
-                            c));
+                            c, 0, goalRadius));
         }
 
         List<BlockPos> rawLegGoals = new ArrayList<>(route.waypoints());
@@ -211,12 +237,18 @@ public final class PathfindingExecutor {
                     : new SearchLimits(legLimits.maxExpandedNodes(), remainingMillis, legLimits.heuristicWeight());
             BlockPos legGoal = StanceFinder.resolveGoal(view, rawLegGoals.get(i));
             BlockPos currentLegStart = legStart;
+            // 中間の経由地はチャンク平均から作った代表点でしかない。座標ぴったりへ寄せる意味が
+            // 無いどころか、そのための遠回りが生まれる。最後の区間だけは呼び出し側の指定に従う
+            boolean lastLegGoal = i == rawLegGoals.size() - 1;
+            int legRadius = lastLegGoal ? goalRadius : COARSE_LEG_GOAL_RADIUS_BLOCKS;
             // 区間ごとのゴールに向けたガイド。同じcoarseMapを使い回すので逆向きDijkstraだけを
             // ゴールの数だけ繰り返す（地図の読み取りは1回で済んでいる）
             CostToGo legCostToGo = costToGoGuideEnabled
                     ? CoarseRouter.costToGo(coarseMap, legGoal, false, lavaPolicy) : null;
+            // 区間の境目で橋の連続長が0に戻らないよう、直前までの末尾の連続長を引き継ぐ
+            int carriedBridgeRun = trailingBridgeRun(steps);
             PathResult legResult = search(view, thisLegLimits, cancelled, legCostToGo,
-                    (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c));
+                    (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c, carriedBridgeRun, legRadius));
             totalExpanded += legResult.expandedNodes();
             totalDistinct += legResult.distinctNodes();
             boolean lastLeg = i == rawLegGoals.size() - 1;
@@ -245,6 +277,15 @@ public final class PathfindingExecutor {
         }
         return new PathResult(steps, complete ? PathResult.Termination.REACHED_GOAL : termination,
                 totalExpanded, totalDistinct);
+    }
+
+    /** 経路の末尾で連続している橋のブロック数。 */
+    private static int trailingBridgeRun(List<PathStep> steps) {
+        int run = 0;
+        for (int i = steps.size() - 1; i >= 0 && steps.get(i).bridging(); i--) {
+            run++;
+        }
+        return run;
     }
 
     private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled, SearchCall run) {

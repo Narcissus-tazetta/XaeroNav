@@ -126,6 +126,12 @@ public final class AStarPathfinder {
     /** この探索が{@link #maxBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
     private boolean bridgeRunCapBlocked;
 
+    /** 始点がすでに橋の途中である場合の、そこまでの連続長。 */
+    private int startBridgeRun;
+
+    /** ゴールを領域として扱う半径（ブロック）。0なら座標の完全一致。 */
+    private int goalRadius;
+
     /**
      * ノード表の初期サイズの上限。展開数上限を大きく設定されたときに、実際にはそこまで使わない表を
      * 先に確保してしまわないための頭打ち。
@@ -193,10 +199,39 @@ public final class AStarPathfinder {
      * 暫定経路を返す（design doc §4-4）。
      */
     public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled) {
+        return search(start, goal, cancelled, 0, 0);
+    }
+
+    /**
+     * ゴールを「点」ではなく<b>半径{@code goalRadius}の領域</b>として探索する。
+     *
+     * <p>長距離ルートの中間目標は、チャンク平均から作った代表点（層1）や、ルート上の直線補間点
+     * （{@code pointAlong}）でしかない。地形とは無関係な人工的な点なので、そこへ座標ぴったり寄せる
+     * ために本来不要な遠回りが生まれる——中継地点は<b>通る場所</b>ではなく<b>向かう方角</b>である、
+     * というのが層1の役割の定義そのもの。
+     *
+     * <p>{@link #searchToSurface}が「y &gt;= surfaceY ならどこでもゴール」として既にこの形を取っている。
+     * その一般化にあたる。本来の目的地に対しては0を渡すこと（ユーザーが指した点は動かせない）。
+     */
+    public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled, int goalRadius) {
+        return search(start, goal, cancelled, 0, goalRadius);
+    }
+
+    /**
+     * 始点がすでに橋の途中であることを伝えて探索する。
+     *
+     * <p>粗い経由地チェーンは区間ごとに別の探索器を作るので、そのままでは
+     * {@link PathNode#bridgeRun}が区間の境目で必ず0に戻る——溶岩の海を4区間に割れば、
+     * 上限30でも120マスの橋が通ってしまう。前の区間の末尾で連続していた橋の長さを引き継ぐ。
+     */
+    public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled, int startBridgeRun,
+                              int goalRadius) {
         this.surfaceGoal = false;
         this.goalX = goal.getX();
         this.goalY = goal.getY();
         this.goalZ = goal.getZ();
+        this.startBridgeRun = startBridgeRun;
+        this.goalRadius = goalRadius;
         return runSearch(start, cancelled);
     }
 
@@ -218,6 +253,7 @@ public final class AStarPathfinder {
 
     private PathResult runSearch(BlockPos start, BooleanSupplier cancelled) {
         PathNode startNode = node(start.getX(), start.getY(), start.getZ());
+        startNode.bridgeRun = startBridgeRun;
         startNode.cost = 0.0;
         startNode.combinedCost = heuristicWeight * startNode.estimatedCostToGoal;
         open.insert(startNode);
@@ -262,8 +298,18 @@ public final class AStarPathfinder {
         // 高さだけでは天井の下も地上に数えてしまう。深い洞窟の坑道は水平に長く、
         // 既定の地上高より上を通ることが珍しくない。そこで中継を終えると、洞窟の中から
         // 目的地へ直行する経路＝避けたかった一直線の掘り進みに戻る
-        return surfaceGoal ? node.y >= surfaceY && node.y >= view.openSkyY(node.x, node.z)
-                : node.x == goalX && node.y == goalY && node.z == goalZ;
+        if (surfaceGoal) {
+            return node.y >= surfaceY && node.y >= view.openSkyY(node.x, node.z);
+        }
+        if (goalRadius <= 0) {
+            return node.x == goalX && node.y == goalY && node.z == goalZ;
+        }
+        // 球ではなく「水平の円柱」で見る。中間目標のYはチャンク代表高さや直線補間でしか決まって
+        // おらず、水平座標より遥かに当てにならない——同じ半径でYを縛ると、地形なりに数マス
+        // 上下しただけの正しい経路を弾いてしまう
+        int dx = node.x - goalX;
+        int dz = node.z - goalZ;
+        return dx * dx + dz * dz <= goalRadius * goalRadius && Math.abs(node.y - goalY) <= goalRadius;
     }
 
     /**
@@ -341,6 +387,12 @@ public final class AStarPathfinder {
             heuristic = Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
         } else {
             heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ);
+            if (goalRadius > 0) {
+                // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
+                // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
+                // 「あと何マス上がるか」だけの下限へ書き換えているのと同じ考え方）
+                heuristic = Math.max(0.0, heuristic - goalRadius * ActionCosts.SPRINT_ONE_BLOCK);
+            }
             if (costToGo != null) {
                 // 両者の大きい方を使う。Heuristicは幾何学的な下限（admissible）、costToGoは
                 // 層1が壁や溶岩の海を回避した見積もりだが、崖ペナルティ等の「発明された」重みを

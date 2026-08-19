@@ -532,6 +532,67 @@ class AStarPathfinderTest {
                 "迂回できるのに溶岩へ足場を置いた: " + movements(result));
     }
 
+    /** 障害物の無い平坦な通路。ゴールの扱い（座標一致か領域か）だけを見るための地形。 */
+    private static FakeCells flatCorridor() {
+        return FakeCells.of(0, 60, 0, """
+                ..........
+                ..........
+                ##########""")
+                .extrudeZ(-1, 1);
+    }
+
+    /**
+     * 中間目標は「通る場所」ではなく「向かう方角」でしかないので、そこへ座標ぴったり寄せるために
+     * 遠回りしてはいけない。ゴールを半径付きの領域にすると、触れた時点で終われる。
+     */
+    @Test
+    void aRadiusGoalStopsAsSoonAsTheRegionIsTouched() {
+        FakeCells cells = flatCorridor();
+        BlockPos start = new BlockPos(0, 61, 0);
+        BlockPos goal = new BlockPos(9, 61, 0);
+
+        PathResult exact = new AStarPathfinder(cells).search(start, goal, NOT_CANCELLED);
+        PathResult region = new AStarPathfinder(cells).search(start, goal, NOT_CANCELLED, 4);
+
+        assertTrue(exact.complete() && region.complete());
+        assertTrue(region.steps().size() < exact.steps().size(),
+                "半径ぶん手前で終われるはず: " + region.steps().size() + " vs " + exact.steps().size());
+        assertEquals(5, region.steps().size(), "半径4なら x=5 で領域に触れる");
+    }
+
+    /** 半径0（本来の目的地）は従来どおり座標の完全一致。 */
+    @Test
+    void aZeroRadiusGoalStillRequiresAnExactMatch() {
+        PathResult result = new AStarPathfinder(flatCorridor())
+                .search(new BlockPos(0, 61, 0), new BlockPos(9, 61, 0), NOT_CANCELLED, 0);
+
+        assertTrue(result.complete());
+        assertEquals(new BlockPos(9, 61, 0), last(result).pos());
+    }
+
+    /**
+     * 中間目標が壁の中のような到達不能な点でも、領域なら近くを通り抜けるだけで済む。
+     * 層1はチャンク平均しか見ないので、waypointが到達不能な点に落ちること自体は避けられない。
+     */
+    @Test
+    void aRadiusGoalSucceedsEvenWhenItsCentreIsUnreachable() {
+        FakeCells cells = flatCorridor();
+        // 目標の座標そのものを岩盤で埋める。座標一致のゴールでは永久に到達しない
+        BlockPos unreachable = new BlockPos(5, 61, 0);
+        for (int z = -1; z <= 1; z++) {
+            cells.set(5, 61, z, FakeCells.BEDROCK);
+            cells.set(5, 62, z, FakeCells.BEDROCK);
+        }
+
+        PathResult exact = new AStarPathfinder(cells)
+                .search(new BlockPos(0, 61, 0), unreachable, NOT_CANCELLED, 0);
+        PathResult region = new AStarPathfinder(cells)
+                .search(new BlockPos(0, 61, 0), unreachable, NOT_CANCELLED, 4);
+
+        assertFalse(exact.complete(), "座標一致では岩盤の中には入れない");
+        assertTrue(region.complete(), "領域なら手前で触れて済む");
+    }
+
     /**
      * 幅{@code width}の溶岩の水路。両岸は岩盤で、渡るには溶岩へ足場を置き続けるしかない。
      * {@link #lavaPond}を任意の幅にした版で、橋の連続長の上限を試すために使う。
