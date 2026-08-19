@@ -157,6 +157,20 @@ class FlightPathfinderTest {
     }
 
     @Test
+    void reusingOneInstanceForASecondGoalDoesNotKeepTheOldEstimates() {
+        // 見積もりはノード生成時にゴールから計算する。表を持ち越すと2回目は前のゴールへ引き寄せられる
+        FlightPathfinder pathfinder =
+                new FlightPathfinder(new AirGrid(FakeCells.empty(BOUNDS), CELL), false, SearchLimits.DEFAULT);
+        Vec3 start = new Vec3(0.0, 64.0, 0.0);
+
+        pathfinder.search(start, new Vec3(120.0, 64.0, 0.0), GOAL_RADIUS);
+        FlightRoute second = pathfinder.search(start, new Vec3(-120.0, 64.0, 0.0), GOAL_RADIUS);
+
+        assertTrue(second.complete(), "2回目の探索が届いていない: " + second.termination());
+        assertTrue(second.tail().x < -100.0, "2回目の経路が1回目のゴール側を向いている: " + second.points());
+    }
+
+    @Test
     void reportsNoRouteFromInsideSolidRock() {
         FakeCells cells = FakeCells.empty(BOUNDS).fillWith(FakeCells.STONE);
 

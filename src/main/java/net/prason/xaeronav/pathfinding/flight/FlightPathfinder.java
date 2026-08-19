@@ -88,6 +88,11 @@ public final class FlightPathfinder {
      * あとは自力で降りられるか、が実際に知りたいこと。
      */
     public FlightRoute search(Vec3 start, Vec3 target, double goalRadiusBlocks, BooleanSupplier cancelled) {
+        // ノードの見積もりはゴールが決まって初めて計算できる。2回目の探索でゴールが変わっても
+        // 前回のノードは古い見積もりを持ったままなので、表ごと捨てる
+        ids.clear();
+        nodeCount = 0;
+        heapSize = 0;
         this.goal = target;
         this.goalRadius = goalRadiusBlocks;
 

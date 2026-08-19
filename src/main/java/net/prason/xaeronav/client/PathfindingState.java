@@ -943,9 +943,10 @@ public final class PathfindingState {
         if (ticksSinceFlightLineRecalc < XaeroNavConfig.INSTANCE.flightRecalcIntervalTicks()) {
             return false;
         }
-        // 周期が来た。ただし目的地まで届いている経路をその場に浮いたまま引き直しても結果は同じ
-        return !flightRoute.complete() || flightRouteComputedFrom == null
-                || !flightRouteComputedFrom.equals(position);
+        // 周期が来た。ただし同じ場所からでは読み込み済みチャンクも地形も変わっていないので結果は
+        // 同じになる——「未到達なら引き直す」にすると、目的地が描画距離の外にある普通の場面で、
+        // 浮いているだけのプレイヤーの足元で毎秒探索を焼き続けることになる
+        return flightRouteComputedFrom == null || !flightRouteComputedFrom.equals(position);
     }
 
     /** 空中経路と、その代わりに使う曲がり点線。どちらを使うかは計算した側が決める。 */
