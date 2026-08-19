@@ -598,7 +598,11 @@ public final class PathfindingState {
         }
         // 継ぎ足しは逸脱・到着の判定より後に置く。深い先読みでは区間を連続で探索しうるので、
         // 先に置くとその間ずっと逸脱検知が止まる（computing中は下のトリガーが全て止まるため）
-        if (shown.mode() == PathMode.WAYPOINT) {
+        // 継ぎ足しは中間目標へ向かう経路だけのものではない。目的地へ直接向かう経路も、予算切れで
+        // 打ち切られていれば末端から伸ばせる——ここを WAYPOINT に限ると、そういう経路は下の
+        // 「打ち切られた末端に近づいたら引き直す」に落ちて毎回<b>全置換</b>され、手前の案内まで
+        // 描き変わる。地上へ出る中継区間（TO_SURFACE）だけはゴールの意味が違うので対象外
+        if (shown.mode() != PathMode.TO_SURFACE) {
             if (shouldExtend(mc.player, shown, mc.options.getEffectiveRenderDistance() * 16)) {
                 // 末端から継ぎ足す。着いてから引き直すのでは遅い——探索に数百msかかり、反映は
                 // さらに次tick以降なので、その間ずっと「もう終わっている経路」を見せることになる。
@@ -615,7 +619,8 @@ public final class PathfindingState {
             }
         }
         if (ticksSinceRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()
-                && !result.complete() && nearPathEnd(mc.player.position(), result)) {
+                && !result.complete() && nearPathEnd(mc.player.position(), result)
+                && retryTruncatedNow(mc.player)) {
             // 打ち切られた末端に近づいた。ここから先は新しく読み込まれたチャンクを使って伸ばせる
             recalculate();
             return;
@@ -766,6 +771,23 @@ public final class PathfindingState {
      * 経路が出せなかったときの再挑戦。届かない目的地（海の向こう・未読み込み）では毎回上限まで
      * 探索して失敗するので、間隔を空けないと同じ計算を数秒おきに繰り返すだけになる。
      */
+    /**
+     * 打ち切られた経路を引き直してよい頃合いか。
+     *
+     * <p><b>同じ場所から引き直しても同じ結果になる</b>。読み込み済みチャンクも地形も変わっていない
+     * のに2秒おきに全置換すると、経路が頻繁に変わるように見えるだけで何も得られない——引き直しが
+     * 意味を持つのは新しいチャンクが読まれたとき、つまりプレイヤーが動いたとき。
+     *
+     * <p>動かないまま長く経つ場合だけは、世界の側が変わっている可能性があるので緩い間隔で試す
+     * （{@link #retryWithoutRoute}が経路ゼロのときにしているのと同じ考え方）。
+     */
+    private boolean retryTruncatedNow(Player player) {
+        BlockPos start = lastStart;
+        boolean moved = start == null
+                || start.distSqr(player.blockPosition()) >= RETRY_MOVE_BLOCKS * RETRY_MOVE_BLOCKS;
+        return moved || ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS;
+    }
+
     private void retryWithoutRoute(BlockPos start) {
         if (ticksSinceRecalc < XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
             return;
