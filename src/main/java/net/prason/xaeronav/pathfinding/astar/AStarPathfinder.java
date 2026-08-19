@@ -130,6 +130,21 @@ public final class AStarPathfinder {
     private int startBridgeRun;
 
     /** ゴールを領域として扱う半径（ブロック）。0なら座標の完全一致。 */
+    /**
+     * 領域ゴールの垂直方向の許容幅（ブロック）。水平の{@code goalRadius}とは別に、広めに固定する。
+     *
+     * <p>領域ゴールはどれも粗い層が置いた点で、そのYは<b>チャンク代表高さ</b>か直線補間か、
+     * Xaeroの詳細データが読めなかったときの生の推定値でしかない。水平と同じ幅でYを縛ると、
+     * 推定が外れた中間目標は<b>原理的に到達不能</b>になり、それを発見するために毎回ノード上限を
+     * 使い切ることになる（実機ログ: 同じ中継地点(920,584)がY=66とY=81の2通りで出て、
+     * 66の側は3回とも20万ノードを焼いて未到達、81の側は2.8万ノードで到達していた）。
+     *
+     * <p>幅は層1が中間目標を置く垂直間隔（{@code CoarseRouter#WAYPOINT_VERTICAL_SPACING_BLOCKS}）に
+     * 揃える——それより細かいYの差は、そもそも層1が表現していない。ゆるめる方向なので探索の
+     * 許容性は壊れない（ヒューリスティックの割引は水平半径のままで、過小割引にしかならない）。
+     */
+    private static final int GOAL_VERTICAL_TOLERANCE_BLOCKS = 24;
+
     private int goalRadius;
 
     /** {@link CellSource#minDescentTicksPerBlock()}。探索中は不変なので1度だけ読む。 */
@@ -313,7 +328,8 @@ public final class AStarPathfinder {
         // 上下しただけの正しい経路を弾いてしまう
         int dx = node.x - goalX;
         int dz = node.z - goalZ;
-        return dx * dx + dz * dz <= goalRadius * goalRadius && Math.abs(node.y - goalY) <= goalRadius;
+        return dx * dx + dz * dz <= goalRadius * goalRadius
+                && Math.abs(node.y - goalY) <= Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
     }
 
     /**
