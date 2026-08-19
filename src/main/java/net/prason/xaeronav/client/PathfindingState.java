@@ -74,6 +74,15 @@ public final class PathfindingState {
     private static final double RETRY_MOVE_BLOCKS = 4.0;
 
     /**
+     * 継ぎ足しが「前へ出た」と認める最小の水平距離（ブロック）。
+     *
+     * <p>予算切れの末端から伸ばすのは筋が通るが、行き止まりの袋小路でも
+     * {@code AStarPathfinder#selectFallback}は「始点から5ブロック以上離れた最良点」を返すので、
+     * 歯止めが無いと数ブロックずつ這い続ける。
+     */
+    private static final double MIN_EXTEND_PROGRESS_BLOCKS = 12.0;
+
+    /**
      * 再挑戦の予約（{@link #wideSearchNeededTarget} / {@link #coarseGuideNeededTarget}）を
      * 「同じゴール」とみなす距離（ブロック）。
      *
@@ -781,8 +790,7 @@ public final class PathfindingState {
      */
     private boolean shouldExtend(Player player, DisplayedPath shown, int renderRadius) {
         PathResult result = shown.result();
-        if (!result.complete()) {
-            // 末端が目標に届いていない。その先は再挑戦の領分で、継ぎ足しても行き止まりを掘るだけ
+        if (!extendableTail(result)) {
             return false;
         }
         List<PathStep> steps = result.steps();
@@ -797,6 +805,25 @@ public final class PathfindingState {
         }
         double lead = Math.min(EXTEND_DISTANCE_BLOCKS, pathLength(steps));
         return distanceTo(player.position(), end) <= lead;
+    }
+
+    /**
+     * この末端から先へ伸ばしてよいか。
+     *
+     * <p>「到達した経路だけ」ではない。<b>予算切れで打ち切った末端は正当なフロンティア</b>——
+     * そこまでは実際に歩ける経路が引けていて（{@code buildResult}は先行ノードの鎖を辿るだけ）、
+     * 続きを解くのに必要なのは資源であって別の場所ではない。目標を固定の地平で切る以上、
+     * 遠い目的地では予算切れが常態になるので、ここで止めると継ぎ足しが一度も起きない。
+     *
+     * <p>{@code EXHAUSTED}（範囲内のオープンセットが尽きた＝行き止まりが証明済み）と
+     * {@code CANCELLED}（結果自体を捨てる）だけは別。前者から伸ばすのは同じ袋小路を掘り続けること
+     * になるので、既存の再挑戦（範囲拡大・粗い経由地チェーン）に任せる。
+     */
+    private static boolean extendableTail(PathResult result) {
+        return switch (result.termination()) {
+            case REACHED_GOAL, NODE_BUDGET, TIME_LIMIT -> true;
+            case EXHAUSTED, CANCELLED -> false;
+        };
     }
 
     /**
@@ -868,6 +895,21 @@ public final class PathfindingState {
         return player.isFallFlying() || player.getAbilities().flying;
     }
 
+    /**
+     * 詳細探索が一度に狙う最大の水平距離。これより遠い目的地には長距離ルートの中間目標を挟む。
+     *
+     * <p><b>地形によらない固定値</b>であることが要点。かつては直近の探索が実際に引けた距離を
+     * 測って使っていたが（{@code detailReach}）、プレイヤー周辺の既踏地形で測った値を経路の
+     * 末端から未踏地形へ伸ばす探索にも使うため、成功と失敗が交互に入って収束しなかった。
+     * 届かなかったときは部分経路をそのまま案内に使い、末端から継ぎ足して伸ばす。
+     *
+     * <p>描画距離で頭打ちにするのは、読み込まれていないチャンクの中を目標にしても
+     * 到達しようがないため（未ロードのセルは進入不可）。
+     */
+    private static int detailHorizon(int renderRadius) {
+        return Math.min(renderRadius, XaeroNavConfig.INSTANCE.detailHorizonBlocks());
+    }
+
     private boolean nearPathEnd(Vec3 position, PathResult result) {
         PathStep last = result.steps().get(result.steps().size() - 1);
         double dx = last.pos().getX() + 0.5 - position.x;
@@ -936,7 +978,7 @@ public final class PathfindingState {
             goalRadius = 0;
         } else {
             DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius,
-                    renderRadius, boatAvailable, true, -1);
+                    detailHorizon(renderRadius), boatAvailable, true, -1);
             target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
             waypointIndex = detail.waypointIndex();
@@ -1132,9 +1174,9 @@ public final class PathfindingState {
 
         // 末端基準の上限は、プレイヤー中心の読み込み済み正方形の「残り」で切る（extendLead参照）
         int lead = extendLead(player, from, renderRadius);
-        // 目標は「読み込み済みチャンクの縁」。末端基準もプレイヤー基準も同じ量になるので、
-        // かつての detailReach のような両者で食い違う数値が存在しない
-        int reach = lead;
+        // 探索の地平と、読み込み済みチャンクの残りの小さい方。どちらも地形の実測ではないので、
+        // かつての detailReach のように成功／失敗で振動することがない
+        int reach = Math.min(detailHorizon(renderRadius), lead);
         DetailTarget detail = selectDetailTarget(from, currentGoal, lead, reach, boatAvailable, false,
                 shown.waypointIndex());
         BlockPos target = detail.target();
@@ -1182,18 +1224,25 @@ public final class PathfindingState {
                 return;
             }
             logSearchReach(from, target, result);
-            if (result.steps().isEmpty()) {
+            List<PathStep> tail = result.steps();
+            if (tail.isEmpty()) {
                 // 1歩も進めなかった。手前の経路はそのまま残し、通常の再計算に委ねる
                 blockExtend(from, playerAt);
                 return;
             }
-            // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）し、
-            // 合成後のcompleteはtailのterminationを引き継ぐので、shouldExtendはここで自然に
-            // 止まって「打ち切られた末端へ近づいたら引き直す」既存のトリガーへ引き継がれる。
+            // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
             // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
+            displayed = append(current, result, newWaypointIndex, reachesGoal);
+            if (!result.complete()
+                    && horizontalDistance(from, tail.get(tail.size() - 1).pos()) < MIN_EXTEND_PROGRESS_BLOCKS) {
+                // 予算切れの末端からは伸ばしてよいが、ほとんど前へ出ていないならそれ以上は無駄。
+                // selectFallbackは「始点から5ブロック以上離れた最良点」を返すので、行き止まりの
+                // 袋小路でも毎回わずかに進んだ経路が返る——歯止めが無いと数ブロックずつ這い続ける
+                blockExtend(from, playerAt);
+                return;
+            }
             extendBlockedAt = null;
             extendBlockedFrom = null;
-            displayed = append(current, result, newWaypointIndex, reachesGoal);
         });
     }
 

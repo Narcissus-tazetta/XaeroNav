@@ -30,6 +30,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue deepLookAheadEnabled;
     private final ModConfigSpec.BooleanValue costToGoGuideEnabled;
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
+    private final ModConfigSpec.IntValue detailHorizonBlocks;
     private final ModConfigSpec.IntValue maxBridgeRunBlocks;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
@@ -90,6 +91,16 @@ public final class XaeroNavConfig {
                         "混じるため厳密な下限ではないが、直線距離を下回ることはないので損はしない",
                         "falseにすると幾何学的な直線距離だけに戻る（比較用）")
                 .define("costToGoGuideEnabled", true);
+
+        detailHorizonBlocks = builder
+                .comment("詳細探索が一度に狙う最大の水平距離（ブロック）。これより遠い目的地には",
+                        "長距離ルートの中間目標を挟み、経路は末端から継ぎ足して伸ばしていく",
+                        "地形によらない固定値。かつては直近の探索が実際に引けた距離を測って使っていたが、",
+                        "プレイヤー周辺の既踏地形で測った値を末端から未踏地形へ伸ばす探索にも使うため、",
+                        "成功と失敗が交互に出て収束せず、そのたびに目標が動いて経路が引き直されていた",
+                        "既定96はネザーの実測（10万ノードで70〜90ブロック）に合わせてある。地上は",
+                        "もっと解けるので、探索を減らしたければ上げてよい")
+                .defineInRange("detailHorizonBlocks", 96, 24, 512);
 
         maxBridgeRunBlocks = builder
                 .comment("空中に足場を置いて渡る橋を、何マス連続させたら諦めて迂回するか（0で無制限）",
@@ -181,6 +192,10 @@ public final class XaeroNavConfig {
 
     public void setBridgingEnabled(boolean value) {
         bridgingEnabled.set(value);
+    }
+
+    public int detailHorizonBlocks() {
+        return detailHorizonBlocks.get();
     }
 
     public int maxBridgeRunBlocks() {
