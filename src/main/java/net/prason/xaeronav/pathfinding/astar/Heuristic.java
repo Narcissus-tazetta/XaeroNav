@@ -26,16 +26,20 @@ public final class Heuristic {
     private static final double MIN_DIAGONAL_ASCEND = ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK;
 
     /**
-     * 水平移動に相乗りできない純粋な昇り（{@code pureAscends}）1段の下限。{@code Ascend}系は
-     * 必ず水平1歩を伴うので、水平の相乗り先を使い切った残りの昇りを実現できる移動は
-     * 水平移動を伴わないもの（{@code ClimbUp}・{@code SwimUp}・{@code Pillar}）に限られる。
-     * その中で最安の{@code ClimbUp}（梯子、{@link ActionCosts#LADDER_UP_ONE_BLOCK}）を使う——
-     * 梯子が実際にあるかはヒューリスティックには分からないが、下限としては「最も安い可能性」を
-     * 使うのが正しい（無ければ実コストがこれを上回るだけで、下限であることは崩れない）。
-     * 以前は{@link ActionCosts#JUMP_ONE_BLOCK}(3.1634)を使っていたが、これは水平移動込みの
-     * {@code Ascend}の値であり、水平移動を伴わない残りの昇りには使えない値だった。
+     * 水平移動に相乗りできない純粋な昇り（{@code pureAscends}）1段の下限。
+     *
+     * <p>「水平変位が要らないのだから梯子（{@link ActionCosts#LADDER_UP_ONE_BLOCK}）が下限」は誤り。
+     * {@code Ascend}を水平方向へ<b>往復させれば</b>、正味の水平変位0のまま高さだけ稼げる——
+     * 折り返し階段がその形で、実コストは1段あたり{@link ActionCosts#ASCEND_ONE_BLOCK}にしかならない。
+     * 梯子(8.511)を下限に置くと、この地形で見積もりが実コストを上回って非許容になる
+     * （実例: {@code (0,64,0)→(1,67,0)} は Ascend×3 = 13.90 なのに見積もりは 21.65 になっていた）。
+     *
+     * <p>{@code Ascend}系は必ず水平1歩を伴うが、その1歩は<b>戻せる</b>のが要点。高さを1段稼ぐ
+     * 全ての移動の中で最安なのは{@code Ascend}なので、水平の相乗り先を使い切ったあとも下限は
+     * これで変わらない（{@code DiagonalAscend}=6.551、{@code ClimbUp}=8.511、{@code SwimUp}=9.091、
+     * {@code Pillar}はさらに設置コストが乗る）。
      */
-    private static final double MIN_PURE_ASCEND = ActionCosts.LADDER_UP_ONE_BLOCK;
+    private static final double MIN_PURE_ASCEND = ActionCosts.ASCEND_ONE_BLOCK;
 
     private Heuristic() {
     }

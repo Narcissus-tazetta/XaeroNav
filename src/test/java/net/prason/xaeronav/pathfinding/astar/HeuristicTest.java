@@ -51,27 +51,40 @@ class HeuristicTest {
     }
 
     /**
-     * 水平移動を伴わない純粋な昇りは、水平移動を必要としない移動（梯子のClimbUpが最安）の
-     * コストで見積もる。以前はAscendの水平込みの値（JUMP_ONE_BLOCK）を使っていたが、
-     * 水平移動0の区間にAscendは使えない（Ascendは必ず水平1歩を伴う）ので下限として不正確だった。
+     * 水平移動を伴わない純粋な昇りは、高さを1段稼ぐ全ての移動のうち最安の{@code Ascend}で見積もる。
+     * {@code Ascend}は水平1歩を伴うが、その1歩は折り返せば戻せるので、正味の水平変位0でも使える。
      */
     @Test
-    void pureVerticalAscendUsesTheClimbCostPerBlock() {
-        assertEquals(5 * ActionCosts.LADDER_UP_ONE_BLOCK, Heuristic.estimate(0, 64, 0, 0, 69, 0), 1e-9);
+    void pureVerticalAscendUsesTheCheapestMoveThatGainsHeight() {
+        assertEquals(5 * ActionCosts.ASCEND_ONE_BLOCK, Heuristic.estimate(0, 64, 0, 0, 69, 0), 1e-9);
     }
 
     /**
-     * 締め直した下限（{@code LADDER_UP_ONE_BLOCK}）が、実際に純粋な昇りを実現する手段
-     * （ClimbUp・SwimUp・Pillar）のどれよりも高くなってはいけない——admissibilityの核心。
+     * 純粋な昇りの下限が、それを実現する手段のどれよりも高くなってはいけない——admissibilityの核心。
+     * 梯子・遊泳・Pillarだけでなく<b>折り返し階段</b>（{@code Ascend}の往復）も手段に含める。
      */
     @Test
     void pureVerticalAscendNeverExceedsAnyRealMoveThatAchievesIt() {
         double estimate = Heuristic.estimate(0, 64, 0, 0, 65, 0);
+        assertTrue(estimate <= ActionCosts.ASCEND_ONE_BLOCK + 1e-9,
+                "折り返し階段（Ascendの往復）より高く見積もってはいけない");
         assertTrue(estimate <= ActionCosts.LADDER_UP_ONE_BLOCK + 1e-9);
         assertTrue(estimate <= ActionCosts.WALK_ONE_IN_WATER + 1e-9,
                 "SwimUpより高く見積もってはいけない");
         assertTrue(estimate <= ActionCosts.ASCEND_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS + 1e-9,
                 "Pillar（Ascend相当+設置オーバーヘッド）より高く見積もってはいけない");
+    }
+
+    /**
+     * 折り返し階段。水平変位1・高さ3は{@code Ascend}3手（うち1手は水平を戻す）で登れるので、
+     * 見積もりが3手ぶんを超えてはいけない。梯子を下限に置いていた頃はここが 21.65 &gt; 13.90 で
+     * 非許容だった。
+     */
+    @Test
+    void switchbackStaircaseIsNotOverEstimated() {
+        double threeAscends = 3 * ActionCosts.ASCEND_ONE_BLOCK;
+        assertTrue(Heuristic.estimate(0, 64, 0, 1, 67, 0) <= threeAscends + 1e-9,
+                "折り返し階段の実コストを上回ってはいけない");
     }
 
     @Test
