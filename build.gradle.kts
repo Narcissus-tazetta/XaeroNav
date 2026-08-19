@@ -1,6 +1,6 @@
 plugins {
     id("java-library")
-    id("net.neoforged.moddev") version "2.0.143"
+    id("net.neoforged.moddev") version "2.0.144"
     id("com.diffplug.spotless") version "8.9.0"
 }
 
