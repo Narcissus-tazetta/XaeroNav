@@ -61,6 +61,21 @@ public final class CellData {
     static final long OPENABLE = 1L << 8;
     static final long COBWEB = 1L << 9;
     static final long HAZARD = 1L << 10;
+    /**
+     * その上を進むにはスニークが要る床。マグマブロックだけ——踏むとダメージを受けるが、
+     * バニラの{@code isSteppingCarefully}（スニーク中）なら無傷で渡れる。通行可否ではなく
+     * 「案内に一言添える必要があるか」の印なので{@link #HAZARD}とは分けてある。
+     */
+    static final long SNEAK_REQUIRED = 1L << 11;
+    /**
+     * ここへブロックを置けるか（バニラの{@code BlockBehaviour.BlockStateBase#canBeReplaced}）。
+     *
+     * <p>当たり判定が無いことと、そこへ置けることは別。しだれツタ・ねじれツタ・洞窟のツタ・
+     * 松明・レール・花は体が通り抜けられるが<b>replaceableではない</b>ので、狙って置いても
+     * {@code BlockPlaceContext#getClickedPos}が隣のセルを返す——案内した位置には絶対に置かれない。
+     * 普通のツタ({@code vine})だけはreplaceableなので置ける。
+     */
+    static final long REPLACEABLE = 1L << 12;
 
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
 
@@ -82,6 +97,13 @@ public final class CellData {
 
     /** 氷の上を進むときの速度倍率（{@link #travelSpeedFactor}）。 */
     private static final float ICE_SPEED_FACTOR = 1.2f;
+
+    /**
+     * マグマブロックの上を進むときの速度倍率（{@link #travelSpeedFactor}）。バニラの
+     * {@code isSteppingCarefully}（スニーク中）はダメージを受けない代わりに移動速度が
+     * 疾走の約0.3倍まで落ちる——通行不能にはせず、その遅さをそのままコストにする。
+     */
+    private static final float MAGMA_SPEED_FACTOR = 0.3f;
 
     private CellData() {
     }
@@ -149,6 +171,15 @@ public final class CellData {
         if (state.getBlock() instanceof WebBlock) {
             flags |= COBWEB;
         }
+        if (state.getBlock() instanceof MagmaBlock) {
+            flags |= SNEAK_REQUIRED;
+        }
+        if (state.canBeReplaced()) {
+            // 引数無しの版はreplaceableフラグを読むだけでlevelを参照しないので、
+            // ワーカースレッドから呼べる（BlockPlaceContextを取る版は「同じブロックを
+            // 手に持っているとき」の話なので、普通のブロックを置く判定には使わない）
+            flags |= REPLACEABLE;
+        }
         return flags | speedFactorBits(state);
     }
 
@@ -183,8 +214,10 @@ public final class CellData {
      */
     private static boolean harmful(BlockState state) {
         Block block = state.getBlock();
+        // MagmaBlockはここに含めない。当たり判定を持つ完全な足場で、スニークすれば無傷で歩ける
+        // （バニラの{@code isSteppingCarefully}）——遅いが安全な道として通行可にし、
+        // {@link #travelSpeedFactor}でそのぶんの遅さをコストに反映する
         return block instanceof BaseFireBlock                       // 火・魂の火。当たり判定が無い
-                || block instanceof MagmaBlock                      // 完全な足場なので放っておくと最短経路に選ばれる
                 || block instanceof SweetBerryBushBlock             // 棘のダメージ＋大幅な減速
                 || block instanceof WitherRoseBlock                 // 接触で衰弱
                 || block instanceof PowderSnowBlock                 // 落ちると凍える。雪原では地面と見分けがつかない
@@ -226,6 +259,9 @@ public final class CellData {
      */
     private static float travelSpeedFactor(BlockState state) {
         Block block = state.getBlock();
+        if (block instanceof MagmaBlock) {
+            return MAGMA_SPEED_FACTOR;
+        }
         float speedFactor = block.getSpeedFactor();
         if (speedFactor < 1.0f) {
             return speedFactor;
@@ -314,6 +350,16 @@ public final class CellData {
      * このセルの上を進むときの速度倍率（1.0で等速。ソウルサンド・蜂蜜ブロックは0.4、氷は1.2）。
      * バニラは足元のセルの係数を使い、それが1.0なら1つ下のブロックを見る（{@code Entity#getBlockSpeedFactor}）。
      */
+    /** ここへブロックを置けるか。{@link #REPLACEABLE}参照。 */
+    public static boolean replaceable(long cell) {
+        return (cell & REPLACEABLE) != 0;
+    }
+
+    /** その上を進むにはスニークが要る床か（マグマブロック）。 */
+    public static boolean sneakRequired(long cell) {
+        return (cell & SNEAK_REQUIRED) != 0;
+    }
+
     public static double speedFactor(long cell) {
         long raw = (cell & SPEED_FACTOR_MASK) >>> SPEED_FACTOR_SHIFT;
         return raw == 0L ? 1.0 : raw / 100.0;

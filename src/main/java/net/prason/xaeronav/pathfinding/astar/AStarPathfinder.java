@@ -56,10 +56,17 @@ public final class AStarPathfinder {
      * 踏み出した先の下を辿る深さ。着地点・水面・空虚のどれなのかを見分けるためのもので、
      * 落下（{@link #addFall}）とブロック設置（{@link #addBridge}）が同じ結果を使う。
      *
-     * <p>空気が続く限りしか下りないので、地形のある場所では1〜2マスで止まる。深さが効くのは
-     * 空虚の上（ジ・エンド）だけで、そこでは全ノードがこの走査を通るため、無制限にはしない。
+     * <p>空気が続く限りしか下りないので、地形のある場所では1〜2マスで止まる。探索範囲の外
+     * （未ロード・範囲外）に出ると{@code cell()}が{@link CellData#ABSENT}を返し、それは
+     * {@code passableEmpty}ではないのでその場で止まる——毎ノード×4方向呼ばれるこの走査が
+     * 際限なく続くことはない。深さが効くのは範囲内に本当に空気が続く場所（ジ・エンドの空虚、
+     * ネザーの溶岩の海の上）だけ。
+     *
+     * <p>層1の{@code LiveCoarseSampler}が同じ理由で使っている値（128）に揃えてある。
+     * 以前は32だったため、32マスを超える空洞の下にある溶岩を見逃し、溶岩の上へ跳躍を
+     * 提示することがあった。
      */
-    private static final int COLUMN_SCAN_DEPTH = 32;
+    private static final int COLUMN_SCAN_DEPTH = 128;
 
     /** {@link #firstNonAirBelow}が走査範囲内で何も見つけられなかったことを表す。 */
     private static final int NOTHING_BELOW = Integer.MIN_VALUE;
@@ -71,7 +78,8 @@ public final class AStarPathfinder {
     private static final int MAX_JUMP_GAP_BLOCKS = 3;
 
     /**
-     * 隙間の下に溶岩が無いかを確かめる深さ（ブロック）。{@link #COLUMN_SCAN_DEPTH}と揃える。
+     * 隙間の下に溶岩が無いかを確かめる深さ（ブロック）。{@link #COLUMN_SCAN_DEPTH}と揃える
+     * （揃えないと、落下では見える深さの溶岩が跳躍では見えないという食い違いが起きる）。
      *
      * <p>「落ちても平気な高さ」で切ってはいけない。溶岩は深さに関わらず落ちれば死ぬので、
      * 落下ダメージの許容量とは別の話になる（実機で、深い割れ目の底の溶岩へ跳び損ねて死んだ）。
@@ -106,6 +114,41 @@ public final class AStarPathfinder {
     private final int maxExpandedNodes;
     private final long timeLimitMillis;
     private final double heuristicWeight;
+    /**
+     * 層1のcost-to-goを併用するための差し替え口。{@code null}なら{@link #node}が
+     * {@link Heuristic}（既定の幾何学的下限）をそのまま使う。
+     */
+    private final CostToGo costToGo;
+
+    /** 連続して架けてよい橋の長さ（ブロック）。0なら無制限。{@link CellSource#maxBridgeRunBlocks()}。 */
+    private final int maxBridgeRun;
+
+    /** この探索が{@link #maxBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
+    private boolean bridgeRunCapBlocked;
+
+    /** 始点がすでに橋の途中である場合の、そこまでの連続長。 */
+    private int startBridgeRun;
+
+    /** ゴールを領域として扱う半径（ブロック）。0なら座標の完全一致。 */
+    /**
+     * 領域ゴールの垂直方向の許容幅（ブロック）。水平の{@code goalRadius}とは別に、広めに固定する。
+     *
+     * <p>領域ゴールはどれも粗い層が置いた点で、そのYは<b>チャンク代表高さ</b>か直線補間か、
+     * Xaeroの詳細データが読めなかったときの生の推定値でしかない。水平と同じ幅でYを縛ると、
+     * 推定が外れた中間目標は<b>原理的に到達不能</b>になり、それを発見するために毎回ノード上限を
+     * 使い切ることになる（実機ログ: 同じ中継地点(920,584)がY=66とY=81の2通りで出て、
+     * 66の側は3回とも20万ノードを焼いて未到達、81の側は2.8万ノードで到達していた）。
+     *
+     * <p>幅は層1が中間目標を置く垂直間隔（{@code CoarseRouter#WAYPOINT_VERTICAL_SPACING_BLOCKS}）に
+     * 揃える——それより細かいYの差は、そもそも層1が表現していない。ゆるめる方向なので探索の
+     * 許容性は壊れない（ヒューリスティックの割引は水平半径のままで、過小割引にしかならない）。
+     */
+    private static final int GOAL_VERTICAL_TOLERANCE_BLOCKS = 24;
+
+    private int goalRadius;
+
+    /** {@link CellSource#minDescentTicksPerBlock()}。探索中は不変なので1度だけ読む。 */
+    private final double minDescentPerBlock;
 
     /**
      * ノード表の初期サイズの上限。展開数上限を大きく設定されたときに、実際にはそこまで使わない表を
@@ -132,10 +175,30 @@ public final class AStarPathfinder {
     }
 
     public AStarPathfinder(CellSource view, SearchLimits limits) {
+        this(view, limits, null);
+    }
+
+    /**
+     * {@code costToGo}を明示的に指定するコンストラクタ。{@code null}なら
+     * {@link Heuristic}（既定の幾何学的下限）を使う既存の挙動と完全に同じになる。
+     */
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo) {
+        this(view, limits, costToGo, view.maxBridgeRunBlocks());
+    }
+
+    /**
+     * 連続する橋の長さの上限を明示するコンストラクタ。0を渡すと無制限になる——
+     * 上限のせいで範囲内に道が一本も無くなった場合の、詰み回避の探し直しに使う
+     * （「マグマの橋は最後の手段だが、詰みよりはマシ」という優先順）。
+     */
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun) {
+        this.maxBridgeRun = maxBridgeRun;
         this.view = view;
+        this.minDescentPerBlock = view.minDescentTicksPerBlock();
         this.maxExpandedNodes = limits.maxExpandedNodes();
         this.timeLimitMillis = limits.timeLimitMillis();
         this.heuristicWeight = limits.heuristicWeight();
+        this.costToGo = costToGo;
         // 展開したノードの周囲も含めるとノード数は展開数を超える。小さく作ると探索の途中で
         // 表の作り直しが何度も走り、そのたびに全エントリの再配置が起きる
         this.nodes = new Long2ObjectOpenHashMap<>(
@@ -143,14 +206,51 @@ public final class AStarPathfinder {
     }
 
     /**
+     * この探索が、連続する橋の長さの上限を理由に移動を捨てたか。捨てていない場合、
+     * 上限を外して探し直しても結果は変わらない。
+     */
+    public boolean bridgeRunCapBlocked() {
+        return bridgeRunCapBlocked;
+    }
+
+    /**
      * 打ち切り条件（展開数上限・時間上限・cancelled）のいずれかに達したら、その時点で最も有望な
      * 暫定経路を返す（design doc §4-4）。
      */
     public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled) {
+        return search(start, goal, cancelled, 0, 0);
+    }
+
+    /**
+     * ゴールを「点」ではなく<b>半径{@code goalRadius}の領域</b>として探索する。
+     *
+     * <p>長距離ルートの中間目標は、チャンク平均から作った代表点（層1）や、ルート上の直線補間点
+     * （{@code pointAlong}）でしかない。地形とは無関係な人工的な点なので、そこへ座標ぴったり寄せる
+     * ために本来不要な遠回りが生まれる——中継地点は<b>通る場所</b>ではなく<b>向かう方角</b>である、
+     * というのが層1の役割の定義そのもの。
+     *
+     * <p>{@link #searchToSurface}が「y &gt;= surfaceY ならどこでもゴール」として既にこの形を取っている。
+     * その一般化にあたる。本来の目的地に対しては0を渡すこと（ユーザーが指した点は動かせない）。
+     */
+    public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled, int goalRadius) {
+        return search(start, goal, cancelled, 0, goalRadius);
+    }
+
+    /**
+     * 始点がすでに橋の途中であることを伝えて探索する。
+     *
+     * <p>粗い経由地チェーンは区間ごとに別の探索器を作るので、そのままでは
+     * {@link PathNode#bridgeRun}が区間の境目で必ず0に戻る——溶岩の海を4区間に割れば、
+     * 上限30でも120マスの橋が通ってしまう。前の区間の末尾で連続していた橋の長さを引き継ぐ。
+     */
+    public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled, int startBridgeRun,
+                              int goalRadius) {
         this.surfaceGoal = false;
         this.goalX = goal.getX();
         this.goalY = goal.getY();
         this.goalZ = goal.getZ();
+        this.startBridgeRun = startBridgeRun;
+        this.goalRadius = goalRadius;
         return runSearch(start, cancelled);
     }
 
@@ -172,6 +272,7 @@ public final class AStarPathfinder {
 
     private PathResult runSearch(BlockPos start, BooleanSupplier cancelled) {
         PathNode startNode = node(start.getX(), start.getY(), start.getZ());
+        startNode.bridgeRun = startBridgeRun;
         startNode.cost = 0.0;
         startNode.combinedCost = heuristicWeight * startNode.estimatedCostToGoal;
         open.insert(startNode);
@@ -181,30 +282,54 @@ public final class AStarPathfinder {
         long deadline = System.currentTimeMillis() + timeLimitMillis;
         int expanded = 0;
 
-        while (!open.isEmpty() && expanded < maxExpandedNodes) {
-            if ((expanded & CHECK_INTERVAL_MASK) == 0
-                    && (cancelled.getAsBoolean() || System.currentTimeMillis() >= deadline)) {
+        // openが尽きるまで回り切ったなら、探索範囲の中に到達手段が無かったということ。
+        // 予算切れと区別しないと、意味の無い再挑戦を延々と仕掛けることになる
+        PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
+        while (!open.isEmpty()) {
+            if (expanded >= maxExpandedNodes) {
+                termination = PathResult.Termination.NODE_BUDGET;
                 break;
+            }
+            if ((expanded & CHECK_INTERVAL_MASK) == 0) {
+                if (cancelled.getAsBoolean()) {
+                    termination = PathResult.Termination.CANCELLED;
+                    break;
+                }
+                if (System.currentTimeMillis() >= deadline) {
+                    termination = PathResult.Termination.TIME_LIMIT;
+                    break;
+                }
             }
 
             PathNode current = open.removeLowest();
             current.closed = true;
             expanded++;
             if (reachedGoal(current)) {
-                return buildResult(startNode, current, true, expanded);
+                return buildResult(startNode, current, PathResult.Termination.REACHED_GOAL, expanded);
             }
             expand(current);
         }
 
-        return buildResult(startNode, selectFallback(startNode), false, expanded);
+        return buildResult(startNode, selectFallback(startNode), termination, expanded);
     }
 
     private boolean reachedGoal(PathNode node) {
         // 高さだけでは天井の下も地上に数えてしまう。深い洞窟の坑道は水平に長く、
         // 既定の地上高より上を通ることが珍しくない。そこで中継を終えると、洞窟の中から
         // 目的地へ直行する経路＝避けたかった一直線の掘り進みに戻る
-        return surfaceGoal ? node.y >= surfaceY && node.y >= view.openSkyY(node.x, node.z)
-                : node.x == goalX && node.y == goalY && node.z == goalZ;
+        if (surfaceGoal) {
+            return node.y >= surfaceY && node.y >= view.openSkyY(node.x, node.z);
+        }
+        if (goalRadius <= 0) {
+            return node.x == goalX && node.y == goalY && node.z == goalZ;
+        }
+        // 球ではなく「水平の円柱」で見る。中間目標のYはチャンク代表高さや直線補間でしか決まって
+        // おらず、水平座標より遥かに当てにならない——同じ半径でYを縛ると、地形なりに数マス
+        // 上下しただけの正しい経路を弾いてしまう
+        int dx = node.x - goalX;
+        int dz = node.z - goalZ;
+        return dx * dx + dz * dz <= goalRadius * goalRadius
+                && Math.abs(node.y - goalY) <= Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
     }
 
     /**
@@ -225,7 +350,8 @@ public final class AStarPathfinder {
         return startNode;
     }
 
-    private PathResult buildResult(PathNode startNode, PathNode end, boolean complete, int expanded) {
+    private PathResult buildResult(PathNode startNode, PathNode end, PathResult.Termination termination,
+                                   int expanded) {
         List<PathStep> steps = new ArrayList<>();
         for (PathNode cursor = end; cursor != startNode && cursor.previous != null; cursor = cursor.previous) {
             PathNode from = cursor.previous;
@@ -237,7 +363,7 @@ public final class AStarPathfinder {
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
         }
         Collections.reverse(steps);
-        return new PathResult(steps, complete, expanded, nodes.size());
+        return new PathResult(steps, termination, expanded, nodes.size());
     }
 
     /**
@@ -273,10 +399,29 @@ public final class AStarPathfinder {
             return existing;
         }
         // 地上ゴールでは、すでにsurfaceY以上のセルはそれ自体がゴール（残コスト0）。
-        // 素通しでsurfaceYを渡すと、そこから下りる分を残コストとして数えてしまい過大評価になる
-        double heuristic = surfaceGoal
-                ? Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z)
-                : Heuristic.estimate(x, y, z, goalX, goalY, goalZ);
+        // 素通しでsurfaceYを渡すと、そこから下りる分を残コストとして数えてしまい過大評価になる。
+        // costToGoは特定のゴール座標に紐付いたテーブルなので、ゴールが1点に定まらない
+        // surfaceGoalモードでは使わない
+        double heuristic;
+        if (surfaceGoal) {
+            heuristic = Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
+        } else {
+            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock);
+            if (goalRadius > 0) {
+                // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
+                // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
+                // 「あと何マス上がるか」だけの下限へ書き換えているのと同じ考え方）
+                heuristic = Math.max(0.0, heuristic - goalRadius * ActionCosts.SPRINT_ONE_BLOCK);
+            }
+            if (costToGo != null) {
+                // 両者の大きい方を使う。Heuristicは幾何学的な下限（admissible）、costToGoは
+                // 層1が壁や溶岩の海を回避した見積もりだが、崖ペナルティ等の「発明された」重みを
+                // 含むため厳密な下限ではない——大きい方を取っても許容性は壊れない
+                // （Heuristic単独で既にadmissibleなので、それより小さいcostToGoを使っても
+                // 損はしない。costToGoの方が大きい場面でだけ、より現実に近い見積もりへ差し替わる）
+                heuristic = Math.max(heuristic, costToGo.estimate(x, y, z));
+            }
+        }
         PathNode created = new PathNode(x, y, z, heuristic);
         nodes.put(key, created);
         return created;
@@ -423,7 +568,9 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.ASCEND_ONE_BLOCK + submerged(clearanceCost + bodyCost, x, y + 1, z),
+        relax(from, x, y, z,
+                ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
+                        + submerged(clearanceCost + bodyCost, x, y + 1, z),
                 MoveKind.ASCEND);
     }
 
@@ -442,7 +589,8 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER : ActionCosts.DESCEND_ONE_BLOCK;
+        double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER
+                : ActionCosts.descendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z));
         relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
                 intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
     }
@@ -476,7 +624,8 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK, MoveKind.DIAGONAL_ASCEND);
+        relax(from, x, y, z, ActionCosts.diagonalAscendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z)),
+                MoveKind.DIAGONAL_ASCEND);
     }
 
     /**
@@ -502,7 +651,8 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z) || !clearWithoutDigging(x, y + 1, z)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK, MoveKind.DIAGONAL_DESCEND);
+        relax(from, x, y, z, ActionCosts.diagonalDescendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z)),
+                MoveKind.DIAGONAL_DESCEND);
     }
 
     /**
@@ -540,6 +690,21 @@ public final class AStarPathfinder {
         if (slowedTakeoff(from.x, y, from.z)) {
             return;
         }
+        // 梯子・ツタに掴まったままでは跳べない。onGround()がfalseなのでjumpFromGround()自体が
+        // 呼ばれず（LivingEntity#aiStep）、掴まったまま接地していてもhandleOnClimbableが
+        // 水平速度を±0.15に固定するので、疾走の0.286も踏み切り加算の0.2も残らない
+        if (CellData.climbable(view.cell(from.x, y, from.z))
+                || !CellData.standable(view.cell(from.x, y - 1, from.z))) {
+            return;
+        }
+        // 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中の加速は
+        // 0.02/tickしかない（LivingEntity#getFlyingSpeed）ので、到達距離は踏み切り速度で
+        // そのまま決まる。1マス幅の足場からでは自分のマスの中（約0.5マス）しか助走できず、
+        // 3マスの隙間は理論上届いても余裕がゼロになる——跳べと指示するだけで、外して落ちるのは
+        // 人間の方（JUMP_REACH_PENALTYと同じ方針）
+        if (!hasRunUp(from, y, dx, dz)) {
+            return;
+        }
 
         for (int gap = 1; gap <= MAX_JUMP_GAP_BLOCKS; gap++) {
             int gapX = from.x + gap * dx;
@@ -570,11 +735,23 @@ public final class AStarPathfinder {
 
     /** 踏み切り地点が減速ブロックの上か（バニラの{@code Entity#getBlockSpeedFactor}と同じ探し方）。 */
     private boolean slowedTakeoff(int x, int y, int z) {
+        return takeoffSpeedFactor(x, y, z) < 1.0;
+    }
+
+    /**
+     * この地点から踏み切るときの水平速度倍率。探し方はバニラの{@code Entity#getBlockSpeedFactor}と
+     * 同じで、足元のセルに倍率が無ければ実際に踏んでいる1つ下のブロックを見る。
+     *
+     * <p><b>1.0を超える側（氷）は返さない。</b>{@link Heuristic}は昇りの下限に
+     * {@code ASCEND_ONE_BLOCK}、水平の下限に{@code SPRINT_ONE_BLOCK}を置いているので、
+     * そこを割ると非許容になる。速くなる側の得は{@link #stepCost}が水平移動でだけ表す。
+     */
+    private double takeoffSpeedFactor(int x, int y, int z) {
         double speedFactor = CellData.speedFactor(view.cell(x, y, z));
         if (speedFactor == 1.0) {
             speedFactor = CellData.speedFactor(view.cell(x, y - 1, z));
         }
-        return speedFactor < 1.0;
+        return Math.min(1.0, speedFactor);
     }
 
     /** 跳び損ねたときに落ちる先が溶岩か。足元から{@link #JUMP_LAVA_SCAN_DEPTH}マス下までを見る。 */
@@ -692,9 +869,12 @@ public final class AStarPathfinder {
             return;
         }
 
+        // 縁を踏み出す動作も足元のブロックに減速される（落下中と着地後は無関係）
+        double takeoff = takeoffSpeedFactor(from.x, from.y, from.z);
         long obstacle = view.cell(x, obstacleY, z);
         if (CellData.water(obstacle)) {
-            relax(from, x, obstacleY, z, ActionCosts.fallCost(from.y - obstacleY), MoveKind.FALL_TO_WATER);
+            relax(from, x, obstacleY, z, ActionCosts.fallCost(from.y - obstacleY, takeoff),
+                    MoveKind.FALL_TO_WATER);
             return;
         }
         if (!CellData.standable(obstacle)) {
@@ -706,7 +886,7 @@ public final class AStarPathfinder {
             return;
         }
         if (drop <= ActionCosts.SAFE_FALL_BLOCKS) {
-            relax(from, x, obstacleY + 1, z, ActionCosts.fallCost(drop), MoveKind.FALL);
+            relax(from, x, obstacleY + 1, z, ActionCosts.fallCost(drop, takeoff), MoveKind.FALL);
             return;
         }
 
@@ -714,11 +894,12 @@ public final class AStarPathfinder {
         int damage = drop - ActionCosts.SAFE_FALL_BLOCKS;
         if (view.canMlgWaterBucket()) {
             relax(from, x, obstacleY + 1, z,
-                    ActionCosts.fallCost(drop) + ActionCosts.MLG_WATER_OVERHEAD_TICKS, MoveKind.FALL_MLG);
+                    ActionCosts.fallCost(drop, takeoff) + ActionCosts.MLG_WATER_OVERHEAD_TICKS,
+                    MoveKind.FALL_MLG);
         }
         if (damage <= view.maxFallDamagePoints()) {
             relax(from, x, obstacleY + 1, z,
-                    ActionCosts.fallCost(drop) + damage * ActionCosts.FALL_DAMAGE_PENALTY_PER_POINT,
+                    ActionCosts.fallCost(drop, takeoff) + damage * ActionCosts.FALL_DAMAGE_PENALTY_PER_POINT,
                     MoveKind.FALL_DAMAGE);
         }
     }
@@ -736,6 +917,13 @@ public final class AStarPathfinder {
      * よい——置いたブロックが溶岩を置き換えるバニラの橋架けなので、身体が溶岩に入るわけではない
      * （入る経路は{@link #standingBodyCost}が既にINFEASIBLEで弾く）。
      */
+    /** 踏み切り地点の手前（跳躍方向の逆側）に、走り込める足場が1マスあるか。 */
+    private boolean hasRunUp(PathNode from, int y, int dx, int dz) {
+        int x = from.x - dx;
+        int z = from.z - dz;
+        return CellData.standable(view.cell(x, y - 1, z)) && clearWithoutDigging(x, y, z);
+    }
+
     private void addBridge(PathNode from, int dx, int dz, int obstacleY) {
         if (!view.canPlaceBlocks()) {
             return;
@@ -746,10 +934,14 @@ public final class AStarPathfinder {
 
         long floorCell = view.cell(x, y - 1, z);
         boolean overLava = CellData.lava(floorCell);
-        if (!overLava && (CellData.standable(floorCell) || !CellData.passableEmpty(floorCell))) {
+        // 当たり判定が無いことと、そこへ置けることは別。しだれツタ・ねじれツタ・松明・レールは
+        // 体が通り抜けられるがreplaceableではないので、狙って置いても隣のセルへ飛ぶ
+        // （BlockPlaceContext#getClickedPos）——案内した位置には絶対に置かれない
+        if (!overLava && (CellData.standable(floorCell) || !CellData.replaceable(floorCell))) {
             return;
         }
         // 床が溶岩なら、置くブロックがその溶岩を置き換える。何がそれを支えているかは関係ない
+        boolean lavaFarBelow = false;
         if (!overLava && obstacleY != NOTHING_BELOW) {
             long obstacle = view.cell(x, obstacleY, z);
             // 読めなかったセル（未ロード・探索範囲外）で走査が止まっただけの場所は、その下に何が
@@ -757,13 +949,26 @@ public final class AStarPathfinder {
             if (!CellData.present(obstacle) || CellData.water(obstacle)) {
                 return;
             }
+            // 足元・隣接には溶岩が無くても、遥か下（ネザーの開けた空洞の底など）が溶岩なら
+            // 設置を外したときの結末は変わらない。hasAdjacentLavaは足元1マス下しか見ないので、
+            // ここを見ないと「空中で溶岩の上を長々と橋渡しする」経路が無傷の橋と同じ扱いになる
+            lavaFarBelow = CellData.lava(obstacle);
         }
         // 水に接する場所へは置かない。流れ込んで足場ごと押し流される
         if (hasAdjacentWater(x, y - 1, z)) {
             return;
         }
-        boolean lavaNearby = overLava || hasAdjacentLava(x, y - 1, z);
+        boolean lavaNearby = overLava || lavaFarBelow || hasAdjacentLava(x, y - 1, z);
         if (lavaNearby && !view.lavaBridgingEnabled()) {
+            return;
+        }
+        // 連続した橋の長さで打ち切る。ここで「重いコスト」ではなく「移動を作らない」を選ぶのが要点——
+        // 重みで抑えると、A*は安い辺から展開するので橋に手を伸ばす前に周囲を展開し尽くし、
+        // 展開ノード数を焼き切ったうえで結局その先に進めない（ActionCosts#LAVA_BRIDGE_PENALTY_TICKS
+        // に記録された実測そのもの）。辺を作らなければ、探索は最初から迂回路だけを見る
+        int bridgeRun = from.bridgeRun + 1;
+        if (maxBridgeRun > 0 && bridgeRun > maxBridgeRun) {
+            bridgeRunCapBlocked = true;
             return;
         }
         double bodyCost = standingBodyCost(x, y, z, null);
@@ -773,7 +978,7 @@ public final class AStarPathfinder {
         double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
                 + submerged(bodyCost, x, y + 1, z);
-        relax(from, x, y, z, cost, MoveKind.BRIDGE);
+        relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
     }
 
     /**
@@ -793,14 +998,19 @@ public final class AStarPathfinder {
         if (!view.canPlaceBlocks()) {
             return;
         }
-        if (!CellData.passableEmpty(view.cell(from.x, from.y, from.z))) {
+        long standing = view.cell(from.x, from.y, from.z);
+        // 置く先は自分がいるセルそのもの。梯子・ツタに掴まっている間は onGround() が false で
+        // jumpFromGround() が呼ばれず（LivingEntity#aiStep）、掴まったまま接地していても
+        // handleOnClimbable が水平・下向きの速度を±0.15に固定するので、跳んで積む動作が成立しない
+        if (!CellData.replaceable(standing) || CellData.climbable(standing)) {
             return;
         }
         double clearanceCost = columnCost(from.x, from.y + 2, from.y + 2, from.z, null);
         if (Double.isInfinite(clearanceCost)) {
             return;
         }
-        double cost = ActionCosts.ASCEND_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+        double cost = ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
+                + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + submerged(clearanceCost, from.x, from.y + 2, from.z);
         relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR);
     }
@@ -822,6 +1032,14 @@ public final class AStarPathfinder {
     }
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
+        relax(from, x, y, z, edgeCost, kind, 0);
+    }
+
+    /**
+     * {@code bridgeRun}を明示的に渡す版。{@link #addBridge}だけが非0を渡す——
+     * それ以外の移動は橋の連続を断つので0になる。
+     */
+    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
         double tentativeCost = from.cost + edgeCost;
         PathNode neighbor = node(x, y, z);
         if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
@@ -832,6 +1050,7 @@ public final class AStarPathfinder {
         neighbor.cost = tentativeCost;
         neighbor.combinedCost = tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal;
         neighbor.kind = kind;
+        neighbor.bridgeRun = bridgeRun;
         if (neighbor.isOpen()) {
             open.update(neighbor);
         } else {

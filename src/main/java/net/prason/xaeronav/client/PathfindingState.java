@@ -14,11 +14,13 @@ import com.mojang.logging.LogUtils;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BoatItem;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
@@ -72,8 +74,71 @@ public final class PathfindingState {
     /** 経路が出せなかったあと、再挑戦するまでに動く距離（ブロック）。 */
     private static final double RETRY_MOVE_BLOCKS = 4.0;
 
+    /**
+     * 継ぎ足しが「前へ出た」と認める最小の水平距離（ブロック）。
+     *
+     * <p>予算切れの末端から伸ばすのは筋が通るが、行き止まりの袋小路でも
+     * {@code AStarPathfinder#selectFallback}は「始点から5ブロック以上離れた最良点」を返すので、
+     * 歯止めが無いと数ブロックずつ這い続ける。
+     */
+    private static final double MIN_EXTEND_PROGRESS_BLOCKS = 12.0;
+
+    /**
+     * 再挑戦の予約（{@link #wideSearchNeededTarget} / {@link #coarseGuideNeededTarget}）を
+     * 「同じゴール」とみなす距離（ブロック）。
+     *
+     * <p>座標の完全一致で照合してはいけない。detail-targetは<b>プレイヤー位置からルート上へ
+     * 補間し直す</b>ので、歩いている限り毎回1〜3ブロックずれる。一致を求めると、予約を立てた
+     * 次のtickにはもう別の座標になっていて再挑戦が発動しない——実機ログでは「展開ノード数の
+     * 上限に当たりました」が0.5〜0.7秒間隔で20〜30回続く間、粗い経由地チェーンが1回しか
+     * 走っていなかった（立ち止まると発動する、という形で症状が出る）。
+     *
+     * <p>予約が意味しているのは「この辺りの地形では通常の探索が届かない」という<b>局所的な事実</b>
+     * なので、点ではなくその近傍で照合するのが本来の形。幅は
+     * {@link #REFINED_WAYPOINT_MIN_SPACING_BLOCKS}（waypointの間引き間隔）に合わせてある。
+     */
+    private static final double RETRY_TARGET_TOLERANCE_BLOCKS = 24.0;
+
+    /**
+     * 長距離ルートのwaypointをゴールとして許す半径（ブロック）。
+     *
+     * <p>層1のwaypointはチャンク(16ブロック)の代表点、層2で精緻化しても地表データ由来の推定でしかない。
+     * <b>中継地点は通る場所ではなく向かう方角</b>——層1の役割の定義そのものなので、座標ぴったりを
+     * 要求すると本来不要な遠回りが経路に乗る。層2の精緻版がある場合を見込んで、セルの半幅(8)より
+     * やや小さく取る。
+     */
+    private static final int WAYPOINT_GOAL_RADIUS_BLOCKS = 6;
+
+    /**
+     * waypointへ向かう線上の補間点（{@link #pointAlong}）をゴールとして許す半径（ブロック）。
+     *
+     * <p>こちらは地形をまったく見ていない<b>人工的な点</b>——waypointが遠すぎて一度に狙えないときに、
+     * その方角へ進むためだけに置いている。ここを厳密なゴールにするのが「遠回り」の最大の発生源なので、
+     * waypoint本体より大きく取る。
+     */
+    private static final int INTERPOLATED_GOAL_RADIUS_BLOCKS = 16;
+
     /** 経路が出せず、その場から動いてもいない場合の再挑戦間隔（tick）。 */
     private static final int NO_ROUTE_RETRY_TICKS = 200;
+
+    /**
+     * 長距離ルートを同じ場所から引き直さないための移動距離（ブロック）。
+     *
+     * <p>層1の引き直しは{@link XaeroMapReader#readSurface}（メインスレッド）と{@link CoarseRouter}の
+     * A*2回で、目的地までの距離に比例して重くなる。届く中間目標が1つも無い間はこれが毎回の再計算で
+     * 走るが、<b>同じ場所から引き直せば同じルートになる</b>——結果が変わりうるのは、地図に載る範囲が
+     * 変わる程度に動いたときだけ。
+     */
+    private static final double COARSE_ROUTE_RETRY_MOVE_BLOCKS = 32.0;
+
+    /** 目的地へ近づけないまま終わる探索がこの回数続いたら、詰みと判断する。 */
+    private static final int STUCK_SEARCH_STREAK = 4;
+
+    /** 「目的地へ近づけた」と認める最小の距離（ブロック）。測定のゆらぎで判断が揺れないための幅。 */
+    private static final double STUCK_PROGRESS_BLOCKS = 8.0;
+
+    /** 詰みと判断したあと、探索を投げ直すまでにプレイヤーが動く距離（ブロック）。 */
+    private static final double STUCK_RETRY_MOVE_BLOCKS = 16.0;
 
     /**
      * 地上優先ナビ（{@link #shouldClimbToSurface}）に入る深さの下限（ブロック）。
@@ -84,6 +149,16 @@ public final class PathfindingState {
 
     /** 地上へ出る経路が見つからなかった地点から、もう一度試すまでに動く距離（ブロック）。 */
     private static final double SURFACE_RETRY_MOVE_BLOCKS = 16.0;
+
+    /**
+     * 末端から伸ばせなかったあと、同じ末端でもう一度試すまでにプレイヤーが動く距離（ブロック）。
+     *
+     * <p>継ぎ足しの失敗はたいてい一時的で、その先のチャンクがまだ読み込まれていないだけ。
+     * 歩けば読み込まれて成功しうるのに、失敗を末端の座標だけで覚えると経路が差し替わるまで
+     * 二度と試さない——他の再計算トリガー（逸脱・末端への到達・地形変化）はどれも成立しないので、
+     * 実際には末端まで歩き切るまで探索が一切走らなくなる。
+     */
+    private static final double EXTEND_RETRY_MOVE_BLOCKS = 16.0;
 
     /**
      * 地上へ出る中継区間で、水平方向の探索マージンに掛ける倍率。洞窟の出口は目的地の方角にあるとは
@@ -98,10 +173,14 @@ public final class PathfindingState {
     private static final int COARSE_ROUTE_MAX_SPAN_CHUNKS = 1024;
 
     /**
-     * 溶岩を避ける長距離ルートを探すときに試す参照Yの数（最初のY自身を含む）。1つ増やすごとに
-     * {@link XaeroMapReader#readSurface}のメインスレッド1回分が増えるので、少数に留める。
+     * 長距離ルートの探索状態数の上限。{@link CoarseRouter#findRoute}は
+     * {@code cells * MAX_FLOORS}個の{@code double[]}/{@code int[]}/{@code boolean[]}を
+     * 一括で確保し、しかも溶岩ポリシーの梯子で最大2回呼ばれる——チャンク四方の上限だけでは、
+     * 層1が3D化して1セルあたり{@value CoarseMap#MAX_FLOORS}層になったぶんそのまま4倍になる。
+     * 状態数で切ることで、細長い範囲（片軸だけ遠い目的地）では従来どおりの到達距離を保ったまま、
+     * 正方形の最悪ケースだけを2D時代と同じ確保量に戻す。
      */
-    private static final int MAX_REFERENCE_Y_ATTEMPTS = 3;
+    private static final int COARSE_ROUTE_MAX_STATES = 1024 * 1024;
 
     /**
      * 層2廊下で精緻化したwaypoint列を間引く最小間隔（ブロック）。層2はブロック単位の点列を返すため、
@@ -114,14 +193,6 @@ public final class PathfindingState {
      * waypoint間隔とは関係が無い（間隔より短いreachは{@link #pointAlong}で表現する）。
      */
     private static final int MIN_DETAIL_REACH_BLOCKS = REFINED_WAYPOINT_MIN_SPACING_BLOCKS;
-
-    /**
-     * 到達できたときに{@link #detailReach}を伸ばす幅（ブロック）。縮める側は「ここまでしか
-     * 届かなかった」という観測なので実測値へ一気に落とすが、伸ばす側は「もっと届くかもしれない」
-     * という推測でしかない。外すと探索1回分（既定の上限まで展開して部分経路だけ）を丸ごと捨てるので、
-     * 刻んで試す。
-     */
-    private static final int DETAIL_REACH_GROWTH_BLOCKS = REFINED_WAYPOINT_MIN_SPACING_BLOCKS;
 
     private final PathfindingExecutor executor = new PathfindingExecutor();
     // 層2廊下の精緻化専用。executorと共用すると、詳細探索の頻繁な再投入（逸脱・末端接近のたびに
@@ -158,6 +229,10 @@ public final class PathfindingState {
     // 精緻化がバックグラウンドで完了したことを示す、次tickで拾うためのフラグ（pendingWideRetryと
     // 同じ構造）。whenComplete（ワーカースレッド）で立て、onClientTick（クライアントスレッド）で読む
     private volatile boolean pendingRefinedRouteReady;
+    // 精緻化が進行中のcoarseRoute。進行中に長距離ルートを引き直すと、その結果は由来元の不一致で
+    // 捨てられる——引き直しの間隔（最短0.5秒）は精緻化（区間ごとに最大300ms）より短くなりうるので、
+    // 素通しにすると精緻版が一度も完成しないまま、メインスレッドの地図読みだけを回し続けることになる
+    private volatile CoarseRoute refiningRoute;
     // 詳細探索が通常マージンでは届かなかった探索ゴール。次のrecalculateで範囲を広げて再挑戦する
     // 目印。本来の目的地と長距離ルートの中間目標を区別しないのは、どちらも「描画距離の内側にある
     // 詳細探索のゴール」で、壁や湖を迂回する経路が範囲の外に落ちる事情が同じだから。
@@ -191,12 +266,6 @@ public final class PathfindingState {
     //
     // 地上のように予算内で解けている限りrenderRadiusに張り付くので、従来の挙動は変わらない。
     // whenComplete（ワーカースレッド）で書き、次のrecalculate（クライアントスレッド）で読む
-    private volatile int detailReach;
-    // detailReachを測った次元。次元が変わればセル密度も地形も別物なので測り直す
-    private volatile ResourceKey<Level> detailReachDimension;
-    // detailReachを最後に更新した位置。到達実績は「この辺りの地形ではここまで」という局所的な事実で、
-    // そこから離れれば期限切れになる。逆に言えば同じ場所に留まっている限り上限を上げる根拠は無い
-    private volatile BlockPos detailReachMeasuredAt;
     // 前回のdetail-targetが向いていたwaypoint（生座標）。ルート上で後ろへ戻らないための歯止め。
     // 添字ではなく座標で覚えるのは、ルートを引き直すと添字の意味が変わるため——新しい列に同じ点が
     // 無ければ歯止めは自動的に外れる
@@ -209,10 +278,40 @@ public final class PathfindingState {
     private volatile List<Vec3> flightGuideWaypoints;
 
     /**
+     * 通過済みとみなす中間目標の数。地図の点線をどこから描くかにだけ使う。
+     *
+     * <p>経路の末端が向かっている添字まで<b>単調に</b>進める。表示中の経路が中間目標を向いていない
+     * 間（本来の目的地へ直行している・まだ経路が無い・到着表示中）も通過済みぶんを描かずに済ませる
+     * ためで、モードだけで判断すると、先読みの最後の区間が目的地へ届いてモードがGOALへ変わった
+     * 瞬間に通過済みの中間目標が一斉に描き直される——歩いてきた道に線がそのまま残ったように見える。
+     */
+    private volatile int passedWaypoints;
+
+    /**
+     * 目的地へ最も近づけた水平距離（案内できた経路の末端か、プレイヤー自身）。詰みの判定に使う。
+     *
+     * <p>見るのは「経路が引けたか」ではなく「<b>近づけたか</b>」。予算切れの探索は行き止まりへ
+     * 向かう部分経路を毎回返すので、経路の有無で判断すると詰みは一度も検知できない。
+     */
+    private volatile double bestApproachBlocks = Double.MAX_VALUE;
+
+    /** {@link #bestApproachBlocks}を縮められないまま終わった探索の連続回数。 */
+    private volatile int stalledSearches;
+
+    /** 目的地へ行けないと判断した理由。判断していない・解消したなら{@code null}。 */
+    private volatile StuckReason stuckReason;
+
+    /** 詰みをチャットで1度だけ知らせるための引き継ぎ。ワーカースレッドで立て、次tickで読む。 */
+    private volatile StuckReason pendingStuckNotice;
+
+    /**
      * 経路の末端から先へ伸ばせなかった地点。同じ末端で延長を試み続けないための歯止めで、
      * 経路が差し替わる（＝別の末端になる）と自然に外れる。
      */
     private volatile BlockPos extendBlockedAt;
+
+    /** {@link #extendBlockedAt}を立てたときのプレイヤー位置。{@link #EXTEND_RETRY_MOVE_BLOCKS}参照。 */
+    private volatile BlockPos extendBlockedFrom;
 
     /**
      * 「歩いていた経路が使えなくなった」ことを知らせておく残りtick。行き止まり・世界の変化で
@@ -241,7 +340,7 @@ public final class PathfindingState {
         this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
         // 滑空中に指定された目的地は、着地するまで経路を引かない（引いても表示せず捨てるだけになる）
-        this.flying = player.isFallFlying();
+        this.flying = airborne(player);
         if (this.flying) {
             recalculateFlightLine();
         } else {
@@ -300,11 +399,18 @@ public final class PathfindingState {
         this.surfaceLegFailedAt = null;
         this.coarseRoute = null;
         this.refinedRoute = null;
+        this.refiningRoute = null;
         this.pendingRefinedRouteReady = false;
         this.pendingWideRetry = false;
         this.pendingCoarseGuideRetry = false;
         this.lastAimedWaypoint = null;
+        this.passedWaypoints = 0;
+        this.bestApproachBlocks = Double.MAX_VALUE;
+        this.stalledSearches = 0;
+        this.stuckReason = null;
+        this.pendingStuckNotice = null;
         this.extendBlockedAt = null;
+        this.extendBlockedFrom = null;
         this.rerouteNoticeTicks = 0;
         this.flying = false;
         this.flightGuideWaypoints = null;
@@ -358,6 +464,32 @@ public final class PathfindingState {
         return rerouteNoticeTicks > 0;
     }
 
+    /**
+     * 目的地へ行けないと判断した理由。まだ判断していない・解消したなら{@code null}。
+     *
+     * <p>「経路が見つかりません」（＝今回の探索が空だった）とは別のこと。あちらは1回の探索の状態で、
+     * 次の探索では出るかもしれない。こちらは<b>何度やっても目的地へ近づけなかった</b>という結論で、
+     * この状態の間は探索そのものを止めている（プレイヤーが動くまで結果が変わらないため）。
+     */
+    public StuckReason stuckReason() {
+        return stuckReason;
+    }
+
+    /**
+     * 詰みの理由を説明する文言のキー。
+     *
+     * <p>「掘削や足場の設置を許可してください」は、実際に切っているときにしか意味が無い。
+     * 既に許可済みの人に出すと的外れな助言になり、この行ごと読み飛ばす癖がつく——助言の価値は
+     * 「読めば次に何をすればいいか分かる」ことなので、当てはまらない助言は出さない方がよい。
+     */
+    public static String stuckHintKey(StuckReason reason) {
+        if (reason == StuckReason.NO_WAY_THROUGH
+                && XaeroNavConfig.INSTANCE.diggingEnabled() && XaeroNavConfig.INSTANCE.bridgingEnabled()) {
+            return "hud.xaeronav.unreachable_blocked_detour";
+        }
+        return reason.hintKey();
+    }
+
     /** 表示中の経路が、本来の目的地ではなく「まず地上へ出るまで」の中継経路か。 */
     public boolean climbingToSurface() {
         DisplayedPath shown = displayed;
@@ -396,16 +528,30 @@ public final class PathfindingState {
      * 大きく外れるほど現在地と点線が食い違い、古いルートが残っているように見える。
      */
     public List<BlockPos> coarseRouteWaypoints() {
-        if (flying) {
+        // 到着表示の間は目的地ごと残っている（すぐ片付けると「着いた」が見えない）。中継地点は
+        // もう案内ではないので、ここで描くと着いた瞬間に来た道へ点線が戻る
+        if (flying || arrived) {
             return List.of();
         }
         List<BlockPos> all = currentRouteWaypoints();
-        DisplayedPath shown = displayed;
-        if (all.isEmpty() || shown == null || shown.mode() != PathMode.WAYPOINT) {
+        if (all.isEmpty()) {
             return all;
         }
-        int current = shown.waypointIndex();
-        return current <= 0 || current >= all.size() ? all : all.subList(current, all.size());
+        DisplayedPath shown = displayed;
+        if (shown != null && shown.mode() == PathMode.GOAL && shown.result().complete()) {
+            // 詳細経路が本来の目的地まで届いている＝中継地点はもう案内に使っていない。ここで
+            // 残りを描くと、先読みの最後の区間が目的地へ届いた瞬間に歩いてきた道へ点線が戻る
+            return List.of();
+        }
+        // 末端が向かっている添字（あれば）と通過済みの目印の大きい方から描く。モードがWAYPOINTで
+        // なくなった経路でも通過済みぶんが残らないよう、目印は単調に持っておく
+        int from = shown != null && shown.mode() == PathMode.WAYPOINT
+                ? Math.max(passedWaypoints, shown.waypointIndex())
+                : passedWaypoints;
+        if (from <= 0) {
+            return all;
+        }
+        return from >= all.size() ? List.of() : all.subList(from, all.size());
     }
 
     /**
@@ -419,12 +565,12 @@ public final class PathfindingState {
         // detail-target選定(reachableWaypointTarget)とHUD/地図描画(coarseRouteWaypoints等)は
         // 必ず同じリストを共有すること。別リストにするとwaypointIndexが指す先が食い違い、
         // 地図の点線とHUDのカウンタが壊れる
-        RefinedRoute refined = refinedRoute;
-        if (refined != null && refined.goal().equals(goal)) {
-            return refined.waypoints();
-        }
         CoarseRoute route = coarseRoute;
-        return route == null || !route.goal().equals(goal) ? List.of() : route.waypoints();
+        if (route == null || !route.goal().equals(goal)) {
+            return List.of();
+        }
+        RefinedRoute refined = refinedRoute;
+        return refined != null && refined.source() == route ? refined.waypoints() : route.waypoints();
     }
 
     public void onClientTick() {
@@ -444,6 +590,13 @@ public final class PathfindingState {
             clear();
             return;
         }
+        StuckReason notice = pendingStuckNotice;
+        if (notice != null) {
+            // 判断はワーカースレッドで行われる。チャットへの出力はメインスレッド専用なのでここで拾う
+            pendingStuckNotice = null;
+            mc.player.displayClientMessage(Component.translatable("hud.xaeronav.unreachable_notice",
+                    Component.translatable(stuckHintKey(notice))), false);
+        }
         if (arrived) {
             arrivedTicks++;
             if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS) {
@@ -456,7 +609,7 @@ public final class PathfindingState {
         if (mc.screen != null) {
             return;
         }
-        boolean nowFlying = mc.player.isFallFlying();
+        boolean nowFlying = airborne(mc.player);
         if (nowFlying != flying) {
             flying = nowFlying;
             if (nowFlying) {
@@ -487,6 +640,9 @@ public final class PathfindingState {
         }
         // 経路とモードは一組で差し替わるので、1tickの判断は同じスナップショットの上で行う
         DisplayedPath shown = displayed;
+        if (shown != null && shown.mode() == PathMode.WAYPOINT) {
+            passedWaypoints = Math.max(passedWaypoints, shown.waypointIndex());
+        }
         if (shown != null && shown.mode() == PathMode.TO_SURFACE && !computing
                 && surfaceLegDone(mc.level, mc.player, currentGoal, shown)) {
             // 地上に出た。ここから先は本来の目的地に向けて経路を引き直す
@@ -505,19 +661,27 @@ public final class PathfindingState {
             // 数tickの間、毎tick探索を投げ直してしまう。
             return;
         }
+        ticksSinceRecalc++;
+        ticksSinceValidation++;
+        if (stuckReason != null && !stuckRetryDue(mc.player)) {
+            // 目的地へ行けないと判断済み。同じ場所から投げ直しても読み込み済みチャンクも地形も
+            // 変わっていないので結果は同じ——実機では通常探索10万＋粗い経由地チェーン20万ノードを
+            // 3秒おきに焼き続けていた。プレイヤーが動くか、世界が変わりうるだけの時間が経つまで待つ
+            return;
+        }
         if (pendingWideRetry) {
             // 通常マージンでは届かなかった。以降のトリガーはどれもプレイヤーが動くまで来ないので、
             // ここで範囲を広げて投げ直す（間隔を空ける必要はない — 広い範囲での探索は目的地ごとに
             // 一度だけで、失敗しても二度目のpendingWideRetryは立たない）
             pendingWideRetry = false;
-            recalculate();
+            recalculate(Escalation.WIDE);
             return;
         }
         if (pendingCoarseGuideRetry) {
             // 展開ノード数の上限に当たって未到達だった。範囲を広げても同じ上限に当たるだけなので、
             // 代わりに粗い経由地チェーンで区間を分割して投げ直す
             pendingCoarseGuideRetry = false;
-            recalculate();
+            recalculate(Escalation.COARSE_GUIDED);
             return;
         }
         if (pendingRefinedRouteReady) {
@@ -527,8 +691,6 @@ public final class PathfindingState {
             recalculate();
             return;
         }
-        ticksSinceRecalc++;
-        ticksSinceValidation++;
 
         if (result == null || result.steps().isEmpty()) {
             retryWithoutRoute(mc.player.blockPosition());
@@ -544,7 +706,11 @@ public final class PathfindingState {
         }
         // 継ぎ足しは逸脱・到着の判定より後に置く。深い先読みでは区間を連続で探索しうるので、
         // 先に置くとその間ずっと逸脱検知が止まる（computing中は下のトリガーが全て止まるため）
-        if (shown.mode() == PathMode.WAYPOINT) {
+        // 継ぎ足しは中間目標へ向かう経路だけのものではない。目的地へ直接向かう経路も、予算切れで
+        // 打ち切られていれば末端から伸ばせる——ここを WAYPOINT に限ると、そういう経路は下の
+        // 「打ち切られた末端に近づいたら引き直す」に落ちて毎回<b>全置換</b>され、手前の案内まで
+        // 描き変わる。地上へ出る中継区間（TO_SURFACE）だけはゴールの意味が違うので対象外
+        if (shown.mode() != PathMode.TO_SURFACE) {
             if (shouldExtend(mc.player, shown, mc.options.getEffectiveRenderDistance() * 16)) {
                 // 末端から継ぎ足す。着いてから引き直すのでは遅い——探索に数百msかかり、反映は
                 // さらに次tick以降なので、その間ずっと「もう終わっている経路」を見せることになる。
@@ -561,7 +727,8 @@ public final class PathfindingState {
             }
         }
         if (ticksSinceRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()
-                && !result.complete() && nearPathEnd(mc.player.position(), result)) {
+                && !result.complete() && nearPathEnd(mc.player.position(), result)
+                && retryTruncatedNow(mc.player)) {
             // 打ち切られた末端に近づいた。ここから先は新しく読み込まれたチャンクを使って伸ばせる
             recalculate();
             return;
@@ -663,6 +830,15 @@ public final class PathfindingState {
             return;
         }
 
+        if (mc.gameMode != null && mc.gameMode.getPlayerMode() == GameType.SPECTATOR) {
+            // スペクテイターはブロックをすり抜ける（Player#isSpectator → noPhysics）。避ける必要の
+            // 無い地形のために線を曲げると、まっすぐ飛べばいい所を遠回りに見せるだけになる。
+            // 判定にPlayer#isSpectator()を使わないのは、あれがタブリストのPlayerInfo経由で、
+            // 未受信なら黙ってfalseに落ちるため（AbstractClientPlayer#isSpectator）
+            flightGuideWaypoints = null;
+            return;
+        }
+
         Vec3 start = player.position();
         Vec3 goalVec = Vec3.atCenterOf(currentGoal);
         ResourceKey<Level> dimension = level.dimension();
@@ -670,7 +846,7 @@ public final class PathfindingState {
                 FlightLineRouter.HORIZONTAL_MARGIN_BLOCKS, FlightLineRouter.VERTICAL_MARGIN_BLOCKS,
                 mc.options.getEffectiveRenderDistance() * 16);
         // 飛行判定に掘削・ブロック設置・隙間跳び・落下ダメージはどれも無関係なので全てfalse
-        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, false);
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
 
         CompletableFuture
                 .supplyAsync(() -> new FlightLineRouter(view).findGuideLine(start, goalVec), flightLineExecutor)
@@ -693,6 +869,8 @@ public final class PathfindingState {
         flightGuideWaypoints = null;
         arrivedTicks = 0;
         arrived = true;
+        stuckReason = null;
+        pendingStuckNotice = null;
         Player player = Minecraft.getInstance().player;
         if (player != null) {
             player.playSound(SoundEvents.NOTE_BLOCK_BELL.value(), 0.4f, 1.5f);
@@ -703,6 +881,86 @@ public final class PathfindingState {
      * 経路が出せなかったときの再挑戦。届かない目的地（海の向こう・未読み込み）では毎回上限まで
      * 探索して失敗するので、間隔を空けないと同じ計算を数秒おきに繰り返すだけになる。
      */
+    /**
+     * 打ち切られた経路を引き直してよい頃合いか。
+     *
+     * <p><b>同じ場所から引き直しても同じ結果になる</b>。読み込み済みチャンクも地形も変わっていない
+     * のに2秒おきに全置換すると、経路が頻繁に変わるように見えるだけで何も得られない——引き直しが
+     * 意味を持つのは新しいチャンクが読まれたとき、つまりプレイヤーが動いたとき。
+     *
+     * <p>動かないまま長く経つ場合だけは、世界の側が変わっている可能性があるので緩い間隔で試す
+     * （{@link #retryWithoutRoute}が経路ゼロのときにしているのと同じ考え方）。
+     */
+    private boolean retryTruncatedNow(Player player) {
+        BlockPos start = lastStart;
+        boolean moved = start == null
+                || start.distSqr(player.blockPosition()) >= RETRY_MOVE_BLOCKS * RETRY_MOVE_BLOCKS;
+        return moved || ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS;
+    }
+
+    /** 詰みと判断したあとで、もう一度探索を投げてよい頃合いか。{@link #STUCK_RETRY_MOVE_BLOCKS}参照。 */
+    private boolean stuckRetryDue(Player player) {
+        BlockPos start = lastStart;
+        return start == null
+                || start.distSqr(player.blockPosition()) >= STUCK_RETRY_MOVE_BLOCKS * STUCK_RETRY_MOVE_BLOCKS
+                || ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS;
+    }
+
+    /**
+     * この探索の結果を詰みの判定へ反映する。詰みは「<b>狙った先へ届きもせず、目的地へ近づきも
+     * しなかった</b>探索」が{@link #STUCK_SEARCH_STREAK}回続いたこと、と定義する。
+     *
+     * <p>経路が引けたかどうかでは判定できない。予算切れの探索は行き止まりへ向かう部分経路を毎回
+     * 返すので、実機ログではステップ数55→23→5→18→93→0…が5分間続く間ずっと同じ溶岩の海の縁に
+     * 居た。逆に「近づいたか」だけで見ると、溶岩の海を大きく迂回する区間（目的地から遠ざかりながら
+     * 正しく進んでいる）を詰みと誤判定する——そこでは探索は狙った中間目標へ<b>届いている</b>ので、
+     * 2つを併せて初めて正しく切り分けられる。
+     *
+     * <p>近さの測り方にプレイヤー自身の位置も入れる。部分経路を辿って歩いて前進するのも正常な
+     * 進み方なので、その間に投げた探索が何回失敗していようと詰みではない。
+     */
+    private void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result) {
+        BlockPos currentGoal = goal;
+        if (currentGoal == null) {
+            return;
+        }
+        double approach = Math.min(horizontalDistance(start, currentGoal),
+                horizontalDistance(planEnd, currentGoal));
+        boolean progressed = result.complete() || approach <= bestApproachBlocks - STUCK_PROGRESS_BLOCKS;
+        bestApproachBlocks = Math.min(bestApproachBlocks, approach);
+        if (progressed) {
+            stalledSearches = 0;
+            stuckReason = null;
+            return;
+        }
+        stalledSearches++;
+        if (stalledSearches < STUCK_SEARCH_STREAK || stuckReason != null) {
+            return;
+        }
+        stuckReason = classifyStuck(result.termination());
+        pendingStuckNotice = stuckReason;
+        LOGGER.info("XaeroNav: 目的地へ行けないと判断しました (理由={}, 最接近={}ブロック, 目的地={})",
+                stuckReason, Math.round(bestApproachBlocks), currentGoal.toShortString());
+    }
+
+    /**
+     * 詰みの理由を、確度の高い順に見て決める。
+     *
+     * <p>層1（Xaeroの地図）で目的地まで繋がっていないことが最も情報量が多い——粗い地図で通行不能に
+     * なるのは溶岩だけで、未探索セルは通行可能として扱われる。つまり橋を架ける前提でも届かないなら、
+     * 詳細探索をいくら回しても届かない。次に確かなのが{@code EXHAUSTED}（探索範囲の中に到達手段が
+     * 無いことの証明）で、残りは資源不足。
+     */
+    private StuckReason classifyStuck(PathResult.Termination termination) {
+        CoarseRoute route = coarseRoute;
+        if (route != null && route.goal().equals(goal) && !route.reachedGoal()) {
+            return StuckReason.UNMAPPED;
+        }
+        return termination == PathResult.Termination.EXHAUSTED
+                ? StuckReason.NO_WAY_THROUGH
+                : StuckReason.SEARCH_TOO_HARD;
+    }
+
     private void retryWithoutRoute(BlockPos start) {
         if (ticksSinceRecalc < XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
             return;
@@ -727,20 +985,77 @@ public final class PathfindingState {
      */
     private boolean shouldExtend(Player player, DisplayedPath shown, int renderRadius) {
         PathResult result = shown.result();
-        if (!result.complete()) {
-            // 末端が目標に届いていない。その先は再挑戦の領分で、継ぎ足しても行き止まりを掘るだけ
+        if (!extendableTail(result)) {
             return false;
         }
         List<PathStep> steps = result.steps();
         BlockPos end = steps.get(steps.size() - 1).pos();
-        if (end.equals(extendBlockedAt) || end.equals(goal)) {
+        if (end.equals(goal) || extendBlocked(player, end)) {
             return false;
         }
         if (XaeroNavConfig.INSTANCE.deepLookAheadEnabled()) {
-            return horizontalDistance(player.blockPosition(), end) < renderRadius;
+            // 案内として意味のある長さぶん読み込み済みの土地が残っているときだけ伸ばす。
+            // renderRadiusぎりぎりまで許すと、目標が読み込み済み正方形の外へ出る（extendLeadを参照）
+            return extendLead(player, end, renderRadius) >= MIN_DETAIL_REACH_BLOCKS;
         }
         double lead = Math.min(EXTEND_DISTANCE_BLOCKS, pathLength(steps));
         return distanceTo(player.position(), end) <= lead;
+    }
+
+    /**
+     * この末端から先へ伸ばしてよいか。
+     *
+     * <p>「到達した経路だけ」ではない。<b>予算切れで打ち切った末端は正当なフロンティア</b>——
+     * そこまでは実際に歩ける経路が引けていて（{@code buildResult}は先行ノードの鎖を辿るだけ）、
+     * 続きを解くのに必要なのは資源であって別の場所ではない。目標を固定の地平で切る以上、
+     * 遠い目的地では予算切れが常態になるので、ここで止めると継ぎ足しが一度も起きない。
+     *
+     * <p>{@code EXHAUSTED}（範囲内のオープンセットが尽きた＝行き止まりが証明済み）と
+     * {@code CANCELLED}（結果自体を捨てる）だけは別。前者から伸ばすのは同じ袋小路を掘り続けること
+     * になるので、既存の再挑戦（範囲拡大・粗い経由地チェーン）に任せる。
+     */
+    private static boolean extendableTail(PathResult result) {
+        return switch (result.termination()) {
+            case REACHED_GOAL, NODE_BUDGET, TIME_LIMIT -> true;
+            case EXHAUSTED, CANCELLED -> false;
+        };
+    }
+
+    /**
+     * 経路の末端から更に先へ探索してよい水平距離（ブロック）。
+     *
+     * <p><b>読み込み済みチャンクはプレイヤー中心の正方形</b>なので、末端を始点にする継ぎ足しでは
+     * その半径から「プレイヤーから末端までの距離」を引いた残りしか使えない。ここを引かずに
+     * {@code renderRadius}や{@code detailReach}をそのまま末端基準の上限として渡すと、目標は
+     * プレイヤーから最大{@code renderRadius + reach}の位置＝<b>必ず未ロードチャンクの中</b>に落ちる。
+     * 未ロードのセルは{@code CellData.ABSENT}＝進入不可なので、探索はオープンセットを尽くして
+     * {@code EXHAUSTED}で終わり、{@code complete()}は決して真にならない。
+     */
+    private static int extendLead(Player player, BlockPos end, int renderRadius) {
+        return renderRadius - (int) Math.round(horizontalDistance(player.blockPosition(), end));
+    }
+
+    /**
+     * この末端は「伸ばせなかった」印が立っていて、まだ失効していないか。
+     * {@link #EXTEND_RETRY_MOVE_BLOCKS}ぶん歩けば新しいチャンクが読まれるので、そこで印を捨てる。
+     */
+    private boolean extendBlocked(Player player, BlockPos end) {
+        if (!end.equals(extendBlockedAt)) {
+            return false;
+        }
+        BlockPos blockedFrom = extendBlockedFrom;
+        if (blockedFrom != null && blockedFrom.distSqr(player.blockPosition())
+                > EXTEND_RETRY_MOVE_BLOCKS * EXTEND_RETRY_MOVE_BLOCKS) {
+            extendBlockedAt = null;
+            extendBlockedFrom = null;
+            return false;
+        }
+        return true;
+    }
+
+    /** 再挑戦の予約と今回のゴールが「同じ場所」か。{@link #RETRY_TARGET_TOLERANCE_BLOCKS}参照。 */
+    private static boolean sameRetryTarget(BlockPos target, BlockPos reserved) {
+        return reserved != null && horizontalDistance(target, reserved) <= RETRY_TARGET_TOLERANCE_BLOCKS;
     }
 
     /** 経路の端から端までの直線距離。先読みの余裕を経路長より長く取らないための目安。 */
@@ -750,11 +1065,50 @@ public final class PathfindingState {
         return Math.sqrt(first.distSqr(last));
     }
 
+    /** 経路が実際に届いた地点。1歩も進めなかったときは始点そのもの。 */
+    private static BlockPos endOf(PathResult result, BlockPos start) {
+        List<PathStep> steps = result.steps();
+        return steps.isEmpty() ? start : steps.get(steps.size() - 1).pos();
+    }
+
     private static double distanceTo(Vec3 position, BlockPos pos) {
         double dx = pos.getX() + 0.5 - position.x;
         double dy = pos.getY() - position.y;
         double dz = pos.getZ() + 0.5 - position.z;
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * 空にいて、地上の経路が意味を持たない状態か。エリトラの滑空だけでなくクリエイティブ・
+     * スペクテイターの飛行も含む。
+     *
+     * <p>どちらも「空はプレイヤー自身が見て操縦できる」ので障害物回避の経路は要らず、そもそも
+     * 足元に床が無いので{@code StanceFinder.resolveStart}が始点を解決できない——止めずに置くと、
+     * 開始ノードから辺が1本も出ないまま2秒おきに探索を投げ続け、HUDには「経路なし」が出続ける
+     * （意図して止めているのではなく<b>失敗しているように見える</b>）。
+     *
+     * <p>{@code getAbilities().flying}はクライアント自身が持つ状態で、二段ジャンプの切り替えも
+     * 着地時の自動解除も同じtickのうちに{@code LocalPlayer#aiStep}が書く。スペクテイターは
+     * {@code GameType#updatePlayerAbilities}と{@code MultiPlayerGameMode#isAlwaysFlying}が
+     * 常にtrueへ固定するので、これ一つで飛行モード全部を捉えられる。
+     */
+    private static boolean airborne(Player player) {
+        return player.isFallFlying() || player.getAbilities().flying;
+    }
+
+    /**
+     * 詳細探索が一度に狙う最大の水平距離。これより遠い目的地には長距離ルートの中間目標を挟む。
+     *
+     * <p><b>地形によらない固定値</b>であることが要点。かつては直近の探索が実際に引けた距離を
+     * 測って使っていたが（{@code detailReach}）、プレイヤー周辺の既踏地形で測った値を経路の
+     * 末端から未踏地形へ伸ばす探索にも使うため、成功と失敗が交互に入って収束しなかった。
+     * 届かなかったときは部分経路をそのまま案内に使い、末端から継ぎ足して伸ばす。
+     *
+     * <p>描画距離で頭打ちにするのは、読み込まれていないチャンクの中を目標にしても
+     * 到達しようがないため（未ロードのセルは進入不可）。
+     */
+    private static int detailHorizon(int renderRadius) {
+        return Math.min(renderRadius, XaeroNavConfig.INSTANCE.detailHorizonBlocks());
     }
 
     private boolean nearPathEnd(Vec3 position, PathResult result) {
@@ -765,7 +1119,31 @@ public final class PathfindingState {
         return dx * dx + dy * dy + dz * dz <= EXTEND_DISTANCE_BLOCKS * EXTEND_DISTANCE_BLOCKS;
     }
 
+    /**
+     * この再計算で、探索の作り方をどう変えるか。
+     *
+     * <p>以前は「前回届かなかったゴールの座標」を覚えておき、新しく選び直したゴールと<b>完全一致</b>
+     * したときだけエスカレーションしていた。しかしdetail-targetはプレイヤー位置からルート上へ
+     * 補間し直すので、1ブロック歩けば別座標になる——予約を立てた次のtickにはもう一致せず、
+     * 通常探索を延々と回すだけのループになっていた（実機ログで「展開ノード数の上限に当たりました」が
+     * 0.5〜0.7秒間隔で20〜30回続く間、粗い経由地チェーンは1回しか走らなかった）。
+     *
+     * <p>エスカレーションは「このゴールが届かない」ではなく「<b>この状況では探索の作り方を変える</b>」
+     * という判断なので、そもそもゴールの同一性に依存させる必要が無い。決めた側が引数で渡す。
+     */
+    private enum Escalation {
+        NONE,
+        /** 箱を描画距離いっぱいまで広げる。壁や湖を大きく迂回する経路が範囲外に落ちていた場合。 */
+        WIDE,
+        /** 箱は広げず、粗い経由地チェーンで区間を分割する。展開ノード数の上限に当たっていた場合。 */
+        COARSE_GUIDED
+    }
+
     private void recalculate() {
+        recalculate(Escalation.NONE);
+    }
+
+    private void recalculate(Escalation forced) {
         ticksSinceRecalc = 0;
         ticksSinceValidation = 0;
         Minecraft mc = Minecraft.getInstance();
@@ -789,6 +1167,7 @@ public final class PathfindingState {
         PathMode mode;
         BlockPos target;
         int waypointIndex;
+        int goalRadius;
         if (climbing) {
             mode = PathMode.TO_SURFACE;
             // 地上優先ナビ中は、遠い本来の目的地の箱に広げても意味が無い（ゴールが1点ではなく
@@ -796,12 +1175,15 @@ public final class PathfindingState {
             // groundLevelにある仮想ゴールとして範囲を組み立てる
             target = new BlockPos(start.getX(), groundLevel, start.getZ());
             waypointIndex = -1;
+            // searchToSurfaceが自前の領域ゴール（y >= surfaceY）を使うので、この値は読まれない
+            goalRadius = 0;
         } else {
             DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius,
-                    detailReachLimit(level.dimension(), renderRadius), boatAvailable);
+                    detailHorizon(renderRadius), boatAvailable, true, -1);
             target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
             waypointIndex = detail.waypointIndex();
+            goalRadius = detail.goalRadius();
         }
 
         // 探索範囲は描画距離で切る。読み込み済みチャンクの外は読めないので、そこまで広げても
@@ -815,7 +1197,7 @@ public final class PathfindingState {
         boolean coarseGuided = false;
         if (climbing) {
             horizontalMargin *= SURFACE_SEARCH_MARGIN_FACTOR;
-        } else if (target.equals(wideSearchNeededTarget)
+        } else if ((forced == Escalation.WIDE || sameRetryTarget(target, wideSearchNeededTarget))
                 && horizontalDistance(start, target) <= renderRadius) {
             // 前回、この探索ゴールへ通常マージンでは届かなかった。チャンクはrenderRadiusの
             // 正方形いっぱいまで読み込み済みなので、通常マージン(既定64)で切っていた箱をそこまで
@@ -823,7 +1205,7 @@ public final class PathfindingState {
             // 出ない問題への対処（design doc外・近距離レパートリー拡充のPhase 2）
             horizontalMargin = renderRadius;
             wideSearch = true;
-        } else if (target.equals(coarseGuideNeededTarget)
+        } else if ((forced == Escalation.COARSE_GUIDED || sameRetryTarget(target, coarseGuideNeededTarget))
                 && horizontalDistance(start, target) <= renderRadius) {
             // 前回、この探索ゴールで展開ノード数の上限に当たって未到達だった。範囲を広げても
             // 同じ上限に当たるだけなので箱は広げず、粗い経由地チェーンで区間を分割する
@@ -831,11 +1213,12 @@ public final class PathfindingState {
             coarseGuided = true;
         }
         SearchBounds bounds = SearchBounds.around(level, start, target,
-                horizontalMargin, XaeroNavConfig.INSTANCE.searchVerticalMargin(),
+                horizontalMargin, verticalSearchMargin(level, wideSearch),
                 renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
+                XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
 
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
@@ -851,12 +1234,14 @@ public final class PathfindingState {
         // そこではプレイヤーが既に別次元へ移動している可能性がある
         ResourceKey<Level> searchDimension = level.dimension();
         CompletableFuture<PathResult> future;
+        boolean costToGoGuideEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
         if (climbing) {
             future = executor.submitToSurface(view.withoutDigging(), view, start, groundLevel, limits);
         } else if (coarseGuided) {
-            future = executor.submitCoarseGuided(view, bounds, start, finalTarget, limits);
+            future = executor.submitCoarseGuided(view, bounds, start, finalTarget, limits, costToGoGuideEnabled,
+                    goalRadius);
         } else {
-            future = executor.submit(view, start, finalTarget, limits);
+            future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius);
         }
         future.whenComplete((result, error) -> {
             if (generation.get() != myGeneration) {
@@ -890,9 +1275,14 @@ public final class PathfindingState {
                 // 設置可否と橋の本数を併記するのは、溶岩で止まったときに「ブロックを持っていない」
                 // 「橋は架かったが足りない」「橋が1本も生成されない」を切り分けるため。
                 // ホットバーにブロックが無ければ溶岩の橋は原理的に1本も出ない
+                //
+                // 打ち切り理由を併記するのは、「資源が足りない」と「範囲内に道が無い」が
+                // 到達=falseでは区別できないため。前者は目的地を手前に取れば解決するが、
+                // 後者は何度やっても同じで、打つ手がまったく違う
                 LOGGER.info("XaeroNav: 粗い経由地チェーンで再挑戦しました"
-                                + " (到達={}, 展開ノード数={}, ステップ数={}, 設置可={}, 橋={}本)",
-                        result.complete(), result.expandedNodes(), result.steps().size(),
+                                + " (目標={}, 到達={}, {}, 展開ノード数={}, ステップ数={}, 設置可={}, 橋={}本)",
+                        finalTarget.toShortString(), result.complete(), result.termination(),
+                        result.expandedNodes(), result.steps().size(),
                         view.canPlaceBlocks(), result.steps().stream().filter(PathStep::bridging).count());
             }
             if (finalMode == PathMode.TO_SURFACE && (!result.complete() || result.steps().isEmpty())) {
@@ -901,8 +1291,8 @@ public final class PathfindingState {
                 // 1歩も進まない中継（＝探索から見ればもう地上）も同じ扱いにする。どちらも
                 // この付近では中継を諦め、本来の目的地へ直接向かう（次tickで引き直される）
                 surfaceLegFailedAt = start;
-                displayed = new DisplayedPath(new PathResult(List.of(), false, result.expandedNodes(),
-                        result.distinctNodes()), PathMode.TO_SURFACE, -1);
+                displayed = new DisplayedPath(new PathResult(List.of(), result.termination(),
+                        result.expandedNodes(), result.distinctNodes()), PathMode.TO_SURFACE, -1);
                 return;
             }
             // 中継区間（TO_SURFACE）だけは対象外。ゴールが1点ではなく「空の下ならどこでも」なので
@@ -917,8 +1307,11 @@ public final class PathfindingState {
                 // エスカレーションはしない。複数区間の合算expandedNodesは単一探索の上限と単純比較
                 // できないうえ、ここで再びtrueにすると次tickでまた同じ粗い経由地チェーンを試み、
                 // また同じ理由で失敗し…と無限往復する。エスカレーションは1段階までに留める
-                boolean hitNodeBudget = !finalCoarseGuided
-                        && result.expandedNodes() >= XaeroNavConfig.INSTANCE.maxExpandedNodes();
+                //
+                // 打ち切り理由はPathResultが持っている。展開数だけを見ていた頃は、2秒の時間上限が
+                // 先に効いた探索が「予算切れではない」＝範囲が狭いと誤判定され、粗い経由地チェーンの
+                // 代わりに無意味な箱の拡大が選ばれていた（しかもdetailReachも更新されなかった）
+                boolean budgetExhausted = !finalCoarseGuided && result.budgetExhausted();
                 // 距離上限は再挑戦の予約フラグより先に書くこと。クライアントスレッドは
                 // pendingCoarseGuideRetryを見た次の瞬間にrecalculateへ入り、そこでdetailReachを読んで
                 // 目標を選び直す。順序が逆だと、絞ったはずの上限が間に合わず、届かないと分かった
@@ -926,16 +1319,15 @@ public final class PathfindingState {
                 //
                 // 粗い経由地チェーンも計算資源を使い切った側。区間ごとの合算なのでhitNodeBudgetでは
                 // 拾えないが、発動条件が「直前がノード上限に当たった」なので予算切れなのは確定している
-                updateDetailReach(searchDimension, start, finalTarget, result, renderRadius,
-                        hitNodeBudget || finalCoarseGuided);
+                logSearchReach(start, finalTarget, result);
                 // 再挑戦の予約は、実際に発動できるときだけ立てる。どちらの再挑戦もrenderRadius以内の
                 // ゴールを前提にしている（箱を広げる側は広げ先がrenderRadius、粗い経由地チェーン側は
                 // 読み込み済みチャンクからしか粗い地図を作れない）。予約だけ立てて発動条件が
                 // 通らないと、次tickで同じ探索をやり直しては同じ予約を立て直す無限ループになる
                 boolean retryTargetInBox = horizontalDistance(start, finalTarget) <= renderRadius;
-                boolean needsWideRetry = !result.complete() && !hitNodeBudget && !finalCoarseGuided
+                boolean needsWideRetry = !result.complete() && !budgetExhausted && !finalCoarseGuided
                         && retryTargetInBox;
-                boolean needsCoarseGuideRetry = !result.complete() && hitNodeBudget && !finalCoarseGuided
+                boolean needsCoarseGuideRetry = !result.complete() && budgetExhausted && !finalCoarseGuided
                         && retryTargetInBox;
                 // 成功した・広げても無駄だったときは通常マージンに戻す。pendingWideRetryはこの書き込みの
                 // 後に立てること（クライアントスレッドはpendingWideRetryを見てからwideSearchNeededTargetを読む）
@@ -943,9 +1335,18 @@ public final class PathfindingState {
                 pendingWideRetry = needsWideRetry && !finalWideSearch;
                 coarseGuideNeededTarget = needsCoarseGuideRetry ? finalTarget : null;
                 pendingCoarseGuideRetry = needsCoarseGuideRetry;
-                if (needsCoarseGuideRetry) {
-                    LOGGER.info("XaeroNav: 展開ノード数の上限に当たりました。次tickで粗い経由地チェーンを試します"
-                            + " (目的地={})", finalTarget.toShortString());
+                if (needsCoarseGuideRetry && LOGGER.isDebugEnabled()) {
+                    // 予約を立てただけの行はdebugに留める。実際に何が起きたかは1秒後の
+                    // 「粗い経由地チェーンで再挑戦しました」が目標ごと記録している——予算切れが
+                    // 常態化する地形（ネザー）では、これをINFOに出すと同じ内容が3秒おきに3行ずつ並ぶ
+                    LOGGER.debug("XaeroNav: 展開ノード数の上限に当たりました。次tickで粗い経由地チェーンを試します"
+                            + " (目標={})", finalTarget.toShortString());
+                }
+                // 再挑戦の予約が残っている間はまだ手を尽くしていない。詰みの判定は、この探索に
+                // 対してできることを全部やり終えてからにする（さもないと、エスカレーションで
+                // 解決するはずの状況を先に詰みと決めつけてその再挑戦ごと止めてしまう）
+                if (!pendingWideRetry && !pendingCoarseGuideRetry) {
+                    noteSearchOutcome(start, endOf(result, start), result);
                 }
             }
             displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
@@ -964,9 +1365,11 @@ public final class PathfindingState {
      * だから継ぎ足しで失うものは無い——むしろ「毎回プレイヤーから、動く目標へ」引き直す方が
      * ジグザグを生む。
      *
-     * <p>継ぎ足せるのは末端が目標に<b>到達した</b>経路だけ。未到達の末端から伸ばすのは、
-     * 予算切れや行き止まりの続きを掘ることになるので、既存の再挑戦（範囲拡大・粗い経由地チェーン）
-     * に任せる。
+     * <p>継ぎ足しの<b>元</b>になれるのは末端が目標に到達した経路だけ（{@link #shouldExtend}）。
+     * 未到達の末端から更に伸ばすのは行き止まりの続きを掘ることになるので、既存の再挑戦
+     * （範囲拡大・粗い経由地チェーン）に任せる。一方で継ぎ足した<b>結果</b>が未到達だった場合は、
+     * そこまで引けたぶんを繋ぐ——{@link #recalculate}が暫定経路をそのまま見せるのと同じ扱いで、
+     * 合成後の{@code complete}がfalseになることで次からは自然に上のトリガーへ引き継がれる。
      */
     private void extendPath(DisplayedPath shown) {
         Minecraft mc = Minecraft.getInstance();
@@ -980,23 +1383,34 @@ public final class PathfindingState {
         BlockPos from = steps.get(steps.size() - 1).pos();
         boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        // 継続はワーカースレッドで走るので、プレイヤー・次元はここで写し取ってから渡す
+        BlockPos playerAt = player.blockPosition();
+        ResourceKey<Level> searchDimension = level.dimension();
 
-        DetailTarget detail = selectDetailTarget(from, currentGoal, renderRadius,
-                detailReachLimit(level.dimension(), renderRadius), boatAvailable);
+        // 末端基準の上限は、プレイヤー中心の読み込み済み正方形の「残り」で切る（extendLead参照）
+        int lead = extendLead(player, from, renderRadius);
+        // 探索の地平と、読み込み済みチャンクの残りの小さい方。どちらも地形の実測ではないので、
+        // かつての detailReach のように成功／失敗で振動することがない
+        int reach = Math.min(detailHorizon(renderRadius), lead);
+        DetailTarget detail = selectDetailTarget(from, currentGoal, lead, reach, boatAvailable, false,
+                shown.waypointIndex());
         BlockPos target = detail.target();
-        if (target.equals(from)) {
-            // これ以上伸ばす先が無い。歯止めを立てないと、shouldExtendが毎tick真を返し続け、
-            // そのたびにselectDetailTarget（＝メインスレッドの地図読み）を回すことになる
-            extendBlockedAt = from;
+        if (target.equals(from) || horizontalDistance(from, target) > lead) {
+            // これ以上伸ばす先が無いか、伸ばす先が読み込み済みチャンクの外（中間目標が1つも
+            // 残りの中に無いとselectDetailTargetは本来の目的地へフォールバックする）。
+            // 歯止めを立てないと、shouldExtendが毎tick真を返し続け、そのたびに
+            // selectDetailTarget（＝メインスレッドの地図読み）を回すことになる
+            blockExtend(from, playerAt);
             return;
         }
 
         SearchBounds bounds = SearchBounds.around(level, from, target,
                 XaeroNavConfig.INSTANCE.searchHorizontalMargin(),
-                XaeroNavConfig.INSTANCE.searchVerticalMargin(), renderRadius);
+                verticalSearchMargin(level, false), renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
+                XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
                 AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());
@@ -1005,7 +1419,9 @@ public final class PathfindingState {
         computing = true;
         boolean reachesGoal = target.equals(currentGoal);
         int newWaypointIndex = reachesGoal ? -1 : detail.waypointIndex();
-        executor.submit(view, from, target, limits).whenComplete((result, error) -> {
+        boolean costToGoGuideEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
+        executor.submit(view, from, target, limits, costToGoGuideEnabled, detail.goalRadius())
+                .whenComplete((result, error) -> {
             if (generation.get() != myGeneration) {
                 return;
             }
@@ -1022,16 +1438,45 @@ public final class PathfindingState {
             if (current != shown || !currentGoal.equals(goal)) {
                 return;
             }
-            if (!result.complete() || result.steps().isEmpty()) {
-                // 末端から先へ進めなかった。手前の経路はそのまま残し、通常の再計算に委ねる
-                // （行き止まりならそこで初めて経路全体を引き直す＝大幅変更）
-                extendBlockedAt = from;
-                rerouteNoticeTicks = REROUTE_NOTICE_TICKS;
+            logSearchReach(from, target, result);
+            List<PathStep> tail = result.steps();
+            if (result.complete()) {
+                // 継ぎ足しが狙った先まで届いた＝前へ出られている。詰みの目印はここで落とす。
+                // 届かなかったことは逆に詰みの根拠にしない——継ぎ足しの失敗はたいていその先が
+                // まだ未ロードなだけで、表示中の経路はそのまま歩ける。「ここから目的地へ行けるか」
+                // に答えているのはプレイヤーから引き直す側（recalculate）だけ
+                noteSearchOutcome(playerAt, endOf(result, from), result);
+            }
+            if (tail.isEmpty()) {
+                // 1歩も進めなかった。手前の経路はそのまま残し、通常の再計算に委ねる
+                blockExtend(from, playerAt);
+                return;
+            }
+            // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
+            // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
+            displayed = append(current, result, newWaypointIndex, reachesGoal);
+            if (!result.complete()
+                    && horizontalDistance(from, tail.get(tail.size() - 1).pos()) < MIN_EXTEND_PROGRESS_BLOCKS) {
+                // 予算切れの末端からは伸ばしてよいが、ほとんど前へ出ていないならそれ以上は無駄。
+                // selectFallbackは「始点から5ブロック以上離れた最良点」を返すので、行き止まりの
+                // 袋小路でも毎回わずかに進んだ経路が返る——歯止めが無いと数ブロックずつ這い続ける
+                blockExtend(from, playerAt);
                 return;
             }
             extendBlockedAt = null;
-            displayed = append(current, result, newWaypointIndex, reachesGoal);
+            extendBlockedFrom = null;
         });
+    }
+
+    /**
+     * この末端からは伸ばせなかった、と記録する。{@link #EXTEND_RETRY_MOVE_BLOCKS}ぶん歩けば失効する。
+     *
+     * <p>ここで「経路を引き直しました」の通知は出さない。手前の経路は1ブロックも変わっておらず、
+     * ユーザーから見て変化が無いのに警告だけ点滅することになる。
+     */
+    private void blockExtend(BlockPos end, BlockPos playerAt) {
+        extendBlockedAt = end;
+        extendBlockedFrom = playerAt;
     }
 
     /**
@@ -1047,7 +1492,7 @@ public final class PathfindingState {
         // completeは「この経路が狙った先まで届いたか」であって「最終目的地に着いたか」ではない
         // （中間目標へ向かう経路も、その中間目標に届いていればcomplete）。ここを reachesGoal に
         // すると、継ぎ足した瞬間に未到達扱いになってshouldExtendが止まり、1回しか伸びなくなる
-        PathResult combined = new PathResult(List.copyOf(merged), tail.complete(),
+        PathResult combined = new PathResult(List.copyOf(merged), tail.termination(),
                 tail.expandedNodes(), tail.distinctNodes());
         List<PathSegment> segments = new ArrayList<>(current.segments());
         segments.add(new PathSegment(merged.size() - 1, tailWaypointIndex));
@@ -1069,97 +1514,66 @@ public final class PathfindingState {
      * 失敗し続けた（粗い経由地チェーンが毎回0ステップ＝「経路が見つかりません」）。
      */
     private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
-                                             int reach, boolean boatAvailable) {
+                                             int reach, boolean boatAvailable, boolean playerAnchored,
+                                             int minWaypointIndex) {
         if (horizontalDistance(start, currentGoal) <= reach || !XaeroPresence.mapPresent()) {
-            return new DetailTarget(currentGoal, -1);
+            return new DetailTarget(currentGoal, -1, 0);
         }
         DetailTarget target = reachableWaypointTarget(start, currentGoal,
-                cachedOrFreshRoute(start, currentGoal, boatAvailable), renderRadius, reach);
+                cachedOrFreshRoute(start, currentGoal, boatAvailable), renderRadius, reach, playerAnchored,
+                minWaypointIndex);
         if (target != null) {
             return target;
+        }
+        if (!playerAnchored) {
+            // 継ぎ足しはルートの持ち主ではない。ここでfreshRouteを呼ぶと、末端の位置を始点に
+            // 長距離ルートごと引き直すことになり、層2の精緻化も投げ直されて手前の案内が入れ替わる
+            return new DetailTarget(currentGoal, -1, 0);
+        }
+        CoarseRoute inFlight = refiningRoute;
+        if (inFlight != null && inFlight.goal().equals(currentGoal)) {
+            // 層2の精緻化がまさにこの目的地に対して進行中。ここで引き直すとその結果を捨てて
+            // 同じ状況をやり直すだけになる——描画距離が小さい環境では層1の96ブロック間隔が
+            // 1つも届かず必ずここへ来るので、素通しにすると「0.5秒ごとにメインスレッドで
+            // 地図を読み直しては精緻化を捨てる」ループに入り、精緻版が永久に完成しない。
+            // 完成すればpendingRefinedRouteReadyが引き直しをかけ、24ブロック間隔のwaypointが
+            // 届くようになる。それまでは長距離ルートを挟まない従来動作へ落とす
+            return new DetailTarget(currentGoal, -1, 0);
+        }
+        CoarseRoute cached = coarseRoute;
+        if (cached != null && cached.goal().equals(currentGoal)
+                && horizontalDistance(start, cached.computedFrom()) < COARSE_ROUTE_RETRY_MOVE_BLOCKS) {
+            // 引き直したところで同じルートになる。層1の引き直しはメインスレッドでの地図読みと
+            // 層1A*2回ぶんで、届く中間目標が1つも無い間はそれを毎回の再計算で払うことになる
+            return new DetailTarget(currentGoal, -1, 0);
         }
         // キャッシュ済みのwaypointが1つも描画距離内に届かない＝大きく迂回して経路から外れた。
         // 目的地は変わっていないのでキャッシュは効くはずだが、地形は不変でも自分の位置は変わるので、
         // 今の位置を始点に引き直す（地形が変わらない限り引き直さない、という原則の唯一の例外）
         target = reachableWaypointTarget(start, currentGoal, freshRoute(start, currentGoal, boatAvailable),
-                renderRadius, reach);
-        return target != null ? target : new DetailTarget(currentGoal, -1);
+                renderRadius, reach, true, minWaypointIndex);
+        return target != null ? target : new DetailTarget(currentGoal, -1, 0);
     }
 
     /**
-     * detail-targetまでの許容距離。まだ実績が無い・別次元で測った値しか無いときはrenderRadius
-     * （楽観的に始めて、届かなかった実績が出た時点で絞る）。
-     */
-    private int detailReachLimit(ResourceKey<Level> dimension, int renderRadius) {
-        int measured = detailReach;
-        if (measured <= 0 || !dimension.equals(detailReachDimension)) {
-            return renderRadius;
-        }
-        return Math.min(renderRadius, measured);
-    }
-
-    /**
-     * 詳細探索が実際にどこまで経路を引けたかを、次回のdetail-target選定の上限へ反映する。
+     * この探索がどこまで引けたかを記録に残す。かつてはこれを次回の目標距離の上限
+     * （{@code detailReach}）へ反映していたが、その仕組みは廃止した——プレイヤー周辺の
+     * 既踏地形で測った値を、経路の末端から未踏地形へ伸ばす探索の上限にも使っていたため、
+     * 「プレイヤー基準で成功して上がる → 末端基準で同じ値に失敗して下がる」を交互に
+     * 繰り返して収束しなかった（実機ログで 24→48→24→48… が規則的に並んだ）。
+     * 目標距離が変わるたびに経路が引き直されるので、これがそのまま「行ったり来たり」に見える。
      *
-     * <p>計算資源を使い切って未到達だった回は、そのとき引けた距離が「この地形・この予算で届く距離」の
-     * 実測値そのもの。予算を余らせたまま未到達だった回（＝本当に道が無い）は到達距離の情報を持たない
-     * ので触らない。
-     *
-     * <p>上げる側と下げる側は対称ではない。上限を上げて外すと探索1回（既定10万ノード）を捨てるうえ、
-     * 目標は経路上の補間点なので<b>表示される経路ごと引き直される</b>——上限が上下すると案内が
-     * 行ったり来たりして見える。低すぎる場合の損は再計算が増えるだけなので、上げるには根拠が要る。
+     * <p>いまは目標を「読み込み済みチャンクの縁」に置き、届かなければ部分経路をそのまま
+     * 案内に使う（打ち切り時も最良の部分経路が返る）。当てにいく数値そのものが無くなった。
      */
-    private void updateDetailReach(ResourceKey<Level> dimension, BlockPos start, BlockPos target,
-                                    PathResult result, int renderRadius, boolean budgetExhausted) {
-        List<PathStep> steps = result.steps();
-        if (steps.isEmpty()) {
+    private static void logSearchReach(BlockPos start, BlockPos target, PathResult result) {
+        if (!LOGGER.isDebugEnabled() || result.steps().isEmpty()) {
             return;
         }
-        boolean sameDimension = dimension.equals(detailReachDimension);
-        int previous = sameDimension && detailReach > 0 ? detailReach : renderRadius;
-        double targetDistance = horizontalDistance(start, target);
-        int updated;
-        if (result.complete()) {
-            // 上限よりずっと手前の目標に届いただけでは、上限そのものを試したことにはならない
-            if (targetDistance < previous - DETAIL_REACH_GROWTH_BLOCKS) {
-                return;
-            }
-            // 測定した場所から実際に離れるまでは上げない。同じ場所で上げ下げを繰り返すと、
-            // 目標の距離が毎回変わって経路が揺れる。離れた先は別の地形なので測り直す価値がある
-            BlockPos measuredAt = sameDimension ? detailReachMeasuredAt : null;
-            if (measuredAt != null && horizontalDistance(start, measuredAt) < previous) {
-                return;
-            }
-            updated = previous + DETAIL_REACH_GROWTH_BLOCKS;
-        } else if (budgetExhausted) {
-            double achieved = horizontalDistance(start, steps.get(steps.size() - 1).pos());
-            // 目標のすぐ手前まで引けているなら、上限が間違っているわけではない。目標は常に上限
-            // ちょうどに置くので、ここで数ブロックだけ縮めると次はその距離でまた僅差で失敗し…と
-            // 1ブロックずつ際限なく下がり続ける。そのたびに目標が動いて経路が引き直されるため、
-            // 案内が落ち着かない（実機で 122→116→115→114→113→110… と毎秒変わった）。
-            // 部分経路は案内として十分使えるので、大きく足りなかったときだけ測り直す
-            if (achieved * 2 >= targetDistance) {
-                return;
-            }
-            updated = (int) Math.round(achieved);
-        } else {
-            return;
-        }
-        // 下限より描画距離を優先する（描画距離を極端に下げた環境では renderRadius < 下限 になりうる。
-        // そこで下限を勝たせると、読み込まれてすらいないチャンクを目標に選ぶ元の失敗そのものになる）
-        int clamped = Math.min(renderRadius, Math.max(MIN_DETAIL_REACH_BLOCKS, updated));
-        if (clamped != detailReach || !sameDimension) {
-            // 案内が「なぜか近くしか指さない」ときに、絞られた結果なのかを確かめる唯一の手段。
-            // 落ち着けば変化しなくなるので、変わった時だけならinfoでも流れない。
-            // 目標の距離と現在地まで出さないと、上限・到達実績・目標の向きを突き合わせられない
-            LOGGER.info("XaeroNav: detail-targetの距離上限を更新しました"
-                            + " ({} → {} ブロック, 目標 {} ({} ブロック先), 現在地 {}, 到達={})",
-                    detailReach, clamped, target.toShortString(), Math.round(targetDistance),
-                    start.toShortString(), result.complete());
-        }
-        detailReach = clamped;
-        detailReachMeasuredAt = start;
-        detailReachDimension = dimension;
+        BlockPos end = result.steps().get(result.steps().size() - 1).pos();
+        LOGGER.debug("XaeroNav: 詳細探索 (目標 {} ({} ブロック先), 実到達 {} ブロック, {}, 展開 {})",
+                target.toShortString(), Math.round(horizontalDistance(start, target)),
+                Math.round(horizontalDistance(start, end)), result.termination(), result.expandedNodes());
     }
 
     /**
@@ -1169,13 +1583,12 @@ public final class PathfindingState {
      * 空振りする。精緻版は{@link #REFINED_WAYPOINT_MIN_SPACING_BLOCKS}間隔なのでここを埋められる。
      */
     private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable) {
-        RefinedRoute refined = refinedRoute;
-        if (refined != null && refined.goal().equals(currentGoal)) {
-            return refined.waypoints();
-        }
         CoarseRoute cached = coarseRoute;
-        return cached != null && cached.goal().equals(currentGoal)
-                ? cached.waypoints() : freshRoute(start, currentGoal, boatAvailable);
+        if (cached == null || !cached.goal().equals(currentGoal)) {
+            return freshRoute(start, currentGoal, boatAvailable);
+        }
+        RefinedRoute refined = refinedRoute;
+        return refined != null && refined.source() == cached ? refined.waypoints() : cached.waypoints();
     }
 
     private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable) {
@@ -1186,9 +1599,19 @@ public final class PathfindingState {
             // 最後だけ本来の目的地に差し替える
             waypoints = replaceLast(waypoints, currentGoal);
         }
-        coarseRoute = new CoarseRoute(currentGoal, waypoints);
+        CoarseRoute thisRoute = new CoarseRoute(currentGoal, start, route.reachedGoal(), waypoints);
+        coarseRoute = thisRoute;
+        // 新しい列では添字の意味が変わる。引き直しは今の位置を始点にするので、先頭が通過済みに
+        // なることはない
+        passedWaypoints = 0;
+        // 古い世代の精緻化結果はここでnullにしない。読み出し側がRefinedRoute.source()で
+        // 由来元を検査するので、世代が違えば自動的に無視される——ここで消すと、まだ有効な
+        // 精緻版まで一緒に落ちる
+        // 経路が引けなかった世代でも必ず入れ替える。ここを条件付きにすると、前の世代の目印が
+        // 残ったままになって「精緻化が進行中」の判定が永久に真になる
+        refiningRoute = waypoints.isEmpty() ? null : thisRoute;
         if (!waypoints.isEmpty()) {
-            refineRouteAsync(start, currentGoal, waypoints);
+            refineRouteAsync(start, currentGoal, waypoints, thisRoute);
         }
         return waypoints;
     }
@@ -1208,8 +1631,16 @@ public final class PathfindingState {
      *
      * <p>区間ごとに地表データが無ければ、その区間だけ生のwaypoint1点にフォールバックする
      * （区間単位の段階的劣化——1区間のデータ欠如で経路全体の精緻化を諦めない）。
+     *
+     * <p>{@code forRoute}は「この精緻化がどの{@link #coarseRoute}世代に属すか」の目印。
+     * {@code goal}の一致だけでは、同じ目的地へ引き直した（{@code clear()}後に同じ座標へ
+     * 再度向かった等）場合に、古い世代の精緻化が新しい{@link #coarseRoute}を追い越して完了して
+     * 上書きするのを検出できない——目的地の座標は変わっていないので一致判定を素通りしてしまう。
+     * {@code coarseRoute}フィールドが今も{@code forRoute}と同一インスタンスかを見ることで、
+     * 世代を問わず正しく検出する（{@link #freshRoute}が呼ばれるたびに新しいインスタンスを作るため）。
      */
-    private void refineRouteAsync(BlockPos start, BlockPos currentGoal, List<BlockPos> waypoints) {
+    private void refineRouteAsync(BlockPos start, BlockPos currentGoal, List<BlockPos> waypoints,
+                                  CoarseRoute forRoute) {
         List<BlockPos> legs = new ArrayList<>();
         legs.add(start);
         legs.addAll(waypoints);
@@ -1229,14 +1660,18 @@ public final class PathfindingState {
             }));
         }
         chain.whenComplete((legPoints, error) -> {
-            if (error != null || !currentGoal.equals(goal)) {
-                // 目的地が変わっていた・失敗した場合は何もしない。今のcoarseRoute/goalが
-                // そのまま使われる（発動条件が一つでも欠けたら従来動作へフォールバック、と同じ考え方）
+            if (refiningRoute == forRoute) {
+                refiningRoute = null;
+            }
+            if (error != null) {
                 return;
             }
             List<BlockPos> stitched = CorridorWaypoints.stitch(legPoints);
             List<BlockPos> downsampled = CorridorWaypoints.downsample(stitched, REFINED_WAYPOINT_MIN_SPACING_BLOCKS);
-            refinedRoute = new RefinedRoute(currentGoal, downsampled);
+            // 世代の検査はここではなく読み出し側（RefinedRoute.source()）で行う。ここで
+            // 「検査してから書き込む」形にすると、その間に世代が進んだ場合に古い精緻版が
+            // 素通りする（stitch/downsampleは点列全体を走査するので、その隙間は実時間で開く）
+            refinedRoute = new RefinedRoute(currentGoal, forRoute, downsampled);
             pendingRefinedRouteReady = true;
         });
     }
@@ -1258,13 +1693,18 @@ public final class PathfindingState {
      * 描画距離まで読み込み済みとは限らないうえ、同じ予算で解ける距離は地形の密度で何倍も変わる。
      */
     private DetailTarget reachableWaypointTarget(BlockPos start, BlockPos currentGoal,
-                                                  List<BlockPos> waypoints, int renderRadius, int reach) {
+                                                  List<BlockPos> waypoints, int renderRadius, int reach,
+                                                  boolean playerAnchored, int minWaypointIndex) {
         int farthestInRadius = -1;
         int farthestInReach = -1;
         int nearestInRadius = -1;
         int previouslyAimed = -1;
         double nearestDistance = Double.MAX_VALUE;
-        BlockPos aimedBefore = lastAimedWaypoint;
+        // 後戻りの歯止めは2系統ある。プレイヤー基準は「前回向いていた点」を座標で覚える
+        // （lastAimedWaypoint）。継ぎ足し（始点＝経路の末端）は末端の区間が向かっている添字を
+        // 下限にする——両者で同じフィールドを共有すると、末端が数区間先まで進んだあとの歯止めが
+        // プレイヤー基準の選定を遠い添字へ固定してしまい、今いる場所に合った点を選び直せなくなる
+        BlockPos aimedBefore = playerAnchored ? lastAimedWaypoint : null;
         for (int i = 0; i < waypoints.size(); i++) {
             BlockPos waypoint = waypoints.get(i);
             if (waypoint.equals(aimedBefore)) {
@@ -1288,34 +1728,93 @@ public final class PathfindingState {
         }
         // reach内に1つも無ければ最寄りのwaypointを向く。そのまま狙うと遠すぎるが、下で手前に切る
         int farthestIndex = farthestInReach >= 0 ? farthestInReach : nearestInRadius;
-        // ルート上で後ろへは戻らない。reachがwaypoint間隔（層1で96ブロック）より短いと上の選定は
+        // ルート上で後ろへは戻らない。reachがwaypoint間隔（層1で最大90ブロック）より短いと上の選定は
         // ほぼ必ず「最寄り」に落ちるが、waypointを通り過ぎた直後はそれが背後にある——そのまま狙うと
         // 引き返す案内になる（実機で確認: 前進する目標と背後の目標が交互に出て行ったり来たりした）。
-        // 経路から大きく外れてルートを引き直した場合は前回の点が新しい列に無いので、この歯止めは外れる
-        farthestIndex = Math.max(farthestIndex, previouslyAimed);
-        // 選んだ点が近すぎる（waypointの真上に立っている等）と長さ0の経路しか出せない。
-        // 前へ進む目標を必ず確保するため、この場合だけ1つ先を採る
-        if (horizontalDistance(start, waypoints.get(farthestIndex)) < REFINED_WAYPOINT_MIN_SPACING_BLOCKS) {
-            farthestIndex = Math.min(farthestIndex + 1, farthestInRadius);
+        // 経路から大きく外れてルートを引き直した場合は前回の点が新しい列に無いので、この歯止めは外れる。
+        //
+        // renderRadiusの外まで引きずってはいけない。歯止めは「まだ手前にある点を掴まない」ためのもので、
+        // もう届かない遠い点へ目標を固定するためのものではない
+        farthestIndex = Math.max(farthestIndex, Math.min(previouslyAimed, farthestInRadius));
+        if (!playerAnchored) {
+            // 継ぎ足しは末端が向かっている区間より手前を狙ってはいけない。下の「最寄り」
+            // フォールバックは通り過ぎた点を掴みうるので、これが無いと経路が自分の後ろへ
+            // 折り返して伸びる（実機で、末端245,-332から96ブロック後ろの159,-375へ継ぎ足していた）。
+            // 下限がrenderRadiusの外なら、そこへ向かう道の上のreach地点（下のpointAlongRoute）が目標になる
+            farthestIndex = Math.max(farthestIndex, Math.min(minWaypointIndex, waypoints.size() - 1));
+        }
+        // ここまでの歯止めは「手前を狙わない」ための下限。手前に切るときに辿る折れ線は、
+        // この地点から先だけを通す——歯止めが飛ばした中間目標は自分より後ろにあるので、
+        // 折れ線に含めると目標が背後へ寄ってしまう
+        int routeFrom = farthestIndex;
+        // 選んだ点が近すぎると長さ0の経路しか出せない。ゴールを領域にしたぶん、始点がその領域の
+        // 中に入っていれば探索は始点ノードを取り出した瞬間に到達扱いで終わる——閾値は
+        // 「間引き間隔」ではなく「半径＋間引き間隔」で見ないと、0ステップが多発する
+        if (horizontalDistance(start, waypoints.get(farthestIndex))
+                < WAYPOINT_GOAL_RADIUS_BLOCKS + REFINED_WAYPOINT_MIN_SPACING_BLOCKS) {
+            // 前へ出すための調整なので、歯止めより手前へ戻してはいけない
+            farthestIndex = Math.max(farthestIndex, Math.min(farthestIndex + 1, farthestInRadius));
         }
         BlockPos aim = waypoints.get(farthestIndex);
-        lastAimedWaypoint = aim;
-        // 本来の目的地（replaceLastで置き換わった最終waypoint）は{@link #setGoal}で既に立てる座標へ
-        // 解決済み。到達判定は座標の完全一致なので、ここで手前に切ると永久に到着しなくなる
-        if (aim.equals(currentGoal)) {
-            return new DetailTarget(aim, farthestIndex);
-        }
-        // waypointの間隔（層1で96ブロック）はreachより長いことがある。層2が使えない次元では
-        // 間隔を詰めることもできないので、waypointを飛ばすのではなく、そこへ向かう線上の
-        // reach地点を目標にする。waypointIndexは向かっている先を指したままなので、HUDの
-        // カウンタも地図の点線（未通過ぶんだけを描く）もずれない
         double distance = horizontalDistance(start, aim);
-        BlockPos target = distance > reach ? pointAlong(start, aim, distance, reach) : aim;
-        return new DetailTarget(resolveWaypointOnSurface(target), farthestIndex);
+        // 本来の目的地は歯止めに使わない。ルートを引き直しても最後の要素は必ず目的地なので、
+        // ここへ一度触れると「新しい列に無ければ歯止めが外れる」という逃げ道が永久に塞がる——
+        // 以降どれだけ離れても目的地そのものを狙い続け、詳細探索は毎回予算を焼くことになる
+        // （実機ログ: 291ブロック先の目的地を数秒おきに20万ノードで狙い続けていた）
+        if (playerAnchored && !aim.equals(currentGoal)) {
+            lastAimedWaypoint = aim;
+        }
+        // 本来の目的地（replaceLastで置き換わった最終waypoint）は{@link #setGoal}で既に立てる座標へ
+        // 解決済み。到達判定は座標の完全一致なので、届く距離にあるなら手前に切ってはいけない
+        // （切ると永久に到着しなくなる）。逆に届かない距離なら、他のwaypointと同じく手前へ切る——
+        // 一度に解けない距離を目標にしても予算を焼くだけで、到着判定はゴールそのものを見ている
+        if (aim.equals(currentGoal) && distance <= reach) {
+            // 本来の目的地は動かせない。ユーザーが指した点そのものなので半径0
+            return new DetailTarget(aim, farthestIndex, 0);
+        }
+        // waypointの間隔は詳細探索が一度に狙う距離より短く保ってあるので（CoarseRouterの
+        // WAYPOINT_SPACING_CELLS参照）、普通はここで手前に切る必要は無い。切るのは、近すぎる
+        // waypointを1つ飛ばした直後と、ルートから大きく外れて手近な点が1つも無いとき。
+        // waypointIndexは向かっている先を指したままなので、HUDのカウンタも地図の点線
+        // （未通過ぶんだけを描く）もずれない
+        boolean interpolated = distance > reach;
+        BlockPos target = interpolated ? pointAlongRoute(start, waypoints, routeFrom, farthestIndex, reach) : aim;
+        return new DetailTarget(resolveWaypointOnSurface(target), farthestIndex,
+                interpolated ? INTERPOLATED_GOAL_RADIUS_BLOCKS : WAYPOINT_GOAL_RADIUS_BLOCKS);
+    }
+
+    /**
+     * {@code start}から粗いルートの折れ線（{@code waypoints[fromIndex..aimIndex]}）に沿って、
+     * 水平距離{@code reach}だけ進んだ点。
+     *
+     * <p><b>始点から目標waypointへの直線で測ってはいけない。</b>層1が決めているのは「どこを通るか」で、
+     * その直線はルートが曲がっている所で角を大きく切り落とす——切った先は層1が避けた地形
+     * （溶岩の海など）で、そこに人工的な目標が落ちる。詳細探索は橋を架けてでもそこへ寄っていき、
+     * 通り過ぎてから本来の道へ戻るので、ユーザーからは「もっと良い道があるのに中継地点へ
+     * 寄り道してから進む」に見える（実機ログ: 目標が常に始点からちょうどreach=96の位置に出て、
+     * 経路に橋が30本前後——{@code maxBridgeRunBlocks}の上限張り付き——乗っていた）。
+     *
+     * <p>{@code fromIndex}の点が数ブロック手前に過ぎ去っていても構わない。折れ線の長さが
+     * その分だけ伸びて目標がわずかに手前へ寄るだけで、目標がルートから外れることはない。
+     */
+    private static BlockPos pointAlongRoute(BlockPos start, List<BlockPos> waypoints, int fromIndex,
+                                             int aimIndex, double reach) {
+        BlockPos cursor = start;
+        double remaining = reach;
+        for (int i = Math.max(0, fromIndex); i <= aimIndex; i++) {
+            BlockPos next = waypoints.get(i);
+            double leg = horizontalDistance(cursor, next);
+            if (leg >= remaining) {
+                return pointAlong(cursor, next, leg, remaining);
+            }
+            remaining -= leg;
+            cursor = next;
+        }
+        return waypoints.get(aimIndex);
     }
 
     /** {@code from}から{@code to}へ向かう線上で、水平距離{@code reach}だけ進んだ点。Yも比例配分する。 */
-    private static BlockPos pointAlong(BlockPos from, BlockPos to, double distance, int reach) {
+    private static BlockPos pointAlong(BlockPos from, BlockPos to, double distance, double reach) {
         double ratio = reach / distance;
         return new BlockPos(
                 (int) Math.round(from.getX() + (to.getX() - from.getX()) * ratio),
@@ -1346,21 +1845,23 @@ public final class PathfindingState {
      * 始点と終点を含むバウンディングボックス+{@link #COARSE_ROUTE_PADDING_CHUNKS}の範囲でXaeroの
      * 地図データを読み、{@link CoarseRouter}で中間目標列を引く。
      *
-     * <p>溶岩の扱いを3段階でエスカレーションする。層1が溶岩地帯を突っ切ると決めると、そのwaypointへは
+     * <p>溶岩の扱いを2段階でエスカレーションする。層1が溶岩地帯を突っ切ると決めると、そのwaypointへは
      * 詳細探索が原理的に到達できない（溶岩の上は歩けない）ため、ネザーの溶岩の海の縁で詰む:
      *
      * <ol>
      *   <li>{@link CoarseRouter.LavaPolicy#AVOID} — 溶岩を完全に避ける。大きく迂回・後戻りする道が
      *       あればA*が見つける</li>
-     *   <li>参照Yを変えて{@code AVOID}をやり直す。ネザーでは地図がY帯ごとのレイヤーに分かれており、
-     *       参照Yを変えると見える地形そのものが変わる（{@link XaeroMapReader#referenceYCandidates}）</li>
      *   <li>{@link CoarseRouter.LavaPolicy#BRIDGE} — 橋を架けて渡る前提で通す。最後の手段だが詰むよりはマシ</li>
      * </ol>
      *
-     * <p>重いのは{@link CoarseRouter}のA*ではなく{@link XaeroMapReader#readSurface}（メインスレッド）
-     * なので、最初の参照Yの地図は1回だけ読んで{@code AVOID}と{@code BRIDGE}で使い回す。再読み込みが
-     * 要るのは高さ再挑戦だけで、そこに{@link #MAX_REFERENCE_Y_ATTEMPTS}を掛ける。この梯子が走るのは
-     * {@link #freshRoute}（目的地ごとにキャッシュ）のときだけで毎tickではない。
+     * <p>地図は1回だけ読んで{@code AVOID}と{@code BRIDGE}で使い回す（{@link XaeroMapReader#readSurface}が
+     * メインスレッドで重いため）。この梯子が走るのは{@link #freshRoute}（目的地ごとにキャッシュ）の
+     * ときだけで毎tickではない。
+     *
+     * <p>以前はここに参照Yを変えて読み直す3段の梯子もあった（{@link CoarseMap}が1セル1階層
+     * しか持てず、天井のある次元で見える地形が参照Y次第で変わっていたため）。{@link CoarseMap}が
+     * 複数の床を同時に持てるようになったので、1回の{@code readSurface}で参照Y付近の全レイヤーが
+     * 床として揃い、梯子は不要になった。
      */
     private static CoarseRouter.Route computeCoarseRoute(BlockPos start, BlockPos goal, boolean boatAvailable) {
         int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - COARSE_ROUTE_PADDING_CHUNKS;
@@ -1369,40 +1870,26 @@ public final class PathfindingState {
         int maxChunkZ = (Math.max(start.getZ(), goal.getZ()) >> 4) + COARSE_ROUTE_PADDING_CHUNKS;
         int chunksX = maxChunkX - minChunkX + 1;
         int chunksZ = maxChunkZ - minChunkZ + 1;
-        if (chunksX > COARSE_ROUTE_MAX_SPAN_CHUNKS || chunksZ > COARSE_ROUTE_MAX_SPAN_CHUNKS) {
+        if (chunksX > COARSE_ROUTE_MAX_SPAN_CHUNKS || chunksZ > COARSE_ROUTE_MAX_SPAN_CHUNKS
+                || (long) chunksX * chunksZ * CoarseMap.MAX_FLOORS > COARSE_ROUTE_MAX_STATES) {
             return new CoarseRouter.Route(List.of(), false);
         }
 
         int referenceY = (start.getY() + goal.getY()) / 2;
-        CoarseMap firstMap = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
-        CoarseRouter.Route best = CoarseRouter.findRoute(firstMap, start, goal, boatAvailable,
+        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
+        CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.LavaPolicy.AVOID);
-        if (best.reachedGoal()) {
-            return best;
+        if (avoided.reachedGoal()) {
+            return avoided;
         }
 
-        List<Integer> candidates = XaeroMapReader.referenceYCandidates(referenceY, MAX_REFERENCE_Y_ATTEMPTS);
-        // 先頭は referenceY 自身（読み済み）なので飛ばす
-        for (int i = 1; i < candidates.size(); i++) {
-            int candidateY = candidates.get(i);
-            CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, candidateY);
-            CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, boatAvailable,
-                    CoarseRouter.LavaPolicy.AVOID);
-            if (route.reachedGoal()) {
-                LOGGER.info("XaeroNav: 参照Yを{}へ変えて溶岩を避ける長距離ルートが引けました (元の参照Y={})",
-                        candidateY, referenceY);
-                return route;
-            }
-            best = furtherRoute(best, route);
-        }
-
-        CoarseRouter.Route bridged = CoarseRouter.findRoute(firstMap, start, goal, boatAvailable,
+        CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.LavaPolicy.BRIDGE);
         if (bridged.reachedGoal()) {
             LOGGER.info("XaeroNav: 溶岩を避ける道が見つからないため、橋を架けて渡る長距離ルートに切り替えました");
             return bridged;
         }
-        return furtherRoute(best, bridged);
+        return furtherRoute(avoided, bridged);
     }
 
     /** 目的地まで届かなかったルート同士の比較。中間目標が多い方＝より遠くまで進めた方を採る。 */
@@ -1420,6 +1907,24 @@ public final class PathfindingState {
         double dx = a.getX() - b.getX();
         double dz = a.getZ() - b.getZ();
         return Math.sqrt(dx * dx + dz * dz);
+    }
+
+    /**
+     * 探索範囲の垂直マージン。既定の{@code searchVerticalMargin}は水平マージンと違って
+     * 一度も広がらず、天井のある次元（ネザー）ではこれが致命的になる——既定32だとY方向
+     * 65ブロック厚のスライスしか見えず、溶岩の海を上下に大きく迂回する経路がそもそも
+     * 探索範囲の外という理由だけで存在しなくなる（箱の外は掘れない壁として扱われるため）。
+     *
+     * <p>天井のある次元は{@code getHeight()}自体が高々128前後しかないので、常に全高を
+     * 使っても探索コストは些細。{@code widen}（水平と同じ再挑戦トリガー）でも同様に広げる——
+     * 「範囲が狭くて届かない」という失敗のしかたを、垂直方向でも取り除く。
+     */
+    static int verticalSearchMargin(Level level, boolean widen) {
+        int configured = XaeroNavConfig.INSTANCE.searchVerticalMargin();
+        if (level.dimensionType().hasCeiling() || widen) {
+            return Math.max(configured, level.getHeight());
+        }
+        return configured;
     }
 
     /**
@@ -1451,6 +1956,32 @@ public final class PathfindingState {
         BlockPos failedAt = surfaceLegFailedAt;
         return failedAt == null
                 || failedAt.distSqr(start) > SURFACE_RETRY_MOVE_BLOCKS * SURFACE_RETRY_MOVE_BLOCKS;
+    }
+
+    /**
+     * 目的地へ行けないと判断した理由。HUDの文言・チャットの通知・ログで共有する。
+     *
+     * <p>文言のキーを列挙側に持たせるのは、理由を増やしたときに翻訳キーの追加が同じ場所で
+     * 要求されるようにするため（HUD側でswitchすると、片方だけ増えても黙って通る）。
+     */
+    public enum StuckReason {
+        /** 探索範囲の中に到達手段が無いことが証明された（オープンセットが尽きた）。 */
+        NO_WAY_THROUGH("hud.xaeronav.unreachable_blocked"),
+        /** 資源を使い切っても近づけない。地形が複雑すぎて詳細探索が解き切れない。 */
+        SEARCH_TOO_HARD("hud.xaeronav.unreachable_too_hard"),
+        /** 粗い地図（Xaeroの地図データ）の上で、目的地まで繋がっていない。 */
+        UNMAPPED("hud.xaeronav.unreachable_unmapped");
+
+        private final String hintKey;
+
+        StuckReason(String hintKey) {
+            this.hintKey = hintKey;
+        }
+
+        /** 原因と、そこからユーザーが取れる手を1行にまとめた文言のキー。 */
+        public String hintKey() {
+            return hintKey;
+        }
     }
 
     /** 表示中の経路が向かう先の種類。 */
@@ -1505,14 +2036,35 @@ public final class PathfindingState {
 
     /**
      * 長距離ルートの中間目標のキャッシュ。地形は不変なので、目的地が変わらない限り引き直さない。
+     *
+     * @param computedFrom このルートを引いたときの始点。同じ場所からの引き直しは同じ結果になるので、
+     *         それを避けるための照合に使う（{@link #COARSE_ROUTE_RETRY_MOVE_BLOCKS}）
+     * @param reachedGoal 粗い地図の上で目的地まで届いたか。届いていないなら、詳細探索を
+     *         いくら回しても届かない（粗い地図で通行不能になるのは溶岩だけで、未探索セルは
+     *         通行可能として扱われる）ので、詰みの理由を言い当てる材料になる
      */
-    private record CoarseRoute(BlockPos goal, List<BlockPos> waypoints) {
+    private record CoarseRoute(BlockPos goal, BlockPos computedFrom, boolean reachedGoal,
+                                List<BlockPos> waypoints) {
     }
 
-    private record RefinedRoute(BlockPos goal, List<BlockPos> waypoints) {
+    /**
+     * 層2で精緻化したwaypoint列と、その元になった{@link CoarseRoute}。
+     *
+     * <p>由来元を持つのが要点。同じ目的地への再navigateでは{@code goal}が変わらないので、
+     * 座標の一致だけでは古い世代の精緻化を弾けない。書き込み側で検査すると
+     * 「検査してから書くまでの間に世代が進む」競合が残るので、<b>読み出し時に</b>
+     * 今の{@code coarseRoute}と同一インスタンスかを見る（順序に依存しない）。
+     */
+    private record RefinedRoute(BlockPos goal, CoarseRoute source, List<BlockPos> waypoints) {
     }
 
     /** {@link #selectDetailTarget}の戻り値。詳細探索のゴールと、それが粗いルート中の何番目かの組。 */
-    private record DetailTarget(BlockPos target, int waypointIndex) {
+    /**
+     * @param goalRadius 詳細探索がこのゴールを「触れた」とみなす半径（ブロック）。
+     *                   中継地点は<b>通る場所ではなく向かう方角</b>でしかないので、座標ぴったりを
+     *                   要求すると、そのための遠回りが経路に乗る。不確かさの大きさは目標の由来で
+     *                   違うので、由来ごとに変える（{@link #WAYPOINT_GOAL_RADIUS_BLOCKS}参照）
+     */
+    private record DetailTarget(BlockPos target, int waypointIndex, int goalRadius) {
     }
 }

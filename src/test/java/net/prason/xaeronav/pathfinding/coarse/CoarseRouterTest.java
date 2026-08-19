@@ -9,6 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.astar.CostToGo;
 
 class CoarseRouterTest {
 
@@ -19,7 +20,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
         for (int x = -RADIUS; x < RADIUS; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAND, 64);
+                builder.putFloor(x, z, CoarseMap.LAND, 64);
             }
         }
         return builder;
@@ -52,7 +53,7 @@ class CoarseRouterTest {
         // 目的地との間を塞ぐ湾。北側(Z<-6)は開いているので、そちらへ迂回できる
         for (int x = 4; x <= 16; x++) {
             for (int z = -6; z <= RADIUS - 1; z++) {
-                builder.put(x, z, CoarseMap.WATER, 62);
+                builder.replaceCell(x, z, CoarseMap.WATER, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -74,7 +75,7 @@ class CoarseRouterTest {
         // ボートは徒歩より速いので、ボートがあれば迂回せず突っ切る方が安くなるはず
         for (int x = 4; x <= 16; x++) {
             for (int z = -6; z <= RADIUS - 1; z++) {
-                builder.put(x, z, CoarseMap.WATER, 62);
+                builder.replaceCell(x, z, CoarseMap.WATER, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -94,7 +95,7 @@ class CoarseRouterTest {
         // 端から端まで塞ぐ海峡。迂回路が無いので、遠回りより泳ぐ方が安い
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.WATER, 62);
+                builder.replaceCell(x, z, CoarseMap.WATER, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -111,7 +112,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAVA, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -135,7 +136,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA_MIXED, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -154,7 +155,7 @@ class CoarseRouterTest {
         // 進路上に溶岩混じりの帯を置くが、Z方向に少し逸れれば素の陸で回り込める
         for (int x = 4; x <= 6; x++) {
             for (int z = -2; z <= 2; z++) {
-                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA_MIXED, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -180,7 +181,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA_MIXED, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -200,7 +201,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -2; z <= 2; z++) {
-                builder.put(x, z, CoarseMap.LAVA_MIXED, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA_MIXED, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -218,7 +219,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -RADIUS; z < RADIUS; z++) {
-                builder.put(x, z, CoarseMap.LAVA, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -239,7 +240,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         for (int x = 4; x <= 6; x++) {
             for (int z = -2; z <= 2; z++) {
-                builder.put(x, z, CoarseMap.LAVA, 62);
+                builder.replaceCell(x, z, CoarseMap.LAVA, 62);
             }
         }
         CoarseMap map = builder.build();
@@ -263,11 +264,11 @@ class CoarseRouterTest {
         // 未知のペナルティが「遠回りしてでも避ける」ほど重くはないため（遠い帯なら直進が正しい）
         for (int x = -RADIUS; x < RADIUS; x++) {
             for (int z = 2; z <= 4; z++) {
-                builder.put(x, z, CoarseMap.LAND, 64);
+                builder.putFloor(x, z, CoarseMap.LAND, 64);
             }
         }
-        builder.put(0, 0, CoarseMap.LAND, 64);
-        builder.put(20, 0, CoarseMap.LAND, 64);
+        builder.putFloor(0, 0, CoarseMap.LAND, 64);
+        builder.putFloor(20, 0, CoarseMap.LAND, 64);
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
@@ -295,7 +296,7 @@ class CoarseRouterTest {
         CoarseMapBuilder builder = flatLand();
         // 目的地へ一直線の帯だけが高い尾根。1マス北へ避ければ平坦
         for (int x = 1; x <= 19; x++) {
-            builder.put(x, 0, CoarseMap.LAND, 140);
+            builder.replaceCell(x, 0, CoarseMap.LAND, 140);
         }
         CoarseMap map = builder.build();
 
@@ -314,7 +315,7 @@ class CoarseRouterTest {
         // 平均高さは周囲と同じ64だが、セル内の起伏（0〜128）が大きい＝崖のチャンク。
         // 平均だけを見る旧ロジックでは検出できず、1マス北の平坦な迂回路と無差別だった
         for (int x = 1; x <= 19; x++) {
-            builder.put(x, 0, CoarseMap.LAND, 64, 0, 128);
+            builder.putFloor(x, 0, CoarseMap.LAND, 64, 0, 128);
         }
         CoarseMap map = builder.build();
 
@@ -324,6 +325,165 @@ class CoarseRouterTest {
         assertTrue(route.reachedGoal());
         assertTrue(route.waypoints().stream().anyMatch(waypoint -> waypoint.getZ() != 8),
                 "起伏の大きいセルを避けず素通りした: " + route.waypoints());
+    }
+
+    /**
+     * 崖ペナルティに上限が無いと、極端に起伏の激しい1マス（実測ではありえない値だが、境界の
+     * 検証として意図的に大きくする）を通るより、壁を大きく迂回する方が常に安くなってしまう。
+     * ネザーでは起伏30ブロック程度でも溶岩混じりセルより高くつく（design doc参照）ので、
+     * この上限は「どれだけ起伏があっても、迂回が数セル分ぶんより高くならない」ことを保証する。
+     */
+    @Test
+    void cliffPenaltyCapLetsARuggedShortcutBeatALongDetour() {
+        CoarseMapBuilder builder = flatLand();
+        // x=0の1列だけを南北に溶岩の壁にし、z=0だけ開ける。開けた1マスは起伏10000という
+        // 極端な崖（highMax=10000はshortの範囲内——32767を超えると6引数putのキャストで
+        // オーバーフローし、意図と逆に「起伏0」へ丸められてしまうので注意）。
+        // 壁を迂回するには斜め移動でz方向に最低6マス分の往復が要り、その分（斜め12マス、
+        // 直進より約283tick高い）は崖ペナルティの上限（約77tick）を明確に上回る——
+        // 上限が効いていなければ壁を迂回する方が安くなる
+        for (int z = -5; z <= 5; z++) {
+            if (z == 0) {
+                continue;
+            }
+            builder.putFloor(0, z, CoarseMap.LAVA, 64);
+        }
+        builder.putFloor(0, 0, CoarseMap.LAND, 64, 0, 10_000);
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(-20, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
+
+        assertTrue(route.reachedGoal());
+        // 迂回した場合はz=8から一時的に外れるはず。崖の1マスを素通りしたなら終始z=8のまま
+        assertTrue(route.waypoints().stream().allMatch(waypoint -> waypoint.getZ() == 8),
+                "壁を迂回した＝崖ペナルティの上限が効いていない: " + route.waypoints());
+    }
+
+    /**
+     * ネザーの3D迷路の核心: 同じセルに上下2本の独立した床があるとき、垂直遷移で繋いで
+     * 到達できる。始点・終点のYがそれぞれの床に近いことも{@link CoarseMap#nearestFloor}で
+     * 正しく解決される必要がある。
+     */
+    @Test
+    void connectsTwoStackedFloorsInTheSameCellViaAVerticalTransition() {
+        CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
+        builder.putFloor(0, 0, CoarseMap.LAND, 40);
+        builder.putFloor(0, 0, CoarseMap.LAND, 90);
+        CoarseMap map = builder.build();
+
+        BlockPos start = new BlockPos(8, 41, 8);
+        BlockPos goal = new BlockPos(8, 91, 8);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        assertTrue(route.reachedGoal());
+        assertFalse(route.isEmpty());
+        assertEquals(90, last(route).getY(), "登った先の床(90)の高さで終わるはず");
+    }
+
+    /**
+     * 水平移動は隣接セルの全床にではなく、今の床に最も近い床だけに繋がる。これが無いと、
+     * 階層をまたぐ移動が「本当に繋がっているか分からない階層間移動は必ず垂直遷移の
+     * 割増コストを払う」というルールを、水平移動のふりをして素通りしてしまう
+     * （隣接セルの遠い床へも普通の坂と同じ{@code heightPenalty}だけで渡れてしまい、
+     * {@link #connectsTwoStackedFloorsInTheSameCellViaAVerticalTransition}が課している
+     * 割増を迂回する抜け道になる）。
+     *
+     * <p>始点のセルは高さ40の床1つだけ。隣（目的地のセル）には高さ42（近い）と高さ90（遠い）の
+     * 2つの床がある。それでも目的地Y=90へは到達できる——最寄りの床(42)を経由して
+     * 垂直遷移で登る2段構えの経路になるだけで、90が「繋がっていない床」として消えることはない。
+     */
+    @Test
+    void horizontalStepReachesTheFarFloorOnlyThroughTheNearFloorAndAVerticalTransition() {
+        CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
+        builder.putFloor(0, 0, CoarseMap.LAND, 40);
+        builder.putFloor(1, 0, CoarseMap.LAND, 42);
+        builder.putFloor(1, 0, CoarseMap.LAND, 90);
+        CoarseMap map = builder.build();
+
+        BlockPos start = new BlockPos(8, 41, 8);
+        BlockPos goal = new BlockPos(24, 91, 8);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        assertTrue(route.reachedGoal());
+        assertEquals(90, last(route).getY());
+    }
+
+    /**
+     * {@link CoarseRouter#costToGo}——段階4で層3のヒューリスティックへ併用するguide本体。
+     * ゴールから逆向きに全状態へのコストを計算し、ブロック座標で引けるラッパーを返す。
+     */
+    @Test
+    void costToGoIsZeroAtTheGoalItself() {
+        CoarseMap map = flatLand().build();
+        BlockPos goal = atChunk(5, 5);
+
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        assertEquals(0.0, guide.estimate(goal.getX(), goal.getY(), goal.getZ()), 1e-9);
+    }
+
+    @Test
+    void costToGoIncreasesWithDistanceOnFlatLand() {
+        CoarseMap map = flatLand().build();
+        BlockPos goal = atChunk(0, 0);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        double near = guide.estimate(atChunk(2, 0).getX(), 64, atChunk(2, 0).getZ());
+        double far = guide.estimate(atChunk(10, 0).getX(), 64, atChunk(10, 0).getZ());
+
+        assertTrue(near > 0.0);
+        assertTrue(far > near, "遠いセルの方がコストが高くなければならない: near=" + near + " far=" + far);
+    }
+
+    /**
+     * 探索範囲の外（この地図が知らない座標）を引いても、無限大ではなく0を返す。
+     * {@code AStarPathfinder}側は幾何学的なHeuristicとのmaxを取って使うので、0を返せば
+     * 「情報が無いので寄与しない」で済む——無限大を返すと、層3の探索範囲がこの地図の
+     * 読み取り範囲より広いだけで、範囲外の全ノードのヒューリスティックが汚染される。
+     */
+    @Test
+    void costToGoReturnsZeroOutsideTheMap() {
+        CoarseMap map = flatLand().build();
+        BlockPos goal = atChunk(0, 0);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        BlockPos farOutside = atChunk(RADIUS + 100, 0);
+        assertEquals(0.0, guide.estimate(farOutside.getX(), 64, farOutside.getZ()));
+    }
+
+    /**
+     * ゴールから完全に分断されたセル（溶岩の壁の向こう側）も、無限大ではなく0を返す。
+     * {@link #costToGoReturnsZeroOutsideTheMap}と同じ安全側の理由——到達不能を無限大で
+     * 表現すると、そのセルのヒューリスティックがmax経由で探索全体を壊しかねない。
+     */
+    @Test
+    void costToGoReturnsZeroForCellsUnreachableFromTheGoal() {
+        CoarseMapBuilder builder = flatLand();
+        for (int z = -RADIUS; z < RADIUS; z++) {
+            builder.replaceCell(0, z, CoarseMap.LAVA, 64);
+        }
+        CoarseMap map = builder.build();
+        BlockPos goal = atChunk(20, 0);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.AVOID);
+
+        BlockPos cutOff = atChunk(-20, 0);
+        assertEquals(0.0, guide.estimate(cutOff.getX(), 64, cutOff.getZ()));
+    }
+
+    /** 同じセル内の階層をまたぐcost-to-goは、垂直遷移のコスト（割増込み）を反映する。 */
+    @Test
+    void costToGoAccountsForVerticalTransitionsWithinTheSameCell() {
+        CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
+        builder.putFloor(0, 0, CoarseMap.LAND, 40);
+        builder.putFloor(0, 0, CoarseMap.LAND, 90);
+        CoarseMap map = builder.build();
+
+        BlockPos goal = new BlockPos(8, 91, 8);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+
+        double atLowerFloor = guide.estimate(8, 41, 8);
+        assertTrue(atLowerFloor > 0.0, "50ブロックの階層差はコスト0では済まないはず");
     }
 
     private static BlockPos last(CoarseRouter.Route route) {

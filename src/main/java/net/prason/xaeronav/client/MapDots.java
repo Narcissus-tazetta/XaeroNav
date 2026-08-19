@@ -24,13 +24,36 @@ final class MapDots {
     final int[] z;
     /** 点ごとのRGB（点数 × 3）。 */
     final float[] color;
+    /** 点ごとの元の{@link PathStep}の添字（昇順）。通り過ぎた点を飛ばすために要る。 */
+    private final int[] stepIndex;
     final int count;
 
-    private MapDots(int[] x, int[] z, float[] color, int count) {
+    private MapDots(int[] x, int[] z, float[] color, int[] stepIndex, int count) {
         this.x = x;
         this.z = z;
         this.color = color;
+        this.stepIndex = stepIndex;
         this.count = count;
+    }
+
+    /**
+     * {@code fromStep}以降のステップから作られた最初の点。
+     *
+     * <p>XZが同じ連続ステップは1点に潰れているので、ステップの添字と点の添字は一致しない。
+     * 点は昇順なので二分探索できる。
+     */
+    int firstDotFrom(int fromStep) {
+        int low = 0;
+        int high = count;
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            if (stepIndex[mid] < fromStep) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        return low;
     }
 
     static MapDots forPath(PathResult result) {
@@ -42,9 +65,11 @@ final class MapDots {
         int[] x = new int[steps.size()];
         int[] z = new int[steps.size()];
         float[] color = new float[steps.size() * 3];
+        int[] stepIndex = new int[steps.size()];
         int count = 0;
 
-        for (PathStep step : steps) {
+        for (int i = 0; i < steps.size(); i++) {
+            PathStep step = steps.get(i);
             int stepX = step.pos().getX();
             int stepZ = step.pos().getZ();
             if (count > 0 && x[count - 1] == stepX && z[count - 1] == stepZ) {
@@ -56,10 +81,11 @@ final class MapDots {
             color[count * 3] = stepColor[0];
             color[count * 3 + 1] = stepColor[1];
             color[count * 3 + 2] = stepColor[2];
+            stepIndex[count] = i;
             count++;
         }
 
         return new MapDots(Arrays.copyOf(x, count), Arrays.copyOf(z, count),
-                Arrays.copyOf(color, count * 3), count);
+                Arrays.copyOf(color, count * 3), Arrays.copyOf(stepIndex, count), count);
     }
 }

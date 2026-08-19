@@ -1,5 +1,7 @@
 package net.prason.xaeronav.pathfinding.world;
 
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
+
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 
@@ -81,10 +83,22 @@ public final class SurfaceCellSource implements CellSource {
         return false;
     }
 
+    /** 橋を提示しないので上限に意味は無い。 */
+    @Override
+    public int maxBridgeRunBlocks() {
+        return 0;
+    }
+
     /** 層2はプレイヤーの状態（体力・持ち物）を知らないので、痛い降下も水バケツMLGも提案しない。 */
     @Override
     public int maxFallDamagePoints() {
         return 0;
+    }
+
+    /** 層2は次元も水の有無も知らないので、どこでも安全な終端速度の下限に留める。 */
+    @Override
+    public double minDescentTicksPerBlock() {
+        return ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
     }
 
     @Override

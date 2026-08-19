@@ -292,17 +292,24 @@ public final class XaeroNavCommands {
         reportKindHistogram(source, map, centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side);
         reportMapLayers(source, centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side);
 
-        byte hereKind = map.kindAtChunk(centerChunkX, centerChunkZ);
-        // 実際に立っているYも並べる。粗い地図の高さは洞窟レイヤーのcaveStartから下向きに
-        // 走査した結果なので、足元と食い違っていないかはこの2つを比べないと分からない
+        // 実際に立っているYに最も近い床を報告する。粗い地図の高さは洞窟レイヤーのcaveStartから
+        // 下向きに走査した結果なので、足元と食い違っていないかはこの2つを比べないと分からない。
+        // このセルが複数の床を持つ（＝上下に独立した通路が重なっている）ことがある旨も添える
+        int hereFloorCount = map.floorCount(centerChunkX, centerChunkZ);
+        int hereFloor = map.nearestFloor(centerChunkX, centerChunkZ, referenceY);
+        byte hereKind = hereFloor < 0 ? CoarseMap.NO_DATA : map.kindAtFloor(centerChunkX, centerChunkZ, hereFloor);
+        int hereHeight = hereFloor < 0 ? 0 : map.heightAtFloor(centerChunkX, centerChunkZ, hereFloor);
         source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_here",
-                describeKind(hereKind), map.heightAtChunk(centerChunkX, centerChunkZ), referenceY), false);
+                describeKind(hereKind), hereHeight, referenceY, hereFloorCount), false);
         return 1;
     }
 
     /**
      * 粗い地図の地形種別の内訳。{@link CoarseRouter}で溶岩だけが通行不能（他は未知でも通れる）なので、
      * 長距離ルートが途中で打ち切られたとき、溶岩がどれだけ通行可能領域を削っているかがここで分かる。
+     *
+     * <p>セルではなく<b>床</b>単位で数える——1セルが複数の床を持ちうる（天井のある次元で
+     * 上下に独立した通路が重なる）ので、セル単位だと実際に読めているデータ量を過小に見せる。
      */
     private static void reportKindHistogram(CommandSourceStack source, CoarseMap map,
                                              int minChunkX, int minChunkZ, int side) {
@@ -313,12 +320,19 @@ public final class XaeroNavCommands {
         int noData = 0;
         for (int chunkX = minChunkX; chunkX < minChunkX + side; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ < minChunkZ + side; chunkZ++) {
-                switch (map.kindAtChunk(chunkX, chunkZ)) {
-                    case CoarseMap.LAND -> land++;
-                    case CoarseMap.WATER -> water++;
-                    case CoarseMap.LAVA -> lava++;
-                    case CoarseMap.LAVA_MIXED -> lavaMixed++;
-                    default -> noData++;
+                int floorCount = map.floorCount(chunkX, chunkZ);
+                if (floorCount == 0) {
+                    noData++;
+                    continue;
+                }
+                for (int floor = 0; floor < floorCount; floor++) {
+                    switch (map.kindAtFloor(chunkX, chunkZ, floor)) {
+                        case CoarseMap.LAND -> land++;
+                        case CoarseMap.WATER -> water++;
+                        case CoarseMap.LAVA -> lava++;
+                        case CoarseMap.LAVA_MIXED -> lavaMixed++;
+                        default -> noData++;
+                    }
                 }
             }
         }
@@ -389,7 +403,7 @@ public final class XaeroNavCommands {
 
         BlockPos start = player.blockPosition();
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
-        int verticalMargin = XaeroNavConfig.INSTANCE.searchVerticalMargin();
+        int verticalMargin = PathfindingState.verticalSearchMargin(level, false);
         int normalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
 
         SearchBounds normalBounds = SearchBounds.around(level, start, goal, normalMargin, verticalMargin,
@@ -397,6 +411,7 @@ public final class XaeroNavCommands {
         ChunkView normalView = ChunkView.capture(level, player, normalBounds,
                 XaeroNavConfig.INSTANCE.diggingEnabled(), XaeroNavConfig.INSTANCE.bridgingEnabled(),
                 XaeroNavConfig.INSTANCE.jumpGapEnabled(), XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
+                XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         reportGoalCell(source, normalView, normalBounds, start, goal, renderRadius);
 
@@ -414,14 +429,16 @@ public final class XaeroNavCommands {
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_no_digging_skipped"), false);
         }
 
-        // 展開ノード数が上限に達しての未到達は、箱を広げても同じ上限に同じように当たるだけで
+        // 予算切れ（ノード数上限・時間上限）での未到達は、箱を広げても同じ上限に同じように当たるだけで
         // 結果は変わらない（実機で確認済み: 通常マージンと拡大後で展開ノード数が完全一致していた）。
-        // ここで弾かないと、無駄なA*をもう1回投げたうえ「箱が原因」と誤読させる出力になる
+        // ここで弾かないと、無駄なA*をもう1回投げたうえ「箱が原因」と誤読させる出力になる。
+        // 時間上限で切れた回もここに含める——展開数だけを見ると「範囲が狭い」と誤読して
+        // widenTriggeredに倒れてしまう
         int maxExpandedNodes = XaeroNavConfig.INSTANCE.maxExpandedNodes();
-        boolean hitNodeBudget = normal.result().expandedNodes() >= maxExpandedNodes;
-        boolean widenTriggered = !normal.result().complete() && !hitNodeBudget
+        boolean budgetExhausted = normal.result().budgetExhausted();
+        boolean widenTriggered = !normal.result().complete() && !budgetExhausted
                 && horizontalDistance(start, goal) <= renderRadius && normalMargin < renderRadius;
-        if (!normal.result().complete() && hitNodeBudget) {
+        if (!normal.result().complete() && budgetExhausted) {
             source.sendSuccess(() -> Component.translatable(
                     "commands.xaeronav.probe_widen_skipped_budget", maxExpandedNodes), false);
             // 上限に張り付いた回どうしを比べても展開ノード数は必ず一致するので、そこからは何も分からない。
@@ -437,7 +454,8 @@ public final class XaeroNavCommands {
                     ? "commands.xaeronav.probe_widen_triggered" : "commands.xaeronav.probe_widen_skipped"), false);
         }
         if (widenTriggered) {
-            ProbeRun widened = runProbe(level, player, start, goal, renderRadius, verticalMargin, renderRadius);
+            ProbeRun widened = runProbe(level, player, start, goal, renderRadius,
+                    PathfindingState.verticalSearchMargin(level, true), renderRadius);
             reportProbeRun(source, "commands.xaeronav.probe_widened", widened);
         }
         return 1;
@@ -497,6 +515,7 @@ public final class XaeroNavCommands {
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
+                XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         return runProbe(view, bounds, start, goal);
     }

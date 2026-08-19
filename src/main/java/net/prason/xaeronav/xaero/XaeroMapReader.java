@@ -91,50 +91,6 @@ public final class XaeroMapReader {
     }
 
     /**
-     * 同じ場所を別の高さから読み直すための参照Y候補を、{@code referenceY}に近い順で返す。
-     * 先頭は必ず{@code referenceY}自身。
-     *
-     * <p>ネザーでは地図がY帯ごとの洞窟レイヤーに分かれており、参照Yを変えると{@link #layersFor}が
-     * 選ぶレイヤーと{@link LayerMerge}がセルごとに採用する高さの両方が変わる——つまり<b>見える地形
-     * そのものが変わる</b>。溶岩の海の上を通る通路のように、ある高さからは存在しない道が別の高さでは
-     * 見つかる。層1のルートが引けなかったときの再挑戦に使う。
-     *
-     * <p>候補は{@code caveStart}の式から予測せず、実際にメモリへ載っているレイヤーだけから採る
-     * （{@code caveStart}は頭上の地形次第で決まるため）。天井の無い次元は地表レイヤー1枚しか
-     * 無いので{@code referenceY}だけが返り、呼び出し側の再挑戦ループは自然に1回で終わる。
-     */
-    public static List<Integer> referenceYCandidates(int referenceY, int limit) {
-        List<Integer> candidates = new ArrayList<>();
-        candidates.add(referenceY);
-        MapProcessor processor = processor();
-        Level level = Minecraft.getInstance().level;
-        if (processor == null || level == null || !level.dimensionType().hasCeiling()) {
-            return List.copyOf(candidates);
-        }
-        List<Integer> layerYs = new ArrayList<>();
-        for (int layer : loadedLayers(processor)) {
-            if (layer == SURFACE_LAYER) {
-                continue;
-            }
-            int centerY = layerCenterY(layer);
-            // 同じレイヤーが選ばれるだけの候補は再読み込みの無駄。CAVE_MODE_DEPTH(30)より
-            // 近い候補は元の参照Yとほぼ同じ地形しか見えない
-            if (Math.abs(centerY - referenceY) < CAVE_MODE_DEPTH) {
-                continue;
-            }
-            layerYs.add(centerY);
-        }
-        layerYs.sort(Comparator.comparingInt(y -> Math.abs(y - referenceY)));
-        for (int y : layerYs) {
-            if (candidates.size() >= limit) {
-                break;
-            }
-            candidates.add(y);
-        }
-        return List.copyOf(candidates);
-    }
-
-    /**
      * この範囲を読むときに見るべきレイヤー。天井のある次元（ネザー）だけが洞窟レイヤーを使い、
      * それ以外は従来どおり地表レイヤー1つ。
      *
@@ -168,9 +124,16 @@ public final class XaeroMapReader {
         return layers;
     }
 
-    /** レイヤー番号が代表するY。{@code caveLayer == caveStart >> 4}の逆算。 */
+    /**
+     * レイヤー番号が代表するY。{@code caveLayer == caveStart >> 4}の逆算だが、{@code caveStart}は
+     * スライスの<b>上端</b>であって中心ではない（実際に記録されるのは
+     * {@code [caveStart - CAVE_MODE_DEPTH, caveStart]}）。{@code caveLayer << 4}をそのまま使うと
+     * 実際の中心よりCAVE_MODE_DEPTH/2ぶん高く見積もることになり、参照Yに近いレイヤーの選定が
+     * 系統的に上へ偏る。
+     */
     private static int layerCenterY(int caveLayer) {
-        return caveLayer == SURFACE_LAYER || caveLayer == Integer.MIN_VALUE ? 0 : caveLayer << 4;
+        return caveLayer == SURFACE_LAYER || caveLayer == Integer.MIN_VALUE
+                ? 0 : (caveLayer << 4) - CAVE_MODE_DEPTH / 2;
     }
 
     private static List<Integer> loadedLayers(MapProcessor processor) {
@@ -226,6 +189,11 @@ public final class XaeroMapReader {
     /**
      * 指定範囲の地表を読む。読めたセルが1つも無ければ{@link CoarseMap#knownCells()}が0になる
      * （その範囲が未訪問か、Xaeroがまだリージョンを読み込んでいない）。
+     *
+     * <p>{@link #layersFor}が選んだレイヤーはそれぞれ独立した床として{@link CoarseMap}へ積む
+     * （1つに潰さない）。天井のある次元では、これで初めて上下に重なる複数の通路を層1が
+     * 同時に見られる——潰していた頃は参照Yを変えて読み直す再挑戦（梯子）が必要だったが、
+     * 1回の読み取りで全レイヤーぶんの床が揃うので不要になった。
      */
     public static CoarseMap readSurface(int minChunkX, int minChunkZ, int chunksX, int chunksZ, int referenceY) {
         CoarseMapBuilder builder = new CoarseMapBuilder(minChunkX, minChunkZ, chunksX, chunksZ);
@@ -233,16 +201,15 @@ public final class XaeroMapReader {
         if (processor == null) {
             return builder.build();
         }
-        LayerMerge merge = new LayerMerge(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
         for (int caveLayer : layersFor(processor, referenceY)) {
-            readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder, merge);
+            readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder);
         }
         return builder.build();
     }
 
     private static void readLayer(MapProcessor processor, int caveLayer,
                                    int minChunkX, int minChunkZ, int chunksX, int chunksZ,
-                                   CoarseMapBuilder builder, LayerMerge merge) {
+                                   CoarseMapBuilder builder) {
         int minRegionX = minChunkX >> CHUNKS_PER_REGION_SHIFT;
         int maxRegionX = (minChunkX + chunksX - 1) >> CHUNKS_PER_REGION_SHIFT;
         int minRegionZ = minChunkZ >> CHUNKS_PER_REGION_SHIFT;
@@ -250,7 +217,7 @@ public final class XaeroMapReader {
 
         for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
             for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
-                readRegion(processor, caveLayer, regionX, regionZ, builder, merge);
+                readRegion(processor, caveLayer, regionX, regionZ, builder);
             }
         }
     }
@@ -407,19 +374,18 @@ public final class XaeroMapReader {
         List<LayerProbe> probes = new ArrayList<>();
         for (int caveLayer : loadedLayers(processor)) {
             CoarseMapBuilder builder = new CoarseMapBuilder(minChunkX, minChunkZ, chunksX, chunksZ);
-            // 1レイヤーの中では各セルが高々1回しか書かれないので、これは実質すべてを通す
-            LayerMerge merge = new LayerMerge(minChunkX, minChunkZ, chunksX, chunksZ, 0);
-            readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder, merge);
+            // 1レイヤーだけを読むので、1セルに複数の床が積まれることはない（floor 0だけを見ればよい）
+            readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder);
             CoarseMap map = builder.build();
 
             int minHeight = Integer.MAX_VALUE;
             int maxHeight = Integer.MIN_VALUE;
             for (int chunkX = minChunkX; chunkX < minChunkX + chunksX; chunkX++) {
                 for (int chunkZ = minChunkZ; chunkZ < minChunkZ + chunksZ; chunkZ++) {
-                    if (map.kindAtChunk(chunkX, chunkZ) == CoarseMap.NO_DATA) {
+                    if (map.floorCount(chunkX, chunkZ) == 0) {
                         continue;
                     }
-                    short height = map.heightAtChunk(chunkX, chunkZ);
+                    short height = map.heightAtFloor(chunkX, chunkZ, 0);
                     minHeight = Math.min(minHeight, height);
                     maxHeight = Math.max(maxHeight, height);
                 }
@@ -452,7 +418,7 @@ public final class XaeroMapReader {
     }
 
     private static void readRegion(MapProcessor processor, int caveLayer, int regionX, int regionZ,
-                                    CoarseMapBuilder builder, LayerMerge merge) {
+                                    CoarseMapBuilder builder) {
         // create=falseなので、Xaeroがまだ読み込んでいないリージョンはnullで返る。
         // ここでディスクから読ませないのは、読み込みが非同期で完了を待てないため
         MapRegion region = processor.getLeafMapRegion(caveLayer, regionX, regionZ, false);
@@ -465,25 +431,32 @@ public final class XaeroMapReader {
                 if (tileChunk == null) {
                     continue;
                 }
-                readTileChunk(tileChunk, builder, merge);
+                readTileChunk(tileChunk, builder);
             }
         }
     }
 
-    private static void readTileChunk(MapTileChunk tileChunk, CoarseMapBuilder builder, LayerMerge merge) {
+    private static void readTileChunk(MapTileChunk tileChunk, CoarseMapBuilder builder) {
         for (int tileX = 0; tileX < TILES_PER_TILE_CHUNK; tileX++) {
             for (int tileZ = 0; tileZ < TILES_PER_TILE_CHUNK; tileZ++) {
                 MapTile tile = tileChunk.getTile(tileX, tileZ);
                 if (tile == null || !tile.isLoaded()) {
                     continue;
                 }
-                readTile(tile, builder, merge);
+                readTile(tile, builder);
             }
         }
     }
 
-    /** 1タイル＝1チャンク。タイル自身がチャンク座標を持っているので、外側の添字から復元する必要はない。 */
-    private static void readTile(MapTile tile, CoarseMapBuilder builder, LayerMerge merge) {
+    /**
+     * 1タイル＝1チャンク。タイル自身がチャンク座標を持っているので、外側の添字から復元する必要はない。
+     *
+     * <p>{@link #readSurface}が複数レイヤーを読むとき、ここは呼ばれるたびに床を1つ
+     * {@link CoarseMapBuilder#putFloor}で積む。レイヤーを1つの高さへ潰さない——潰すと
+     * 天井のある次元で上下に重なる独立した通路が、片方だけ生き残ったり不当な段差として
+     * 繋がって見えたりする。
+     */
+    private static void readTile(MapTile tile, CoarseMapBuilder builder) {
         int waterSamples = 0;
         int lavaSamples = 0;
         int heightSum = 0;
@@ -544,10 +517,8 @@ public final class XaeroMapReader {
         int averageHeight = heightSamples > 0 ? heightSum / heightSamples : lavaHeightSum / lavaSamples;
         int representativeMin = heightSamples > 0 ? minHeight : averageHeight;
         int representativeMax = heightSamples > 0 ? maxHeight : averageHeight;
-        if (!merge.accept(tile.getChunkX(), tile.getChunkZ(), averageHeight)) {
-            return;
-        }
-        builder.put(tile.getChunkX(), tile.getChunkZ(), kind, averageHeight, representativeMin, representativeMax);
+        builder.putFloor(tile.getChunkX(), tile.getChunkZ(), kind, averageHeight, representativeMin,
+                representativeMax);
     }
 
     private static void readRegionDetailed(MapProcessor processor, int caveLayer, int regionX, int regionZ,
