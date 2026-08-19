@@ -60,9 +60,11 @@ public final class NavHud {
         if (PathfindingState.INSTANCE.arrived()) {
             add(Component.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
         } else if (PathfindingState.INSTANCE.flying()) {
-            // 滑空中は経路そのものを計算していない。「検索中」「経路なし」と同じ扱いにすると
-            // 失敗しているように読めるので、意図して案内を止めていることが分かる文言を出す
-            add(Component.translatable("hud.xaeronav.flying"), SECONDARY_COLOR);
+            // 空中経路が引けなかったこと（読み込み済みの範囲に抜け道が無い）と、そもそも案内が
+            // 出ていないことは別。前者を「経路なし」と同じ文言にすると、地上と同じ失敗に見える
+            add(PathfindingState.INSTANCE.flightRoute().isEmpty()
+                    ? Component.translatable("hud.xaeronav.flying_no_route")
+                    : Component.translatable("hud.xaeronav.flying"), SECONDARY_COLOR);
             add(Component.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
         } else if (result == null || result.steps().isEmpty()) {

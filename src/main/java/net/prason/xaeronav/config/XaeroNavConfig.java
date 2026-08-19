@@ -40,6 +40,10 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue recalcIntervalTicks;
     private final ModConfigSpec.IntValue maxExpandedNodes;
     private final ModConfigSpec.DoubleValue heuristicWeight;
+    private final ModConfigSpec.BooleanValue flightRoutingEnabled;
+    private final ModConfigSpec.IntValue flightCellBlocks;
+    private final ModConfigSpec.DoubleValue flightDeviationThresholdBlocks;
+    private final ModConfigSpec.IntValue flightRecalcIntervalTicks;
     private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
     private final ModConfigSpec.BooleanValue hudEnabled;
     private final ModConfigSpec.BooleanValue straightLineEnabled;
@@ -159,6 +163,32 @@ public final class XaeroNavConfig {
                         "上げるほど遠くまで届くかわりに、遠回りな経路が混じりうる（海を渡る・長距離では上げると効く）")
                 .defineInRange("heuristicWeight", AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT, 1.0, 3.0);
 
+        flightRoutingEnabled = builder
+                .comment("滑空・飛行中に空中の経路を計算するか",
+                        "falseにすると目的地への直線（点線）だけになる（以前の挙動）",
+                        "スペクテイターはブロックをすり抜けるので、この設定に関わらず常に直線")
+                .define("flightRoutingEnabled", true);
+
+        flightCellBlocks = builder
+                .comment("空中経路を解く格子の一辺（ブロック）。含むブロックが全て空のセルだけを通る",
+                        "この粗さがそのままクリアランスになる——秒速30マスで飛ぶエリトラに1マスの隙間を",
+                        "狙わせても意味が無いので、余裕を持って抜けられる空間だけを経路の候補にする",
+                        "経路が一本も引けなかった場合に限り、半分の粒度で解き直す")
+                .defineInRange("flightCellBlocks", 4, 2, 8);
+
+        flightDeviationThresholdBlocks = builder
+                .comment("滑空中に経路からこの距離(ブロック)以上離れたら引き直す",
+                        "歩行のdeviationThresholdBlocksとは別に持つ。エリトラは常時ずれるので、",
+                        "歩行と同じ幅にすると飛んでいる間ずっと経路が引き直される",
+                        "垂直方向はこの1.5倍まで許す（上下のぶれは水平より大きい）")
+                .defineInRange("flightDeviationThresholdBlocks", 24.0, 4.0, 64.0);
+
+        flightRecalcIntervalTicks = builder
+                .comment("滑空中に経路を引き直す間隔（tick）",
+                        "エリトラは1.5ブロック/tickで飛ぶので、歩行のrecalcIntervalTicks(40)では",
+                        "引き直しの合間に60ブロック進んでしまう")
+                .defineInRange("flightRecalcIntervalTicks", 20, 5, 200);
+
         forbiddenBlocks = builder
                 .comment("掘削禁止ブロックの追加リスト（例: \"minecraft:chest\"）。デフォルト禁止リストへの追加分")
                 .defineListAllowEmpty("additionalForbiddenBlocks", Collections.emptyList(),
@@ -272,6 +302,26 @@ public final class XaeroNavConfig {
 
     public double heuristicWeight() {
         return heuristicWeight.get();
+    }
+
+    public boolean flightRoutingEnabled() {
+        return flightRoutingEnabled.get();
+    }
+
+    public void setFlightRoutingEnabled(boolean value) {
+        flightRoutingEnabled.set(value);
+    }
+
+    public int flightCellBlocks() {
+        return flightCellBlocks.get();
+    }
+
+    public double flightDeviationThresholdBlocks() {
+        return flightDeviationThresholdBlocks.get();
+    }
+
+    public int flightRecalcIntervalTicks() {
+        return flightRecalcIntervalTicks.get();
     }
 
     public List<? extends String> additionalForbiddenBlocks() {

@@ -20,6 +20,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BoatItem;
+import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -35,6 +36,8 @@ import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
+import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -274,7 +277,9 @@ public final class PathfindingState {
     // 見せる（design doc外・自動エリトラ検知。「空はプレイヤー自身が見て操縦できる」ため障害物回避の
     // 経路は不要という判断）
     private volatile boolean flying;
-    // 滑空中の点線を山の上・横へ曲げるための経由点。始点・終点を含む2〜3点
+    // 滑空中の空中経路（太線で描く本体）。引けなければ空
+    private volatile FlightRoute flightRoute = FlightRoute.NONE;
+    // 空中経路が引けなかったときの代替。目的地への点線を山の上・横へ曲げた2〜3点
     private volatile List<Vec3> flightGuideWaypoints;
 
     /**
@@ -413,6 +418,7 @@ public final class PathfindingState {
         this.extendBlockedFrom = null;
         this.rerouteNoticeTicks = 0;
         this.flying = false;
+        this.flightRoute = FlightRoute.NONE;
         this.flightGuideWaypoints = null;
         this.arrivedTicks = 0;
     }
@@ -435,11 +441,21 @@ public final class PathfindingState {
     }
 
     /**
-     * 滑空中の点線が通るべき経由点（始点・終点を含む）。曲げる必要が無い・まだ計算できていない
-     * 場合は空リストで、描画側は従来どおり現在地から目的地へ1本引く。
+     * 滑空中の空中経路。飛んでいない・まだ計算できていない・引けなかった場合は空。
      *
      * <p>先頭の点は<b>計算した時点</b>のプレイヤー位置なので、届く頃には最大で再計算間隔ぶん古い。
-     * 描画側は先頭を捨てて今の位置から引き直すこと（曲がり点と目的地だけがここから要る情報）。
+     * 描画側は先頭を捨てて今の位置から引き直すこと。
+     */
+    public FlightRoute flightRoute() {
+        if (!flying) {
+            return FlightRoute.NONE;
+        }
+        return flightRoute;
+    }
+
+    /**
+     * 空中経路が引けなかったときに点線を曲げるための経由点（始点・終点を含む）。曲げる必要が
+     * 無い・経路が引けている場合は空リストで、描画側は従来どおり1本の直線で引く。
      */
     public List<Vec3> flightGuideWaypoints() {
         if (!flying) {
@@ -623,6 +639,7 @@ public final class PathfindingState {
                 // 着地した。離陸前の経路は遠く離れた場所のものなので先に消してから引き直す
                 // （消さないと、新しい経路が届くまでの数tickだけ古い線が残って見える）
                 displayed = null;
+                flightRoute = FlightRoute.NONE;
                 flightGuideWaypoints = null;
                 recalculate();
                 return;
@@ -633,7 +650,7 @@ public final class PathfindingState {
             // どれも地上の話なので止める
             checkArrival(mc.player, currentGoal, null);
             ticksSinceFlightLineRecalc++;
-            if (ticksSinceFlightLineRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
+            if (ticksSinceFlightLineRecalc >= XaeroNavConfig.INSTANCE.flightRecalcIntervalTicks()) {
                 recalculateFlightLine();
             }
             return;
@@ -814,11 +831,11 @@ public final class PathfindingState {
     }
 
     /**
-     * 滑空中の点線を引き直す（山や丘を越える／横へ避ける形に曲げる）。
+     * 滑空中の案内を引き直す。空中経路（太線）を解き、引けなかったときだけ従来の曲がり点線へ落とす。
      *
      * <p>鮮度の確認は目的地と次元の一致で行い、A*と共有の{@code generation}は使わない——
-     * こちらは経路探索ではなく見た目を整えるだけの別パイプラインで、A*の打ち切りや世代進行に
-     * 巻き込まれる理由が無い（層2の精緻化{@link #refineRouteAsync}と同じ考え方）。
+     * こちらは地上の経路探索とは別のパイプラインで、あちらの打ち切りや世代進行に巻き込まれる
+     * 理由が無い（層2の精緻化{@link #refineRouteAsync}と同じ考え方）。
      */
     private void recalculateFlightLine() {
         ticksSinceFlightLineRecalc = 0;
@@ -835,6 +852,7 @@ public final class PathfindingState {
             // 無い地形のために線を曲げると、まっすぐ飛べばいい所を遠回りに見せるだけになる。
             // 判定にPlayer#isSpectator()を使わないのは、あれがタブリストのPlayerInfo経由で、
             // 未受信なら黙ってfalseに落ちるため（AbstractClientPlayer#isSpectator）
+            flightRoute = FlightRoute.NONE;
             flightGuideWaypoints = null;
             return;
         }
@@ -842,23 +860,57 @@ public final class PathfindingState {
         Vec3 start = player.position();
         Vec3 goalVec = Vec3.atCenterOf(currentGoal);
         ResourceKey<Level> dimension = level.dimension();
+        boolean rockets = hasRockets(player);
+        boolean routing = XaeroNavConfig.INSTANCE.flightRoutingEnabled();
+        int cellBlocks = XaeroNavConfig.INSTANCE.flightCellBlocks();
+        int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        // 水平マージンを描画距離に揃えて、読み込み済みの正方形をまるごと探索範囲に入れる。
+        // 壁を回り込む経路は始点と目的地を結ぶ帯の外へ出るので、狭いマージンでは回り込めない
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), currentGoal,
-                FlightLineRouter.HORIZONTAL_MARGIN_BLOCKS, FlightLineRouter.VERTICAL_MARGIN_BLOCKS,
-                mc.options.getEffectiveRenderDistance() * 16);
+                routing ? renderRadius : FlightLineRouter.HORIZONTAL_MARGIN_BLOCKS,
+                FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         // 飛行判定に掘削・ブロック設置・隙間跳び・落下ダメージはどれも無関係なので全てfalse
         ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
+        SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
+                AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());
 
         CompletableFuture
-                .supplyAsync(() -> new FlightLineRouter(view).findGuideLine(start, goalVec), flightLineExecutor)
+                .supplyAsync(() -> {
+                    FlightRoute route = routing
+                            ? FlightRouter.route(view, start, goalVec, rockets, cellBlocks, limits)
+                            : FlightRoute.NONE;
+                    // 曲がり点線は経路が引けなかったときだけ要る。引けているときに重ねると、
+                    // 末端から目的地へ伸ばす点線が遠くの山を避けて曲がってしまう
+                    List<Vec3> bend = route.isEmpty()
+                            ? new FlightLineRouter(view).findGuideLine(start, goalVec)
+                            : null;
+                    return new FlightGuidance(route, bend);
+                }, flightLineExecutor)
                 .whenComplete((result, error) -> {
                     if (error != null) {
-                        LOGGER.error("XaeroNav: 滑空中の点線の計算に失敗しました", error);
+                        LOGGER.error("XaeroNav: 滑空中の経路の計算に失敗しました", error);
                         return;
                     }
                     if (flying && currentGoal.equals(goal) && dimension.equals(goalDimension)) {
-                        flightGuideWaypoints = result;
+                        flightRoute = result.route();
+                        flightGuideWaypoints = result.bend();
                     }
                 });
+    }
+
+    /** 空中経路と、その代わりに使う曲がり点線。どちらを使うかは計算した側が決める。 */
+    private record FlightGuidance(FlightRoute route, List<Vec3> bend) {
+    }
+
+    /**
+     * ロケット花火を持っているか。上昇コストがこれで切り替わる（ボートの有無で水のコストが
+     * 変わるのと同じ形）。
+     *
+     * <p>持っていないエリトラは定常状態で高度を保てない＝水平飛行そのものが「登り」になるので、
+     * ここの真偽で経路の高度の取り方がはっきり変わる。
+     */
+    private static boolean hasRockets(Player player) {
+        return player.getInventory().contains(stack -> stack.getItem() instanceof FireworkRocketItem);
     }
 
     private void arrive() {
@@ -866,6 +918,7 @@ public final class PathfindingState {
         generation.incrementAndGet();
         computing = false;
         displayed = null;
+        flightRoute = FlightRoute.NONE;
         flightGuideWaypoints = null;
         arrivedTicks = 0;
         arrived = true;

@@ -17,6 +17,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 
 /**
  * design doc §2-5 / Phase 2項目9。Xaero非依存のワールド内描画。
@@ -93,8 +94,10 @@ public final class PathRenderer {
         }
 
         PathResult groundResult = PathfindingState.INSTANCE.currentResult();
+        FlightRoute flight = PathfindingState.INSTANCE.flightRoute();
         BlockPos goal = PathfindingState.INSTANCE.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
+        boolean hasFlight = !flight.isEmpty();
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
         boolean hasStraight = goal != null && XaeroNavConfig.INSTANCE.straightLineEnabled()
@@ -102,7 +105,7 @@ public final class PathRenderer {
         if (!hasGround) {
             geometry = null;
         }
-        if (!hasGround && !hasStraight) {
+        if (!hasGround && !hasFlight && !hasStraight) {
             return;
         }
 
@@ -135,8 +138,11 @@ public final class PathRenderer {
             }
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);
         }
+        if (hasFlight) {
+            renderFlightRoute(bufferSource, pose, flight, cullRadius);
+        }
         if (hasStraight) {
-            renderStraightLine(bufferSource, pose, current, goal, cullRadius);
+            renderStraightLine(bufferSource, pose, current, hasFlight ? flight.tail() : null, goal, cullRadius);
         }
 
         poseStack.popPose();
@@ -151,11 +157,17 @@ public final class PathRenderer {
      * 辿るものではなく方角と距離を示すものなので、遮蔽で消えると意味がなくなる。
      */
     private void renderStraightLine(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
-                                     PathGeometry geometry, BlockPos goal, double cullRadius) {
+                                     PathGeometry geometry, Vec3 flightTail, BlockPos goal, double cullRadius) {
         double fromX = playerX;
         double fromY = playerY;
         double fromZ = playerZ;
-        if (geometry != null) {
+        if (flightTail != null) {
+            // 空中経路が引けている区間の先だけを点線で繋ぐ。末端が目的地に届いていれば
+            // 長さが最小距離を下回り、drawStraightDashes側で自然に何も描かれなくなる
+            fromX = flightTail.x;
+            fromY = flightTail.y;
+            fromZ = flightTail.z;
+        } else if (geometry != null) {
             int last = geometry.pointX.length - 1;
             fromX = geometry.pointX[last];
             fromY = geometry.pointY[last];
@@ -182,6 +194,57 @@ public final class PathRenderer {
         VertexConsumer quadBuffer = bufferSource.getBuffer(RenderType.debugQuads());
         drawStraightDashes(quadBuffer, pose, points, cullRadius, STRAIGHT_ALPHA);
         bufferSource.endBatch(RenderType.debugQuads());
+    }
+
+    /**
+     * 空中経路を筒で描く。歩行の経路と違ってステップごとの色分け（危険・掘削・移動の種類）が無く、
+     * あるのは折れ線だけなので{@link PathGeometry}は通さない。
+     *
+     * <p>先頭の点は計算した時点のプレイヤー位置で、届く頃には最大で再計算間隔ぶん古い。今の位置から
+     * 引き直さないと、線が自分の少し後ろから生えているように見える。
+     */
+    private void renderFlightRoute(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
+                                    FlightRoute route, double cullRadius) {
+        List<Vec3> points = route.points();
+        int count = 0;
+        count = pushStraightPoint(count, playerX, playerY, playerZ);
+        for (int i = 1; i < points.size(); i++) {
+            Vec3 point = points.get(i);
+            count = pushStraightPoint(count, point.x, point.y, point.z);
+        }
+
+        // 遮蔽側を積み切ってからバッファを閉じ、それから通常側へ移る（renderStraightLineと同じ理由）
+        VertexConsumer occluded = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
+        drawFlightSegments(occluded, pose, count, cullRadius, OCCLUDED_TUBE_ALPHA);
+        bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
+
+        VertexConsumer quads = bufferSource.getBuffer(RenderType.debugQuads());
+        drawFlightSegments(quads, pose, count, cullRadius, TUBE_ALPHA);
+        bufferSource.endBatch(RenderType.debugQuads());
+    }
+
+    private void drawFlightSegments(VertexConsumer buffer, PoseStack.Pose pose, int points, double cullRadius,
+                                     float alpha) {
+        for (int i = 0; i + 1 < points; i++) {
+            double fromX = straightPoints[i * 3];
+            double fromY = straightPoints[i * 3 + 1];
+            double fromZ = straightPoints[i * 3 + 2];
+            double toX = straightPoints[i * 3 + 3];
+            double toY = straightPoints[i * 3 + 4];
+            double toZ = straightPoints[i * 3 + 5];
+            double dx = toX - fromX;
+            double dy = toY - fromY;
+            double dz = toZ - fromZ;
+            double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (length < 1.0e-4) {
+                continue;
+            }
+            // 描画距離の外は地形ごと描かれないので、そこまで積んでも見えない
+            double drawn = Math.min(length, cullRadius);
+            drawTube(buffer, pose, fromX, fromY, fromZ,
+                    fromX + dx / length * drawn, fromY + dy / length * drawn, fromZ + dz / length * drawn,
+                    PathColors.FLIGHT[0], PathColors.FLIGHT[1], PathColors.FLIGHT[2], alpha);
+        }
     }
 
     private int pushStraightPoint(int count, double x, double y, double z) {

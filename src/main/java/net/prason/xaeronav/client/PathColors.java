@@ -15,6 +15,8 @@ final class PathColors {
 
     /** 経路が分からない区間を繋ぐ直線。実際に辿れる経路と取り違えないよう、彩度を落とした色にする。 */
     static final float[] STRAIGHT = {0.85f, 0.85f, 0.9f};
+    /** 滑空中の空中経路。地上の経路（緑）とも点線（灰白）とも取り違えないよう、空を思わせる色にする。 */
+    static final float[] FLIGHT = {0.35f, 0.85f, 1.0f};
     /** 長距離ルートの粗い中間目標列。目的地までの直線（{@link #STRAIGHT}）と見分けが付くよう別の色調にする。 */
     static final float[] COARSE_ROUTE = {0.95f, 0.75f, 0.2f};
     static final float[] BRIDGE = {0.4f, 0.9f, 0.9f};
