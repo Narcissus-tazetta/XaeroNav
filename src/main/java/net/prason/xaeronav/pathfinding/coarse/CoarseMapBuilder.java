@@ -97,8 +97,9 @@ public final class CoarseMapBuilder {
             knownCells++;
         }
         int newCount = Math.min(count + 1, CoarseMap.MAX_FLOORS);
-        // 上限を超える場合、挿入位置が末尾なら新しい床自体を捨てる（参照Yから最も遠いのはこの床）。
-        // それ以外は既存の末尾（＝最も遠い床）を追い出して詰める
+        // 上限を超える場合は「最も高い床」を捨てる（挿入位置が末尾なら新しい床自体がそれに当たる）。
+        // ここには高さの基準が無いので、これ以上のことは決められない——どの高さ帯を残すかに
+        // 意味があるなら、呼び出し側が渡す前にMAX_FLOORS個へ絞ること（LiveCoarseSamplerはそうしている）
         if (count == CoarseMap.MAX_FLOORS && insertAt == count) {
             return;
         }

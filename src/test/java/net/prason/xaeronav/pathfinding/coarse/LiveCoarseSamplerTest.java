@@ -27,6 +27,36 @@ class LiveCoarseSamplerTest {
         assertEquals(64, map.maxHeightAtFloor(0, 0, 0));
     }
 
+    /**
+     * 1セルに{@link CoarseMap#MAX_FLOORS}を超える階層があるとき、残すのは参照Yに近い床。
+     * 参照Yを見ずに{@code CoarseMapBuilder}へそのまま渡すと、あちらは常に「最も高い床」を
+     * 追い出すので、プレイヤーが立っている一番上の回廊がそのまま消える。
+     */
+    @Test
+    void keepsTheFloorsNearestTheReferenceYWhenACellHasTooMany() {
+        // 1列あたりの走査はMAX_FLOORSで打ち切られるので、列ごとに違う階層を見せて
+        // チャンク全体では5クラスタになるようにする（ネザーでは普通に起きる形）
+        SearchBounds bounds = new SearchBounds(0, 0, 0, 15, 127, 15);
+        FakeCells cells = FakeCells.empty(bounds);
+        // 階層の間隔はXaeroの洞窟レイヤー幅（30）に合わせる。これより詰めると同じ床として
+        // まとめられてしまう（FLOOR_CLUSTER_THRESHOLD_BLOCKS）
+        for (int x = 0; x < 16; x++) {
+            int[] floorYs = x < 8 ? new int[] {28, 58, 88, 118} : new int[] {8};
+            for (int floorY : floorYs) {
+                for (int z = 0; z < 16; z++) {
+                    cells.set(x, floorY, z, FakeCells.STONE);
+                }
+            }
+        }
+
+        CoarseMap map = LiveCoarseSampler.sample(cells, bounds, 118, () -> false);
+
+        assertEquals(CoarseMap.MAX_FLOORS, map.floorCount(0, 0));
+        assertEquals(118, map.heightAtFloor(0, 0, CoarseMap.MAX_FLOORS - 1),
+                "参照Yの床（プレイヤーが立っている回廊）が残っていない");
+        assertEquals(28, map.heightAtFloor(0, 0, 0), "参照Yから最も遠い床が捨てられているはず");
+    }
+
     @Test
     void classifiesAMostlyWaterChunkAsWater() {
         SearchBounds bounds = new SearchBounds(0, 50, 0, 15, 80, 15);

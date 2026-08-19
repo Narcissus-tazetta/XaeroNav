@@ -1,7 +1,9 @@
 package net.prason.xaeronav.pathfinding.coarse;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
@@ -40,7 +42,20 @@ public final class LiveCoarseSampler {
     private LiveCoarseSampler() {
     }
 
+    /** 参照Yを指定しない版。探索範囲の中央を使い、打ち切りも見ない（テスト・診断用）。 */
     public static CoarseMap sample(CellSource view, SearchBounds bounds) {
+        return sample(view, bounds, (bounds.minY() + bounds.maxY()) / 2, () -> false);
+    }
+
+    /**
+     * @param referenceY 1セルの床が{@link CoarseMap#MAX_FLOORS}を超えたときに、どの高さ帯を残すかの基準。
+     *                   探索の始点のYを渡すこと——始点の床を落とすと、そのセルの{@code nearestFloor}が
+     *                   別の階層を返し、粗い地図全体が現に立っている場所とは無関係なものになる
+     * @param cancelled  途中で打ち切ってよいか。真になった時点で、そこまでの地図を返す
+     *                   （呼び出し側も同じ合図で結果を捨てるので、部分的な地図が使われることはない）
+     */
+    public static CoarseMap sample(CellSource view, SearchBounds bounds, int referenceY,
+                                    BooleanSupplier cancelled) {
         int minChunkX = bounds.minX() >> 4;
         int maxChunkX = bounds.maxX() >> 4;
         int minChunkZ = bounds.minZ() >> 4;
@@ -50,8 +65,13 @@ public final class LiveCoarseSampler {
 
         CoarseMapBuilder builder = new CoarseMapBuilder(minChunkX, minChunkZ, chunksX, chunksZ);
         for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            // 走査は探索範囲の全チャンク×16列×最大128セルに達する。新しい探索に追い出された
+            // ジョブがこれを完走すると、生きているジョブと同じだけのセル読みを丸ごと二重に払う
+            if (cancelled.getAsBoolean()) {
+                return builder.build();
+            }
             for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-                sampleChunk(view, bounds, chunkX, chunkZ, builder);
+                sampleChunk(view, bounds, chunkX, chunkZ, referenceY, builder);
             }
         }
         return builder.build();
@@ -63,7 +83,7 @@ public final class LiveCoarseSampler {
      * 上下に独立した通路が重なる場合）ので、単純な1列1値の集計では表現できない。
      */
     private static void sampleChunk(CellSource view, SearchBounds bounds, int chunkX, int chunkZ,
-                                     CoarseMapBuilder builder) {
+                                     int referenceY, CoarseMapBuilder builder) {
         int baseX = chunkX << 4;
         int baseZ = chunkZ << 4;
         List<FloorAccumulator> floors = new ArrayList<>(CoarseMap.MAX_FLOORS);
@@ -75,12 +95,20 @@ public final class LiveCoarseSampler {
                 }
             }
         }
+        // 1列あたりはMAX_FLOORSで頭打ちだが、16列ぶんのクラスタを合わせると簡単に超える
+        // （ネザーでは探索範囲が全高になるので常態）。溢れたぶんの取捨をCoarseMapBuilderへ
+        // 委ねてはいけない——あちらは常に「最も高い床」を追い出すので、プレイヤーが立っている
+        // 一番上の回廊がそのまま消える。ここで参照Yに近い順に残す
+        if (floors.size() > CoarseMap.MAX_FLOORS) {
+            floors.sort(Comparator.comparingInt(floor -> Math.abs(floor.approxHeight() - referenceY)));
+            floors.subList(CoarseMap.MAX_FLOORS, floors.size()).clear();
+        }
         for (FloorAccumulator floor : floors) {
             floor.emit(chunkX, chunkZ, builder);
         }
     }
 
-    /** 高さが近い既存の集計へ足す。無ければ新しい集計を作る（クラスタ数は自然にMAX_FLOORS程度で頭打ちになる）。 */
+    /** 高さが近い既存の集計へ足す。無ければ新しい集計を作る（クラスタ数に上限は無い。{@link #sampleChunk}が絞る）。 */
     private static void accumulate(List<FloorAccumulator> floors, ColumnSample sample) {
         FloorAccumulator closest = null;
         int closestDistance = FLOOR_CLUSTER_THRESHOLD_BLOCKS + 1;

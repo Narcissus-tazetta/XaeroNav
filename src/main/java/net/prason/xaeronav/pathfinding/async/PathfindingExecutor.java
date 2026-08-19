@@ -70,7 +70,7 @@ public final class PathfindingExecutor {
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
                                                  boolean costToGoGuideEnabled) {
         return submit(cancelled -> {
-            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, goal) : null;
+            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, start, goal, cancelled) : null;
             return search(view, limits, cancelled, costToGo, (pathfinder, c) ->
                     // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
                     // 寄せ直しなので、メインスレッドへ戻さずここで行う
@@ -89,8 +89,9 @@ public final class PathfindingExecutor {
      * 幾何学的なヒューリスティックとのmaxを取って使うだけなので、多少粗くても実害が無い——
      * 損をするのは「ボートがあるのに引き締めが甘くなる」程度で、非許容にはならない。
      */
-    private static CostToGo buildCostToGoGuide(CellSource view, BlockPos goal) {
-        CoarseMap coarseMap = LiveCoarseSampler.sample(view, view.bounds());
+    private static CostToGo buildCostToGoGuide(CellSource view, BlockPos start, BlockPos goal,
+                                                BooleanSupplier cancelled) {
+        CoarseMap coarseMap = LiveCoarseSampler.sample(view, view.bounds(), start.getY(), cancelled);
         CoarseRouter.LavaPolicy lavaPolicy = view.lavaBridgingEnabled()
                 ? CoarseRouter.LavaPolicy.BRIDGE : CoarseRouter.LavaPolicy.ALLOW;
         return CoarseRouter.costToGo(coarseMap, goal, false, lavaPolicy);
@@ -156,7 +157,7 @@ public final class PathfindingExecutor {
     private static PathResult solveCoarseGuided(CellSource view, SearchBounds bounds, BlockPos start, BlockPos goal,
                                                  SearchLimits limits, BooleanSupplier cancelled,
                                                  boolean costToGoGuideEnabled) {
-        CoarseMap coarseMap = LiveCoarseSampler.sample(view, bounds);
+        CoarseMap coarseMap = LiveCoarseSampler.sample(view, bounds, start.getY(), cancelled);
         // 橋を架けられるなら粗い側でも溶岩を通す。ここを一律ALLOWにすると、溶岩の海の縁では
         // 出発点自身のセルがLAVA＝通行不能になって区間分割が1つも作れず、溶岩の海を1回の探索で
         // 渡ろうとして予算を焼き切る（実機で踏んだ: ステップ数0のまま20万ノード）
@@ -253,7 +254,18 @@ public final class PathfindingExecutor {
     private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled,
                                      CostToGo costToGo, SearchCall run) {
         AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
-        return PathSafetyChecker.annotate(view, run.search(pathfinder, cancelled));
+        PathResult result = run.search(pathfinder, cancelled);
+        if (result.termination() == PathResult.Termination.EXHAUSTED && pathfinder.bridgeRunCapBlocked()) {
+            // 範囲内のオープンセットが尽きた＝道が一本も無い。橋の長さの上限で移動を捨てているので、
+            // それが原因かもしれない。詰むよりは長い橋の方がマシ、という優先順で上限を外して試す。
+            // 予算切れ（NODE_BUDGET/TIME_LIMIT）では試さない——そちらは上限とは無関係に資源が
+            // 足りていないだけで、同じ探索をもう一度払うだけになる
+            PathResult uncapped = run.search(new AStarPathfinder(view, limits, costToGo, 0), cancelled);
+            if (uncapped.complete()) {
+                result = uncapped;
+            }
+        }
+        return PathSafetyChecker.annotate(view, result);
     }
 
     private CompletableFuture<PathResult> submit(Function<BooleanSupplier, PathResult> work) {
