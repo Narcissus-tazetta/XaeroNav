@@ -37,14 +37,6 @@ final class PathNode {
      */
     int bridgeRun;
 
-    /**
-     * ここまで連続して昇降の向きが反転した回数。登った直後に降りる、その逆を繰り返すたびに増え、
-     * 反転しない移動（同方向の継続・水平移動など）で0に戻る。{@link AStarPathfinder}が
-     * 反転のたびにこの回数へ比例したペナルティを課すための状態——1回だけの上下動（谷越えなど）は
-     * 軽いまま、同じ高さへ登り降りを繰り返す往復だけを重くする。
-     */
-    int reversalStreak;
-
     /** {@link BinaryHeapOpenSet}内での位置。decrease-keyに必要。-1はオープンセット外を表す。 */
     int heapPosition = -1;
 

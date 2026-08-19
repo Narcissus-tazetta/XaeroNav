@@ -167,14 +167,6 @@ public final class ActionCosts {
      */
     public static final double LAVA_BRIDGE_PENALTY_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
 
-    /**
-     * 昇り降りの向きが直前の移動から反転する（登った直後に降りる、その逆）ときの追加ペナルティ。
-     * 起伏をそのまま辿ると、細かい凹凸のある地形（ネザーラック等）で階段状のジグザグになる。
-     * 反転のたびに1マス分余計に歩いたのと同じ重みを乗せることで、掘って均す・回り込むほうが
-     * 相対的に安くなるよう誘導する。地形に迂回路が無ければ、それでも払って進む（通行不能にはしない）。
-     */
-    public static final double VERTICAL_REVERSAL_PENALTY_TICKS = SPRINT_ONE_BLOCK;
-
     public static final double INFEASIBLE = Double.POSITIVE_INFINITY;
 
     private ActionCosts() {

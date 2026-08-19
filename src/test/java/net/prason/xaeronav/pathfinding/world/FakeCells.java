@@ -40,6 +40,10 @@ public final class FakeCells implements CellSource {
     public static final char SOUL_SAND = 'S';
     /** マグマブロック。足場だが、上を通るにはスニークが要る（走って踏むと燃える）。 */
     public static final char MAGMA = 'M';
+    /** 普通のツタ。掴まって登れて、replaceableなのでブロックを置ける。 */
+    public static final char VINE = 'V';
+    /** ネザーのしだれツタ・ねじれツタ。掴まって登れるが<b>replaceableではない</b>ので置けない。 */
+    public static final char NETHER_VINE = 'N';
     /** 梯子。掴んで上下できる。 */
     public static final char LADDER = 'H';
     /** 範囲外・未ロード扱い（{@link CellData#ABSENT}）。 */
@@ -189,13 +193,18 @@ public final class FakeCells implements CellSource {
                             CellData.PRESENT | CellData.STANDABLE | CellData.SNEAK_REQUIRED, STONE_DIG_TICKS),
                     MAGMA_SPEED_FACTOR);
             case LADDER -> CellData.withDigTicks(CellData.PRESENT | CellData.CLIMBABLE, 0.0);
+            case VINE -> CellData.withDigTicks(CellData.PRESENT | CellData.PASSABLE_EMPTY
+                    | CellData.CLIMBABLE | CellData.REPLACEABLE, 0.0);
+            case NETHER_VINE -> CellData.withDigTicks(
+                    CellData.PRESENT | CellData.PASSABLE_EMPTY | CellData.CLIMBABLE, 0.0);
             case ABSENT -> CellData.ABSENT;
             default -> throw new IllegalArgumentException("未知の地形記号: " + symbol);
         };
     }
 
     private static long air() {
-        return CellData.withDigTicks(CellData.PRESENT | CellData.PASSABLE_EMPTY, 0.0);
+        return CellData.withDigTicks(
+                CellData.PRESENT | CellData.PASSABLE_EMPTY | CellData.REPLACEABLE, 0.0);
     }
 
     @Override

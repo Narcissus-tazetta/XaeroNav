@@ -9,7 +9,7 @@
   "hud.xaeronav.searching": "経路を計算中…",
   "hud.xaeronav.no_route": "経路が見つかりません",
   "hud.xaeronav.rerouted": "経路を引き直しました（先が通れなくなりました）",
-  "hud.xaeronav.flying": "滑空中（経路の計算は止めています）",
+  "hud.xaeronav.flying": "飛行中（経路の計算は止めています）",
   "hud.xaeronav.direct_distance": "目的地まで直線で%dブロック",
   "hud.xaeronav.arriving": "まもなく到着",
   "hud.xaeronav.arrived": "到着！",

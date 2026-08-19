@@ -67,6 +67,15 @@ public final class CellData {
      * 「案内に一言添える必要があるか」の印なので{@link #HAZARD}とは分けてある。
      */
     static final long SNEAK_REQUIRED = 1L << 11;
+    /**
+     * ここへブロックを置けるか（バニラの{@code BlockBehaviour.BlockStateBase#canBeReplaced}）。
+     *
+     * <p>当たり判定が無いことと、そこへ置けることは別。しだれツタ・ねじれツタ・洞窟のツタ・
+     * 松明・レール・花は体が通り抜けられるが<b>replaceableではない</b>ので、狙って置いても
+     * {@code BlockPlaceContext#getClickedPos}が隣のセルを返す——案内した位置には絶対に置かれない。
+     * 普通のツタ({@code vine})だけはreplaceableなので置ける。
+     */
+    static final long REPLACEABLE = 1L << 12;
 
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
 
@@ -164,6 +173,12 @@ public final class CellData {
         }
         if (state.getBlock() instanceof MagmaBlock) {
             flags |= SNEAK_REQUIRED;
+        }
+        if (state.canBeReplaced()) {
+            // 引数無しの版はreplaceableフラグを読むだけでlevelを参照しないので、
+            // ワーカースレッドから呼べる（BlockPlaceContextを取る版は「同じブロックを
+            // 手に持っているとき」の話なので、普通のブロックを置く判定には使わない）
+            flags |= REPLACEABLE;
         }
         return flags | speedFactorBits(state);
     }
@@ -335,6 +350,11 @@ public final class CellData {
      * このセルの上を進むときの速度倍率（1.0で等速。ソウルサンド・蜂蜜ブロックは0.4、氷は1.2）。
      * バニラは足元のセルの係数を使い、それが1.0なら1つ下のブロックを見る（{@code Entity#getBlockSpeedFactor}）。
      */
+    /** ここへブロックを置けるか。{@link #REPLACEABLE}参照。 */
+    public static boolean replaceable(long cell) {
+        return (cell & REPLACEABLE) != 0;
+    }
+
     /** その上を進むにはスニークが要る床か（マグマブロック）。 */
     public static boolean sneakRequired(long cell) {
         return (cell & SNEAK_REQUIRED) != 0;

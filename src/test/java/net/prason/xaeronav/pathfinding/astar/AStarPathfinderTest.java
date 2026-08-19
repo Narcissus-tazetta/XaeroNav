@@ -532,6 +532,62 @@ class AStarPathfinderTest {
                 "迂回できるのに溶岩へ足場を置いた: " + movements(result));
     }
 
+    /**
+     * ネザーのしだれツタ・ねじれツタは体が通り抜けられるが、バニラでは<b>replaceableではない</b>ので
+     * ブロックを置けない（狙っても隣のセルへ飛ぶ）。当たり判定の有無だけで設置可能と判断してはいけない。
+     */
+    @Test
+    void neverPlacesABlockWhereVanillaWouldRefuseIt() {
+        FakeCells cells = chasm(2).canPlaceBlocks(true).jumpGapEnabled(false);
+        // 隙間の床の高さをしだれツタで埋める。体は通り抜けられるが、そこへ足場は置けない
+        cells.set(2, 60, 0, FakeCells.NETHER_VINE);
+        cells.set(3, 60, 0, FakeCells.NETHER_VINE);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertTrue(result.steps().stream()
+                        .map(PathStep::placedBlockPos)
+                        .filter(pos -> pos != null)
+                        .noneMatch(pos -> pos.getY() == 60 && pos.getX() >= 2 && pos.getX() < 4),
+                "置けないしだれツタの位置へ足場を置いている: " + result.steps());
+    }
+
+    /**
+     * 梯子・ツタに掴まっている間は{@code onGround()}がfalseで{@code jumpFromGround()}が呼ばれない。
+     * 掴まったまま接地していても{@code handleOnClimbable}が水平速度を±0.15に固定する。
+     */
+    @Test
+    void doesNotJumpWhileHangingOnAClimbable() {
+        FakeCells cells = chasm(2).jumpGapEnabled(true).canPlaceBlocks(false);
+        for (int z = -1; z <= 1; z++) {
+            cells.set(1, 61, z, FakeCells.LADDER);
+        }
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "梯子に掴まったままでは跳べない: " + movements(result));
+    }
+
+    /**
+     * 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中はほとんど加速
+     * できないので、到達距離は踏み切り速度でそのまま決まる。1マス幅の足場からは自分のマスの中しか
+     * 助走できない。
+     */
+    @Test
+    void doesNotJumpFromAOneBlockPerchWithNoRunUp() {
+        FakeCells cells = chasm(2).jumpGapEnabled(true).canPlaceBlocks(false);
+        // 踏み切り(x=1)の手前を塞いで、助走できない1マス幅の足場にする
+        for (int z = -1; z <= 1; z++) {
+            cells.set(0, 61, z, FakeCells.BEDROCK);
+        }
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "助走できない足場から跳ばせてはいけない: " + movements(result));
+    }
+
     /** 障害物の無い平坦な通路。ゴールの扱い（座標一致か領域か）だけを見るための地形。 */
     private static FakeCells flatCorridor() {
         return FakeCells.of(0, 60, 0, """

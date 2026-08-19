@@ -548,39 +548,8 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        Reversal reversal = reversal(from.kind, from.reversalStreak, false);
-        relax(from, x, y, z, ActionCosts.ASCEND_ONE_BLOCK + reversal.penaltyTicks()
-                        + submerged(clearanceCost + bodyCost, x, y + 1, z),
-                MoveKind.ASCEND, 0, reversal.streak());
-    }
-
-    /** {@link #reversal}の結果。ペナルティと、次のノードへ引き継ぐ反転の連続回数を同時に返す。 */
-    private record Reversal(double penaltyTicks, int streak) {
-        private static final Reversal NONE = new Reversal(0.0, 0);
-    }
-
-    /**
-     * 直前の移動が反対向きの昇降だったときの追加コストと、反転が連続している回数。
-     *
-     * <p>回数に比例してペナルティを線形に強める（1回目={@link ActionCosts#VERTICAL_REVERSAL_PENALTY_TICKS}、
-     * 2回目はその2倍…）。1回だけの上下動（谷を越える等、地形として正当な起伏）は軽いまま留め、
-     * 同じ高さへ登り降りを繰り返す「往復」だけを狙い撃ちで重くするための設計——固定ペナルティのままだと
-     * 1マス刻みの反復（登って降りてを何度も繰り返す階段状の地形）に対して累進しない。
-     *
-     * <p>跳躍・落下・水中/梯子の昇降は対象外——地形なりの階段（ASCEND/DESCEND、斜め含む）だけを狙う。
-     */
-    private static Reversal reversal(MoveKind previous, int previousStreak, boolean descending) {
-        if (previous == null) {
-            return Reversal.NONE;
-        }
-        boolean reversed = descending
-                ? previous == MoveKind.ASCEND || previous == MoveKind.DIAGONAL_ASCEND
-                : previous == MoveKind.DESCEND || previous == MoveKind.DIAGONAL_DESCEND;
-        if (!reversed) {
-            return Reversal.NONE;
-        }
-        int streak = previousStreak + 1;
-        return new Reversal(streak * ActionCosts.VERTICAL_REVERSAL_PENALTY_TICKS, streak);
+        relax(from, x, y, z, ActionCosts.ASCEND_ONE_BLOCK + submerged(clearanceCost + bodyCost, x, y + 1, z),
+                MoveKind.ASCEND);
     }
 
     private void addDescend(PathNode from, int dx, int dz) {
@@ -599,9 +568,8 @@ public final class AStarPathfinder {
             return;
         }
         double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER : ActionCosts.DESCEND_ONE_BLOCK;
-        Reversal reversal = intoWater ? Reversal.NONE : reversal(from.kind, from.reversalStreak, true);
-        relax(from, x, y, z, baseCost + reversal.penaltyTicks() + submerged(bodyCost, x, y + 1, z),
-                intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND, 0, reversal.streak());
+        relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
+                intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
     }
 
     /**
@@ -633,9 +601,7 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z)) {
             return;
         }
-        Reversal reversal = reversal(from.kind, from.reversalStreak, false);
-        relax(from, x, y, z, ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK + reversal.penaltyTicks(),
-                MoveKind.DIAGONAL_ASCEND, 0, reversal.streak());
+        relax(from, x, y, z, ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK, MoveKind.DIAGONAL_ASCEND);
     }
 
     /**
@@ -661,9 +627,7 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z) || !clearWithoutDigging(x, y + 1, z)) {
             return;
         }
-        Reversal reversal = reversal(from.kind, from.reversalStreak, true);
-        relax(from, x, y, z, ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK + reversal.penaltyTicks(),
-                MoveKind.DIAGONAL_DESCEND, 0, reversal.streak());
+        relax(from, x, y, z, ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK, MoveKind.DIAGONAL_DESCEND);
     }
 
     /**
@@ -699,6 +663,21 @@ public final class AStarPathfinder {
         // 決まる（滞空時間は距離に依らず一定）ので、減速したまま跳ぶと必ず隙間に落ちる。
         // 倍率の探し方は歩行コスト（{@link #stepCost}）と同じくバニラの{@code getBlockSpeedFactor}に倣う
         if (slowedTakeoff(from.x, y, from.z)) {
+            return;
+        }
+        // 梯子・ツタに掴まったままでは跳べない。onGround()がfalseなのでjumpFromGround()自体が
+        // 呼ばれず（LivingEntity#aiStep）、掴まったまま接地していてもhandleOnClimbableが
+        // 水平速度を±0.15に固定するので、疾走の0.286も踏み切り加算の0.2も残らない
+        if (CellData.climbable(view.cell(from.x, y, from.z))
+                || !CellData.standable(view.cell(from.x, y - 1, from.z))) {
+            return;
+        }
+        // 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中の加速は
+        // 0.02/tickしかない（LivingEntity#getFlyingSpeed）ので、到達距離は踏み切り速度で
+        // そのまま決まる。1マス幅の足場からでは自分のマスの中（約0.5マス）しか助走できず、
+        // 3マスの隙間は理論上届いても余裕がゼロになる——跳べと指示するだけで、外して落ちるのは
+        // 人間の方（JUMP_REACH_PENALTYと同じ方針）
+        if (!hasRunUp(from, y, dx, dz)) {
             return;
         }
 
@@ -897,6 +876,13 @@ public final class AStarPathfinder {
      * よい——置いたブロックが溶岩を置き換えるバニラの橋架けなので、身体が溶岩に入るわけではない
      * （入る経路は{@link #standingBodyCost}が既にINFEASIBLEで弾く）。
      */
+    /** 踏み切り地点の手前（跳躍方向の逆側）に、走り込める足場が1マスあるか。 */
+    private boolean hasRunUp(PathNode from, int y, int dx, int dz) {
+        int x = from.x - dx;
+        int z = from.z - dz;
+        return CellData.standable(view.cell(x, y - 1, z)) && clearWithoutDigging(x, y, z);
+    }
+
     private void addBridge(PathNode from, int dx, int dz, int obstacleY) {
         if (!view.canPlaceBlocks()) {
             return;
@@ -907,7 +893,10 @@ public final class AStarPathfinder {
 
         long floorCell = view.cell(x, y - 1, z);
         boolean overLava = CellData.lava(floorCell);
-        if (!overLava && (CellData.standable(floorCell) || !CellData.passableEmpty(floorCell))) {
+        // 当たり判定が無いことと、そこへ置けることは別。しだれツタ・ねじれツタ・松明・レールは
+        // 体が通り抜けられるがreplaceableではないので、狙って置いても隣のセルへ飛ぶ
+        // （BlockPlaceContext#getClickedPos）——案内した位置には絶対に置かれない
+        if (!overLava && (CellData.standable(floorCell) || !CellData.replaceable(floorCell))) {
             return;
         }
         // 床が溶岩なら、置くブロックがその溶岩を置き換える。何がそれを支えているかは関係ない
@@ -948,7 +937,7 @@ public final class AStarPathfinder {
         double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
                 + submerged(bodyCost, x, y + 1, z);
-        relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun, 0);
+        relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
     }
 
     /**
@@ -968,7 +957,11 @@ public final class AStarPathfinder {
         if (!view.canPlaceBlocks()) {
             return;
         }
-        if (!CellData.passableEmpty(view.cell(from.x, from.y, from.z))) {
+        long standing = view.cell(from.x, from.y, from.z);
+        // 置く先は自分がいるセルそのもの。梯子・ツタに掴まっている間は onGround() が false で
+        // jumpFromGround() が呼ばれず（LivingEntity#aiStep）、掴まったまま接地していても
+        // handleOnClimbable が水平・下向きの速度を±0.15に固定するので、跳んで積む動作が成立しない
+        if (!CellData.replaceable(standing) || CellData.climbable(standing)) {
             return;
         }
         double clearanceCost = columnCost(from.x, from.y + 2, from.y + 2, from.z, null);
@@ -997,15 +990,14 @@ public final class AStarPathfinder {
     }
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
-        relax(from, x, y, z, edgeCost, kind, 0, 0);
+        relax(from, x, y, z, edgeCost, kind, 0);
     }
 
     /**
-     * {@code bridgeRun}・{@code reversalStreak}を明示的に渡す版。{@link #addBridge}と
-     * 昇降系（{@link #addAscend}等）だけが非0を渡す——それ以外の移動はどちらの連続も断つので0になる。
+     * {@code bridgeRun}を明示的に渡す版。{@link #addBridge}だけが非0を渡す——
+     * それ以外の移動は橋の連続を断つので0になる。
      */
-    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
-                       int reversalStreak) {
+    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
         double tentativeCost = from.cost + edgeCost;
         PathNode neighbor = node(x, y, z);
         if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
@@ -1017,7 +1009,6 @@ public final class AStarPathfinder {
         neighbor.combinedCost = tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal;
         neighbor.kind = kind;
         neighbor.bridgeRun = bridgeRun;
-        neighbor.reversalStreak = reversalStreak;
         if (neighbor.isOpen()) {
             open.update(neighbor);
         } else {

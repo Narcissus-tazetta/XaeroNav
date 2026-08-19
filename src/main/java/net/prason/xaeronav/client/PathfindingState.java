@@ -19,6 +19,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BoatItem;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
@@ -283,7 +284,7 @@ public final class PathfindingState {
         this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
         // 滑空中に指定された目的地は、着地するまで経路を引かない（引いても表示せず捨てるだけになる）
-        this.flying = player.isFallFlying();
+        this.flying = airborne(player);
         if (this.flying) {
             recalculateFlightLine();
         } else {
@@ -500,7 +501,7 @@ public final class PathfindingState {
         if (mc.screen != null) {
             return;
         }
-        boolean nowFlying = mc.player.isFallFlying();
+        boolean nowFlying = airborne(mc.player);
         if (nowFlying != flying) {
             flying = nowFlying;
             if (nowFlying) {
@@ -707,6 +708,15 @@ public final class PathfindingState {
             return;
         }
 
+        if (mc.gameMode != null && mc.gameMode.getPlayerMode() == GameType.SPECTATOR) {
+            // スペクテイターはブロックをすり抜ける（Player#isSpectator → noPhysics）。避ける必要の
+            // 無い地形のために線を曲げると、まっすぐ飛べばいい所を遠回りに見せるだけになる。
+            // 判定にPlayer#isSpectator()を使わないのは、あれがタブリストのPlayerInfo経由で、
+            // 未受信なら黙ってfalseに落ちるため（AbstractClientPlayer#isSpectator）
+            flightGuideWaypoints = null;
+            return;
+        }
+
         Vec3 start = player.position();
         Vec3 goalVec = Vec3.atCenterOf(currentGoal);
         ResourceKey<Level> dimension = level.dimension();
@@ -838,6 +848,24 @@ public final class PathfindingState {
         double dy = pos.getY() - position.y;
         double dz = pos.getZ() + 0.5 - position.z;
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * 空にいて、地上の経路が意味を持たない状態か。エリトラの滑空だけでなくクリエイティブ・
+     * スペクテイターの飛行も含む。
+     *
+     * <p>どちらも「空はプレイヤー自身が見て操縦できる」ので障害物回避の経路は要らず、そもそも
+     * 足元に床が無いので{@code StanceFinder.resolveStart}が始点を解決できない——止めずに置くと、
+     * 開始ノードから辺が1本も出ないまま2秒おきに探索を投げ続け、HUDには「経路なし」が出続ける
+     * （意図して止めているのではなく<b>失敗しているように見える</b>）。
+     *
+     * <p>{@code getAbilities().flying}はクライアント自身が持つ状態で、二段ジャンプの切り替えも
+     * 着地時の自動解除も同じtickのうちに{@code LocalPlayer#aiStep}が書く。スペクテイターは
+     * {@code GameType#updatePlayerAbilities}と{@code MultiPlayerGameMode#isAlwaysFlying}が
+     * 常にtrueへ固定するので、これ一つで飛行モード全部を捉えられる。
+     */
+    private static boolean airborne(Player player) {
+        return player.isFallFlying() || player.getAbilities().flying;
     }
 
     private boolean nearPathEnd(Vec3 position, PathResult result) {

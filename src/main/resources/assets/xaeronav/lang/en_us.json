@@ -9,7 +9,7 @@
   "hud.xaeronav.searching": "Finding a route...",
   "hud.xaeronav.no_route": "No route found",
   "hud.xaeronav.rerouted": "Route changed (the way ahead became unusable)",
-  "hud.xaeronav.flying": "Gliding — routing paused",
+  "hud.xaeronav.flying": "Airborne — routing paused",
   "hud.xaeronav.direct_distance": "%d blocks away in a straight line",
   "hud.xaeronav.arriving": "Arriving",
   "hud.xaeronav.arrived": "Arrived!",
