@@ -855,7 +855,7 @@ public final class PathfindingState {
             waypointIndex = -1;
         } else {
             DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius,
-                    detailReachLimit(level.dimension(), renderRadius), boatAvailable, true);
+                    detailReachLimit(level.dimension(), renderRadius), boatAvailable, true, -1);
             target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
             waypointIndex = detail.waypointIndex();
@@ -989,7 +989,7 @@ public final class PathfindingState {
                 // 粗い経由地チェーンも計算資源を使い切った側。区間ごとの合算なのでhitNodeBudgetでは
                 // 拾えないが、発動条件が「直前がノード上限に当たった」なので予算切れなのは確定している
                 updateDetailReach(searchDimension, start, finalTarget, result, renderRadius,
-                        budgetExhausted || finalCoarseGuided);
+                        budgetExhausted || finalCoarseGuided, true);
                 // 再挑戦の予約は、実際に発動できるときだけ立てる。どちらの再挑戦もrenderRadius以内の
                 // ゴールを前提にしている（箱を広げる側は広げ先がrenderRadius、粗い経由地チェーン側は
                 // 読み込み済みチャンクからしか粗い地図を作れない）。予約だけ立てて発動条件が
@@ -1051,7 +1051,8 @@ public final class PathfindingState {
         // 末端基準の上限は、プレイヤー中心の読み込み済み正方形の「残り」で切る（extendLead参照）
         int lead = extendLead(player, from, renderRadius);
         int reach = Math.min(detailReachLimit(searchDimension, renderRadius), lead);
-        DetailTarget detail = selectDetailTarget(from, currentGoal, lead, reach, boatAvailable, false);
+        DetailTarget detail = selectDetailTarget(from, currentGoal, lead, reach, boatAvailable, false,
+                shown.waypointIndex());
         BlockPos target = detail.target();
         if (target.equals(from) || horizontalDistance(from, target) > lead) {
             // これ以上伸ばす先が無いか、伸ばす先が読み込み済みチャンクの外（中間目標が1つも
@@ -1097,7 +1098,8 @@ public final class PathfindingState {
             }
             // 継ぎ足しも「この地形・この予算でどこまで引けたか」の実測そのもの。ここで反映しないと、
             // 到達距離の上限が縮まないまま届かない目標を投げ続ける（自己修復しない）
-            updateDetailReach(searchDimension, from, target, result, renderRadius, result.budgetExhausted());
+            updateDetailReach(searchDimension, from, target, result, renderRadius, result.budgetExhausted(),
+                    false);
             if (result.steps().isEmpty()) {
                 // 1歩も進めなかった。手前の経路はそのまま残し、通常の再計算に委ねる
                 blockExtend(from, playerAt);
@@ -1159,12 +1161,14 @@ public final class PathfindingState {
      * 失敗し続けた（粗い経由地チェーンが毎回0ステップ＝「経路が見つかりません」）。
      */
     private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
-                                             int reach, boolean boatAvailable, boolean playerAnchored) {
+                                             int reach, boolean boatAvailable, boolean playerAnchored,
+                                             int minWaypointIndex) {
         if (horizontalDistance(start, currentGoal) <= reach || !XaeroPresence.mapPresent()) {
             return new DetailTarget(currentGoal, -1);
         }
         DetailTarget target = reachableWaypointTarget(start, currentGoal,
-                cachedOrFreshRoute(start, currentGoal, boatAvailable), renderRadius, reach, playerAnchored);
+                cachedOrFreshRoute(start, currentGoal, boatAvailable), renderRadius, reach, playerAnchored,
+                minWaypointIndex);
         if (target != null) {
             return target;
         }
@@ -1187,7 +1191,7 @@ public final class PathfindingState {
         // 目的地は変わっていないのでキャッシュは効くはずだが、地形は不変でも自分の位置は変わるので、
         // 今の位置を始点に引き直す（地形が変わらない限り引き直さない、という原則の唯一の例外）
         target = reachableWaypointTarget(start, currentGoal, freshRoute(start, currentGoal, boatAvailable),
-                renderRadius, reach, true);
+                renderRadius, reach, true, minWaypointIndex);
         return target != null ? target : new DetailTarget(currentGoal, -1);
     }
 
@@ -1213,9 +1217,16 @@ public final class PathfindingState {
      * <p>上げる側と下げる側は対称ではない。上限を上げて外すと探索1回（既定10万ノード）を捨てるうえ、
      * 目標は経路上の補間点なので<b>表示される経路ごと引き直される</b>——上限が上下すると案内が
      * 行ったり来たりして見える。低すぎる場合の損は再計算が増えるだけなので、上げるには根拠が要る。
+     *
+     * <p>{@code mayGrow}がfalseなら縮める側だけを見る。<b>継ぎ足しはこちら</b>——成長の歯止めは
+     * 「測った場所から{@code reach}ぶん離れるまで上げない」だが、継ぎ足しの始点は経路の末端で
+     * 一度に数百ブロック飛ぶので、この条件が常に成立してしまう。実機では停止したまま0.8秒で
+     * 24→48→72→96→120と4段上がり、そのあと一気に24へ落ちる往復になった。縮める側は
+     * 「この探索はここまでしか引けなかった」という直接の観測なので、始点がどこでも成立する。
      */
     private void updateDetailReach(ResourceKey<Level> dimension, BlockPos start, BlockPos target,
-                                    PathResult result, int renderRadius, boolean budgetExhausted) {
+                                    PathResult result, int renderRadius, boolean budgetExhausted,
+                                    boolean mayGrow) {
         List<PathStep> steps = result.steps();
         if (steps.isEmpty()) {
             return;
@@ -1225,6 +1236,9 @@ public final class PathfindingState {
         double targetDistance = horizontalDistance(start, target);
         int updated;
         if (result.complete()) {
+            if (!mayGrow) {
+                return;
+            }
             // 上限よりずっと手前の目標に届いただけでは、上限そのものを試したことにはならない
             if (targetDistance < previous - DETAIL_REACH_GROWTH_BLOCKS) {
                 return;
@@ -1382,15 +1396,16 @@ public final class PathfindingState {
      */
     private DetailTarget reachableWaypointTarget(BlockPos start, BlockPos currentGoal,
                                                   List<BlockPos> waypoints, int renderRadius, int reach,
-                                                  boolean playerAnchored) {
+                                                  boolean playerAnchored, int minWaypointIndex) {
         int farthestInRadius = -1;
         int farthestInReach = -1;
         int nearestInRadius = -1;
         int previouslyAimed = -1;
         double nearestDistance = Double.MAX_VALUE;
-        // 後戻りの歯止めはプレイヤー基準の選定にだけ効かせる。継ぎ足し（始点＝経路の末端）と
-        // 共有すると、末端が数区間先まで進んだあとの歯止めがプレイヤー基準の選定を遠い添字へ
-        // 固定してしまい、今いる場所に合った近いwaypointを選び直せなくなる
+        // 後戻りの歯止めは2系統ある。プレイヤー基準は「前回向いていた点」を座標で覚える
+        // （lastAimedWaypoint）。継ぎ足し（始点＝経路の末端）は末端の区間が向かっている添字を
+        // 下限にする——両者で同じフィールドを共有すると、末端が数区間先まで進んだあとの歯止めが
+        // プレイヤー基準の選定を遠い添字へ固定してしまい、今いる場所に合った点を選び直せなくなる
         BlockPos aimedBefore = playerAnchored ? lastAimedWaypoint : null;
         for (int i = 0; i < waypoints.size(); i++) {
             BlockPos waypoint = waypoints.get(i);
@@ -1420,10 +1435,18 @@ public final class PathfindingState {
         // 引き返す案内になる（実機で確認: 前進する目標と背後の目標が交互に出て行ったり来たりした）。
         // 経路から大きく外れてルートを引き直した場合は前回の点が新しい列に無いので、この歯止めは外れる
         farthestIndex = Math.max(farthestIndex, previouslyAimed);
+        if (!playerAnchored) {
+            // 継ぎ足しは末端が向かっている区間より手前を狙ってはいけない。下の「最寄り」
+            // フォールバックは通り過ぎた点を掴みうるので、これが無いと経路が自分の後ろへ
+            // 折り返して伸びる（実機で、末端245,-332から96ブロック後ろの159,-375へ継ぎ足していた）。
+            // 下限がrenderRadiusの外なら、そこへ向かう線上のreach地点（下のpointAlong）が目標になる
+            farthestIndex = Math.max(farthestIndex, Math.min(minWaypointIndex, waypoints.size() - 1));
+        }
         // 選んだ点が近すぎる（waypointの真上に立っている等）と長さ0の経路しか出せない。
         // 前へ進む目標を必ず確保するため、この場合だけ1つ先を採る
         if (horizontalDistance(start, waypoints.get(farthestIndex)) < REFINED_WAYPOINT_MIN_SPACING_BLOCKS) {
-            farthestIndex = Math.min(farthestIndex + 1, farthestInRadius);
+            // 前へ出すための調整なので、歯止めより手前へ戻してはいけない
+            farthestIndex = Math.max(farthestIndex, Math.min(farthestIndex + 1, farthestInRadius));
         }
         BlockPos aim = waypoints.get(farthestIndex);
         if (playerAnchored) {
