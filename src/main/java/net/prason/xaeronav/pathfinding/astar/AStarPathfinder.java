@@ -548,7 +548,9 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.ASCEND_ONE_BLOCK + submerged(clearanceCost + bodyCost, x, y + 1, z),
+        relax(from, x, y, z,
+                ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
+                        + submerged(clearanceCost + bodyCost, x, y + 1, z),
                 MoveKind.ASCEND);
     }
 
@@ -567,7 +569,8 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER : ActionCosts.DESCEND_ONE_BLOCK;
+        double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER
+                : ActionCosts.descendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z));
         relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
                 intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
     }
@@ -601,7 +604,8 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK, MoveKind.DIAGONAL_ASCEND);
+        relax(from, x, y, z, ActionCosts.diagonalAscendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z)),
+                MoveKind.DIAGONAL_ASCEND);
     }
 
     /**
@@ -627,7 +631,8 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z) || !clearWithoutDigging(x, y + 1, z)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK, MoveKind.DIAGONAL_DESCEND);
+        relax(from, x, y, z, ActionCosts.diagonalDescendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z)),
+                MoveKind.DIAGONAL_DESCEND);
     }
 
     /**
@@ -710,11 +715,23 @@ public final class AStarPathfinder {
 
     /** 踏み切り地点が減速ブロックの上か（バニラの{@code Entity#getBlockSpeedFactor}と同じ探し方）。 */
     private boolean slowedTakeoff(int x, int y, int z) {
+        return takeoffSpeedFactor(x, y, z) < 1.0;
+    }
+
+    /**
+     * この地点から踏み切るときの水平速度倍率。探し方はバニラの{@code Entity#getBlockSpeedFactor}と
+     * 同じで、足元のセルに倍率が無ければ実際に踏んでいる1つ下のブロックを見る。
+     *
+     * <p><b>1.0を超える側（氷）は返さない。</b>{@link Heuristic}は昇りの下限に
+     * {@code ASCEND_ONE_BLOCK}、水平の下限に{@code SPRINT_ONE_BLOCK}を置いているので、
+     * そこを割ると非許容になる。速くなる側の得は{@link #stepCost}が水平移動でだけ表す。
+     */
+    private double takeoffSpeedFactor(int x, int y, int z) {
         double speedFactor = CellData.speedFactor(view.cell(x, y, z));
         if (speedFactor == 1.0) {
             speedFactor = CellData.speedFactor(view.cell(x, y - 1, z));
         }
-        return speedFactor < 1.0;
+        return Math.min(1.0, speedFactor);
     }
 
     /** 跳び損ねたときに落ちる先が溶岩か。足元から{@link #JUMP_LAVA_SCAN_DEPTH}マス下までを見る。 */
@@ -832,9 +849,12 @@ public final class AStarPathfinder {
             return;
         }
 
+        // 縁を踏み出す動作も足元のブロックに減速される（落下中と着地後は無関係）
+        double takeoff = takeoffSpeedFactor(from.x, from.y, from.z);
         long obstacle = view.cell(x, obstacleY, z);
         if (CellData.water(obstacle)) {
-            relax(from, x, obstacleY, z, ActionCosts.fallCost(from.y - obstacleY), MoveKind.FALL_TO_WATER);
+            relax(from, x, obstacleY, z, ActionCosts.fallCost(from.y - obstacleY, takeoff),
+                    MoveKind.FALL_TO_WATER);
             return;
         }
         if (!CellData.standable(obstacle)) {
@@ -846,7 +866,7 @@ public final class AStarPathfinder {
             return;
         }
         if (drop <= ActionCosts.SAFE_FALL_BLOCKS) {
-            relax(from, x, obstacleY + 1, z, ActionCosts.fallCost(drop), MoveKind.FALL);
+            relax(from, x, obstacleY + 1, z, ActionCosts.fallCost(drop, takeoff), MoveKind.FALL);
             return;
         }
 
@@ -854,11 +874,12 @@ public final class AStarPathfinder {
         int damage = drop - ActionCosts.SAFE_FALL_BLOCKS;
         if (view.canMlgWaterBucket()) {
             relax(from, x, obstacleY + 1, z,
-                    ActionCosts.fallCost(drop) + ActionCosts.MLG_WATER_OVERHEAD_TICKS, MoveKind.FALL_MLG);
+                    ActionCosts.fallCost(drop, takeoff) + ActionCosts.MLG_WATER_OVERHEAD_TICKS,
+                    MoveKind.FALL_MLG);
         }
         if (damage <= view.maxFallDamagePoints()) {
             relax(from, x, obstacleY + 1, z,
-                    ActionCosts.fallCost(drop) + damage * ActionCosts.FALL_DAMAGE_PENALTY_PER_POINT,
+                    ActionCosts.fallCost(drop, takeoff) + damage * ActionCosts.FALL_DAMAGE_PENALTY_PER_POINT,
                     MoveKind.FALL_DAMAGE);
         }
     }
@@ -968,7 +989,8 @@ public final class AStarPathfinder {
         if (Double.isInfinite(clearanceCost)) {
             return;
         }
-        double cost = ActionCosts.ASCEND_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+        double cost = ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
+                + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + submerged(clearanceCost, from.x, from.y + 2, from.z);
         relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR);
     }

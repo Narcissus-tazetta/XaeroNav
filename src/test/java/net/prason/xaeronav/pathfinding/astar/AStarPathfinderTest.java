@@ -588,6 +588,49 @@ class AStarPathfinderTest {
                 "助走できない足場から跳ばせてはいけない: " + movements(result));
     }
 
+    /**
+     * ソウルサンドの平地の脇に、同じソウルサンドの1マスの尾根を置く。上がっても地面は同じで
+     * 何一つ速くならないので、上下動は純粋な損。
+     */
+    private static FakeCells soulSandFlatWithRidge(char ridgeTop) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 16, 76, 8));
+        for (int x = -1; x <= 6; x++) {
+            cells.set(x, 60, 0, FakeCells.SOUL_SAND);
+            cells.set(x, 60, 1, FakeCells.SOUL_SAND);
+            cells.set(x, 61, 1, ridgeTop);
+        }
+        return cells;
+    }
+
+    /**
+     * 速度倍率は水平移動にしか掛かっていなかったので、ソウルサンドの上では「1マス登る」(4.633)が
+     * 「1マス歩く」(8.909)より安く、鋸歯状に登り降りするのが最安経路になっていた。
+     */
+    @Test
+    void crossesSoulSandFlatInsteadOfHoppingOntoTheRidgeBeside() {
+        CellSource cells = soulSandFlatWithRidge(FakeCells.SOUL_SAND);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().allMatch(step -> step.pos().getY() == 61),
+                "同じソウルサンドなら尾根へ登る意味は無い: " + movements(result));
+    }
+
+    /**
+     * 「上下動を一律に嫌う」実装にしてはいけない。尾根の上が本当に速い地面なら、登る価値はある。
+     */
+    @Test
+    void stillClimbsOntoARidgeThatIsGenuinelyFaster() {
+        CellSource cells = soulSandFlatWithRidge(FakeCells.STONE);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().anyMatch(step -> step.pos().getY() > 61),
+                "石の尾根は本当に2.5倍速いので登るべき: " + movements(result));
+    }
+
     /** 障害物の無い平坦な通路。ゴールの扱い（座標一致か領域か）だけを見るための地形。 */
     private static FakeCells flatCorridor() {
         return FakeCells.of(0, 60, 0, """
