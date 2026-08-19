@@ -6,6 +6,7 @@ import java.util.List;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 
 /**
  * テスト用の{@link CellSource}。地形を文字で書けるようにする。
@@ -67,6 +68,7 @@ public final class FakeCells implements CellSource {
     /** 設定の既定値に合わせてtrue。溶岩の橋を禁じたいテストだけが明示的に切る。 */
     private boolean lavaBridgingEnabled = true;
     private int maxBridgeRunBlocks;
+    private double minDescentTicksPerBlock = ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
     private boolean canMlgWaterBucket;
@@ -239,6 +241,17 @@ public final class FakeCells implements CellSource {
     @Override
     public int maxBridgeRunBlocks() {
         return maxBridgeRunBlocks;
+    }
+
+    /** 既定は「どこでも安全な下限」。締めた版を試すテストだけが上書きする。 */
+    @Override
+    public double minDescentTicksPerBlock() {
+        return minDescentTicksPerBlock;
+    }
+
+    public FakeCells minDescentTicksPerBlock(double value) {
+        this.minDescentTicksPerBlock = value;
+        return this;
     }
 
     @Override

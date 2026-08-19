@@ -61,6 +61,17 @@ public interface CellSource {
     int maxFallDamagePoints();
 
     /**
+     * この探索で生成されうる下降移動のうち、1ブロックあたり最も安いもの（tick）。
+     * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}の下降成分の下限に使う。
+     *
+     * <p>終端速度からの下限(0.2551)は「任意の深さの落下が起きうる」前提の値。実際に生成される
+     * 最大の落差は設定と次元で決まる——{@code FALL_TO_WATER}は着水先に水があるときだけ生成され、
+     * <b>ultraWarmな次元（ネザー）には水が存在しない</b>（置いても蒸発する）。落下ダメージ許容が
+     * offなら安全高さ3マスが上限になり、下限は4.392まで締まる（17倍）。
+     */
+    double minDescentTicksPerBlock();
+
+    /**
      * 着地寸前に水バケツを置いて落下ダメージを消す移動を提示してよいか。
      * 水バケツを持っていなければ実行できない指示にしかならない。
      */

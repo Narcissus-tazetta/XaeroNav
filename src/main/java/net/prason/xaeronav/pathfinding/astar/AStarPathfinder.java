@@ -132,6 +132,9 @@ public final class AStarPathfinder {
     /** ゴールを領域として扱う半径（ブロック）。0なら座標の完全一致。 */
     private int goalRadius;
 
+    /** {@link CellSource#minDescentTicksPerBlock()}。探索中は不変なので1度だけ読む。 */
+    private final double minDescentPerBlock;
+
     /**
      * ノード表の初期サイズの上限。展開数上限を大きく設定されたときに、実際にはそこまで使わない表を
      * 先に確保してしまわないための頭打ち。
@@ -176,6 +179,7 @@ public final class AStarPathfinder {
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun) {
         this.maxBridgeRun = maxBridgeRun;
         this.view = view;
+        this.minDescentPerBlock = view.minDescentTicksPerBlock();
         this.maxExpandedNodes = limits.maxExpandedNodes();
         this.timeLimitMillis = limits.timeLimitMillis();
         this.heuristicWeight = limits.heuristicWeight();
@@ -386,7 +390,7 @@ public final class AStarPathfinder {
         if (surfaceGoal) {
             heuristic = Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
         } else {
-            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ);
+            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock);
             if (goalRadius > 0) {
                 // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
                 // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが

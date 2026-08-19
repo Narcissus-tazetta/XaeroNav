@@ -87,6 +87,36 @@ class HeuristicTest {
                 "折り返し階段の実コストを上回ってはいけない");
     }
 
+    /**
+     * 締めた下降の下限が、実際に生成されうる下降移動のどれよりも高くなってはいけない。
+     * ネザー・落下ダメージ許容offなら落ちられるのは安全高さ(3マス)までなので、下限は
+     * {@code fallCost(3)/3}。これは1マス降り(9.321)・梯子(6.667)・遊泳(9.091)のどれも下回る。
+     */
+    @Test
+    void aTightenedDescentBoundStaysUnderEveryRealDescent() {
+        double tightened = ActionCosts.fallCost(ActionCosts.SAFE_FALL_BLOCKS) / ActionCosts.SAFE_FALL_BLOCKS;
+        double estimate = Heuristic.estimate(0, 64, 0, 0, 63, 0, tightened);
+
+        assertTrue(estimate <= ActionCosts.DESCEND_ONE_BLOCK + 1e-9, "1マス降りより高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.LADDER_DOWN_ONE_BLOCK + 1e-9, "梯子より高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.WALK_ONE_IN_WATER + 1e-9, "遊泳より高く見積もってはいけない");
+        for (int drop = 2; drop <= ActionCosts.SAFE_FALL_BLOCKS; drop++) {
+            assertTrue(Heuristic.estimate(0, 64, 0, 0, 64 - drop, 0, tightened)
+                            <= ActionCosts.fallCost(drop) + 1e-9,
+                    drop + "マス落下より高く見積もってはいけない");
+        }
+    }
+
+    /** 締めた下限は、緩い既定より実際に大きいこと（効いていることの確認）。 */
+    @Test
+    void theTightenedBoundIsActuallyTighter() {
+        double tightened = ActionCosts.fallCost(ActionCosts.SAFE_FALL_BLOCKS) / ActionCosts.SAFE_FALL_BLOCKS;
+
+        assertTrue(Heuristic.estimate(0, 74, 0, 0, 64, 0, tightened)
+                        > 10 * Heuristic.estimate(0, 74, 0, 0, 64, 0),
+                "締めた下限が既定より10倍以上大きくなっているはず");
+    }
+
     @Test
     void descendingUsesTheAsymptoticFallLowerBound() {
         assertEquals(5 * ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK,

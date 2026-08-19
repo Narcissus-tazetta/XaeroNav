@@ -44,7 +44,22 @@ public final class Heuristic {
     private Heuristic() {
     }
 
+    /** 下降の下限を指定しない版。どの次元・設定でも安全な{@code FALL_ASYMPTOTIC_MIN_PER_BLOCK}を使う。 */
     public static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ) {
+        return estimate(fromX, fromY, fromZ, toX, toY, toZ, ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK);
+    }
+
+    /**
+     * @param minDescentTicksPerBlock この探索で生成されうる下降移動のうち、1ブロックあたり最も安いもの
+     *                               （{@link net.prason.xaeronav.pathfinding.world.CellSource#minDescentTicksPerBlock}）。
+     *                               終端速度からの下限(0.2551)は<b>任意の深さの落下が起きうる</b>前提の値で、
+     *                               実際に生成される最大の落差が分かっていれば大きく締められる——
+     *                               ネザー・落下ダメージ許容offなら3マスが上限で 4.392、17倍の差になる。
+     *                               ここが緩いと、登った1マスを取り返す実コスト(9.321)がほぼ無料に見え、
+     *                               重み付きA*が上りの枝を系統的に優先して{@code closed}で確定させてしまう
+     */
+    public static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ,
+                                   double minDescentTicksPerBlock) {
         int dx = Math.abs(toX - fromX);
         int dz = Math.abs(toZ - fromZ);
         int dy = toY - fromY;
@@ -65,10 +80,7 @@ public final class Heuristic {
                 + cardinalAscends * ActionCosts.ASCEND_ONE_BLOCK
                 + (cardinalSteps - cardinalAscends) * STRAIGHT
                 + pureAscends * MIN_PURE_ASCEND;
-        // 下降は締め直さない。addFallのFALL_TO_WATER分岐はfallDamageToleranceEnabled等の
-        // 設定に関わらず常に生成される（着地先が水かどうかだけで決まる）ので、ヒューリスティックが
-        // 「この次元・設定では長い落下は無い」と仮定すると、実際に水があった場合に非許容になる
-        double descend = down * ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
+        double descend = down * minDescentTicksPerBlock;
         return horizontalAndAscend + descend;
     }
 }
