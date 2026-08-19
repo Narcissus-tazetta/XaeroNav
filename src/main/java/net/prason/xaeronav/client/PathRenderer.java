@@ -35,6 +35,19 @@ public final class PathRenderer {
 
     /** 筒の断面半幅（ブロック）。以前の1px線より少し太い程度に留める。 */
     private static final double TUBE_RADIUS = 0.03;
+
+    /**
+     * 空中経路の筒の太さ。歩行の経路とは間合いが2桁違う——足元の線は数ブロック先だが、
+     * 空中経路は50〜200ブロック先まで伸びるので、{@link #TUBE_RADIUS}のままでは画面上で
+     * サブピクセルになって消える。
+     *
+     * <p>そこで<b>カメラからの距離に比例させて</b>、画面上の太さが間合いによらずおおよそ一定に
+     * なるようにする。近くでは{@link #FLIGHT_TUBE_MIN_RADIUS}で頭打ちにして、目の前で異様に
+     * 細くならないようにする（歩行の線より明らかに太い、というユーザーの要求はここで満たす）。
+     */
+    private static final double FLIGHT_TUBE_RADIUS_PER_BLOCK = 0.0075;
+    private static final double FLIGHT_TUBE_MIN_RADIUS = 0.12;
+    private static final double FLIGHT_TUBE_MAX_RADIUS = 0.8;
     private static final float TUBE_ALPHA = 0.9f;
 
     private static final float HIGHLIGHT_FILL_ALPHA = 0.35f;
@@ -139,7 +152,7 @@ public final class PathRenderer {
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);
         }
         if (hasFlight) {
-            renderFlightRoute(bufferSource, pose, flight, cullRadius);
+            renderFlightRoute(bufferSource, pose, flight, cullRadius, cameraPos);
         }
         if (hasStraight) {
             renderStraightLine(bufferSource, pose, current, hasFlight ? flight.tail() : null, goal, cullRadius);
@@ -204,7 +217,7 @@ public final class PathRenderer {
      * 引き直さないと、線が自分の少し後ろから生えているように見える。
      */
     private void renderFlightRoute(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
-                                    FlightRoute route, double cullRadius) {
+                                    FlightRoute route, double cullRadius, Vec3 camera) {
         List<Vec3> points = route.points();
         int count = 0;
         count = pushStraightPoint(count, playerX, playerY, playerZ);
@@ -215,16 +228,24 @@ public final class PathRenderer {
 
         // 遮蔽側を積み切ってからバッファを閉じ、それから通常側へ移る（renderStraightLineと同じ理由）
         VertexConsumer occluded = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
-        drawFlightSegments(occluded, pose, count, cullRadius, OCCLUDED_TUBE_ALPHA);
+        drawFlightSegments(occluded, pose, count, cullRadius, OCCLUDED_TUBE_ALPHA, camera);
         bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
 
         VertexConsumer quads = bufferSource.getBuffer(RenderType.debugQuads());
-        drawFlightSegments(quads, pose, count, cullRadius, TUBE_ALPHA);
+        drawFlightSegments(quads, pose, count, cullRadius, TUBE_ALPHA, camera);
         bufferSource.endBatch(RenderType.debugQuads());
     }
 
+    /** 画面上の太さを間合いによらず一定に保つための、この区間での筒の半幅。 */
+    private static double flightTubeRadius(Vec3 camera, double fromX, double fromY, double fromZ,
+                                            double toX, double toY, double toZ) {
+        double distance = Math.sqrt(distanceSqToSegment(camera, fromX, fromY, fromZ, toX, toY, toZ));
+        return Math.clamp(distance * FLIGHT_TUBE_RADIUS_PER_BLOCK,
+                FLIGHT_TUBE_MIN_RADIUS, FLIGHT_TUBE_MAX_RADIUS);
+    }
+
     private void drawFlightSegments(VertexConsumer buffer, PoseStack.Pose pose, int points, double cullRadius,
-                                     float alpha) {
+                                     float alpha, Vec3 camera) {
         for (int i = 0; i + 1 < points; i++) {
             double fromX = straightPoints[i * 3];
             double fromY = straightPoints[i * 3 + 1];
@@ -241,7 +262,8 @@ public final class PathRenderer {
             }
             // 描画距離の外は地形ごと描かれないので、そこまで積んでも見えない
             double drawn = Math.min(length, cullRadius);
-            drawTube(buffer, pose, fromX, fromY, fromZ,
+            drawTube(buffer, pose, flightTubeRadius(camera, fromX, fromY, fromZ, toX, toY, toZ),
+                    fromX, fromY, fromZ,
                     fromX + dx / length * drawn, fromY + dy / length * drawn, fromZ + dz / length * drawn,
                     PathColors.FLIGHT[0], PathColors.FLIGHT[1], PathColors.FLIGHT[2], alpha);
         }
@@ -284,7 +306,7 @@ public final class PathRenderer {
                             double dirX, double dirY, double dirZ, double length, float alpha) {
         for (double start = 0.0; start < length; start += DASH_LENGTH + DASH_GAP) {
             double end = Math.min(start + DASH_LENGTH, length);
-            drawTube(buffer, pose,
+            drawTube(buffer, pose, TUBE_RADIUS,
                     fromX + dirX * start, fromY + dirY * start, fromZ + dirZ * start,
                     fromX + dirX * end, fromY + dirY * end, fromZ + dirZ * end,
                     PathColors.STRAIGHT[0], PathColors.STRAIGHT[1], PathColors.STRAIGHT[2], alpha);
@@ -369,7 +391,7 @@ public final class PathRenderer {
      */
     private void drawSegment(VertexConsumer buffer, PoseStack.Pose pose, PathGeometry geometry, int index,
                              float alpha, int cutStep) {
-        drawTube(buffer, pose,
+        drawTube(buffer, pose, TUBE_RADIUS,
                 cutStep >= 0 ? geometry.cutX(cutStep) : geometry.pointX[index],
                 cutStep >= 0 ? geometry.cutY(cutStep) : geometry.pointY[index],
                 cutStep >= 0 ? geometry.cutZ(cutStep) : geometry.pointZ[index],
@@ -463,7 +485,7 @@ public final class PathRenderer {
      * 区間を「筒」として描画する。フラットな線だと真横から見た時に見づらいため、
      * 進行方向に直交する正方形断面を押し出して立体的な形状にする。
      */
-    private void drawTube(VertexConsumer buffer, PoseStack.Pose pose,
+    private void drawTube(VertexConsumer buffer, PoseStack.Pose pose, double radius,
                           double fromX, double fromY, double fromZ, double toX, double toY, double toZ,
                           float red, float green, float blue, float alpha) {
         double dirX = toX - fromX;
@@ -487,17 +509,17 @@ public final class PathRenderer {
         double rightY = dirZ * refX;
         double rightZ = dirX * refY - dirY * refX;
         double rightLength = Math.sqrt(rightX * rightX + rightY * rightY + rightZ * rightZ);
-        rightX = rightX / rightLength * TUBE_RADIUS;
-        rightY = rightY / rightLength * TUBE_RADIUS;
-        rightZ = rightZ / rightLength * TUBE_RADIUS;
+        rightX = rightX / rightLength * radius;
+        rightY = rightY / rightLength * radius;
+        rightZ = rightZ / rightLength * radius;
 
         double upX = rightY * dirZ - rightZ * dirY;
         double upY = rightZ * dirX - rightX * dirZ;
         double upZ = rightX * dirY - rightY * dirX;
         double upLength = Math.sqrt(upX * upX + upY * upY + upZ * upZ);
-        upX = upX / upLength * TUBE_RADIUS;
-        upY = upY / upLength * TUBE_RADIUS;
-        upZ = upZ / upLength * TUBE_RADIUS;
+        upX = upX / upLength * radius;
+        upY = upY / upLength * radius;
+        upZ = upZ / upLength * radius;
 
         ringX[0] = upX + rightX;
         ringY[0] = upY + rightY;
