@@ -467,7 +467,7 @@ public final class XaeroNavCommands {
                 XaeroNavConfig.INSTANCE.diggingEnabled(), XaeroNavConfig.INSTANCE.bridgingEnabled(),
                 XaeroNavConfig.INSTANCE.jumpGapEnabled(), XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
-                XaeroNavConfig.INSTANCE.maxSubmergedRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedTicks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         reportGoalCell(source, normalView, normalBounds, start, goal, renderRadius);
 
@@ -572,7 +572,7 @@ public final class XaeroNavCommands {
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
-                XaeroNavConfig.INSTANCE.maxSubmergedRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedTicks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         return runProbe(view, bounds, start, goal);
     }

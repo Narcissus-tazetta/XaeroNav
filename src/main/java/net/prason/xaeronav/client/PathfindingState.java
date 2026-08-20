@@ -1844,7 +1844,7 @@ public final class PathfindingState {
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
-                XaeroNavConfig.INSTANCE.maxSubmergedRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedTicks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
 
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
@@ -2037,7 +2037,7 @@ public final class PathfindingState {
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
-                XaeroNavConfig.INSTANCE.maxSubmergedRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedTicks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
                 AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());

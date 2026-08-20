@@ -19,14 +19,14 @@ public final class SurfaceCellSource implements CellSource {
     private final SurfaceGrid grid;
     private final SearchBounds bounds;
     private final boolean jumpGapEnabled;
-    private final int maxSubmergedRunBlocks;
+    private final int maxSubmergedTicks;
 
     public SurfaceCellSource(SurfaceGrid grid, SearchBounds bounds, boolean jumpGapEnabled,
-                             int maxSubmergedRunBlocks) {
+                             int maxSubmergedTicks) {
         this.grid = grid;
         this.bounds = bounds;
         this.jumpGapEnabled = jumpGapEnabled;
-        this.maxSubmergedRunBlocks = maxSubmergedRunBlocks;
+        this.maxSubmergedTicks = maxSubmergedTicks;
     }
 
     @Override
@@ -99,8 +99,8 @@ public final class SurfaceCellSource implements CellSource {
      * ここで切らないと廊下の解が水底沿いに潜る経路を返し、層3と食い違う。
      */
     @Override
-    public int maxSubmergedRunBlocks() {
-        return maxSubmergedRunBlocks;
+    public int maxSubmergedTicks() {
+        return maxSubmergedTicks;
     }
 
     /** 層2はプレイヤーの状態（体力・持ち物）を知らないので、痛い降下も水バケツMLGも提案しない。 */

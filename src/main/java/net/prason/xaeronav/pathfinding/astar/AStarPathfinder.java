@@ -126,11 +126,8 @@ public final class AStarPathfinder {
     /** この探索が{@link #maxBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
     private boolean bridgeRunCapBlocked;
 
-    /**
-     * 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。
-     * {@link CellSource#maxSubmergedRunBlocks()}（マス数）を泳ぎの速さでtickへ直したもの。
-     */
-    private final double maxSubmergedTicks;
+    /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
+    private final int maxSubmergedTicks;
 
     /** この探索が{@link #maxSubmergedRun}を理由に移動を1つでも捨てたか。 */
     private boolean submergedRunCapBlocked;
@@ -198,18 +195,18 @@ public final class AStarPathfinder {
      * {@link Heuristic}（既定の幾何学的下限）を使う既存の挙動と完全に同じになる。
      */
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo) {
-        this(view, limits, costToGo, view.maxBridgeRunBlocks(), view.maxSubmergedRunBlocks());
+        this(view, limits, costToGo, view.maxBridgeRunBlocks(), view.maxSubmergedTicks());
     }
 
     /**
-     * 連続する橋・連続する潜水の上限を明示するコンストラクタ。0を渡すと無制限になる——
+     * 連続する橋の長さ・潜水し続けてよい時間の上限を明示するコンストラクタ。0を渡すと無制限になる——
      * 上限のせいで範囲内に道が一本も無くなった場合の、詰み回避の探し直しに使う
      * （「マグマの橋も溺れる危険も最後の手段だが、詰みよりはマシ」という優先順）。
      */
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun,
-                            int maxSubmergedRun) {
+                            int maxSubmergedTicks) {
         this.maxBridgeRun = maxBridgeRun;
-        this.maxSubmergedTicks = maxSubmergedRun * ActionCosts.SWIM_ONE_BLOCK;
+        this.maxSubmergedTicks = maxSubmergedTicks;
         this.view = view;
         this.minDescentPerBlock = view.minDescentTicksPerBlock();
         this.maxExpandedNodes = limits.maxExpandedNodes();

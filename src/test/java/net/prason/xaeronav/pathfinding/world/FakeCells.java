@@ -69,7 +69,7 @@ public final class FakeCells implements CellSource {
     private boolean lavaBridgingEnabled = true;
     private int maxBridgeRunBlocks;
     /** 既定は0（無制限）。潜水の上限を問うテストだけが明示的に設定する。 */
-    private int maxSubmergedRunBlocks;
+    private int maxSubmergedTicks;
     private double minDescentTicksPerBlock = ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
@@ -164,9 +164,9 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
-    /** 頭を水に浸けたまま続けてよい長さ（ブロック）。既定の0は無制限。 */
-    public FakeCells maxSubmergedRunBlocks(int value) {
-        this.maxSubmergedRunBlocks = value;
+    /** 頭を水に浸けたまま続けてよい時間（tick）。既定の0は無制限。 */
+    public FakeCells maxSubmergedTicks(int value) {
+        this.maxSubmergedTicks = value;
         return this;
     }
 
@@ -267,8 +267,8 @@ public final class FakeCells implements CellSource {
     }
 
     @Override
-    public int maxSubmergedRunBlocks() {
-        return maxSubmergedRunBlocks;
+    public int maxSubmergedTicks() {
+        return maxSubmergedTicks;
     }
 
     /** 既定は「どこでも安全な下限」。締めた版を試すテストだけが上書きする。 */

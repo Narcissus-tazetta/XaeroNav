@@ -32,7 +32,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
     private final ModConfigSpec.IntValue detailHorizonBlocks;
     private final ModConfigSpec.IntValue maxBridgeRunBlocks;
-    private final ModConfigSpec.IntValue maxSubmergedRunBlocks;
+    private final ModConfigSpec.IntValue maxSubmergedTicks;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
     private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
@@ -123,18 +123,18 @@ public final class XaeroNavConfig {
                         "（詰むよりは長い橋の方がマシ、という優先順）")
                 .defineInRange("maxBridgeRunBlocks", 30, 0, 256);
 
-        maxSubmergedRunBlocks = builder
-                .comment("頭を水に浸けたまま何マス進む経路までを許すか（0で無制限）",
-                        "空気は300tickで尽き、そこからは1秒ごとにダメージが入る。素の泳ぎ(1.6マス/秒)なら",
-                        "満タンの空気で24マスしか進めないので、既定値はそこに合わせてある",
-                        "内部では泳ぎの速さでtickに直して数えるので、水中の採掘のように1手に数十tickかかる",
-                        "移動はそのぶん多く息を使う（マス数で数えると、掘り進む経路が上限をすり抜ける）",
-                        "ここを超える潜水は移動そのものを生成しないので、探索は最初から水面を泳ぐ経路や",
-                        "岸沿いの経路だけを見る——重いコストで抑え込む形と違い、展開ノード数を一切使わない",
-                        "（連続長は水面に顔を出すか陸に上がれば数え直しになる）",
+        maxSubmergedTicks = builder
+                .comment("頭を水に浸けたまま何tickまで進む経路を許すか（0で無制限）",
+                        "空気は300tickで尽き、そこからは1秒ごとにダメージが入る。既定の250はその5/6で、",
+                        "潜り始めに空気が満タンとは限らないぶんと、案内どおりの速さで泳げないぶんの余裕",
+                        "単位がマス数ではなくtickなのは、水中の移動が種類ごとに速さが違うから——泳ぎ(5.6)、",
+                        "浮上(7.4)、潜降(5.4)、採掘(1マスに数十)。マス数で数えると、浮上や採掘にかかる時間が",
+                        "実際より短く見積もられ、息が続かない経路を許してしまう",
+                        "ここは物理的な限界を表す線で、「なるべく潜らない」という好みはコスト側",
+                        "(SUBMERGED_TRAVEL_PENALTY)が受け持つ",
                         "潜らずには経路が一本も引けなかった場合に限り、上限を外して探し直す",
                         "（詰むよりは息継ぎの要る潜水の方がマシ、という優先順）。その区間は警告色になる")
-                .defineInRange("maxSubmergedRunBlocks", 24, 0, 256);
+                .defineInRange("maxSubmergedTicks", 250, 0, 1200);
 
         searchHorizontalMargin = builder
                 .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
@@ -286,8 +286,8 @@ public final class XaeroNavConfig {
         return maxBridgeRunBlocks.get();
     }
 
-    public int maxSubmergedRunBlocks() {
-        return maxSubmergedRunBlocks.get();
+    public int maxSubmergedTicks() {
+        return maxSubmergedTicks.get();
     }
 
     public boolean lavaBridgingEnabled() {

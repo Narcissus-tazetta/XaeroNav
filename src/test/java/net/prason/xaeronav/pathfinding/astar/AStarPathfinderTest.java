@@ -350,7 +350,7 @@ class AStarPathfinderTest {
 
     @Test
     void doesNotRouteThroughADiveLongerThanOneBreath() {
-        CellSource cells = floodedTunnel().maxSubmergedRunBlocks(4);
+        CellSource cells = floodedTunnel().maxSubmergedTicks(22);
 
         PathResult result = search(cells, new BlockPos(0, 62, 0), new BlockPos(12, 62, 0));
 
@@ -366,7 +366,7 @@ class AStarPathfinderTest {
      */
     @Test
     void divesStraightThroughWhenTheBreathLimitIsOff() {
-        CellSource cells = floodedTunnel().maxSubmergedRunBlocks(0);
+        CellSource cells = floodedTunnel().maxSubmergedTicks(0);
 
         PathResult result = search(cells, new BlockPos(0, 62, 0), new BlockPos(12, 62, 0));
 
@@ -498,8 +498,8 @@ class AStarPathfinderTest {
             }
         }
 
-        // 上限8マス＝泳ぎ換算で約44tick。石1マスの採掘(40tick)を水中で5倍払う時点で超える
-        PathResult limited = search(cells.maxSubmergedRunBlocks(8), new BlockPos(0, 61, 0),
+        // 上限45tick＝泳ぎ8マス相当。石1マスの採掘(40tick)を水中で5倍払う時点で超える
+        PathResult limited = search(cells.maxSubmergedTicks(45), new BlockPos(0, 61, 0),
                 new BlockPos(3, 61, 0));
 
         assertFalse(limited.complete(),
@@ -518,7 +518,7 @@ class AStarPathfinderTest {
             }
         }
 
-        PathResult unlimited = search(cells.maxSubmergedRunBlocks(0), new BlockPos(0, 61, 0),
+        PathResult unlimited = search(cells.maxSubmergedTicks(0), new BlockPos(0, 61, 0),
                 new BlockPos(3, 61, 0));
 
         assertTrue(unlimited.complete(), "上限が無ければ掘り抜ける");
@@ -584,7 +584,7 @@ class AStarPathfinderTest {
             cells.set(x, 65, 0, FakeCells.BEDROCK);
         }
 
-        PathResult result = search(cells.maxSubmergedRunBlocks(0), new BlockPos(0, 61, 0),
+        PathResult result = search(cells.maxSubmergedTicks(0), new BlockPos(0, 61, 0),
                 new BlockPos(12, 61, 0));
 
         assertTrue(result.complete());
@@ -614,12 +614,59 @@ class AStarPathfinderTest {
             cells.set(x, 63, 0, FakeCells.BEDROCK);
         }
 
-        PathResult result = search(cells.maxSubmergedRunBlocks(0), new BlockPos(0, 61, 0),
+        PathResult result = search(cells.maxSubmergedTicks(0), new BlockPos(0, 61, 0),
                 new BlockPos(12, 61, 0));
 
         assertTrue(result.complete(), "浮上できなくても水没坑道は通れる");
         assertTrue(result.steps().stream().allMatch(step -> step.pos().getY() <= 62),
                 "天井があるので高さは変わらない: " + result.steps().stream().map(PathStep::pos).toList());
+    }
+
+    /** 水底40、水41〜70、その上は空の深い海。 */
+    private static FakeCells deepSea(int length) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 30, -8, length + 12, 86, 8));
+        for (int x = -1; x <= length + 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+                cells.set(x, 40, z, FakeCells.BEDROCK);
+                for (int y = 41; y <= 70; y++) {
+                    cells.set(x, y, z, FakeCells.WATER);
+                }
+            }
+        }
+        return cells;
+    }
+
+    /**
+     * 遠い水中の目的地へは、息継ぎに水面へ出てから向かう。
+     *
+     * <p>息の上限を<b>マス数</b>で持っていた頃はここが到達不能だった——水底から水面へ浮上する
+     * だけで上限を超えるので、息継ぎに行くことすらできず経路が途中で切れていた。上限がtickに
+     * なったことで、浮上・横断・潜降がそれぞれ空気1回分に収まるか正しく測れる。
+     */
+    @Test
+    void surfacesToBreatheOnTheWayToADistantUnderwaterGoal() {
+        CellSource cells = deepSea(64).maxSubmergedTicks(250);
+
+        PathResult result = search(cells, new BlockPos(0, 45, 0), new BlockPos(60, 45, 0));
+
+        assertTrue(result.complete(), "息継ぎを挟めば深い水中の目的地にも届く: " + result.termination());
+        assertTrue(result.steps().stream().anyMatch(step -> step.pos().getY() == 70),
+                "途中で水面まで出る: " + result.steps().stream().mapToInt(step -> step.pos().getY()).max());
+    }
+
+    /**
+     * 息が続く範囲の水中の目的地へは、わざわざ水面へ寄らずまっすぐ向かう。安全のための
+     * 割増（{@code SUBMERGED_TRAVEL_PENALTY}）が、息に余裕のある近距離まで遠回りにしないこと。
+     */
+    @Test
+    void goesStraightToANearbyUnderwaterGoal() {
+        CellSource cells = deepSea(16).maxSubmergedTicks(250);
+
+        PathResult result = search(cells, new BlockPos(0, 45, 0), new BlockPos(12, 45, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().allMatch(step -> step.pos().getY() == 45),
+                "息が続くなら浮上せず直行する: " + result.steps().stream().map(PathStep::pos).toList());
     }
 
     @Test
