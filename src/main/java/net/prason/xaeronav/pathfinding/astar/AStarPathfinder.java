@@ -1210,7 +1210,8 @@ public final class AStarPathfinder {
         // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・掘る・水へ落ちる）でも同じだから——
         // とりわけ採掘は1手に数十tickかかるので、マス数で数えると息の上限をすり抜ける
         double submergedTicks = 0.0;
-        if (headSubmerged(from, x, y + 1, z)) {
+        boolean submerged = headSubmerged(from, x, y + 1, z);
+        if (submerged) {
             submergedTicks = from.submergedTicks + edgeCost;
             if (maxSubmergedTicks > 0.0 && submergedTicks > maxSubmergedTicks) {
                 submergedRunCapBlocked = true;
@@ -1218,7 +1219,13 @@ public final class AStarPathfinder {
             }
         }
 
-        double tentativeCost = from.cost + edgeCost;
+        // 潜ったまま横断せず、先に水面へ出てから渡らせる。息を減らしながら進んでいるのは
+        // 水平移動なので、割増もそこにだけ掛ける（浮上に掛けると上がる動機まで削いでしまう）。
+        // 割増は経路の選択のためのもので、息の勘定（submergedTicks）には混ぜない——あちらは
+        // 実際にかかる時間でなければ意味がない
+        boolean horizontal = y == from.y && (x != from.x || z != from.z);
+        double tentativeCost = from.cost
+                + (submerged && horizontal ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost);
         PathNode neighbor = node(x, y, z, boating);
         if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
             return;

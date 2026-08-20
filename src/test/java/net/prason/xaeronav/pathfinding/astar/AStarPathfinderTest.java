@@ -377,17 +377,21 @@ class AStarPathfinderTest {
     }
 
     /**
-     * 開けた水中を斜めに泳ぐ。足場のある斜め移動（{@code addDiagonalTraverse}）は水中で成立しないので、
+     * 水中を斜めに泳ぐ。足場のある斜め移動（{@code addDiagonalTraverse}）は水中で成立しないので、
      * 泳ぎ専用の斜めが無いとカーディナル2手に分解される。
+     *
+     * <p>天井を付けて浮上できない形にしてあるのは、斜めに泳げるかどうかだけを見るため。開けた海だと
+     * 先に水面へ上がる（{@link #surfacesBeforeCrossingOpenWater}）ので、そちらの挙動が混ざる。
      */
     @Test
-    void swimsDiagonallyThroughOpenWater() {
+    void swimsDiagonallyThroughWater() {
         FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 12, 76, 12));
-        // 底(y=60)から水面(y=65)までの水塊。y=62を泳ぐ限り足場は無い
+        // 底(y=60)と天井(y=64)に挟まれた水塊。y=62を泳ぐ限り足場は無い
         for (int x = -1; x <= 6; x++) {
             for (int z = -1; z <= 6; z++) {
                 cells.set(x, 60, z, FakeCells.BEDROCK);
-                for (int y = 61; y <= 65; y++) {
+                cells.set(x, 64, z, FakeCells.BEDROCK);
+                for (int y = 61; y <= 63; y++) {
                     cells.set(x, y, z, FakeCells.WATER);
                 }
             }
@@ -520,6 +524,67 @@ class AStarPathfinderTest {
         assertTrue(unlimited.complete(), "上限が無ければ掘り抜ける");
         assertTrue(unlimited.steps().stream().anyMatch(PathStep::digging),
                 "掘って抜ける経路になる: " + movements(unlimited));
+    }
+
+    /** 水底(y=54)から水面(y=70)まで開けた深い海。x方向に長く、途中に遮るものは無い。 */
+    private static FakeCells openSea(int length) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 44, -8, length + 12, 86, 8));
+        for (int x = -1; x <= length + 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+                cells.set(x, 54, z, FakeCells.BEDROCK);
+                for (int y = 55; y <= 70; y++) {
+                    cells.set(x, y, z, FakeCells.WATER);
+                }
+            }
+        }
+        return cells;
+    }
+
+    /**
+     * 深い海に出たら、潜ったまま横断せず<b>まず水面へ上がる</b>。息を減らしながら進むのは水平移動なので、
+     * 先に解消してから渡る方が安全で、水面ならボートも使える。
+     */
+    @Test
+    void surfacesBeforeCrossingOpenWater() {
+        CellSource cells = openSea(60);
+
+        PathResult result = search(cells, new BlockPos(0, 55, 0), new BlockPos(58, 70, 0));
+
+        assertTrue(result.complete());
+        int surfacedAt = -1;
+        for (int i = 0; i < result.steps().size(); i++) {
+            if (result.steps().get(i).pos().getY() == 70) {
+                surfacedAt = i;
+                break;
+            }
+        }
+        assertTrue(surfacedAt >= 0, "水面に出る: " + result.steps().stream().map(PathStep::pos).toList());
+        int horizontalBeforeSurfacing = Math.abs(result.steps().get(surfacedAt).pos().getX());
+        assertTrue(horizontalBeforeSurfacing <= 4,
+                "横断を始める前に浮上する（水面に出るまでの水平移動）: " + horizontalBeforeSurfacing);
+    }
+
+    /**
+     * 水面へ出られない場所では形が変わらない。水没した洞窟や天井のある水路では割増が一様に
+     * 乗るだけで、潜ったまま進む以外の選択肢がそもそも無い。
+     */
+    @Test
+    void stillSwimsThroughAFloodedTunnelWithNoSurfaceAbove() {
+        // y=61〜62 だけが水で、y=63 が岩盤の天井。浮上できない水没坑道
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 24, 76, 8));
+        for (int x = -1; x <= 13; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+            cells.set(x, 61, 0, FakeCells.WATER);
+            cells.set(x, 62, 0, FakeCells.WATER);
+            cells.set(x, 63, 0, FakeCells.BEDROCK);
+        }
+
+        PathResult result = search(cells.maxSubmergedRunBlocks(0), new BlockPos(0, 61, 0),
+                new BlockPos(12, 61, 0));
+
+        assertTrue(result.complete(), "浮上できなくても水没坑道は通れる");
+        assertTrue(result.steps().stream().allMatch(step -> step.pos().getY() <= 62),
+                "天井があるので高さは変わらない: " + result.steps().stream().map(PathStep::pos).toList());
     }
 
     @Test
