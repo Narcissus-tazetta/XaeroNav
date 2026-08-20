@@ -227,6 +227,29 @@ class FlightPathfinderTest {
     }
 
     @Test
+    void reachesAGoalWhoseExactPointIsBuriedInTerrain() {
+        // 中間目標はチャンク中心＋帯のYという推定値なので、ブロック解像度では岩の中にあることが
+        // 珍しくない。球のゴールで縛ると原理的に到達不能になり、それを発見するために毎回
+        // ノード上限を焼く——地形が複雑なほど当たりやすく、経路が伸びなくなる
+        FakeCells cells = nether(32, 120);
+        for (int x = 92; x <= 108; x++) {
+            for (int z = -8; z <= 8; z++) {
+                for (int y = 33; y <= 70; y++) {
+                    cells.set(x, y, z, FakeCells.STONE);
+                }
+            }
+        }
+
+        // 目的地は岩の中。真上20ブロックは開いている
+        FlightRoute route = route(cells, new Vec3(-100.0, 80.0, 0.0), new Vec3(100.0, 60.0, 0.0), false);
+
+        assertTrue(route.complete(), "岩に埋もれた目標へ寄れていない: " + route.termination());
+        assertTrue(staysInOpenAir(route, cells), "経路が岩を貫いている: " + route.points());
+        assertTrue(route.expandedNodes() < 20_000,
+                "到達はしたが探索を焼きすぎている（領域ゴールが効いていない）: " + route.expandedNodes());
+    }
+
+    @Test
     void reportsNoRouteFromInsideSolidRock() {
         FakeCells cells = FakeCells.empty(BOUNDS).fillWith(FakeCells.STONE);
 

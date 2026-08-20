@@ -43,6 +43,17 @@ public final class FlightPathfinder {
     /** 始点・目的地が格子の目に乗っていないときに、飛行可なセルを探す半径（セル数）。 */
     private static final int SNAP_CELL_RADIUS = 3;
 
+    /**
+     * ゴール領域の垂直方向の許容幅（ブロック）。<b>水平半径より広く固定する</b>。
+     *
+     * <p>飛行のゴールはたいてい{@code CoarseFlightRouter}が置いた中間目標で、そのYは
+     * 「チャンク平均の床の高さから導いた高度帯」を更にクランプした推定値でしかない。水平と同じ
+     * 幅でYを縛ると、推定が数ブロック外れただけで<b>原理的に到達不能</b>になり、それを発見する
+     * ために毎回ノード上限を使い切る——地形が複雑なほど当たりやすく、経路が伸びなくなる。
+     * 歩行の{@code AStarPathfinder.GOAL_VERTICAL_TOLERANCE_BLOCKS}とまったく同じ判断。
+     */
+    private static final int GOAL_VERTICAL_TOLERANCE_BLOCKS = 24;
+
     private static final double MIN_IMPROVEMENT = 0.01;
 
     private final AirGrid grid;
@@ -102,6 +113,15 @@ public final class FlightPathfinder {
         this.goal = target;
         this.goalRadius = goalRadiusBlocks;
 
+        // ゴールも飛行可なセルへ寄せる。中間目標はチャンク中心＋帯のYという推定値なので、
+        // ブロック解像度では岩の中にあることが珍しくない——そのままだと領域ゴールでも届かず、
+        // 毎回ノード上限を焼いてから部分経路を返すことになる
+        long goalCell = grid.nearestFlyable(target, SNAP_CELL_RADIUS);
+        if (goalCell != AirGrid.NONE) {
+            this.goal = grid.center(BlockPos.getX(goalCell), BlockPos.getY(goalCell),
+                    BlockPos.getZ(goalCell));
+        }
+
         long startCell = grid.nearestFlyable(start, SNAP_CELL_RADIUS);
         if (startCell == AirGrid.NONE) {
             // 周りが塞がっている（岩の中・未ロード）。ここから引ける経路は無い
@@ -147,8 +167,15 @@ public final class FlightPathfinder {
         return build(startNode, fallback(startNode), start, termination, expanded);
     }
 
+    /**
+     * 球ではなく<b>水平の円柱</b>で見る（垂直は{@link #GOAL_VERTICAL_TOLERANCE_BLOCKS}まで許す）。
+     */
     private boolean reachedGoal(int node) {
-        return centerOf(node).distanceToSqr(goal) <= goalRadius * goalRadius;
+        Vec3 center = centerOf(node);
+        double dx = center.x - goal.x;
+        double dz = center.z - goal.z;
+        return dx * dx + dz * dz <= goalRadius * goalRadius
+                && Math.abs(center.y - goal.y) <= Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
     }
 
     /**
@@ -237,9 +264,12 @@ public final class FlightPathfinder {
     }
 
     /**
-     * ゴールまでの見積もり。<b>ゴール半径ぶんを差し引く</b>——領域ゴールでは中心までの見積もりが
-     * 半径ぶん過大＝非許容になる。差し引く単価は最も安い移動（降下）に合わせて、割り引きすぎない
-     * ようにする。
+     * ゴールまでの見積もり。<b>領域ゴールの縁までを測る</b>——中心までを測ると、領域の中に
+     * 入っている（＝残りコスト0）ノードにも見積もりが残り、非許容になる。
+     *
+     * <p>軸ごとに縁まで詰めるのが要点。以前は中心までの見積もりから一律の割引を引いていたが、
+     * 垂直の許容を{@link #GOAL_VERTICAL_TOLERANCE_BLOCKS}まで広げると割引が足りず、ゴール直下の
+     * ノードが「まだ54tickかかる」ように見えて、A*が別の方向を掘り続ける。
      *
      * <p>狭さの割増（{@link Clearance}）はここに入れない。割増は常に0以上なので、入れない限り
      * 見積もりは下限のままで、A*の性質は変わらない。
@@ -248,10 +278,12 @@ public final class FlightPathfinder {
         Vec3 center = grid.center(x, y, z);
         double dx = goal.x - center.x;
         double dz = goal.z - center.z;
-        double horizontal = Math.sqrt(dx * dx + dz * dz);
-        double vertical = goal.y - center.y;
-        double raw = FlightCosts.heuristicTicks(horizontal, vertical, rockets);
-        return Math.max(0.0, raw - goalRadius * FlightCosts.DESCENT_TICKS_PER_BLOCK);
+        double horizontal = Math.max(0.0, Math.sqrt(dx * dx + dz * dz) - goalRadius);
+        double verticalTolerance = Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
+        double dy = goal.y - center.y;
+        double vertical = dy > 0.0 ? Math.max(0.0, dy - verticalTolerance)
+                : -Math.max(0.0, -dy - verticalTolerance);
+        return FlightCosts.heuristicTicks(horizontal, vertical, rockets);
     }
 
     private FlightRoute build(int startNode, int endNode, Vec3 start, PathResult.Termination termination,

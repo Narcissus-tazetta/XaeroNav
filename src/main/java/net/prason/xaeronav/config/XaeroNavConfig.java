@@ -48,6 +48,7 @@ public final class XaeroNavConfig {
 
     private final ModConfigSpec.IntValue flightClearanceDetourBlocks;
     private final ModConfigSpec.IntValue flightMaxExpandedNodes;
+    private final ModConfigSpec.IntValue flightExtendMaxExpandedNodes;
     private final ModConfigSpec.DoubleValue flightHeuristicWeight;
     private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
     private final ModConfigSpec.BooleanValue hudEnabled;
@@ -214,6 +215,13 @@ public final class XaeroNavConfig {
                         "計算中は投げ直さないので、長くなるぶん経路の更新間隔が伸びる")
                 .defineInRange("flightMaxExpandedNodes", 150_000, 1_000, 1_000_000);
 
+        flightExtendMaxExpandedNodes = builder
+                .comment("末端から先を継ぎ足すときの展開セル数の上限",
+                        "継ぎ足しは短い区間を何度も繋ぐので、1回にflightMaxExpandedNodesを許すと",
+                        "地形が詰まったときに毎回2秒かけて少ししか伸びず、飛ぶ速度に追いつかなくなる",
+                        "小さくすると1回の伸びは短くなるが、そのぶん頻繁に繋げる")
+                .defineInRange("flightExtendMaxExpandedNodes", 60_000, 1_000, 1_000_000);
+
         flightHeuristicWeight = builder
                 .comment("空中経路の「ゴールへの近さ」を重視する度合い",
                         "歩行より高くしてある。空は障害物が疎で、寄り道の少ない見積もりがよく当たるうえ、",
@@ -367,6 +375,10 @@ public final class XaeroNavConfig {
 
     public int flightMaxExpandedNodes() {
         return flightMaxExpandedNodes.get();
+    }
+
+    public int flightExtendMaxExpandedNodes() {
+        return flightExtendMaxExpandedNodes.get();
     }
 
     public double flightHeuristicWeight() {

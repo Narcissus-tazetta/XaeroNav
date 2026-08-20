@@ -1081,10 +1081,14 @@ public final class PathfindingState {
      * 組み立てはここ1箇所に置く（別々に組むと、測った数字が実際の案内と食い違う）。
      */
     public static FlightTuning flightTuning() {
+        return flightTuning(XaeroNavConfig.INSTANCE.flightMaxExpandedNodes());
+    }
+
+    private static FlightTuning flightTuning(int maxExpandedNodes) {
         XaeroNavConfig config = XaeroNavConfig.INSTANCE;
         return new FlightTuning(config.flightCellBlocks(),
                 config.flightClearanceDetourBlocks() * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK,
-                new SearchLimits(config.flightMaxExpandedNodes(), AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS,
+                new SearchLimits(maxExpandedNodes, AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS,
                         config.flightHeuristicWeight()));
     }
 
@@ -1281,12 +1285,15 @@ public final class PathfindingState {
                         Mth.floor(target.x), Mth.floor(target.y), Mth.floor(target.z)),
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
-        FlightTuning tuning = flightTuning();
+        // 継ぎ足しは短い区間を何度も繋ぐので、1回の予算を絞って回数で稼ぐ。満額を許すと
+        // 地形が詰まったときに毎回2秒かけて少ししか伸びず、飛ぶ速度に追いつかない
+        FlightTuning tuning = flightTuning(XaeroNavConfig.INSTANCE.flightExtendMaxExpandedNodes());
         BlockPos from = player.blockPosition();
         ResourceKey<Level> dimension = level.dimension();
         ticksSinceFlightLineRecalc = 0;
         flightComputing = true;
 
+        long startedAt = System.nanoTime();
         CompletableFuture
                 .supplyAsync(() -> FlightRouter.route(view, tail, target, rockets, tuning), flightLineExecutor)
                 .whenComplete((extension, error) -> {
@@ -1295,6 +1302,11 @@ public final class PathfindingState {
                         LOGGER.error("XaeroNav: 空中経路の継ぎ足しに失敗しました", error);
                         return;
                     }
+                    Vec3 grown = extension.tail();
+                    LOGGER.info("XaeroNav: 空中経路の継ぎ足し ({}, 展開={}, {}ms, 伸び={}ブロック, 格子={})",
+                            extension.termination(), extension.expandedNodes(),
+                            (System.nanoTime() - startedAt) / 1_000_000L,
+                            grown == null ? 0 : Mth.floor(tail.distanceTo(grown)), extension.cellBlocks());
                     if (!flying || !currentGoal.equals(goal) || !dimension.equals(goalDimension)) {
                         return;
                     }
