@@ -63,6 +63,10 @@ public interface CellSource {
      *
      * <p>上限のせいで道が一本も無くなったときだけ、呼び出し側が上限を外して探し直す
      * （「溺れる危険は最後の手段だが、詰みよりはマシ」）。
+     *
+     * <p>単位がマスなのは設定として読みやすいから。探索の中では泳ぎの速さでtickに直して数える
+     * （{@code PathNode#submergedTicks}）——水中の採掘のように1手に数十tickかかる移動を
+     * 「1マス」と数えると、掘り進む経路がこの上限をすり抜ける。
      */
     int maxSubmergedRunBlocks();
 

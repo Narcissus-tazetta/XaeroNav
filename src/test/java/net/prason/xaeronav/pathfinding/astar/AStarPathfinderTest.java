@@ -459,6 +459,50 @@ class AStarPathfinderTest {
                 "持っていないボートを出せとは言わない: " + movements(result));
     }
 
+    /**
+     * 水中の採掘は息をそのぶん使う。1マスに数十tickかかるので、息の残りを<b>マス数</b>で数えると
+     * 40tickの採掘が「1マス」にしかならず、水中を掘り進む経路が上限をすり抜けていた。
+     */
+    @Test
+    void countsUnderwaterDiggingAgainstTheBreathLimit() {
+        // 水没した石の壁。掘り抜く以外に道が無い（上下は岩盤）
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 12, 76, 8));
+        for (int x = -1; x <= 4; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+            cells.set(x, 65, 0, FakeCells.BEDROCK);
+            for (int y = 61; y <= 64; y++) {
+                cells.set(x, y, 0, x == 2 ? FakeCells.STONE : FakeCells.WATER);
+            }
+        }
+
+        // 上限8マス＝泳ぎ換算で約44tick。石1マスの採掘(40tick)を水中で5倍払う時点で超える
+        PathResult limited = search(cells.maxSubmergedRunBlocks(8), new BlockPos(0, 61, 0),
+                new BlockPos(3, 61, 0));
+
+        assertFalse(limited.complete(),
+                "息が続かないので水中の壁は掘り抜けない: " + movements(limited));
+    }
+
+    /** {@link #countsUnderwaterDiggingAgainstTheBreathLimit}が空振りしていないことの裏付け。 */
+    @Test
+    void diggingUnderwaterIsStillAllowedWithinTheBreathLimit() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 12, 76, 8));
+        for (int x = -1; x <= 4; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+            cells.set(x, 65, 0, FakeCells.BEDROCK);
+            for (int y = 61; y <= 64; y++) {
+                cells.set(x, y, 0, x == 2 ? FakeCells.STONE : FakeCells.WATER);
+            }
+        }
+
+        PathResult unlimited = search(cells.maxSubmergedRunBlocks(0), new BlockPos(0, 61, 0),
+                new BlockPos(3, 61, 0));
+
+        assertTrue(unlimited.complete(), "上限が無ければ掘り抜ける");
+        assertTrue(unlimited.steps().stream().anyMatch(PathStep::digging),
+                "掘って抜ける経路になる: " + movements(unlimited));
+    }
+
     @Test
     void samePathIsReturnedForTheSameTerrain() {
         // 展開ノード数で打ち切るのは、同じ入力なら同じ経路を返させるため。

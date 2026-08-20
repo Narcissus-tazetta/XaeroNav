@@ -153,10 +153,21 @@ public final class ActionCosts {
     public static final double DIG_OVERHEAD_TICKS = 2.0;
 
     /**
-     * 水中での採掘の遅さ。バニラは頭が水に浸かっている間、採掘速度に{@code SUBMERGED_MINING_SPEED}
-     * （水中採掘のエンチャントが無ければ0.2）を掛ける。
+     * 水底に足を着けたまま、頭が水に浸かった状態で掘る遅さ。{@code Player#getDigSpeed}は
+     * {@code isEyeInFluid(WATER)}のとき採掘速度に{@code Attributes.SUBMERGED_MINING_SPEED}
+     * （既定0.2＝5倍遅い。水中採掘のエンチャントが付くと1.0になり帳消し）を掛ける。
      */
     public static final double SUBMERGED_DIG_PENALTY = 5.0;
+
+    /**
+     * 泳ぎながら掘る遅さ。{@code Player#getDigSpeed}は上の水中判定に加えて
+     * <b>{@code !onGround()}ならさらに{@code f /= 5.0F}</b>を掛けるので、足が着いていない水中では
+     * 合わせて25倍遅くなる。
+     *
+     * <p>足場の有無で5倍違うのに一律5倍で見積もっていたため、開けた海の中を掘り進む経路が
+     * 実際の1/5のコストに見えていた。掘って進む案内は「泳いで迂回する」より遥かに高くつく。
+     */
+    public static final double SWIMMING_DIG_PENALTY = 25.0;
 
     /**
      * ブロックを設置して空洞を渡る際の照準・設置オーバーヘッド（design doc §4-1 Pillar水平版）。

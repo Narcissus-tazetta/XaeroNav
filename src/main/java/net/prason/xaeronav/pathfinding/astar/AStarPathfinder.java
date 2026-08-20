@@ -126,8 +126,11 @@ public final class AStarPathfinder {
     /** この探索が{@link #maxBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
     private boolean bridgeRunCapBlocked;
 
-    /** 頭を水に浸けたまま続けてよい長さ（ブロック）。0なら無制限。{@link CellSource#maxSubmergedRunBlocks()}。 */
-    private final int maxSubmergedRun;
+    /**
+     * 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。
+     * {@link CellSource#maxSubmergedRunBlocks()}（マス数）を泳ぎの速さでtickへ直したもの。
+     */
+    private final double maxSubmergedTicks;
 
     /** この探索が{@link #maxSubmergedRun}を理由に移動を1つでも捨てたか。 */
     private boolean submergedRunCapBlocked;
@@ -206,7 +209,7 @@ public final class AStarPathfinder {
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun,
                             int maxSubmergedRun) {
         this.maxBridgeRun = maxBridgeRun;
-        this.maxSubmergedRun = maxSubmergedRun;
+        this.maxSubmergedTicks = maxSubmergedRun * ActionCosts.SWIM_ONE_BLOCK;
         this.view = view;
         this.minDescentPerBlock = view.minDescentTicksPerBlock();
         this.maxExpandedNodes = limits.maxExpandedNodes();
@@ -1144,6 +1147,25 @@ public final class AStarPathfinder {
         relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR);
     }
 
+    /**
+     * その移動を終えた時点で頭が水に浸かっているか（＝息が減るか）。
+     *
+     * <p>頭のセルが水ならそのまま。<b>掘って通る固体セル</b>だけは例外で、いま固体でも
+     * 水中で掘れば水が流れ込むので、水に接しているなら浸かっている扱いにする——ここを見ないと、
+     * 水中を掘り進む経路が「頭のセルは石だから水中ではない」として息の上限をすり抜ける。
+     *
+     * <p>掘らずに通れるセル（空気）は対象外。そうしないと、海から浜へ上がる1手が
+     * 「隣が海だからまだ潜っている」と数えられ、岸に上がれなくなる。
+     */
+    private boolean headSubmerged(PathNode from, int x, int headY, int z) {
+        long head = view.cell(x, headY, z);
+        if (CellData.water(head)) {
+            return true;
+        }
+        return from.submergedTicks > 0.0 && !CellData.occupiableWithoutDigging(head)
+                && hasAdjacentWater(x, headY, z);
+    }
+
     /** ブロックを置くセルの周り（真上を除く5面）に水があるか。 */
     private boolean hasAdjacentWater(int x, int y, int z) {
         return hasAdjacent(x, y, z, CellData::water);
@@ -1179,12 +1201,13 @@ public final class AStarPathfinder {
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
                         boolean boating) {
-        // 移動の種類に関わらず、着地点で頭が水に浸かるなら潜水が1マス続いたことになる。
-        // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・水へ落ちる）でも息は同じだけ減るため
-        int submergedRun = 0;
-        if (CellData.water(view.cell(x, y + 1, z))) {
-            submergedRun = from.submergedRun + 1;
-            if (maxSubmergedRun > 0 && submergedRun > maxSubmergedRun) {
+        // 移動の種類に関わらず、着地点で頭が水に浸かるならその移動にかかった時間だけ息が減る。
+        // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・掘る・水へ落ちる）でも同じだから——
+        // とりわけ採掘は1手に数十tickかかるので、マス数で数えると息の上限をすり抜ける
+        double submergedTicks = 0.0;
+        if (headSubmerged(from, x, y + 1, z)) {
+            submergedTicks = from.submergedTicks + edgeCost;
+            if (maxSubmergedTicks > 0.0 && submergedTicks > maxSubmergedTicks) {
                 submergedRunCapBlocked = true;
                 return;
             }
@@ -1201,7 +1224,7 @@ public final class AStarPathfinder {
         neighbor.combinedCost = tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal;
         neighbor.kind = kind;
         neighbor.bridgeRun = bridgeRun;
-        neighbor.submergedRun = submergedRun;
+        neighbor.submergedTicks = submergedTicks;
         if (neighbor.isOpen()) {
             open.update(neighbor);
         } else {
@@ -1225,7 +1248,10 @@ public final class AStarPathfinder {
         if (digCost <= 0.0 || !CellData.water(view.cell(x, headY, z))) {
             return digCost;
         }
-        return digCost * ActionCosts.SUBMERGED_DIG_PENALTY;
+        // 足が着いているかで5倍違う（Player#getDigSpeedの !onGround() の分岐）。足元は頭の1つ下、
+        // その床はさらに1つ下。掘る対象そのものが床のこともあるが、掘る前に立っている高さで測るのが正しい
+        boolean onGround = CellData.standable(view.cell(x, headY - 2, z));
+        return digCost * (onGround ? ActionCosts.SUBMERGED_DIG_PENALTY : ActionCosts.SWIMMING_DIG_PENALTY);
     }
 
     /**

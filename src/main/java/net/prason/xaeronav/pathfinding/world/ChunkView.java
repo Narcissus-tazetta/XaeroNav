@@ -11,6 +11,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -121,6 +122,17 @@ public final class ChunkView implements CellSource {
         this.states.defaultReturnValue(CellData.ABSENT);
     }
 
+    /**
+     * ボートで水面を渡る移動を提示してよいか。持ち物にあるか、<b>いま乗っているか</b>のどちらか。
+     *
+     * <p>乗っている間はボートがアイテムではなくエンティティになるので、持ち物だけを見ると
+     * 「岸でボートを出せ」と案内した直後、その通りにした瞬間に前提が消えて経路が組み替わる。
+     */
+    public static boolean boatAvailable(Player player) {
+        return player.getVehicle() instanceof Boat
+                || player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+    }
+
     /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
     public static ChunkView capture(Level level, Player player, SearchBounds bounds, boolean diggingEnabled,
                                      boolean bridgingEnabled, boolean jumpGapEnabled,
@@ -163,7 +175,7 @@ public final class ChunkView implements CellSource {
         // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
         boolean canMlgWaterBucket = fallDamageToleranceEnabled && !level.dimensionType().ultraWarm()
                 && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
-        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+        boolean boatAvailable = boatAvailable(player);
 
         // 下降のヒューリスティックの下限は、実際に生成されうる最大の落差で決まる。
         // FALL_TO_WATERは着水先に水があるときだけ生成され、ultraWarmな次元（ネザー）には水が

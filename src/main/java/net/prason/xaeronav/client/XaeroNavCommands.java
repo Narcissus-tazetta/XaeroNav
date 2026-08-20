@@ -16,7 +16,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -138,7 +137,7 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
-        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+        boolean boatAvailable = ChunkView.boatAvailable(player);
         long startNanos = System.nanoTime();
         CoarseRouter.Route route = computeRouteOrFail(source, start, goal, boatAvailable);
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
@@ -208,7 +207,7 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
-        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+        boolean boatAvailable = ChunkView.boatAvailable(player);
         long startNanos = System.nanoTime();
         CoarseRouter.Route route = computeRouteOrFail(source, start, goal, boatAvailable);
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;

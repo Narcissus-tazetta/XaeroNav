@@ -5,14 +5,21 @@ import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
+import net.prason.xaeronav.pathfinding.flight.VoxelRay;
+import net.prason.xaeronav.pathfinding.world.CellData;
 
 /**
  * ワールド内描画用に経路を焼き固めたもの。経路が変わったときにだけ組み直す。
  *
  * <p>同色かつ一直線に続く区間は1本の区間へまとめる。平坦な地形では数十〜数百の区間が
  * 1本になり、描画する頂点数がそのまま桁で減る。まとめても両端は元のままなので見た目は変わらない。
+ *
+ * <p>水中とボートの区間だけは、一直線でなくても<b>通せる限り</b>まとめる（{@link #fluidShortcut}）。
+ * 陸と違って1手ごとの位置に意味が無く、格子の目に沿った階段がそのままジグザグに見えるため。
  */
 final class PathGeometry {
 
@@ -24,6 +31,15 @@ final class PathGeometry {
      * まとめずに区間を分ける（濃さを段階的に落とすため）。
      */
     private static final int FADE_TAIL_STEPS = 8;
+
+    /**
+     * 水中・ボートの区間を1本の直線へ畳んでよい最大の長さ（ブロック）。
+     *
+     * <p>畳める長さの上限が要るのは、判定が「区間の始点から候補までの弦を毎回走査し直す」形
+     * ——伸ばすたびに全長を見るのでO(長さ^2)——だから。長い直線が数本に分かれるだけで
+     * 見た目はほとんど変わらない（{@code FlightSmoother#LOOKAHEAD_POINTS}と同じ考え方）。
+     */
+    private static final int MAX_FLUID_SHORTCUT_BLOCKS = 32;
 
     private final PathResult source;
 
@@ -126,7 +142,7 @@ final class PathGeometry {
         return this.source == result;
     }
 
-    static PathGeometry build(PathResult result, BlockPos start) {
+    static PathGeometry build(Level level, PathResult result, BlockPos start) {
         List<PathStep> steps = result.steps();
         int count = steps.size();
 
@@ -155,13 +171,17 @@ final class PathGeometry {
         int tailStartStep = result.complete() ? count : Math.max(0, count - FADE_TAIL_STEPS);
         int fadeFromSegment = Integer.MAX_VALUE;
 
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int i = 1; i <= count; i++) {
             float[] color = rawColor[i - 1];
             boolean inTail = i > tailStartStep;
             if (!inTail && segments > 0 && outColor[segments - 1] == color
-                    && continuesStraight(outX[points - 2], outY[points - 2], outZ[points - 2],
+                    && (continuesStraight(outX[points - 2], outY[points - 2], outZ[points - 2],
                     outX[points - 1], outY[points - 1], outZ[points - 1],
-                    rawX[i], rawY[i], rawZ[i])) {
+                    rawX[i], rawY[i], rawZ[i])
+                    || fluidShortcut(level, cursor, color,
+                    outX[points - 2], outY[points - 2], outZ[points - 2],
+                    rawX[i], rawY[i], rawZ[i]))) {
                 outX[points - 1] = rawX[i];
                 outY[points - 1] = rawY[i];
                 outZ[points - 1] = rawZ[i];
@@ -233,6 +253,40 @@ final class PathGeometry {
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), rawX, rawY, rawZ,
                 hx, hy, hz, hColor, hPlacement, nextDigFrom, nextDigTo,
                 Math.min(fadeFromSegment, segments));
+    }
+
+    /**
+     * 水中・ボートの区間を、格子の目に沿った折れ線ではなく<b>通せる限りの直線</b>にしてよいか。
+     *
+     * <p>陸の経路では1手ごとの位置に意味がある（このブロックの上に立つ、という指示そのもの）。
+     * 水の中とボートの上には足場が無く、A*が返す階段状の並びは<b>探索格子の都合でしかない</b>——
+     * 地形が無いぶんその階段がそのまま線に出るので、開けた海では意味の無いジグザグに見える。
+     * 追うべきなのは向きだけ、という点で滑空中の線と同じ性質なので、扱いも揃える
+     * （{@code FlightSmoother}のstring pullと同じ考え方で、判定も同じ{@link VoxelRay}を使う）。
+     *
+     * <p>近道が通る全セルが水であること、かつその1つ上が掘らずに通れることを求める。前者だけだと
+     * 岬や浅瀬を突っ切る線になり、後者を見ないと天井の低い水路で体がつかえる線になる。
+     */
+    private static boolean fluidShortcut(Level level, BlockPos.MutableBlockPos cursor, float[] color,
+                                         double ax, double ay, double az,
+                                         double bx, double by, double bz) {
+        if (color != PathColors.SWIM && color != PathColors.BOAT && color != PathColors.DROWNING) {
+            return false;
+        }
+        double dx = bx - ax;
+        double dy = by - ay;
+        double dz = bz - az;
+        if (dx * dx + dy * dy + dz * dz > MAX_FLUID_SHORTCUT_BLOCKS * MAX_FLUID_SHORTCUT_BLOCKS) {
+            return false;
+        }
+        return VoxelRay.traverse(new Vec3(ax, ay, az), new Vec3(bx, by, bz), (x, y, z) -> {
+            cursor.set(x, y, z);
+            if (!CellData.water(CellData.flagsOf(level.getBlockState(cursor)))) {
+                return false;
+            }
+            cursor.set(x, y + 1, z);
+            return CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(cursor)));
+        });
     }
 
     /** {@code b}が{@code a}から{@code c}への一直線上にあり、かつ折り返していないか。 */

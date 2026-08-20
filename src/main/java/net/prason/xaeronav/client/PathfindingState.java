@@ -19,7 +19,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
@@ -1782,7 +1781,7 @@ public final class PathfindingState {
 
         BlockPos start = player.blockPosition();
         lastStart = start;
-        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+        boolean boatAvailable = ChunkView.boatAvailable(player);
 
         int groundLevel = XaeroNavConfig.INSTANCE.groundLevelY();
         boolean climbing = shouldClimbToSurface(level, start, currentGoal, groundLevel);
@@ -2008,7 +2007,7 @@ public final class PathfindingState {
         }
         List<PathStep> steps = shown.result().steps();
         BlockPos from = steps.get(steps.size() - 1).pos();
-        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+        boolean boatAvailable = ChunkView.boatAvailable(player);
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
         // 継続はワーカースレッドで走るので、プレイヤー・次元はここで写し取ってから渡す
         BlockPos playerAt = player.blockPosition();
