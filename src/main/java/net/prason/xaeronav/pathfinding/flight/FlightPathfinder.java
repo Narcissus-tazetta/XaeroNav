@@ -247,7 +247,7 @@ public final class FlightPathfinder {
     private FlightRoute build(int startNode, int endNode, Vec3 start, PathResult.Termination termination,
                               int expanded) {
         if (endNode == startNode) {
-            return new FlightRoute(List.of(), termination, expanded);
+            return new FlightRoute(List.of(), termination, expanded, grid.cellBlocks());
         }
         List<Vec3> reversed = new ArrayList<>();
         for (int node = endNode; node != -1; node = previous[node]) {
@@ -261,7 +261,7 @@ public final class FlightPathfinder {
         // 線が自分の横から生えて見える
         reversed.set(0, start);
         List<Vec3> smoothed = FlightSmoother.smooth(reversed, grid, rockets);
-        return new FlightRoute(List.copyOf(smoothed), termination, expanded);
+        return new FlightRoute(List.copyOf(smoothed), termination, expanded, grid.cellBlocks());
     }
 
     private Vec3 centerOf(int node) {

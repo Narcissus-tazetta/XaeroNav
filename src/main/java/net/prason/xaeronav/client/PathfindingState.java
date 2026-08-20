@@ -292,6 +292,11 @@ public final class PathfindingState {
     private volatile boolean flying;
     // 滑空中の空中経路（太線で描く本体）。引けなければ空
     private volatile FlightRoute flightRoute = FlightRoute.NONE;
+    // 空中経路の探索がワーカースレッドで走っている最中か。flightLineExecutorは
+    // PathfindingExecutorと違って前のジョブを打ち切らず<b>キューに積む</b>ので、これが無いと
+    // 1回2秒かかる探索を1秒ごとに投げてキューが際限なく伸びる（実機ログ: ネザーで10万ノード・
+    // 2.1秒）。表示される経路は遅れる一方になり、CPUは焼き続ける
+    private volatile boolean flightComputing;
     // flightRouteを計算したときのプレイヤー位置。ここから離れた＝新しいチャンクが読めている
     private volatile BlockPos flightRouteComputedFrom;
     // 空中経路が引けなかったときの代替。目的地への点線を山の上・横へ曲げた2〜3点
@@ -890,6 +895,7 @@ public final class PathfindingState {
                 FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         // 飛行判定に掘削・ブロック設置・隙間跳び・落下ダメージはどれも無関係なので全てfalse
         ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
+        flightComputing = true;
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
                 AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());
 
@@ -906,6 +912,7 @@ public final class PathfindingState {
                     return new FlightGuidance(route, bend, from);
                 }, flightLineExecutor)
                 .whenComplete((result, error) -> {
+                    flightComputing = false;
                     if (error != null) {
                         LOGGER.error("XaeroNav: 滑空中の経路の計算に失敗しました", error);
                         return;
@@ -926,6 +933,10 @@ public final class PathfindingState {
      * 読み込み済みチャンクも地形も変わらないので、同じ結果を得るために探索を回す意味が無い。
      */
     private boolean shouldRecalculateFlightRoute(Player player) {
+        if (flightComputing) {
+            // まだ前の探索が終わっていない。積んでも古い結果を先に反映するだけになる
+            return false;
+        }
         if (ticksSinceFlightLineRecalc < MIN_FLIGHT_RECALC_INTERVAL_TICKS) {
             // 逸脱・移動のきっかけが立て続けに成立しても、探索の投入間隔はここで頭打ちにする
             return false;

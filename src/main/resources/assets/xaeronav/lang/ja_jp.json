@@ -6,6 +6,7 @@
   "commands.xaeronav.goal_walk": "XaeroNav: 目的地を設定・徒歩 (%s)",
   "commands.xaeronav.flight_result": "XaeroNav: 空中経路 点%1$d / %2$s / 展開%3$d / %4$dms / 格子%5$dブロック / ロケット%6$d",
   "commands.xaeronav.flight_tail": "XaeroNav: 末端 (%1$d, %2$d, %3$d) — 目的地まで残り%4$dブロック",
+  "commands.xaeronav.flight_diagnostic_only": "XaeroNav: （測定のみ。線を出すには /xaeronav goto で目的地を設定すること）",
   "commands.xaeronav.cleared": "XaeroNav: 経路をクリア",
 
   "hud.xaeronav.searching": "経路を計算中…",

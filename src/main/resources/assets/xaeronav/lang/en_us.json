@@ -6,6 +6,7 @@
   "commands.xaeronav.goal_walk": "XaeroNav: destination set, on foot (%s)",
   "commands.xaeronav.flight_result": "XaeroNav: air route %1$d pts / %2$s / %3$d expanded / %4$dms / %5$d-block cells / rockets %6$d",
   "commands.xaeronav.flight_tail": "XaeroNav: tail (%1$d, %2$d, %3$d) — %4$d blocks left to the goal",
+  "commands.xaeronav.flight_diagnostic_only": "XaeroNav: (measurement only — use /xaeronav goto to set a destination and draw the line)",
   "commands.xaeronav.cleared": "XaeroNav: route cleared",
 
   "hud.xaeronav.searching": "Finding a route...",

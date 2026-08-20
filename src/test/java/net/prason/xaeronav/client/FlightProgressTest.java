@@ -21,7 +21,7 @@ class FlightProgressTest {
         return new FlightRoute(List.of(
                 new Vec3(0.0, 64.0, 0.0),
                 new Vec3(100.0, 64.0, 0.0),
-                new Vec3(200.0, 64.0, 0.0)), PathResult.Termination.REACHED_GOAL, 1);
+                new Vec3(200.0, 64.0, 0.0)), PathResult.Termination.REACHED_GOAL, 1, 4);
     }
 
     private static FlightProgress at(FlightRoute route, Vec3 position) {

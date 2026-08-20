@@ -431,12 +431,14 @@ public final class XaeroNavCommands {
         Vec3 tail = route.tail();
         source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_result",
                 route.points().size(), route.termination().name(), route.expandedNodes(), elapsedMillis,
-                XaeroNavConfig.INSTANCE.flightCellBlocks(), rockets ? 1 : 0), false);
+                route.cellBlocks(), rockets ? 1 : 0), false);
         if (tail != null) {
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_tail",
                     Mth.floor(tail.x), Mth.floor(tail.y), Mth.floor(tail.z),
                     Mth.floor(Math.sqrt(tail.distanceToSqr(Vec3.atCenterOf(goal))))), false);
         }
+        // これは測るだけのコマンドで、目的地は設定しない。線を出すには goto が要る
+        source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_diagnostic_only"), false);
         return 1;
     }
 
