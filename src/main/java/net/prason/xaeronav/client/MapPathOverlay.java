@@ -35,7 +35,7 @@ public final class MapPathOverlay {
      * 「何かあるか」の判定と実際の描画が別々に読むと、あると判断した経路が描く頃には消えている。
      */
     public record Snapshot(PathResult ground, BlockPos goal, BlockPos playerPos,
-                            List<BlockPos> coarseWaypoints, List<Vec3> flightRoute, List<Vec3> flightDash) {
+                            List<BlockPos> coarseWaypoints, List<Vec3> flightRoute, int flightRouteFrom, List<Vec3> flightDash) {
 
         public boolean isEmpty() {
             return ground == null && goal == null && coarseWaypoints.isEmpty() && flightRoute.isEmpty();
@@ -49,7 +49,7 @@ public final class MapPathOverlay {
     public static Snapshot snapshot() {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
-            return new Snapshot(null, null, null, List.of(), List.of(), List.of());
+            return new Snapshot(null, null, null, List.of(), List.of(), 0, List.of());
         }
         PathResult ground = PathfindingState.INSTANCE.currentResult();
         if (ground != null && ground.steps().isEmpty()) {
@@ -61,6 +61,7 @@ public final class MapPathOverlay {
         return new Snapshot(ground, goal, player.blockPosition(),
                 PathfindingState.INSTANCE.coarseRouteWaypoints(),
                 PathfindingState.INSTANCE.flightRoute().points(),
+                PathfindingState.INSTANCE.flightRouteFrom(),
                 PathfindingState.INSTANCE.flightDashWaypoints());
     }
 
@@ -111,8 +112,10 @@ public final class MapPathOverlay {
         if (!flightRoute.isEmpty()) {
             int previousX = snapshot.playerPos().getX();
             int previousZ = snapshot.playerPos().getZ();
+            // 通り過ぎた区間は描かない（ワールド内のrenderFlightRouteと同じ添字を使うこと）。
             // 先頭は計算した時点のプレイヤー位置なので捨て、今の位置から引く
-            for (int i = 1; i < flightRoute.size(); i++) {
+            for (int i = Math.min(snapshot.flightRouteFrom(), flightRoute.size() - 1);
+                    i < flightRoute.size(); i++) {
                 Vec3 next = flightRoute.get(i);
                 int nextX = (int) Math.floor(next.x);
                 int nextZ = (int) Math.floor(next.z);

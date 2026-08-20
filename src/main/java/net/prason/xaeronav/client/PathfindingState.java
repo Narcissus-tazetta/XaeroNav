@@ -75,6 +75,26 @@ public final class PathfindingState {
     private static final double FLIGHT_COARSE_RECALC_MOVE_BLOCKS = 128.0;
 
     /**
+     * 空中経路が一度に狙う最大の水平距離（ブロック）。
+     *
+     * <p><b>地形によらない固定値であることが要点</b>——歩行の{@code detailHorizonBlocks}とまったく
+     * 同じ理由で、「届く距離」を描画距離から見積もると必ず外れる。描画距離の75%(384)を狙わせていた
+     * 頃は、探索がそこまで届かず<b>予算が尽きた場所で経路が切れる</b>ため、プレイヤーが少し進むたびに
+     * 切れる場所が変わって太線の末端が飛び回っていた（ユーザー報告「めっちゃ目的地変わる」）。
+     * 実測の到達距離（ネザーで280前後）の内側に固定して、狙った先まで引き切れるようにする。
+     */
+    private static final int FLIGHT_DETAIL_HORIZON_BLOCKS = 256;
+
+    /**
+     * 狙っている中間目標をこれだけ手前まで詰めたら次へ進める（ブロック）。
+     *
+     * <p>この歯止めが無いと、目標は「届く範囲で最も遠い中間目標」なのでプレイヤーが64ブロック進む
+     * たびに1つ先へ移る。目標が動けば同じ始点でも別の経路が出るので、太線が数秒おきに描き変わる。
+     * 同じ点を狙い続けているあいだは経路も安定する。
+     */
+    private static final int FLIGHT_AIM_ADVANCE_BLOCKS = 96;
+
+    /**
      * 岩盤天井の下に取る余白（ブロック）。天井は不透明なのでXaeroの洞窟レイヤーには床として
      * 記録されない——ここで頭打ちにしないと、最上段の高度帯が岩の中まで伸びる。
      */
@@ -319,6 +339,12 @@ public final class PathfindingState {
     // 描画距離の外までの中間目標（Xaeroの地図由来、天井のある次元のみ）。読み込み済みチャンクを
     // 見る空中経路はレンダー距離で必ず頭打ちになるので、その先を繋ぐのはこれしかない
     private volatile FlightCoarseRoute flightCoarseRoute;
+    // いま狙っている中間目標。座標で覚えるのは、長距離ルートを引き直すと添字の意味が変わるため
+    // （新しい列に無ければ歯止めは自動的に外れる）。歩行のlastAimedWaypointと同じ考え方
+    private volatile BlockPos flightAimedWaypoint;
+    // 通過済みとみなす中間目標の数。地図・ワールドの点線をどこから描くかにだけ使う。
+    // 単調に進める——経路が予算切れで短くなって末端が後退しても、通過済みが戻らないようにする
+    private volatile int flightPassedWaypoints;
     // 空中経路が引けなかったときの代替。目的地への点線を山の上・横へ曲げた2〜3点
     private volatile List<Vec3> flightGuideWaypoints;
 
@@ -462,6 +488,8 @@ public final class PathfindingState {
         this.flightGuideWaypoints = null;
         this.flightRouteComputedFrom = null;
         this.flightCoarseRoute = null;
+        this.flightAimedWaypoint = null;
+        this.flightPassedWaypoints = 0;
         this.arrivedTicks = 0;
     }
 
@@ -493,6 +521,15 @@ public final class PathfindingState {
             return FlightRoute.NONE;
         }
         return flightRoute;
+    }
+
+    /**
+     * 空中経路の折れ線を、どの点から描き始めるか。通り過ぎた区間を描かないための添字で、
+     * ワールド内描画と地図で必ず共有すること（片方だけ切り詰めると、地図にだけ自分の後ろへ
+     * 伸びた線が残る）。
+     */
+    public int flightRouteFrom() {
+        return FlightProgress.INSTANCE.segmentFor(flightRoute) + 1;
     }
 
     /**
@@ -700,6 +737,7 @@ public final class PathfindingState {
             // 滑空中は地上の経路追従・A*の再計算を止め、空中経路だけを見る
             checkArrival(mc.player, currentGoal, null);
             FlightProgress.INSTANCE.update(flightRoute, mc.player.position());
+            advanceFlightPassedWaypoints(mc.player);
             ticksSinceFlightLineRecalc++;
             if (shouldRecalculateFlightRoute(mc.player)) {
                 recalculateFlightLine();
@@ -931,7 +969,7 @@ public final class PathfindingState {
                 : List.of();
         // 探索が狙う先は、届く範囲で最も遠い中間目標。読み込み済みの縁より少し内側に置く——
         // 縁ちょうどを狙うと、その周りのセルが未ロード＝飛行不可で必ず未到達に終わる
-        Vec3 detailTarget = flightDetailTarget(start, goalVec, coarse, renderRadius * 0.75);
+        Vec3 detailTarget = flightDetailTarget(start, goalVec, coarse);
         flightComputing = true;
 
         CompletableFuture
@@ -1028,13 +1066,32 @@ public final class PathfindingState {
         if (route == null || !route.goal().equals(goal)) {
             return List.of();
         }
-        Player player = Minecraft.getInstance().player;
-        if (player == null) {
-            return route.waypoints();
-        }
-        int from = nearestWaypointIndex(route.waypoints(), player.position()) + 1;
+        int from = flightPassedWaypoints;
         return from >= route.waypoints().size() ? List.of()
                 : route.waypoints().subList(from, route.waypoints().size());
+    }
+
+    /**
+     * 点線をどこから描き始めるかを進める。
+     *
+     * <p><b>基準はプレイヤーではなく太線（層3の経路）の末端</b>。点線は末端から続けて引くのに、
+     * 切り詰めをプレイヤー基準でやっていたため、末端より手前の中間目標が残っていた——点線が
+     * 末端からいったん自分の近くまで戻ってから改めて先へ伸び、<b>2本の経路があるように見えていた</b>
+     * （ユーザー報告）。歩行側で既に「地図の点線は経路の末端、HUDはプレイヤーがいる区間」と
+     * 分けてあるのと同じ話。
+     *
+     * <p>単調にしか進めないのは、予算切れで経路が短くなって末端が後退したときに通過済みが
+     * 戻らないようにするため。長距離ルートを引き直したときは{@link #updateFlightCoarseRoute}が0へ戻す。
+     */
+    private void advanceFlightPassedWaypoints(Player player) {
+        FlightCoarseRoute route = flightCoarseRoute;
+        if (route == null || !route.goal().equals(goal)) {
+            return;
+        }
+        Vec3 tail = flightRoute.tail();
+        Vec3 from = tail == null ? player.position() : tail;
+        flightPassedWaypoints = Math.max(flightPassedWaypoints,
+                nearestWaypointIndex(route.waypoints(), from) + 1);
     }
 
     /** {@code position}に最も近い中間目標の添字。空リストなら-1。 */
@@ -1089,7 +1146,10 @@ public final class PathfindingState {
         CoarseAirMap air = CoarseAirMap.from(map, level.getMinBuildHeight() + CEILING_MARGIN_BLOCKS,
                 level.getMaxBuildHeight() - 1 - CEILING_MARGIN_BLOCKS);
         CoarseRouter.Route route = CoarseFlightRouter.findRoute(air, from, currentGoal, rockets);
+        // 列を作り直したので添字の意味が変わる。座標で覚えている狙い（flightAimedWaypoint）は
+        // 新しい列に同じ点があれば生き残り、無ければ自然に外れる
         flightCoarseRoute = new FlightCoarseRoute(currentGoal, from, route.waypoints());
+        flightPassedWaypoints = 0;
         return route.waypoints();
     }
 
@@ -1104,21 +1164,36 @@ public final class PathfindingState {
      * <p>探すのは<b>プレイヤーに最も近い中間目標より先</b>だけ。全体から最も遠いものを選ぶと、
      * ルートが自分の近くへ折り返す地形で通り過ぎた点を掴み、案内が後戻りする。
      */
-    private static Vec3 flightDetailTarget(Vec3 start, Vec3 goalVec, List<BlockPos> waypoints,
-                                            double reach) {
+    private Vec3 flightDetailTarget(Vec3 start, Vec3 goalVec, List<BlockPos> waypoints) {
+        double reach = FLIGHT_DETAIL_HORIZON_BLOCKS;
         if (waypoints.isEmpty() || start.distanceTo(goalVec) <= reach) {
+            flightAimedWaypoint = null;
             return goalVec;
         }
+        // いま狙っている点がまだ列にあって、まだ十分先なら狙い続ける。目標が動くと同じ始点でも
+        // 別の経路が出るので、ここを毎回選び直すと太線が数秒おきに描き変わる
+        BlockPos aimed = flightAimedWaypoint;
+        if (aimed != null && waypoints.contains(aimed)) {
+            double distance = Math.sqrt(aimed.distToCenterSqr(start));
+            if (distance > FLIGHT_AIM_ADVANCE_BLOCKS && distance <= reach) {
+                return Vec3.atCenterOf(aimed);
+            }
+        }
         int from = nearestWaypointIndex(waypoints, start) + 1;
-        Vec3 target = null;
+        BlockPos target = null;
         for (int i = from; i < waypoints.size(); i++) {
-            Vec3 candidate = Vec3.atCenterOf(waypoints.get(i));
-            if (start.distanceTo(candidate) > reach) {
+            if (Math.sqrt(waypoints.get(i).distToCenterSqr(start)) > reach) {
                 break;
             }
-            target = candidate;
+            target = waypoints.get(i);
         }
-        return target == null ? goalVec : target;
+        flightAimedWaypoint = target;
+        if (target == null) {
+            return goalVec;
+        }
+        LOGGER.info("XaeroNav: 空中経路の目標を切り替えました (目標={}, {}, {}, 中間目標={}本)",
+                target.getX(), target.getY(), target.getZ(), waypoints.size());
+        return Vec3.atCenterOf(target);
     }
 
     /** 空中経路と、その代わりに使う曲がり点線。どちらを使うかは計算した側が決める。 */

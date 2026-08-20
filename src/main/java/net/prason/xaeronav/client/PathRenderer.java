@@ -220,7 +220,7 @@ public final class PathRenderer {
         List<Vec3> points = route.points();
         // 通り過ぎた区間は描かない。空中経路は引き直しの合間に数十ブロック進むので、
         // これが無いと線が自分の後ろへ伸びたままになる（歩行のrenderGroundPathと同じ理由）
-        int first = FlightProgress.INSTANCE.segmentFor(route) + 1;
+        int first = PathfindingState.INSTANCE.flightRouteFrom();
         int count = 0;
         count = pushStraightPoint(count, playerX, playerY, playerZ);
         for (int i = first; i < points.size(); i++) {

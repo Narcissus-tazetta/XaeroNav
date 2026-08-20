@@ -77,6 +77,16 @@ class FlightProgressTest {
     }
 
     @Test
+    void theSegmentIndexFollowsTheRouteNotTheStartOfTheList() {
+        // 点線の切り詰めはこの添字を使う。プレイヤーではなく太線の末端を渡す側の責任だが、
+        // ここが「常に0」だと切り詰めが一切効かず、点線が末端から後ろへ戻って2本に見える
+        FlightRoute route = straight();
+
+        assertEquals(0, at(route, new Vec3(0.0, 64.0, 0.0)).segmentFor(route));
+        assertEquals(1, at(route, new Vec3(199.0, 64.0, 0.0)).segmentFor(route));
+    }
+
+    @Test
     void anEmptyRouteReportsNoDeviation() {
         assertFalse(at(FlightRoute.NONE, new Vec3(0.0, 64.0, 0.0)).deviated(THRESHOLD));
     }
