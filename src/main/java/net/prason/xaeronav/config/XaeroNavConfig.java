@@ -44,6 +44,11 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue flightCellBlocks;
     private final ModConfigSpec.DoubleValue flightDeviationThresholdBlocks;
     private final ModConfigSpec.IntValue flightRecalcIntervalTicks;
+    private static final int FLIGHT_CLEARANCE_DETOUR_DEFAULT = 12;
+
+    private final ModConfigSpec.IntValue flightClearanceDetourBlocks;
+    private final ModConfigSpec.IntValue flightMaxExpandedNodes;
+    private final ModConfigSpec.DoubleValue flightHeuristicWeight;
     private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
     private final ModConfigSpec.BooleanValue hudEnabled;
     private final ModConfigSpec.BooleanValue straightLineEnabled;
@@ -173,8 +178,10 @@ public final class XaeroNavConfig {
                 .comment("空中経路を解く格子の一辺（ブロック）。含むブロックが全て空のセルだけを通る",
                         "この粗さがそのままクリアランスになる——秒速30マスで飛ぶエリトラに1マスの隙間を",
                         "狙わせても意味が無いので、余裕を持って抜けられる空間だけを経路の候補にする",
-                        "経路が一本も引けなかった場合に限り、半分の粒度で解き直す")
-                .defineInRange("flightCellBlocks", 4, 2, 8);
+                        "その粗さでは抜けられる隙間が無いと判明した場合に限り、半分の粒度で解き直す",
+                        "遠くまで届かせたいときに一番効くのがここ——セル数は一辺の3乗に反比例するので、",
+                        "4→6にするだけで同じ予算が覆う体積が3.4倍になる。代わりに狭い通路は通れなくなる")
+                .defineInRange("flightCellBlocks", 6, 2, 16);
 
         flightDeviationThresholdBlocks = builder
                 .comment("滑空中に経路からこの距離(ブロック)以上離れたら引き直す",
@@ -188,6 +195,31 @@ public final class XaeroNavConfig {
                         "エリトラは1.5ブロック/tickで飛ぶので、歩行のrecalcIntervalTicks(40)では",
                         "引き直しの合間に60ブロック進んでしまう")
                 .defineInRange("flightRecalcIntervalTicks", 20, 5, 200);
+
+        flightClearanceDetourBlocks = builder
+                .comment("周囲が完全に塞がったセルを通ることを、水平何ブロックぶんの遠回りと釣り合わせるか",
+                        "「最短でも狭い所は案内しないでほしい」をこれで表す。大きいほど広い空間を選ぶ",
+                        "禁止ではなく割増なのは、そこしか道が無い地形で経路ごと消えないようにするため",
+                        "0で無効（純粋な最短）",
+                        "平面1枚ぶん（26近傍のうち9個）が塞がっている程度は狭いとみなさない——",
+                        "地表や天井の上を余裕を持って飛んでいるだけの状態なので、ここを狭いと数えると",
+                        "開けた場所でも理由なく高い所を通るようになる")
+                .defineInRange("flightClearanceDetourBlocks", FLIGHT_CLEARANCE_DETOUR_DEFAULT, 0, 128);
+
+        flightMaxExpandedNodes = builder
+                .comment("空中経路の1回の探索で展開するセル数の上限",
+                        "歩行のmaxExpandedNodesとは別に持つ。空中は3D格子で1セルあたりの隣接が26あり、",
+                        "同じ数字でも意味する探索の広さがまるで違う",
+                        "上げると遠くまで届くが1回の計算が比例して長くなる（実機: ネザーで10万・約2秒）",
+                        "計算中は投げ直さないので、長くなるぶん経路の更新間隔が伸びる")
+                .defineInRange("flightMaxExpandedNodes", 150_000, 1_000, 1_000_000);
+
+        flightHeuristicWeight = builder
+                .comment("空中経路の「ゴールへの近さ」を重視する度合い",
+                        "歩行より高くしてある。空は障害物が疎で、寄り道の少ない見積もりがよく当たるうえ、",
+                        "空中経路に最短の保証は要らない（人間が見て操縦するための線であって、辿る手順ではない）",
+                        "上げるほど同じ予算で遠くまで届く。遠くまで検索したいときは格子幅の次に効く")
+                .defineInRange("flightHeuristicWeight", 2.5, 1.0, 5.0);
 
         forbiddenBlocks = builder
                 .comment("掘削禁止ブロックの追加リスト（例: \"minecraft:chest\"）。デフォルト禁止リストへの追加分")
@@ -322,6 +354,23 @@ public final class XaeroNavConfig {
 
     public int flightRecalcIntervalTicks() {
         return flightRecalcIntervalTicks.get();
+    }
+
+    public int flightClearanceDetourBlocks() {
+        return flightClearanceDetourBlocks.get();
+    }
+
+    /** 設定画面のトグル用。0（純粋な最短）と既定値を往復する。 */
+    public void setFlightClearanceEnabled(boolean value) {
+        flightClearanceDetourBlocks.set(value ? FLIGHT_CLEARANCE_DETOUR_DEFAULT : 0);
+    }
+
+    public int flightMaxExpandedNodes() {
+        return flightMaxExpandedNodes.get();
+    }
+
+    public double flightHeuristicWeight() {
+        return flightHeuristicWeight.get();
     }
 
     public List<? extends String> additionalForbiddenBlocks() {

@@ -21,13 +21,17 @@ import net.prason.xaeronav.pathfinding.cost.FlightCosts;
  *     遠回りの方が安いことが原理的にありうる（{@link FlightCosts}参照）。真っ直ぐにした結果
  *     A*が選んだ経路より高くなるなら、それはもう平滑化ではなく改悪になる</li>
  * </ol>
+ *
+ * <p><b>採否はA*とまったく同じコスト関数で決めること</b>（狭さの割増を含む）。片方だけに入れると、
+ * A*が広い所へ迂回した経路を平滑化が狭い所へ引き戻す——実際に踏んだ。{@link Clearance}参照。
  */
 final class FlightSmoother {
 
     private FlightSmoother() {
     }
 
-    static List<Vec3> smooth(List<Vec3> points, AirGrid grid, boolean rockets) {
+    static List<Vec3> smooth(List<Vec3> points, AirGrid grid, boolean rockets,
+                              double clearancePenaltyTicks) {
         if (points.size() < 3) {
             return points;
         }
@@ -41,8 +45,8 @@ final class FlightSmoother {
                 if (!grid.clearLine(points.get(from), points.get(to))) {
                     continue;
                 }
-                if (segmentTicks(points.get(from), points.get(to), rockets)
-                        > pathTicks(points, from, to, rockets)) {
+                if (segmentTicks(grid, points.get(from), points.get(to), rockets, clearancePenaltyTicks)
+                        > pathTicks(grid, points, from, to, rockets, clearancePenaltyTicks)) {
                     continue;
                 }
                 next = to;
@@ -54,17 +58,20 @@ final class FlightSmoother {
         return result;
     }
 
-    private static double pathTicks(List<Vec3> points, int from, int to, boolean rockets) {
+    private static double pathTicks(AirGrid grid, List<Vec3> points, int from, int to, boolean rockets,
+                                     double clearancePenaltyTicks) {
         double total = 0.0;
         for (int i = from; i < to; i++) {
-            total += segmentTicks(points.get(i), points.get(i + 1), rockets);
+            total += segmentTicks(grid, points.get(i), points.get(i + 1), rockets, clearancePenaltyTicks);
         }
         return total;
     }
 
-    private static double segmentTicks(Vec3 from, Vec3 to, boolean rockets) {
+    private static double segmentTicks(AirGrid grid, Vec3 from, Vec3 to, boolean rockets,
+                                        double clearancePenaltyTicks) {
         double dx = to.x - from.x;
         double dz = to.z - from.z;
-        return FlightCosts.segmentTicks(Math.sqrt(dx * dx + dz * dz), to.y - from.y, rockets);
+        return FlightCosts.segmentTicks(Math.sqrt(dx * dx + dz * dz), to.y - from.y, rockets)
+                + Clearance.alongLine(grid, from, to, clearancePenaltyTicks);
     }
 }

@@ -48,6 +48,7 @@ public final class FlightPathfinder {
     private final AirGrid grid;
     private final boolean rockets;
     private final SearchLimits limits;
+    private final double clearancePenaltyTicks;
 
     // ノード表（IDは0始まりの連番）。cellKey -> ID の引きは1本だけ持つ
     private final Long2IntOpenHashMap ids = new Long2IntOpenHashMap();
@@ -69,10 +70,15 @@ public final class FlightPathfinder {
     private Vec3 goal;
     private double goalRadius;
 
-    public FlightPathfinder(AirGrid grid, boolean rockets, SearchLimits limits) {
+    /**
+     * @param clearancePenaltyTicks 26近傍が完全に塞がったセルへ入るときの割増（tick）。0で無効。
+     *                              最短でも狭い所は通したくない、という要求をここで表す
+     */
+    public FlightPathfinder(AirGrid grid, boolean rockets, SearchLimits limits, double clearancePenaltyTicks) {
         this.grid = grid;
         this.rockets = rockets;
         this.limits = limits;
+        this.clearancePenaltyTicks = clearancePenaltyTicks;
         this.ids.defaultReturnValue(-1);
     }
 
@@ -206,7 +212,8 @@ public final class FlightPathfinder {
         int cells = grid.cellBlocks();
         double horizontal = Math.sqrt(dx * dx + dz * dz) * cells;
         double vertical = dy * (double) cells;
-        double tentative = cost[current] + FlightCosts.segmentTicks(horizontal, vertical, rockets);
+        double tentative = cost[current] + FlightCosts.segmentTicks(horizontal, vertical, rockets)
+                + Clearance.cell(grid, x, y, z, clearancePenaltyTicks);
         if (tentative >= cost[neighbor]) {
             return;
         }
@@ -233,6 +240,9 @@ public final class FlightPathfinder {
      * ゴールまでの見積もり。<b>ゴール半径ぶんを差し引く</b>——領域ゴールでは中心までの見積もりが
      * 半径ぶん過大＝非許容になる。差し引く単価は最も安い移動（降下）に合わせて、割り引きすぎない
      * ようにする。
+     *
+     * <p>狭さの割増（{@link Clearance}）はここに入れない。割増は常に0以上なので、入れない限り
+     * 見積もりは下限のままで、A*の性質は変わらない。
      */
     private double estimateToGoal(int x, int y, int z) {
         Vec3 center = grid.center(x, y, z);
@@ -260,7 +270,7 @@ public final class FlightPathfinder {
         // 先頭はプレイヤーがいるセルの中心なので、実際の位置へ差し替える。ここを中心のままにすると
         // 線が自分の横から生えて見える
         reversed.set(0, start);
-        List<Vec3> smoothed = FlightSmoother.smooth(reversed, grid, rockets);
+        List<Vec3> smoothed = FlightSmoother.smooth(reversed, grid, rockets, clearancePenaltyTicks);
         return new FlightRoute(List.copyOf(smoothed), termination, expanded, grid.cellBlocks());
     }
 

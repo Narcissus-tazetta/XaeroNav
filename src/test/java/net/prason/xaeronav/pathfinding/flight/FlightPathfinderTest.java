@@ -20,8 +20,13 @@ class FlightPathfinderTest {
     private static final double GOAL_RADIUS = 6.0;
 
     private static FlightRoute route(FakeCells cells, Vec3 start, Vec3 goal, boolean rockets) {
-        return new FlightPathfinder(new AirGrid(cells, CELL), rockets, SearchLimits.DEFAULT)
-                .search(start, goal, GOAL_RADIUS);
+        return route(cells, start, goal, rockets, 0.0);
+    }
+
+    private static FlightRoute route(FakeCells cells, Vec3 start, Vec3 goal, boolean rockets,
+                                      double clearancePenaltyTicks) {
+        return new FlightPathfinder(new AirGrid(cells, CELL), rockets, SearchLimits.DEFAULT,
+                clearancePenaltyTicks).search(start, goal, GOAL_RADIUS);
     }
 
     /** 天井と床のあるネザー状の空間。{@code floor}以下と{@code ceiling}以上を岩で埋める。 */
@@ -159,8 +164,8 @@ class FlightPathfinderTest {
     @Test
     void reusingOneInstanceForASecondGoalDoesNotKeepTheOldEstimates() {
         // 見積もりはノード生成時にゴールから計算する。表を持ち越すと2回目は前のゴールへ引き寄せられる
-        FlightPathfinder pathfinder =
-                new FlightPathfinder(new AirGrid(FakeCells.empty(BOUNDS), CELL), false, SearchLimits.DEFAULT);
+        FlightPathfinder pathfinder = new FlightPathfinder(
+                new AirGrid(FakeCells.empty(BOUNDS), CELL), false, SearchLimits.DEFAULT, 0.0);
         Vec3 start = new Vec3(0.0, 64.0, 0.0);
 
         pathfinder.search(start, new Vec3(120.0, 64.0, 0.0), GOAL_RADIUS);
@@ -168,6 +173,57 @@ class FlightPathfinderTest {
 
         assertTrue(second.complete(), "2回目の探索が届いていない: " + second.termination());
         assertTrue(second.tail().x < -100.0, "2回目の経路が1回目のゴール側を向いている: " + second.points());
+    }
+
+    /**
+     * X=-30〜30 の分厚い壁に2つの通り道を開ける。z=2 に断面がちょうど格子1セルぶんしかない長いトンネル、
+     * z=60〜92 に断面の広い通路。直線距離ではトンネルの方が短い。
+     */
+    private static FakeCells wallWithATightTunnelAndAWideDetour(boolean withDetour) {
+        FakeCells cells = nether(32, 120);
+        for (int x = -30; x <= 30; x++) {
+            for (int y = 33; y < 120; y++) {
+                for (int z = -160; z <= 160; z++) {
+                    boolean tightTunnel = z >= 0 && z <= 3 && y >= 60 && y <= 63;
+                    boolean wideGap = withDetour && z >= 60 && z <= 92 && y >= 40 && y <= 104;
+                    if (tightTunnel || wideGap) {
+                        continue;
+                    }
+                    cells.set(x, y, z, FakeCells.STONE);
+                }
+            }
+        }
+        return cells;
+    }
+
+    @Test
+    void takesTheTightTunnelWhenNothingDiscouragesIt() {
+        FlightRoute route = route(wallWithATightTunnelAndAWideDetour(true),
+                new Vec3(-100.0, 62.0, 2.0), new Vec3(100.0, 62.0, 2.0), false, 0.0);
+
+        assertTrue(route.complete(), "細いトンネルを抜けられていない: " + route.termination());
+        assertTrue(route.points().stream().allMatch(point -> point.z < 40.0),
+                "割増が無いのに遠回りしている: " + route.points());
+    }
+
+    @Test
+    void avoidsTheTightTunnelWhenClearanceIsWorthADetour() {
+        // 「最短でも狭い所は案内しないでほしい」。距離では負けている広い通路を選ぶこと
+        FlightRoute route = route(wallWithATightTunnelAndAWideDetour(true),
+                new Vec3(-100.0, 62.0, 2.0), new Vec3(100.0, 62.0, 2.0), false, 12.0);
+
+        assertTrue(route.complete(), "広い通路からも抜けられていない: " + route.termination());
+        assertTrue(route.points().stream().anyMatch(point -> point.z > 50.0),
+                "割増を入れても細いトンネルを通っている: " + route.points());
+    }
+
+    @Test
+    void stillUsesATightPassageWhenItIsTheOnlyWay() {
+        // 割増は禁止ではない。そこしか道が無ければ通る（経路ごと消えるのが一番困る）
+        FlightRoute route = route(wallWithATightTunnelAndAWideDetour(false),
+                new Vec3(-100.0, 62.0, 2.0), new Vec3(100.0, 62.0, 2.0), false, 12.0);
+
+        assertTrue(route.complete(), "唯一の細いトンネルを割増のせいで諦めている: " + route.termination());
     }
 
     @Test

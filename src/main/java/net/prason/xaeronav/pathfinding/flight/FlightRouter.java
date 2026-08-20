@@ -1,7 +1,6 @@
 package net.prason.xaeronav.pathfinding.flight;
 
 import net.minecraft.world.phys.Vec3;
-import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 
 /**
@@ -31,11 +30,11 @@ public final class FlightRouter {
      * （呼び出し側は従来どおり目的地への点線へ落とすこと）。
      */
     public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
-                                     int cellBlocks, SearchLimits limits) {
+                                     FlightTuning tuning) {
         FlightRoute best = FlightRoute.NONE;
-        for (int cells = cellBlocks; cells >= MIN_CELL_BLOCKS; cells /= 2) {
-            FlightRoute route = new FlightPathfinder(new AirGrid(view, cells), rockets, limits)
-                    .search(start, goal, cells * GOAL_RADIUS_CELLS);
+        for (int cells = tuning.cellBlocks(); cells >= MIN_CELL_BLOCKS; cells /= 2) {
+            FlightRoute route = new FlightPathfinder(new AirGrid(view, cells), rockets, tuning.limits(),
+                    tuning.clearancePenaltyTicks()).search(start, goal, cells * GOAL_RADIUS_CELLS);
             if (route.complete()) {
                 return route;
             }

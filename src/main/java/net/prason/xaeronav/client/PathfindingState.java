@@ -34,10 +34,12 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
+import net.prason.xaeronav.pathfinding.cost.FlightCosts;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
+import net.prason.xaeronav.pathfinding.flight.FlightTuning;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -886,7 +888,7 @@ public final class PathfindingState {
         ResourceKey<Level> dimension = level.dimension();
         boolean rockets = hasRockets(player);
         boolean routing = XaeroNavConfig.INSTANCE.flightRoutingEnabled();
-        int cellBlocks = XaeroNavConfig.INSTANCE.flightCellBlocks();
+        FlightTuning tuning = flightTuning();
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
         // 水平マージンを描画距離に揃えて、読み込み済みの正方形をまるごと探索範囲に入れる。
         // 壁を回り込む経路は始点と目的地を結ぶ帯の外へ出るので、狭いマージンでは回り込めない
@@ -896,13 +898,11 @@ public final class PathfindingState {
         // 飛行判定に掘削・ブロック設置・隙間跳び・落下ダメージはどれも無関係なので全てfalse
         ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
         flightComputing = true;
-        SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
-                AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());
 
         CompletableFuture
                 .supplyAsync(() -> {
                     FlightRoute route = routing
-                            ? FlightRouter.route(view, start, goalVec, rockets, cellBlocks, limits)
+                            ? FlightRouter.route(view, start, goalVec, rockets, tuning)
                             : FlightRoute.NONE;
                     // 曲がり点線は経路が引けなかったときだけ要る。引けているときに重ねると、
                     // 末端から目的地へ伸ばす点線が遠くの山を避けて曲がってしまう
@@ -958,6 +958,18 @@ public final class PathfindingState {
         // 同じになる——「未到達なら引き直す」にすると、目的地が描画距離の外にある普通の場面で、
         // 浮いているだけのプレイヤーの足元で毎秒探索を焼き続けることになる
         return flightRouteComputedFrom == null || !flightRouteComputedFrom.equals(position);
+    }
+
+    /**
+     * 設定から空中経路の調整値を組む。診断コマンドが本番とまったく同じ条件で測れるように、
+     * 組み立てはここ1箇所に置く（別々に組むと、測った数字が実際の案内と食い違う）。
+     */
+    public static FlightTuning flightTuning() {
+        XaeroNavConfig config = XaeroNavConfig.INSTANCE;
+        return new FlightTuning(config.flightCellBlocks(),
+                config.flightClearanceDetourBlocks() * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK,
+                new SearchLimits(config.flightMaxExpandedNodes(), AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS,
+                        config.flightHeuristicWeight()));
     }
 
     /** 空中経路と、その代わりに使う曲がり点線。どちらを使うかは計算した側が決める。 */

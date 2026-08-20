@@ -423,9 +423,7 @@ public final class XaeroNavCommands {
 
         long startedAt = System.nanoTime();
         FlightRoute route = FlightRouter.route(view, player.position(), Vec3.atCenterOf(goal), rockets,
-                XaeroNavConfig.INSTANCE.flightCellBlocks(),
-                new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
-                        AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight()));
+                PathfindingState.flightTuning());
         long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
 
         Vec3 tail = route.tail();

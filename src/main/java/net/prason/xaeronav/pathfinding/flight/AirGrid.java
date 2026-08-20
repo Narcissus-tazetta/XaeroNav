@@ -32,11 +32,13 @@ public final class AirGrid {
     private final CellSource view;
     private final int cellBlocks;
     private final Long2ByteOpenHashMap known = new Long2ByteOpenHashMap();
+    private final Long2ByteOpenHashMap blocked = new Long2ByteOpenHashMap();
 
     public AirGrid(CellSource view, int cellBlocks) {
         this.view = view;
         this.cellBlocks = cellBlocks;
         this.known.defaultReturnValue(UNKNOWN);
+        this.blocked.defaultReturnValue(NOT_COUNTED);
     }
 
     public int cellBlocks() {
@@ -91,6 +93,30 @@ public final class AirGrid {
             }
         }
         return true;
+    }
+
+    /** 26近傍のうち飛行不可なセルの数。まだ数えていないことを表す番兵。 */
+    private static final byte NOT_COUNTED = -1;
+
+    /** 26近傍のうち飛行不可なセルの数（0〜26）。狭さの目安に使う。 */
+    public int blockedNeighbours(int cellX, int cellY, int cellZ) {
+        long key = BlockPos.asLong(cellX, cellY, cellZ);
+        byte cached = blocked.get(key);
+        if (cached != NOT_COUNTED) {
+            return cached;
+        }
+        int count = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if ((dx != 0 || dy != 0 || dz != 0) && !flyable(cellX + dx, cellY + dy, cellZ + dz)) {
+                        count++;
+                    }
+                }
+            }
+        }
+        blocked.put(key, (byte) count);
+        return count;
     }
 
     /**

@@ -46,6 +46,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 cfg.deepLookAheadEnabled(), cfg::setDeepLookAheadEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.flight_routing_enabled",
                 cfg.flightRoutingEnabled(), cfg::setFlightRoutingEnabled));
+        this.list.addBig(boolOption("gui.xaeronav.config.flight_clearance",
+                cfg.flightClearanceDetourBlocks() > 0, cfg::setFlightClearanceEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.hud_enabled",
                 cfg.hudEnabled(), cfg::setHudEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.straight_line_enabled",

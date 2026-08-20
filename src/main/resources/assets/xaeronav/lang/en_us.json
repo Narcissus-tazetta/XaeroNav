@@ -55,6 +55,7 @@
   "gui.xaeronav.config.jump_gap_enabled": "Allow jumping gaps (up to 3 blocks) in routes",
   "gui.xaeronav.config.fall_damage_tolerance_enabled": "Tolerate fall damage (up to 1/3 health)",
   "gui.xaeronav.config.flight_routing_enabled": "Route through the air while gliding",
+  "gui.xaeronav.config.flight_clearance": "Prefer open space over tight gaps",
   "gui.xaeronav.config.hud_enabled": "Guidance HUD",
   "gui.xaeronav.config.straight_line_enabled": "Show dotted line for unsearched sections",
   "hud.xaeronav.hud_on": "XaeroNav: guidance HUD on",
