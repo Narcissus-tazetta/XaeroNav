@@ -32,6 +32,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
     private final ModConfigSpec.IntValue detailHorizonBlocks;
     private final ModConfigSpec.IntValue maxBridgeRunBlocks;
+    private final ModConfigSpec.IntValue maxSubmergedTicks;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
     private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
@@ -121,6 +122,19 @@ public final class XaeroNavConfig {
                         "範囲内に迂回路が無く経路が一本も引けなかった場合に限り、上限を外して探し直す",
                         "（詰むよりは長い橋の方がマシ、という優先順）")
                 .defineInRange("maxBridgeRunBlocks", 30, 0, 256);
+
+        maxSubmergedTicks = builder
+                .comment("頭を水に浸けたまま何tickまで進む経路を許すか（0で無制限）",
+                        "空気は300tickで尽き、そこからは1秒ごとにダメージが入る。既定の250はその5/6で、",
+                        "潜り始めに空気が満タンとは限らないぶんと、案内どおりの速さで泳げないぶんの余裕",
+                        "単位がマス数ではなくtickなのは、水中の移動が種類ごとに速さが違うから——泳ぎ(5.6)、",
+                        "浮上(7.4)、潜降(5.4)、採掘(1マスに数十)。マス数で数えると、浮上や採掘にかかる時間が",
+                        "実際より短く見積もられ、息が続かない経路を許してしまう",
+                        "ここは物理的な限界を表す線で、「なるべく潜らない」という好みはコスト側",
+                        "(SUBMERGED_TRAVEL_PENALTY)が受け持つ",
+                        "潜らずには経路が一本も引けなかった場合に限り、上限を外して探し直す",
+                        "（詰むよりは息継ぎの要る潜水の方がマシ、という優先順）。その区間は警告色になる")
+                .defineInRange("maxSubmergedTicks", 250, 0, 1200);
 
         searchHorizontalMargin = builder
                 .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
@@ -270,6 +284,10 @@ public final class XaeroNavConfig {
 
     public int maxBridgeRunBlocks() {
         return maxBridgeRunBlocks.get();
+    }
+
+    public int maxSubmergedTicks() {
+        return maxSubmergedTicks.get();
     }
 
     public boolean lavaBridgingEnabled() {

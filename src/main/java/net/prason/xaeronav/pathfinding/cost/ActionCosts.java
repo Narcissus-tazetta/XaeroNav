@@ -13,6 +13,46 @@ public final class ActionCosts {
     public static final double WALK_ONE_IN_WATER = 20.0 / 2.2;
 
     /**
+     * 水中を泳いで1マス進む。{@code LivingEntity#travel}の水中分岐は
+     * {@code moveRelative(f5)}で速度に{@code f5}を加え、そのあと{@code f4}を掛けるので
+     * 漸化式は v_(n+1) = (v_n + f5)·f4、収束先は v* = f4·f5/(1−f4)。
+     *
+     * <p>{@code f4}は{@code isSprinting()}なら0.9、そうでなければ{@code getWaterSlowDown()}=0.8。
+     * {@code f5}は0.02。<b>海を渡るプレイヤーは必ずうつ伏せ泳ぎ</b>（{@code Entity#updateSwimming}の
+     * 継続条件が「疾走中かつ体が水中」）なので0.9側を採る:
+     * v* = 0.9·0.02/0.1 = 0.18 blocks/tick = 3.6 blocks/秒。
+     *
+     * <p>{@link #WALK_ONE_IN_WATER}(2.2 blocks/秒)と分けるのは、あちらが<b>水底を歩く</b>速度だから。
+     * 泳ぎに流用すると1.6倍の過大評価になり、水面を泳ぐより陸を大きく迂回する方が安く見える。
+     */
+    public static final double SWIM_ONE_BLOCK = 20.0 / 3.6;
+
+    /**
+     * 水中を1マス浮上する（ジャンプキー長押し）。{@code LivingEntity#jumpInLiquid}が毎tick
+     * y速度に+0.04を足し、{@code travel}がそれに0.8を掛けてから重力
+     * （{@code Attributes.GRAVITY}=0.08の1/16＝0.005）を引く。
+     * v* = 0.8·(v* + 0.04) − 0.005 → v* = 0.135 blocks/tick = 2.7 blocks/秒。
+     */
+    public static final double SWIM_UP_ONE_BLOCK = 20.0 / 2.7;
+
+    /**
+     * 水中を1マス潜降する（スニーク長押し）。浮上と同じ漸化式で加算が−0.04になる。
+     * v* = 0.8·(v* − 0.04) − 0.005 → v* = −0.185 blocks/tick = 3.7 blocks/秒。
+     *
+     * <p><b>浮上より潜降の方が速い</b>のは、重力が浮上では減速側・潜降では加速側に効くため。
+     * 上下を同じ値にすると、A*が「潜ってから浮上する」経路を実際より安く見積もる。
+     */
+    public static final double SWIM_DOWN_ONE_BLOCK = 20.0 / 3.7;
+
+
+    /**
+     * 空気が尽きるまでのtick数（{@code Entity#getMaxAirSupply}）。目が水に浸かっている間
+     * {@code decreaseAirSupply}が毎tick1ずつ減らし、−20に達した時点で溺れダメージが入る。
+     * 水面に出れば{@code increaseAirSupply}が毎tick4ずつ戻す。
+     */
+    public static final int AIR_SUPPLY_TICKS = 300;
+
+    /**
      * ボートで直進し続けたときの定常速度（1ブロックあたりのtick数）。
      * {@code Boat#floatBoat()}（水上時 invFriction=0.9F）と{@code Boat#controlBoat()}
      * （前進キー押下時、friction適用後に f=0.04F を加算）から、速度の漸化式
@@ -88,6 +128,17 @@ public final class ActionCosts {
     public static final double DIAGONAL_DISTANCE = Math.sqrt(2.0);
 
     /**
+     * 水中を進みながら1マス浮上する。{@link #ASCEND_ONE_BLOCK}と同じ「同時にこなす2つの成分のうち
+     * 遅い方」というmaxモデルを踏襲する（浮きながら前へ進んでいるので加算ではない）。
+     *
+     * <p>結果として真上への浮上（{@link #SWIM_UP_ONE_BLOCK}）と同値になり、<b>水平の進みが
+     * ただで付いてくる</b>。陸の{@code Ascend}が水平1歩をジャンプ時間に相乗りさせているのと同じ形で、
+     * これが無いと「真上へ上がってから横へ」というL字の経路しか作れない。
+     */
+    public static final double SWIM_ASCEND_ONE_BLOCK =
+            Math.max(SWIM_UP_ONE_BLOCK, SWIM_ONE_BLOCK * DIAGONAL_DISTANCE);
+
+    /**
      * 斜め1マスで1段登るコスト（tick）。{@link #ASCEND_ONE_BLOCK}と同じ「跳ぶ時間と水平移動時間の
      * 大きい方」というmaxモデルを踏襲する（跳んでいる間も水平には進んでいるので加算ではない）。
      *
@@ -114,10 +165,49 @@ public final class ActionCosts {
     public static final double DIG_OVERHEAD_TICKS = 2.0;
 
     /**
-     * 水中での採掘の遅さ。バニラは頭が水に浸かっている間、採掘速度に{@code SUBMERGED_MINING_SPEED}
-     * （水中採掘のエンチャントが無ければ0.2）を掛ける。
+     * 水底に足を着けたまま、頭が水に浸かった状態で掘る遅さ。{@code Player#getDigSpeed}は
+     * {@code isEyeInFluid(WATER)}のとき採掘速度に{@code Attributes.SUBMERGED_MINING_SPEED}
+     * （既定0.2＝5倍遅い。水中採掘のエンチャントが付くと1.0になり帳消し）を掛ける。
      */
     public static final double SUBMERGED_DIG_PENALTY = 5.0;
+
+    /**
+     * 泳ぎながら掘る遅さ。{@code Player#getDigSpeed}は上の水中判定に加えて
+     * <b>{@code !onGround()}ならさらに{@code f /= 5.0F}</b>を掛けるので、足が着いていない水中では
+     * 合わせて25倍遅くなる。
+     *
+     * <p>足場の有無で5倍違うのに一律5倍で見積もっていたため、開けた海の中を掘り進む経路が
+     * 実際の1/5のコストに見えていた。掘って進む案内は「泳いで迂回する」より遥かに高くつく。
+     */
+    public static final double SWIMMING_DIG_PENALTY = 25.0;
+
+    /**
+     * 頭を水に浸けたまま<b>高さを稼がずに</b>進むときの割増。潜ったまま横断せず、先に水面へ
+     * 出てから渡る経路を選ばせるための重み。浮上（{@link #SWIM_ASCEND_ONE_BLOCK}）だけが対象外で、
+     * 水平移動にも潜降にも掛かる。
+     *
+     * <p>浮上を対象外にするのは、息を減らしながら進んでいるのが水平移動の方で、浮上はその
+     * 解消手段だから——全部に掛けると「上がるのも高い」ことになり、潜ったまま進む経路と差が付かない。
+     *
+     * <p><b>値は上下2つの条件で挟まれる。</b>どちらもA*の展開のされ方から決まるもので、
+     * 重さの好みではない。既定の1.3は窓の真ん中:
+     *
+     * <ul>
+     * <li><b>下限は1.0（＝割増があること）</b>。1.0では潜ったまま横断し、目的地の真下に来てから
+     *     ようやく浮上する（実測: 水底から58マス先の水面を目指して、57手ぶん潜ったまま進んでいた）。
+     *     1.05まで上げれば斜めに上がり始める</li>
+     * <li><b>上限は{@link #DIAGONAL_DISTANCE}（√2 ≒ 1.414）</b>。これを超えると<b>上下に跳ねて
+     *     割増を回避できてしまう</b>——斜め浮上だけが対象外なので、「斜めに上がって斜めに降りる」を
+     *     繰り返せば水平に進める。往復が水平2手より安くならない条件が
+     *     {@code SWIM_ASCEND_ONE_BLOCK + SWIM_ONE_BLOCK·P ≧ 2·SWIM_ONE_BLOCK·P}、
+     *     つまり {@code P ≦ SWIM_ASCEND_ONE_BLOCK / SWIM_ONE_BLOCK}。
+     *     実測でも1.4は平坦、1.45から跳ね始める</li>
+     * </ul>
+     *
+     * <p>水面へ出られない場所（水没した洞窟・天井のある水路）では、割増が一様に乗るだけで
+     * 経路の形は変わらない。「水中洞窟は除く」がこの形で自然に満たされる。
+     */
+    public static final double SUBMERGED_TRAVEL_PENALTY = 1.3;
 
     /**
      * ブロックを設置して空洞を渡る際の照準・設置オーバーヘッド（design doc §4-1 Pillar水平版）。
@@ -143,6 +233,19 @@ public final class ActionCosts {
      * オーバーヘッド。{@link #PLACE_BLOCK_OVERHEAD_TICKS}と同じ「照準して設置」動作なので同値を採用。
      */
     public static final double MLG_WATER_OVERHEAD_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
+
+    /**
+     * ボートを出して乗り、渡り終えて降りて回収するまでの手間。区間の入口で1度だけ払う。
+     *
+     * <p>{@link #PLACE_BLOCK_OVERHEAD_TICKS}（狙って置く1動作）の2回分にしてある——
+     * 出す・乗るで1往復、降りる・回収するで1往復。降りる側を別の移動として作らず入口にまとめるのは、
+     * A*のノードが座標だけをキーにしていて「いま乗っているか」を状態として持てないため。
+     *
+     * <p>この値が損益分岐を決める: 泳ぎ({@link #SWIM_ONE_BLOCK})とボート({@link #PADDLE_ONE_BLOCK})の
+     * 差は1マスあたり約3tickなので、10マスちょっと以上の水面を渡るときだけボートが選ばれる。
+     * 小川を渡るのにいちいちボートを出せとは言わない、という線引きになる。
+     */
+    public static final double BOAT_OVERHEAD_TICKS = 2.0 * PLACE_BLOCK_OVERHEAD_TICKS;
 
     /**
      * 溶岩の上に足場を置いて渡る1ブロックあたりの追加ペナルティ。設置を1回でも外せば死ぬので

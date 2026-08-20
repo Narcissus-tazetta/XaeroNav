@@ -17,6 +17,7 @@ import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathRisk;
+import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 
@@ -44,6 +45,7 @@ public final class NavHud {
     // 警告すべき区間があるかは経路が変わったときにしか変わらない。HUDは毎フレーム描かれるので、
     // 全ステップの走査を経路1本につき1度で済ませる
     private final PathCache<Set<PathRisk>> risksAhead = new PathCache<>();
+    private final PathCache<Boolean> usesBoat = new PathCache<>();
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
@@ -116,6 +118,12 @@ public final class NavHud {
             add(instruction(guidance, climbing, waypointNumber > 0), PRIMARY_COLOR);
             add(Component.translatable("hud.xaeronav.remaining",
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
+            // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
+            // 気付いたのでは、そこまでの案内が前提ごと成立していない。
+            // 乗っている間は出さない——すでに済んでいる支度を促し続けることになる
+            if (usesBoat(result) && !ChunkView.ridingBoat(mc.player)) {
+                add(Component.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
+            }
             Set<PathRisk> risks = risksAhead(result);
             if (risks.contains(PathRisk.DROWNING)) {
                 // 線の色だけでは「息が続かない」ことまでは伝わらない。潜る前に分かる必要がある
@@ -163,6 +171,10 @@ public final class NavHud {
         return risksAhead.get(result, path -> path.steps().stream()
                 .map(PathStep::risk)
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(PathRisk.class))));
+    }
+
+    private boolean usesBoat(PathResult result) {
+        return usesBoat.get(result, path -> path.steps().stream().anyMatch(PathStep::boating));
     }
 
     private static Component instruction(NavGuidance guidance, boolean climbing, boolean onWaypoint) {

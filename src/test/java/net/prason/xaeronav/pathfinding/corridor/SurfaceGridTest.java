@@ -27,6 +27,22 @@ class SurfaceGridTest {
         assertEquals(new BlockPos(1, 64, 1), builder.build().resolveStandable(1, 1));
     }
 
+    /**
+     * 目的地の解決だけは水面と水底の2択になる。海底(55)を指した目的地を水面(64)へ丸めると、
+     * 海の上で「到着」になってしまう。
+     */
+    @Test
+    void resolvesAnUnderwaterGoalToTheSeabedRatherThanTheSurface() {
+        SurfaceGridBuilder builder = new SurfaceGridBuilder(0, 0, 4, 4);
+        builder.put(1, 1, CoarseMap.WATER, 55, 64);
+        SurfaceGrid grid = builder.build();
+
+        assertEquals(new BlockPos(1, 56, 1), grid.resolveStandableNear(1, 1, 55),
+                "水底を指したなら水底の1つ上（足元が砂で体が水）");
+        assertEquals(new BlockPos(1, 64, 1), grid.resolveStandableNear(1, 1, 63),
+                "水面付近を指したなら水面のまま");
+    }
+
     @Test
     void returnsNullWhenColumnHasNoData() {
         SurfaceGridBuilder builder = new SurfaceGridBuilder(0, 0, 4, 4);

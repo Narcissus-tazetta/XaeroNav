@@ -27,9 +27,15 @@ public final class PathSafetyChecker {
     private static final int BRIDGE_LAVA_SCAN_DEPTH = 128;
 
     /**
-     * 息継ぎなしで進んでよい水中の歩数。空気は300tickで尽き、そこからは2秒ごとにダメージが入る。
-     * 水中1マスは{@link net.prason.xaeronav.pathfinding.cost.ActionCosts#WALK_ONE_IN_WATER}（約9tick）
-     * なので300tickは約33マスだが、潜り始めに空気が満タンとは限らないので手前で警告に切り替える。
+     * 息継ぎなしで進んでよい水中の歩数。空気は{@code AIR_SUPPLY_TICKS}で尽き、そこからは1秒ごとに
+     * ダメージが入る。うつ伏せ泳ぎ（{@code SWIM_ONE_BLOCK}＝約5.6tick）なら約54マス、疾走しない
+     * 泳ぎ（約12.5tick）なら約24マス。
+     *
+     * <p>{@code CellSource#maxSubmergedTicks}（既定250tick）より手前に置いてあるのは、
+     * こちらが<b>警告</b>だから。あちらが移動時間で数える（採掘の重さが効く）のに対し、
+     * こちらは歩数で数える粗い目安に留める。上限のほうは移動を生成しない硬い線で、
+     * 超える潜水は詰み回避のフォールバックでしか現れない——その区間には必ず色が付く一方、
+     * 上限の内側でも潜り始めに空気が満タンとは限らないので、手前から注意を出す。
      */
     private static final int SUBMERGED_STEP_LIMIT = 20;
 

@@ -50,9 +50,9 @@ class CoarseRouterTest {
     @Test
     void detoursAroundWaterInsteadOfSwimming() {
         CoarseMapBuilder builder = flatLand();
-        // 目的地との間を塞ぐ湾。北側(Z<-6)は開いているので、そちらへ迂回できる
+        // 目的地との間を塞ぐ浅い湾。北側(Z<-2)がすぐ開いているので、短い迂回で避けられる
         for (int x = 4; x <= 16; x++) {
-            for (int z = -6; z <= RADIUS - 1; z++) {
+            for (int z = -2; z <= RADIUS - 1; z++) {
                 builder.replaceCell(x, z, CoarseMap.WATER, 62);
             }
         }
@@ -64,8 +64,31 @@ class CoarseRouterTest {
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
         // 迂回するなら、湾を跨ぐ区間では必ず北へ出ている
-        assertTrue(route.waypoints().stream().anyMatch(waypoint -> waypoint.getZ() < -6 * 16),
+        assertTrue(route.waypoints().stream().anyMatch(waypoint -> waypoint.getZ() < -2 * 16),
                 "湾を迂回せず突っ切った: " + route.waypoints());
+    }
+
+    /**
+     * 迂回が長すぎるなら泳いで渡る。うつ伏せ泳ぎは疾走の約1/1.56の速さでしかないので、
+     * 「水は避けるもの」を絶対視すると、208ブロック泳げば済む湾を488ブロック歩いて回ることになる。
+     */
+    @Test
+    void swimsAcrossWhenTheDetourIsLongerThanTheCrossing() {
+        CoarseMapBuilder builder = flatLand();
+        // 北の開口が遠い湾。迂回は往復で112ブロック北へ出る必要がある
+        for (int x = 4; x <= 16; x++) {
+            for (int z = -6; z <= RADIUS - 1; z++) {
+                builder.replaceCell(x, z, CoarseMap.WATER, 62);
+            }
+        }
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
+                CoarseRouter.LavaPolicy.ALLOW);
+
+        assertTrue(route.reachedGoal());
+        assertTrue(route.waypoints().stream().allMatch(waypoint -> waypoint.getZ() >= -16),
+                "泳いだ方が速い湾を迂回した: " + route.waypoints());
     }
 
     @Test

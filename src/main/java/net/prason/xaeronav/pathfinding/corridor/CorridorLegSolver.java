@@ -99,7 +99,8 @@ public final class CorridorLegSolver {
 
         SearchBounds bounds = new SearchBounds(minBlockX, resolvedFrom.getY() - VERTICAL_MARGIN_BLOCKS, minBlockZ,
                 maxBlockX, resolvedFrom.getY() + VERTICAL_MARGIN_BLOCKS, maxBlockZ);
-        CellSource view = new SurfaceCellSource(grid, bounds, XaeroNavConfig.INSTANCE.jumpGapEnabled());
+        CellSource view = new SurfaceCellSource(grid, bounds, XaeroNavConfig.INSTANCE.jumpGapEnabled(),
+                XaeroNavConfig.INSTANCE.maxSubmergedTicks());
         return new PreparedLeg(view, resolvedFrom, resolvedTo, pendingRegions);
     }
 

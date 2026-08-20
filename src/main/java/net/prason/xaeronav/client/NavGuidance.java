@@ -145,8 +145,9 @@ final class NavGuidance {
             for (int i = 1; i < size; i++) {
                 PathStep step = steps.get(i);
                 double distance = Math.sqrt(steps.get(i - 1).pos().distSqr(step.pos()));
-                // 掘る・置く区間のコストは歩く速さとは無関係なので、実測での割り直しから外す
-                boolean action = step.digging() || step.bridging();
+                // 掘る・置く・ボートを出す区間のコストは歩く速さとは無関係なので、
+                // 実測での割り直しから外す
+                boolean action = step.digging() || step.bridging() || step.boating();
                 blocks[i] = blocks[i - 1] + distance;
                 movementBlocks[i] = movementBlocks[i - 1] + (action ? 0.0 : distance);
                 movementTicks[i] = movementTicks[i - 1] + (action ? 0.0 : step.cost());
