@@ -187,12 +187,11 @@ public final class PathRenderer {
             fromZ = geometry.pointZ[last];
         }
 
-        // 滑空中の曲がり点だけを使う（先頭は計算した時点の位置で古いので捨て、今の位置から引く）
-        List<Vec3> bend = PathfindingState.INSTANCE.flightGuideWaypoints();
+        // 滑空中は点線が長距離ルートの中間目標を辿る（無ければ曲がり点線）
+        List<Vec3> dash = PathfindingState.INSTANCE.flightDashWaypoints();
         int points = 0;
         points = pushStraightPoint(points, fromX, fromY, fromZ);
-        for (int i = 1; i < bend.size() - 1; i++) {
-            Vec3 point = bend.get(i);
+        for (Vec3 point : dash) {
             points = pushStraightPoint(points, point.x, point.y, point.z);
         }
         points = pushStraightPoint(points, goal.getX() + 0.5, goal.getY() + 0.55, goal.getZ() + 0.5);

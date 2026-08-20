@@ -24,6 +24,8 @@ import net.prason.xaeronav.XaeroNav;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.item.FireworkRocketItem;
+import net.prason.xaeronav.pathfinding.flight.CoarseAirMap;
+import net.prason.xaeronav.pathfinding.flight.CoarseFlightRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
@@ -434,6 +436,21 @@ public final class XaeroNavCommands {
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_tail",
                     Mth.floor(tail.x), Mth.floor(tail.y), Mth.floor(tail.z),
                     Mth.floor(Math.sqrt(tail.distanceToSqr(Vec3.atCenterOf(goal))))), false);
+        }
+        if (level.dimensionType().hasCeiling()) {
+            // 描画距離の外は粗い層（Xaeroの地図由来）が担当する。中間目標が0本なら、
+            // その方向のデータが地図に無い＝未訪問ということ
+            CoarseAirMap air = CoarseAirMap.from(
+                    XaeroMapReader.readSurface(
+                            (Math.min(player.blockPosition().getX(), goal.getX()) >> 4) - 32,
+                            (Math.min(player.blockPosition().getZ(), goal.getZ()) >> 4) - 32,
+                            Math.abs(goal.getX() - player.blockPosition().getX()) / 16 + 65,
+                            Math.abs(goal.getZ() - player.blockPosition().getZ()) / 16 + 65,
+                            (player.blockPosition().getY() + goal.getY()) / 2),
+                    level.getMinBuildHeight() + 10, level.getMaxBuildHeight() - 11);
+            CoarseRouter.Route coarse = CoarseFlightRouter.findRoute(air, player.blockPosition(), goal, rockets);
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_coarse",
+                    coarse.waypoints().size(), coarse.reachedGoal() ? 1 : 0), false);
         }
         // これは測るだけのコマンドで、目的地は設定しない。線を出すには goto が要る
         source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_diagnostic_only"), false);
