@@ -1196,28 +1196,41 @@ public final class PathfindingState {
             return existing.waypoints();
         }
 
-        int minChunkX = (Math.min(from.getX(), currentGoal.getX()) >> 4) - COARSE_ROUTE_PADDING_CHUNKS;
-        int maxChunkX = (Math.max(from.getX(), currentGoal.getX()) >> 4) + COARSE_ROUTE_PADDING_CHUNKS;
-        int minChunkZ = (Math.min(from.getZ(), currentGoal.getZ()) >> 4) - COARSE_ROUTE_PADDING_CHUNKS;
-        int maxChunkZ = (Math.max(from.getZ(), currentGoal.getZ()) >> 4) + COARSE_ROUTE_PADDING_CHUNKS;
-        int chunksX = maxChunkX - minChunkX + 1;
-        int chunksZ = maxChunkZ - minChunkZ + 1;
-        if (chunksX > COARSE_ROUTE_MAX_SPAN_CHUNKS || chunksZ > COARSE_ROUTE_MAX_SPAN_CHUNKS
-                || (long) chunksX * chunksZ * CoarseAirMap.MAX_BANDS > COARSE_ROUTE_MAX_STATES) {
-            flightCoarseRoute = null;
-            return List.of();
-        }
-
-        int referenceY = (from.getY() + currentGoal.getY()) / 2;
-        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
-        CoarseAirMap air = CoarseAirMap.from(map, level.getMinBuildHeight() + CEILING_MARGIN_BLOCKS,
-                level.getMaxBuildHeight() - 1 - CEILING_MARGIN_BLOCKS);
-        CoarseRouter.Route route = CoarseFlightRouter.findRoute(air, from, currentGoal, rockets);
+        CoarseRouter.Route route = solveFlightCoarseRoute(level, from, currentGoal, rockets);
         // 列を作り直したので添字の意味が変わる。座標で覚えている狙い（flightAimedWaypoint）は
         // 新しい列に同じ点があれば生き残り、無ければ自然に外れる
         flightCoarseRoute = new FlightCoarseRoute(currentGoal, from, route.waypoints());
         flightPassedWaypoints = 0;
         return route.waypoints();
+    }
+
+    /**
+     * Xaeroの地図から空中の長距離ルートを1本解く。<b>メインスレッド専用</b>
+     * （{@code XaeroMapReader.readSurface}がXaeroの書き込みスレッドと同じ構造を触るため）。
+     *
+     * <p>診断コマンド（{@code /xaeronav flight}）もここを通すこと。範囲やマージンを別々に組むと、
+     * 測った数字が実際の案内と食い違う——実際に、診断側の独自実装はチャンク範囲が常に1つ狭く、
+     * 目的地が地図の外に落ちると「中間目標0本」と報告していた（{@link #flightTuning()}を
+     * 1箇所に置いてあるのと同じ理由）。
+     */
+    static CoarseRouter.Route solveFlightCoarseRoute(Level level, BlockPos from, BlockPos goal,
+                                                      boolean rockets) {
+        int minChunkX = (Math.min(from.getX(), goal.getX()) >> 4) - COARSE_ROUTE_PADDING_CHUNKS;
+        int maxChunkX = (Math.max(from.getX(), goal.getX()) >> 4) + COARSE_ROUTE_PADDING_CHUNKS;
+        int minChunkZ = (Math.min(from.getZ(), goal.getZ()) >> 4) - COARSE_ROUTE_PADDING_CHUNKS;
+        int maxChunkZ = (Math.max(from.getZ(), goal.getZ()) >> 4) + COARSE_ROUTE_PADDING_CHUNKS;
+        int chunksX = maxChunkX - minChunkX + 1;
+        int chunksZ = maxChunkZ - minChunkZ + 1;
+        if (chunksX > COARSE_ROUTE_MAX_SPAN_CHUNKS || chunksZ > COARSE_ROUTE_MAX_SPAN_CHUNKS
+                || (long) chunksX * chunksZ * CoarseAirMap.MAX_BANDS > COARSE_ROUTE_MAX_STATES) {
+            return new CoarseRouter.Route(List.of(), false);
+        }
+
+        int referenceY = (from.getY() + goal.getY()) / 2;
+        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
+        CoarseAirMap air = CoarseAirMap.from(map, level.getMinBuildHeight() + CEILING_MARGIN_BLOCKS,
+                level.getMaxBuildHeight() - 1 - CEILING_MARGIN_BLOCKS);
+        return CoarseFlightRouter.findRoute(air, from, goal, rockets);
     }
 
     /**

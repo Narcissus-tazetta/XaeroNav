@@ -14,21 +14,16 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BoatItem;
+import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.prason.xaeronav.XaeroNav;
-import net.minecraft.util.Mth;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.item.FireworkRocketItem;
-import net.prason.xaeronav.pathfinding.flight.CoarseAirMap;
-import net.prason.xaeronav.pathfinding.flight.CoarseFlightRouter;
-import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
-import net.prason.xaeronav.pathfinding.flight.FlightRoute;
-import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
@@ -38,6 +33,9 @@ import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
+import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
+import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -439,16 +437,10 @@ public final class XaeroNavCommands {
         }
         if (level.dimensionType().hasCeiling()) {
             // 描画距離の外は粗い層（Xaeroの地図由来）が担当する。中間目標が0本なら、
-            // その方向のデータが地図に無い＝未訪問ということ
-            CoarseAirMap air = CoarseAirMap.from(
-                    XaeroMapReader.readSurface(
-                            (Math.min(player.blockPosition().getX(), goal.getX()) >> 4) - 32,
-                            (Math.min(player.blockPosition().getZ(), goal.getZ()) >> 4) - 32,
-                            Math.abs(goal.getX() - player.blockPosition().getX()) / 16 + 65,
-                            Math.abs(goal.getZ() - player.blockPosition().getZ()) / 16 + 65,
-                            (player.blockPosition().getY() + goal.getY()) / 2),
-                    level.getMinBuildHeight() + 10, level.getMaxBuildHeight() - 11);
-            CoarseRouter.Route coarse = CoarseFlightRouter.findRoute(air, player.blockPosition(), goal, rockets);
+            // その方向のデータが地図に無い＝未訪問ということ。
+            // 範囲もマージンも本番と同じ道を通す——別々に組むと測った数字が案内と食い違う
+            CoarseRouter.Route coarse = PathfindingState.solveFlightCoarseRoute(
+                    level, player.blockPosition(), goal, rockets);
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_coarse",
                     coarse.waypoints().size(), coarse.reachedGoal() ? 1 : 0), false);
         }
