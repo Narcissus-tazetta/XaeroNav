@@ -375,6 +375,32 @@ class AStarPathfinderTest {
                         + result.steps().stream().map(PathStep::pos).toList());
     }
 
+    /**
+     * 開けた水中を斜めに泳ぐ。足場のある斜め移動（{@code addDiagonalTraverse}）は水中で成立しないので、
+     * 泳ぎ専用の斜めが無いとカーディナル2手に分解される。
+     */
+    @Test
+    void swimsDiagonallyThroughOpenWater() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 12, 76, 12));
+        // 底(y=60)から水面(y=65)までの水塊。y=62を泳ぐ限り足場は無い
+        for (int x = -1; x <= 6; x++) {
+            for (int z = -1; z <= 6; z++) {
+                cells.set(x, 60, z, FakeCells.BEDROCK);
+                for (int y = 61; y <= 65; y++) {
+                    cells.set(x, y, z, FakeCells.WATER);
+                }
+            }
+        }
+
+        PathResult result = search(cells, new BlockPos(0, 62, 0), new BlockPos(4, 62, 4));
+
+        assertTrue(result.complete());
+        assertEquals(4, result.steps().size(),
+                "斜めに泳げば1手で1マスずつXZ両方に進む: " + result.steps().stream().map(PathStep::pos).toList());
+        assertTrue(result.steps().stream().allMatch(step -> step.movement() == MovementType.SWIM),
+                "水中の斜めも泳ぎとして案内する: " + movements(result));
+    }
+
     @Test
     void samePathIsReturnedForTheSameTerrain() {
         // 展開ノード数で打ち切るのは、同じ入力なら同じ経路を返させるため。

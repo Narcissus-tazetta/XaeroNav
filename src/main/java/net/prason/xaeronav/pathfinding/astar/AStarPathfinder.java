@@ -39,7 +39,7 @@ public final class AStarPathfinder {
      * ヒューリスティックに掛ける重み（weighted A*）。1.0なら最短経路を保証する通常のA*。
      *
      * <p>1.0のままだと、実コストがヒューリスティックを大きく上回る地形——掘削(石1セルあたり数十tick)や
-     * 遊泳(9.09 tick/マスに対し下限は3.56)——でA*がほぼDijkstraに退化し、展開数の上限が数十マス先で
+     * 遊泳(5.56 tick/マスに対し下限は3.56)——でA*がほぼDijkstraに退化し、展開数の上限が数十マス先で
      * 尽きる。重みを掛けると最短性の保証は失うが、同じ展開数で辿り着ける距離が大きく伸びる。
      * 展開数で打ち切る設計なので、重みを掛けても「同じ地形なら同じ経路」は保たれる。
      *
@@ -456,6 +456,7 @@ public final class AStarPathfinder {
         }
         for (int i = 0; i < DIAGONAL_DX.length; i++) {
             addDiagonalTraverse(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            addDiagonalSwim(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
             addDiagonalAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
             addDiagonalDescend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
         }
@@ -558,6 +559,33 @@ public final class AStarPathfinder {
         boolean inWater = CellData.water(view.cell(x, y, z));
         relax(from, x, y, z, stepCost(x, y, z) * ActionCosts.DIAGONAL_DISTANCE + submerged(bodyCost, x, y + 1, z),
                 inWater ? MoveKind.SWIM : MoveKind.DIAGONAL);
+    }
+
+    /**
+     * 水中を斜めに泳ぐ。{@link #addDiagonalTraverse}は足場を要求するので水中では成立せず、
+     * これが無いと泳ぎだけがカーディナル4方向に縛られる——斜めに進むのに2手（実コストの1.41倍）
+     * 払うことになり、海を渡る経路が実際より高く見積もられるうえ展開ノード数も増える。
+     *
+     * <p>角2セルの通行可能性を求めるのは{@link #addDiagonalTraverse}と同じ理由（体が壁の角を
+     * すり抜けないように）。
+     */
+    private void addDiagonalSwim(PathNode from, int dx, int dz) {
+        int x = from.x + dx;
+        int y = from.y;
+        int z = from.z + dz;
+
+        if (CellData.standable(view.cell(x, y - 1, z))) {
+            // 足場があるなら同じ移動をDiagonalTraverse側が作る。2種類のMoveKindで二重に作らない
+            return;
+        }
+        if (!CellData.water(view.cell(x, y, z))
+                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
+            return;
+        }
+        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
+            return;
+        }
+        relax(from, x, y, z, ActionCosts.SWIM_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE, MoveKind.SWIM);
     }
 
     /** 立った姿勢が占める2セルを、掘らずにそのまま通り抜けられるか。 */
