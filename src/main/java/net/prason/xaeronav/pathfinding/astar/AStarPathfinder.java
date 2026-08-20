@@ -39,7 +39,7 @@ public final class AStarPathfinder {
      * ヒューリスティックに掛ける重み（weighted A*）。1.0なら最短経路を保証する通常のA*。
      *
      * <p>1.0のままだと、実コストがヒューリスティックを大きく上回る地形——掘削(石1セルあたり数十tick)や
-     * 遊泳(9.09 tick/マスに対し下限は3.56)——でA*がほぼDijkstraに退化し、展開数の上限が数十マス先で
+     * 遊泳(5.56 tick/マスに対し下限は3.56)——でA*がほぼDijkstraに退化し、展開数の上限が数十マス先で
      * 尽きる。重みを掛けると最短性の保証は失うが、同じ展開数で辿り着ける距離が大きく伸びる。
      * 展開数で打ち切る設計なので、重みを掛けても「同じ地形なら同じ経路」は保たれる。
      *
@@ -126,6 +126,12 @@ public final class AStarPathfinder {
     /** この探索が{@link #maxBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
     private boolean bridgeRunCapBlocked;
 
+    /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
+    private final int maxSubmergedTicks;
+
+    /** この探索が{@link #maxSubmergedTicks}を理由に移動を1つでも捨てたか。 */
+    private boolean submergedRunCapBlocked;
+
     /** 始点がすでに橋の途中である場合の、そこまでの連続長。 */
     private int startBridgeRun;
 
@@ -157,6 +163,12 @@ public final class AStarPathfinder {
     private static final int MAX_PRESIZED_NODES = 1 << 16;
 
     private final Long2ObjectOpenHashMap<PathNode> nodes;
+    /**
+     * ボートに乗った状態のノード。{@link PathNode#boating}が同一性の一部なので、座標が同じでも
+     * 乗っている／いないは別のノードになる。{@link BlockPos#asLong}は64bitを使い切っていて
+     * キーに1bit足せないため、表そのものを分けている。ボートを持っていなければ空のまま。
+     */
+    private final Long2ObjectOpenHashMap<PathNode> boatNodes = new Long2ObjectOpenHashMap<>();
     private final BinaryHeapOpenSet open = new BinaryHeapOpenSet();
     private final PathNode[] bestSoFar = new PathNode[COEFFICIENTS.length];
     private final double[] bestHeuristic = new double[COEFFICIENTS.length];
@@ -183,16 +195,18 @@ public final class AStarPathfinder {
      * {@link Heuristic}（既定の幾何学的下限）を使う既存の挙動と完全に同じになる。
      */
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo) {
-        this(view, limits, costToGo, view.maxBridgeRunBlocks());
+        this(view, limits, costToGo, view.maxBridgeRunBlocks(), view.maxSubmergedTicks());
     }
 
     /**
-     * 連続する橋の長さの上限を明示するコンストラクタ。0を渡すと無制限になる——
+     * 連続する橋の長さ・潜水し続けてよい時間の上限を明示するコンストラクタ。0を渡すと無制限になる——
      * 上限のせいで範囲内に道が一本も無くなった場合の、詰み回避の探し直しに使う
-     * （「マグマの橋は最後の手段だが、詰みよりはマシ」という優先順）。
+     * （「マグマの橋も溺れる危険も最後の手段だが、詰みよりはマシ」という優先順）。
      */
-    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun) {
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun,
+                            int maxSubmergedTicks) {
         this.maxBridgeRun = maxBridgeRun;
+        this.maxSubmergedTicks = maxSubmergedTicks;
         this.view = view;
         this.minDescentPerBlock = view.minDescentTicksPerBlock();
         this.maxExpandedNodes = limits.maxExpandedNodes();
@@ -211,6 +225,14 @@ public final class AStarPathfinder {
      */
     public boolean bridgeRunCapBlocked() {
         return bridgeRunCapBlocked;
+    }
+
+    /**
+     * この探索が、連続する潜水の長さの上限を理由に移動を捨てたか。捨てていない場合、
+     * 上限を外して探し直しても結果は変わらない。
+     */
+    public boolean submergedRunCapBlocked() {
+        return submergedRunCapBlocked;
     }
 
     /**
@@ -271,7 +293,12 @@ public final class AStarPathfinder {
     }
 
     private PathResult runSearch(BlockPos start, BooleanSupplier cancelled) {
-        PathNode startNode = node(start.getX(), start.getY(), start.getZ());
+        // 既にボートに乗っているなら、乗っている状態から始める。乗り込む1手のコストをもう一度
+        // 計上すると、残りの水面が短い場面で「降りて泳いだ方が安い」という案内になる。
+        // 水面のセルであることも確かめるのは、乗ったまま陸に乗り上げている場合を除くため
+        boolean startBoating = view.ridingBoat()
+                && isBoatSurface(start.getX(), start.getY(), start.getZ());
+        PathNode startNode = node(start.getX(), start.getY(), start.getZ(), startBoating);
         startNode.bridgeRun = startBridgeRun;
         startNode.cost = 0.0;
         startNode.combinedCost = heuristicWeight * startNode.estimatedCostToGoal;
@@ -318,7 +345,7 @@ public final class AStarPathfinder {
         // 既定の地上高より上を通ることが珍しくない。そこで中継を終えると、洞窟の中から
         // 目的地へ直行する経路＝避けたかった一直線の掘り進みに戻る
         if (surfaceGoal) {
-            return node.y >= surfaceY && node.y >= view.openSkyY(node.x, node.z);
+            return node.y >= surfaceY && node.y >= view.surfacedY(node.x, node.z);
         }
         if (goalRadius <= 0) {
             return node.x == goalX && node.y == goalY && node.z == goalZ;
@@ -363,7 +390,7 @@ public final class AStarPathfinder {
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
         }
         Collections.reverse(steps);
-        return new PathResult(steps, termination, expanded, nodes.size());
+        return new PathResult(steps, termination, expanded, nodes.size() + boatNodes.size());
     }
 
     /**
@@ -393,8 +420,13 @@ public final class AStarPathfinder {
     }
 
     private PathNode node(int x, int y, int z) {
+        return node(x, y, z, false);
+    }
+
+    private PathNode node(int x, int y, int z, boolean boating) {
+        Long2ObjectOpenHashMap<PathNode> table = boating ? boatNodes : nodes;
         long key = BlockPos.asLong(x, y, z);
-        PathNode existing = nodes.get(key);
+        PathNode existing = table.get(key);
         if (existing != null) {
             return existing;
         }
@@ -406,7 +438,10 @@ public final class AStarPathfinder {
         if (surfaceGoal) {
             heuristic = Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
         } else {
-            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock);
+            // ボートに乗っているノードは水平の下限が漕ぎ速度まで下がる。疾走のまま見積もると
+            // ボートの枝に対して非許容になり、乗り込む1手の一時コストと相まって一度も展開されない
+            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock,
+                    boating ? ActionCosts.PADDLE_ONE_BLOCK : ActionCosts.SPRINT_ONE_BLOCK);
             if (goalRadius > 0) {
                 // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
                 // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
@@ -422,8 +457,8 @@ public final class AStarPathfinder {
                 heuristic = Math.max(heuristic, costToGo.estimate(x, y, z));
             }
         }
-        PathNode created = new PathNode(x, y, z, heuristic);
-        nodes.put(key, created);
+        PathNode created = new PathNode(x, y, z, boating, heuristic);
+        table.put(key, created);
         return created;
     }
 
@@ -435,11 +470,15 @@ public final class AStarPathfinder {
             addAscend(current, dx, dz);
             addDescend(current, dx, dz);
             addSwim(current, dx, dz);
+            addBoatPaddle(current, dx, dz, false);
+            addBoatEnter(current, dx, dz);
             addClimb(current, dx, dz);
             addJumpGap(current, dx, dz);
         }
         for (int i = 0; i < DIAGONAL_DX.length; i++) {
             addDiagonalTraverse(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            addDiagonalSwim(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            addBoatPaddle(current, DIAGONAL_DX[i], DIAGONAL_DZ[i], true);
             addDiagonalAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
             addDiagonalDescend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
         }
@@ -448,6 +487,9 @@ public final class AStarPathfinder {
         if (CellData.water(standingCell)) {
             addSwimUp(current);
             addSwimDown(current);
+            for (int i = 0; i < CARDINAL_DX.length; i++) {
+                addSwimAscend(current, CARDINAL_DX[i], CARDINAL_DZ[i]);
+            }
         }
         if (CellData.climbable(standingCell)) {
             addClimbUp(current);
@@ -492,7 +534,7 @@ public final class AStarPathfinder {
             return;
         }
         boolean inWater = CellData.water(view.cell(x, y, z));
-        relax(from, x, y, z, stepCost(x, y, z) + submerged(bodyCost, x, y + 1, z),
+        relax(from, x, y, z, stepCost(x, y, z) + submerged(from, bodyCost, x, y + 1, z),
                 inWater ? MoveKind.SWIM : MoveKind.TRAVERSE);
     }
 
@@ -540,8 +582,98 @@ public final class AStarPathfinder {
             return;
         }
         boolean inWater = CellData.water(view.cell(x, y, z));
-        relax(from, x, y, z, stepCost(x, y, z) * ActionCosts.DIAGONAL_DISTANCE + submerged(bodyCost, x, y + 1, z),
+        relax(from, x, y, z, stepCost(x, y, z) * ActionCosts.DIAGONAL_DISTANCE + submerged(from, bodyCost, x, y + 1, z),
                 inWater ? MoveKind.SWIM : MoveKind.DIAGONAL);
+    }
+
+    /**
+     * 水中を斜めに泳ぐ。{@link #addDiagonalTraverse}は足場を要求するので水中では成立せず、
+     * これが無いと泳ぎだけがカーディナル4方向に縛られる——斜めに進むのに2手（実コストの1.41倍）
+     * 払うことになり、海を渡る経路が実際より高く見積もられるうえ展開ノード数も増える。
+     *
+     * <p>角2セルの通行可能性を求めるのは{@link #addDiagonalTraverse}と同じ理由（体が壁の角を
+     * すり抜けないように）。
+     */
+    private void addDiagonalSwim(PathNode from, int dx, int dz) {
+        int x = from.x + dx;
+        int y = from.y;
+        int z = from.z + dz;
+
+        if (CellData.standable(view.cell(x, y - 1, z))) {
+            // 足場があるなら同じ移動をDiagonalTraverse側が作る。2種類のMoveKindで二重に作らない
+            return;
+        }
+        if (!CellData.water(view.cell(x, y, z))
+                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
+            return;
+        }
+        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
+            return;
+        }
+        relax(from, x, y, z, ActionCosts.SWIM_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE, MoveKind.SWIM);
+    }
+
+    /**
+     * ボートが浮けるセルか。水面＝「そのセルが水で、真上は水ではなく体を置ける」。
+     * 水中の途中の高さにボートは浮かないので、この判定が船の高さそのものになる。
+     */
+    private boolean isBoatSurface(int x, int y, int z) {
+        long here = view.cell(x, y, z);
+        long above = view.cell(x, y + 1, z);
+        return CellData.water(here) && !CellData.water(above)
+                && CellData.occupiableWithoutDigging(above);
+    }
+
+    /**
+     * 水面をボートで進む。1マスあたりは泳ぎの半分以下。乗っている状態からしか出ないので、
+     * 乗り降りの手間（{@link ActionCosts#BOAT_OVERHEAD_TICKS}）は{@link #addBoatEnter}で必ず先に払う。
+     *
+     * <p>水面から降りる移動は既存のTraverse/Ascendがそのまま担う——降りる手間は入口の
+     * オーバーヘッドに畳み込んである。
+     */
+    private void addBoatPaddle(PathNode from, int dx, int dz, boolean diagonal) {
+        if (!from.boating) {
+            return;
+        }
+        int x = from.x + dx;
+        int z = from.z + dz;
+        if (!isBoatSurface(x, from.y, z)) {
+            return;
+        }
+        if (diagonal && (!clearWithoutDigging(x, from.y, from.z)
+                || !clearWithoutDigging(from.x, from.y, z))) {
+            return;
+        }
+        double cost = ActionCosts.PADDLE_ONE_BLOCK * (diagonal ? ActionCosts.DIAGONAL_DISTANCE : 1.0);
+        relaxBoating(from, x, from.y, z, cost, MoveKind.BOAT_PADDLE);
+    }
+
+    /**
+     * ボートを出して乗り込む。乗り降りの手間をここで1度だけ払うので、短い水路では泳いで渡る方が
+     * 安いままになる（損益分岐は{@link ActionCosts#BOAT_OVERHEAD_TICKS}参照）。
+     *
+     * <p>岸から漕ぎ出す場合と、泳いでいる途中で出す場合の両方がある。水面は岸より1マス低いのが
+     * 普通なので、同じ高さと1つ下の両方を試す。
+     */
+    private void addBoatEnter(PathNode from, int dx, int dz) {
+        if (!view.boatAvailable() || from.boating) {
+            return;
+        }
+        // 岸に立っているか、水面に浮いているか。水中で潜ったままボートは出せない
+        boolean onShore = CellData.standable(view.cell(from.x, from.y - 1, from.z))
+                && !CellData.water(view.cell(from.x, from.y, from.z));
+        if (!onShore && !isBoatSurface(from.x, from.y, from.z)) {
+            return;
+        }
+        int x = from.x + dx;
+        int z = from.z + dz;
+        for (int y = from.y; y >= from.y - 1; y--) {
+            if (isBoatSurface(x, y, z)) {
+                relaxBoating(from, x, y, z,
+                        ActionCosts.PADDLE_ONE_BLOCK + ActionCosts.BOAT_OVERHEAD_TICKS, MoveKind.BOAT_ENTER);
+                return;
+            }
+        }
     }
 
     /** 立った姿勢が占める2セルを、掘らずにそのまま通り抜けられるか。 */
@@ -570,7 +702,7 @@ public final class AStarPathfinder {
         }
         relax(from, x, y, z,
                 ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
-                        + submerged(clearanceCost + bodyCost, x, y + 1, z),
+                        + submerged(from, clearanceCost + bodyCost, x, y + 1, z),
                 MoveKind.ASCEND);
     }
 
@@ -589,9 +721,9 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER
+        double baseCost = intoWater ? ActionCosts.SWIM_ONE_BLOCK
                 : ActionCosts.descendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z));
-        relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
+        relax(from, x, y, z, baseCost + submerged(from, bodyCost, x, y + 1, z),
                 intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
     }
 
@@ -786,7 +918,7 @@ public final class AStarPathfinder {
                 || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.WALK_ONE_IN_WATER, MoveKind.SWIM);
+        relax(from, x, y, z, ActionCosts.SWIM_ONE_BLOCK, MoveKind.SWIM);
     }
 
     /** 水中を浮上する。水面まで上がってから水平に泳ぐ経路を作るために要る。 */
@@ -796,7 +928,31 @@ public final class AStarPathfinder {
                 || !CellData.occupiableWithoutDigging(view.cell(from.x, y + 1, from.z))) {
             return;
         }
-        relax(from, from.x, y, from.z, ActionCosts.WALK_ONE_IN_WATER, MoveKind.SWIM_UP);
+        relax(from, from.x, y, from.z, ActionCosts.SWIM_UP_ONE_BLOCK, MoveKind.SWIM_UP);
+    }
+
+    /**
+     * 水中を進みながら1マス浮上する。{@link #addSwimUp}が真上にしか上がれないので、これが無いと
+     * 浮上が「その場で上がってから横へ」というL字になる——泳いでいる人間は目的地を向いたまま
+     * 斜めに上がるので、案内としても不自然に見える。
+     *
+     * <p>陸の{@link #addAscend}と同じく、踏み切り地点の頭上（＝上がっていく途中で体が通るセル）の
+     * 通行可能性を求める。掘削は許可しない（水中で掘って上がるくらいなら、開いている所まで
+     * 泳いだ方が速い）。
+     */
+    private void addSwimAscend(PathNode from, int dx, int dz) {
+        int x = from.x + dx;
+        int y = from.y + 1;
+        int z = from.z + dz;
+
+        if (!CellData.water(view.cell(x, y, z))
+                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
+            return;
+        }
+        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
+            return;
+        }
+        relax(from, x, y, z, ActionCosts.SWIM_ASCEND_ONE_BLOCK, MoveKind.SWIM_ASCEND);
     }
 
     /** 水中を潜る。水底の地形沿いに進む方が近い場合に使う。 */
@@ -805,7 +961,7 @@ public final class AStarPathfinder {
         if (!CellData.water(view.cell(from.x, y, from.z))) {
             return;
         }
-        relax(from, from.x, y, from.z, ActionCosts.WALK_ONE_IN_WATER, MoveKind.SWIM_DOWN);
+        relax(from, from.x, y, from.z, ActionCosts.SWIM_DOWN_ONE_BLOCK, MoveKind.SWIM_DOWN);
     }
 
     /**
@@ -977,7 +1133,7 @@ public final class AStarPathfinder {
         }
         double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
-                + submerged(bodyCost, x, y + 1, z);
+                + submerged(from, bodyCost, x, y + 1, z);
         relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
     }
 
@@ -1002,7 +1158,10 @@ public final class AStarPathfinder {
         // 置く先は自分がいるセルそのもの。梯子・ツタに掴まっている間は onGround() が false で
         // jumpFromGround() が呼ばれず（LivingEntity#aiStep）、掴まったまま接地していても
         // handleOnClimbable が水平・下向きの速度を±0.15に固定するので、跳んで積む動作が成立しない
-        if (!CellData.replaceable(standing) || CellData.climbable(standing)) {
+        // 水はreplaceableなので、水中も「置ける場所」として素通りしていた。実際には浮いたまま
+        // 踏み切れないので、案内した通りに積み上げることはできない
+        if (!CellData.replaceable(standing) || CellData.climbable(standing)
+                || CellData.water(standing)) {
             return;
         }
         double clearanceCost = columnCost(from.x, from.y + 2, from.y + 2, from.z, null);
@@ -1011,8 +1170,27 @@ public final class AStarPathfinder {
         }
         double cost = ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
                 + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
-                + submerged(clearanceCost, from.x, from.y + 2, from.z);
+                + submerged(from, clearanceCost, from.x, from.y + 2, from.z);
         relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR);
+    }
+
+    /**
+     * その移動を終えた時点で頭が水に浸かっているか（＝息が減るか）。
+     *
+     * <p>頭のセルが水ならそのまま。<b>掘って通る固体セル</b>だけは例外で、いま固体でも
+     * 水中で掘れば水が流れ込むので、水に接しているなら浸かっている扱いにする——ここを見ないと、
+     * 水中を掘り進む経路が「頭のセルは石だから水中ではない」として息の上限をすり抜ける。
+     *
+     * <p>掘らずに通れるセル（空気）は対象外。そうしないと、海から浜へ上がる1手が
+     * 「隣が海だからまだ潜っている」と数えられ、岸に上がれなくなる。
+     */
+    private boolean headSubmerged(PathNode from, int x, int headY, int z) {
+        long head = view.cell(x, headY, z);
+        if (CellData.water(head)) {
+            return true;
+        }
+        return from.submergedTicks > 0.0 && !CellData.occupiableWithoutDigging(head)
+                && hasAdjacentWater(x, headY, z);
     }
 
     /** ブロックを置くセルの周り（真上を除く5面）に水があるか。 */
@@ -1035,13 +1213,43 @@ public final class AStarPathfinder {
         relax(from, x, y, z, edgeCost, kind, 0);
     }
 
+    /** ボートに乗った状態のノードへ緩和する。{@link #addBoatEnter}/{@link #addBoatPaddle}専用。 */
+    private void relaxBoating(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
+        relax(from, x, y, z, edgeCost, kind, 0, true);
+    }
+
     /**
      * {@code bridgeRun}を明示的に渡す版。{@link #addBridge}だけが非0を渡す——
      * それ以外の移動は橋の連続を断つので0になる。
      */
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
-        double tentativeCost = from.cost + edgeCost;
-        PathNode neighbor = node(x, y, z);
+        relax(from, x, y, z, edgeCost, kind, bridgeRun, false);
+    }
+
+    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
+                        boolean boating) {
+        // 移動の種類に関わらず、着地点で頭が水に浸かるならその移動にかかった時間だけ息が減る。
+        // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・掘る・水へ落ちる）でも同じだから——
+        // とりわけ採掘は1手に数十tickかかるので、マス数で数えると息の上限をすり抜ける
+        double submergedTicks = 0.0;
+        boolean submerged = headSubmerged(from, x, y + 1, z);
+        if (submerged) {
+            submergedTicks = from.submergedTicks + edgeCost;
+            if (maxSubmergedTicks > 0.0 && submergedTicks > maxSubmergedTicks) {
+                submergedRunCapBlocked = true;
+                return;
+            }
+        }
+
+        // 潜ったまま横断せず、先に水面へ出てから渡らせる。対象外にするのは浮上だけで、
+        // 水平移動にも潜降にも掛ける——水平だけに掛けると、斜め浮上と斜め降下を繰り返して
+        // 上下に跳ねながら進むことで割増を回避できてしまう。
+        // 割増は経路の選択のためのもので、息の勘定（submergedTicks）には混ぜない——あちらは
+        // 実際にかかる時間でなければ意味がない
+        boolean gainsHeight = y > from.y;
+        double tentativeCost = from.cost
+                + (submerged && !gainsHeight ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost);
+        PathNode neighbor = node(x, y, z, boating);
         if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
             return;
         }
@@ -1051,6 +1259,7 @@ public final class AStarPathfinder {
         neighbor.combinedCost = tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal;
         neighbor.kind = kind;
         neighbor.bridgeRun = bridgeRun;
+        neighbor.submergedTicks = submergedTicks;
         if (neighbor.isOpen()) {
             open.update(neighbor);
         } else {
@@ -1069,12 +1278,19 @@ public final class AStarPathfinder {
     /**
      * 水中の採掘は水中採掘のエンチャントが無ければ5倍遅い。掘るセルごとではなく「掘っている間プレイヤーの頭が
      * 水にあるか」で決まるので、セル単体のコストではなく移動ごとの掘削コスト合計に掛ける。
+     *
+     * <p>水中かどうかの判定に{@link #headSubmerged}を使うのが要点。頭のセルが水かだけを見ると、
+     * <b>これから掘る固体セル</b>は「水ではない」ので割増が乗らない——水中を掘り進む区間が丸ごと
+     * 陸と同じ値段になっていた。息の勘定と同じ判定に揃えてある。
      */
-    private double submerged(double digCost, int x, int headY, int z) {
-        if (digCost <= 0.0 || !CellData.water(view.cell(x, headY, z))) {
+    private double submerged(PathNode from, double digCost, int x, int headY, int z) {
+        if (digCost <= 0.0 || !headSubmerged(from, x, headY, z)) {
             return digCost;
         }
-        return digCost * ActionCosts.SUBMERGED_DIG_PENALTY;
+        // 足が着いているかで5倍違う（Player#getDigSpeedの !onGround() の分岐）。足元は頭の1つ下、
+        // その床はさらに1つ下。掘る対象そのものが床のこともあるが、掘る前に立っている高さで測るのが正しい
+        boolean onGround = CellData.standable(view.cell(x, headY - 2, z));
+        return digCost * (onGround ? ActionCosts.SUBMERGED_DIG_PENALTY : ActionCosts.SWIMMING_DIG_PENALTY);
     }
 
     /**

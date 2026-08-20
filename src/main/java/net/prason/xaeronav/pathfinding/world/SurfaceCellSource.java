@@ -19,11 +19,14 @@ public final class SurfaceCellSource implements CellSource {
     private final SurfaceGrid grid;
     private final SearchBounds bounds;
     private final boolean jumpGapEnabled;
+    private final int maxSubmergedTicks;
 
-    public SurfaceCellSource(SurfaceGrid grid, SearchBounds bounds, boolean jumpGapEnabled) {
+    public SurfaceCellSource(SurfaceGrid grid, SearchBounds bounds, boolean jumpGapEnabled,
+                             int maxSubmergedTicks) {
         this.grid = grid;
         this.bounds = bounds;
         this.jumpGapEnabled = jumpGapEnabled;
+        this.maxSubmergedTicks = maxSubmergedTicks;
     }
 
     @Override
@@ -89,6 +92,17 @@ public final class SurfaceCellSource implements CellSource {
         return 0;
     }
 
+    /**
+     * 層2も潜水の上限を持つ。空気の量はプレイヤーの状態ではなくバニラの固定値なので、
+     * 層2が知らない情報（体力・持ち物）に依存しない——{@link #maxFallDamagePoints}のように
+     * 0で無効化する理由が無い。層2の水柱は{@code (水底, 水面]}として持っているので、
+     * ここで切らないと廊下の解が水底沿いに潜る経路を返し、層3と食い違う。
+     */
+    @Override
+    public int maxSubmergedTicks() {
+        return maxSubmergedTicks;
+    }
+
     /** 層2はプレイヤーの状態（体力・持ち物）を知らないので、痛い降下も水バケツMLGも提案しない。 */
     @Override
     public int maxFallDamagePoints() {
@@ -103,6 +117,12 @@ public final class SurfaceCellSource implements CellSource {
 
     @Override
     public boolean canMlgWaterBucket() {
+        return false;
+    }
+
+    /** 層2は持ち物を知らないので、ボートも提示しない。 */
+    @Override
+    public boolean boatAvailable() {
         return false;
     }
 

@@ -25,8 +25,8 @@ final class PathValidator {
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (PathStep step : result.steps()) {
             BlockPos pos = step.pos();
-            if (step.swimming()) {
-                // 泳ぐ区間は足場ではなく水そのものが前提
+            if (step.swimming() || step.boating()) {
+                // 泳ぐ区間もボートの区間も、足場ではなく水そのものが前提
                 if (!CellData.water(CellData.flagsOf(level.getBlockState(pos)))) {
                     return false;
                 }

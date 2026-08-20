@@ -30,6 +30,7 @@
   "hud.xaeronav.coarse_route_progress": "長距離ルート %1$d/%2$d",
   "hud.xaeronav.waypoint_ahead": "まもなく中間目標",
   "hud.xaeronav.drowning": "長い潜水区間あり（酸素に注意）",
+  "hud.xaeronav.boat_ahead": "水面はボートで渡ります（岸でボートを出してください）",
   "hud.xaeronav.fall_damage": "落下ダメージを受ける降下あり",
   "hud.xaeronav.sneak_over_magma": "マグマブロックの上あり。スニークで渡ること",
   "hud.xaeronav.mlg_required": "水バケツでの着地(MLG)が必要な降下あり",

@@ -19,7 +19,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
@@ -474,7 +473,7 @@ public final class PathfindingState {
         int x = goal.getX();
         int z = goal.getZ();
         if (!level.hasChunkAt(x, z)) {
-            BlockPos fromMap = XaeroPresence.mapPresent() ? resolveWaypointOnSurface(goal) : null;
+            BlockPos fromMap = XaeroPresence.mapPresent() ? resolveGoalOnSurface(goal) : null;
             return fromMap != null ? fromMap : goal;
         }
         int minY = level.getMinBuildHeight() + 1;
@@ -1009,7 +1008,7 @@ public final class PathfindingState {
                 routing ? renderRadius : FlightLineRouter.HORIZONTAL_MARGIN_BLOCKS,
                 FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         // 飛行判定に掘削・ブロック設置・隙間跳び・落下ダメージはどれも無関係なので全てfalse
-        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, 0, false);
         // 長距離ルートはメインスレッドで先に済ませ、ワーカーへは不変の結果だけを渡す
         // （XaeroMapReader.readSurfaceはメインスレッド専用）
         List<BlockPos> coarse = routing
@@ -1346,7 +1345,7 @@ public final class PathfindingState {
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), new BlockPos(
                         Mth.floor(target.x), Mth.floor(target.y), Mth.floor(target.z)),
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, 0, false);
         // 継ぎ足しは短い区間を何度も繋ぐので、1回の予算を絞って回数で稼ぐ。満額を許すと
         // 地形が詰まったときに毎回2秒かけて少ししか伸びず、飛ぶ速度に追いつかない
         FlightTuning tuning = flightTuning(XaeroNavConfig.INSTANCE.flightExtendMaxExpandedNodes());
@@ -1782,7 +1781,7 @@ public final class PathfindingState {
 
         BlockPos start = player.blockPosition();
         lastStart = start;
-        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+        boolean boatAvailable = ChunkView.boatAvailable(player);
 
         int groundLevel = XaeroNavConfig.INSTANCE.groundLevelY();
         boolean climbing = shouldClimbToSurface(level, start, currentGoal, groundLevel);
@@ -1845,6 +1844,7 @@ public final class PathfindingState {
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedTicks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
 
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
@@ -2007,7 +2007,7 @@ public final class PathfindingState {
         }
         List<PathStep> steps = shown.result().steps();
         BlockPos from = steps.get(steps.size() - 1).pos();
-        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+        boolean boatAvailable = ChunkView.boatAvailable(player);
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
         // 継続はワーカースレッドで走るので、プレイヤー・次元はここで写し取ってから渡す
         BlockPos playerAt = player.blockPosition();
@@ -2037,6 +2037,7 @@ public final class PathfindingState {
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedTicks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
                 AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());
@@ -2455,6 +2456,19 @@ public final class PathfindingState {
      * （長距離ルートの他の発動条件と同じく、層2が使えない場合は素の層1へフォールバックする）。
      */
     private static BlockPos resolveWaypointOnSurface(BlockPos waypoint) {
+        return resolveOnSurface(waypoint, false);
+    }
+
+    /**
+     * 目的地版。水の列で<b>要求されたYに近い方</b>（水面か水底か）を選ぶ点だけが違う。
+     * 中間目標は向かう方角を示すものなので水面で構わないが、目的地はユーザーが指した点そのもので、
+     * 海底を指したなら水面で「到着」にしてはいけない。
+     */
+    private static BlockPos resolveGoalOnSurface(BlockPos goal) {
+        return resolveOnSurface(goal, true);
+    }
+
+    private static BlockPos resolveOnSurface(BlockPos waypoint, boolean preferRequestedY) {
         int chunkX = waypoint.getX() >> 4;
         int chunkZ = waypoint.getZ() >> 4;
         int referenceY = waypoint.getY();
@@ -2463,7 +2477,9 @@ public final class PathfindingState {
             XaeroMapReader.requestLoad(chunkX, chunkZ, 1, 1, referenceY);
         }
         SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(chunkX * 16, chunkZ * 16, 16, 16, referenceY);
-        BlockPos resolved = grid.resolveStandable(waypoint.getX(), waypoint.getZ());
+        BlockPos resolved = preferRequestedY
+                ? grid.resolveStandableNear(waypoint.getX(), waypoint.getZ(), referenceY)
+                : grid.resolveStandable(waypoint.getX(), waypoint.getZ());
         return resolved != null ? resolved : waypoint;
     }
 
@@ -2575,8 +2591,15 @@ public final class PathfindingState {
         if (!level.dimensionType().hasSkyLight() || level.dimensionType().hasCeiling()) {
             return false;
         }
-        // 頭の上に空が見えているなら地上。屋根の下・洞窟の中にいるときだけ中継区間を挟む
-        if (level.canSeeSky(start.above())) {
+        // 頭の上に空が見えているなら地上。屋根の下・洞窟の中にいるときだけ中継区間を挟む。
+        //
+        // canSeeSkyではなくcanSeeSkyFromBelowWaterを使うのは、水がスカイライトを減衰させるため
+        // canSeeSkyが水中で必ずfalseになるから。海底は既定のgroundLevelY(60)を下回るので、
+        // 潜っただけで「洞窟の中」と判定されて中継区間に入っていた。しかも中継区間のゴールは
+        // openSkyY（MOTION_BLOCKINGは流体を含むので水面の1つ上＝水の外）で、そこは空気で足場が
+        // 無い＝外洋では原理的に到達できず、届かなかった中継経路は空の経路として表示される。
+        // これが「海の下から線が伸びない」の正体だった。
+        if (level.canSeeSkyFromBelowWater(start.above())) {
             return false;
         }
         BlockPos failedAt = surfaceLegFailedAt;

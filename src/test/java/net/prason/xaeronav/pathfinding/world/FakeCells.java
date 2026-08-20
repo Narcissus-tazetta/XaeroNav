@@ -68,10 +68,16 @@ public final class FakeCells implements CellSource {
     /** 設定の既定値に合わせてtrue。溶岩の橋を禁じたいテストだけが明示的に切る。 */
     private boolean lavaBridgingEnabled = true;
     private int maxBridgeRunBlocks;
+    /** 既定は0（無制限）。潜水の上限を問うテストだけが明示的に設定する。 */
+    private int maxSubmergedTicks;
     private double minDescentTicksPerBlock = ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
     private boolean canMlgWaterBucket;
+    /** 既定はfalse。ボートを持たせたいテストだけが明示的に立てる。 */
+    private boolean boatAvailable;
+    /** 既定はfalse。乗っている状態から始めたいテストだけが明示的に立てる。 */
+    private boolean ridingBoat;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
     /**
@@ -158,6 +164,12 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    /** 頭を水に浸けたまま続けてよい時間（tick）。既定の0は無制限。 */
+    public FakeCells maxSubmergedTicks(int value) {
+        this.maxSubmergedTicks = value;
+        return this;
+    }
+
     public FakeCells lavaBridgingEnabled(boolean value) {
         this.lavaBridgingEnabled = value;
         return this;
@@ -170,6 +182,17 @@ public final class FakeCells implements CellSource {
 
     public FakeCells canMlgWaterBucket(boolean value) {
         this.canMlgWaterBucket = value;
+        return this;
+    }
+
+    public FakeCells boatAvailable(boolean value) {
+        this.boatAvailable = value;
+        return this;
+    }
+
+    /** 乗っている状態から探索を始める。{@link #boatAvailable}も併せて立てること。 */
+    public FakeCells ridingBoat(boolean value) {
+        this.ridingBoat = value;
         return this;
     }
 
@@ -243,6 +266,11 @@ public final class FakeCells implements CellSource {
         return maxBridgeRunBlocks;
     }
 
+    @Override
+    public int maxSubmergedTicks() {
+        return maxSubmergedTicks;
+    }
+
     /** 既定は「どこでも安全な下限」。締めた版を試すテストだけが上書きする。 */
     @Override
     public double minDescentTicksPerBlock() {
@@ -269,9 +297,21 @@ public final class FakeCells implements CellSource {
         return canMlgWaterBucket;
     }
 
+    @Override
+    public boolean boatAvailable() {
+        return boatAvailable;
+    }
+
+    @Override
+    public boolean ridingBoat() {
+        return ridingBoat;
+    }
+
     /**
      * 本番の{@link ChunkView}はハイトマップを引くが、ここには地形しか無いので列を上から舐めて求める。
-     * 頭上を塞ぐのは空気でも水でもないセル（＝{@code MOTION_BLOCKING}に相当）。
+     * 頭上を塞ぐのは空気ではないセル——<b>水も含む</b>。本番が使う{@code MOTION_BLOCKING}の述語が
+     * {@code blocksMotion() || !getFluidState().isEmpty()}で流体を数えるのに合わせてある
+     * （海では「水面の1つ上」が返る）。
      */
     @Override
     public int openSkyY(int x, int z) {

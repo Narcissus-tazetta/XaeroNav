@@ -21,8 +21,6 @@ import net.prason.xaeronav.pathfinding.cost.ActionCosts;
  */
 public final class Heuristic {
 
-    private static final double STRAIGHT = ActionCosts.SPRINT_ONE_BLOCK;
-    private static final double DIAGONAL_STEP = STRAIGHT * ActionCosts.DIAGONAL_DISTANCE;
     private static final double MIN_DIAGONAL_ASCEND = ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK;
 
     /**
@@ -36,7 +34,7 @@ public final class Heuristic {
      *
      * <p>{@code Ascend}系は必ず水平1歩を伴うが、その1歩は<b>戻せる</b>のが要点。高さを1段稼ぐ
      * 全ての移動の中で最安なのは{@code Ascend}なので、水平の相乗り先を使い切ったあとも下限は
-     * これで変わらない（{@code DiagonalAscend}=6.551、{@code ClimbUp}=8.511、{@code SwimUp}=9.091、
+     * これで変わらない（{@code DiagonalAscend}=6.551、{@code ClimbUp}=8.511、{@code SwimUp}=7.407、
      * {@code Pillar}はさらに設置コストが乗る）。
      */
     private static final double MIN_PURE_ASCEND = ActionCosts.ASCEND_ONE_BLOCK;
@@ -44,9 +42,17 @@ public final class Heuristic {
     private Heuristic() {
     }
 
-    /** 下降の下限を指定しない版。どの次元・設定でも安全な{@code FALL_ASYMPTOTIC_MIN_PER_BLOCK}を使う。 */
+    /** 下限を指定しない版。どの次元・設定でも安全な値を使う。 */
     public static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ) {
-        return estimate(fromX, fromY, fromZ, toX, toY, toZ, ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK);
+        return estimate(fromX, fromY, fromZ, toX, toY, toZ, ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK,
+                ActionCosts.SPRINT_ONE_BLOCK);
+    }
+
+    /** 水平の下限を指定しない版。徒歩で進む前提の探索はこれで正しい（最速の水平移動が疾走）。 */
+    public static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ,
+                                   double minDescentTicksPerBlock) {
+        return estimate(fromX, fromY, fromZ, toX, toY, toZ, minDescentTicksPerBlock,
+                ActionCosts.SPRINT_ONE_BLOCK);
     }
 
     /**
@@ -57,9 +63,17 @@ public final class Heuristic {
      *                               ネザー・落下ダメージ許容offなら3マスが上限で 4.392、17倍の差になる。
      *                               ここが緩いと、登った1マスを取り返す実コスト(9.321)がほぼ無料に見え、
      *                               重み付きA*が上りの枝を系統的に優先して{@code closed}で確定させてしまう
+     * @param minHorizontalTicksPerBlock そのノードから先に生成されうる水平移動のうち、1ブロックあたり
+     *                               最も安いもの。通常は疾走（{@link ActionCosts#SPRINT_ONE_BLOCK}）だが、
+     *                               <b>ボートに乗っているノードだけは{@link ActionCosts#PADDLE_ONE_BLOCK}</b>
+     *                               まで下がる。疾走のまま見積もるとボートのノードに対して非許容になり、
+     *                               乗り込む1手の大きな一時コストと相まって<b>ボートの枝が一度も展開されない</b>
+     *                               ——泳ぎの前線が先にゴールへ達してしまい、総コストで大きく有利でも選ばれない
      */
     public static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ,
-                                   double minDescentTicksPerBlock) {
+                                   double minDescentTicksPerBlock, double minHorizontalTicksPerBlock) {
+        double straight = minHorizontalTicksPerBlock;
+        double diagonalStep = straight * ActionCosts.DIAGONAL_DISTANCE;
         int dx = Math.abs(toX - fromX);
         int dz = Math.abs(toZ - fromZ);
         int dy = toY - fromY;
@@ -76,9 +90,9 @@ public final class Heuristic {
         int pureAscends = up - diagonalAscends - cardinalAscends;
 
         double horizontalAndAscend = diagonalAscends * MIN_DIAGONAL_ASCEND
-                + (diagonalSteps - diagonalAscends) * DIAGONAL_STEP
+                + (diagonalSteps - diagonalAscends) * diagonalStep
                 + cardinalAscends * ActionCosts.ASCEND_ONE_BLOCK
-                + (cardinalSteps - cardinalAscends) * STRAIGHT
+                + (cardinalSteps - cardinalAscends) * straight
                 + pureAscends * MIN_PURE_ASCEND;
         double descend = down * minDescentTicksPerBlock;
         return horizontalAndAscend + descend;

@@ -87,6 +87,35 @@ public final class SurfaceGrid {
     }
 
     /**
+     * 要求されたYに近い方の立てる高さへ解決する。水の列だけが{@link #resolveStandable}と違い、
+     * <b>水面と水底の2択</b>になる。
+     *
+     * <p>これが要るのは目的地の解決だけ。中間目標は「どちらへ向かうか」を示すものなので水面で
+     * 構わないが、目的地は<b>ユーザーが指した点そのもの</b>で、海底を指したなら海底に着かないと
+     * 到着したことにならない。{@link #resolveStandable}を通すと水面へ丸められ、
+     * 海の上で「到着」になっていた。
+     *
+     * <p>水底側は{@code groundHeight + 1}（水底の1つ上＝足元が砂で体が水）。水面側は水面そのもの
+     * （その1つ上は水の外で立てない）。{@link #resolveStandable}の非対称はこの違いから来ている。
+     */
+    public BlockPos resolveStandableNear(int x, int z, int preferredY) {
+        if (kindAt(x, z) != CoarseMap.WATER) {
+            return resolveStandable(x, z);
+        }
+        short surface = surfaceHeightAt(x, z);
+        short ground = groundHeightAt(x, z);
+        if (surface == UNKNOWN_HEIGHT) {
+            return null;
+        }
+        if (ground == UNKNOWN_HEIGHT) {
+            return new BlockPos(x, surface, z);
+        }
+        int seabed = ground + 1;
+        return Math.abs(preferredY - seabed) < Math.abs(preferredY - surface)
+                ? new BlockPos(x, seabed, z) : new BlockPos(x, surface, z);
+    }
+
+    /**
      * {@link #resolveStandable}が{@code null}だった端点を、廊下内の最寄りの立てる列へ寄せて解決する。
      * ネザーの溶岩の海の縁ではwaypointがそのまま溶岩列に落ちることが珍しくなく、そこで層2の廊下
      * 精緻化を丸ごと諦めるのは惜しい——数ブロック隣に陸があるだけのことが多い。

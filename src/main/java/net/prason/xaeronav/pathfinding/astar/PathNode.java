@@ -15,6 +15,17 @@ final class PathNode {
     final int y;
     final int z;
 
+    /**
+     * ボートに乗った状態か。<b>座標と並ぶノードの同一性の一部</b>で、
+     * {@link AStarPathfinder}は乗っている状態と乗っていない状態を別のノードとして持つ。
+     *
+     * <p>{@link #bridgeRun}や{@link #submergedTicks}のように非キーの近似にできない。乗る手間は
+     * 1手に集中する大きな一時コストで、A*は安い辺から展開するため、同一ノードに集約すると
+     * <b>必ず泳ぎ側が先に確定して{@link #closed}になり、ボートの枝が二度と改善できない</b>——
+     * 総コストでどれだけ有利でも選ばれなくなる。
+     */
+    final boolean boating;
+
     /** ゴールまでの推定コスト。座標とゴールが決まれば不変なので生成時に1度だけ計算する。 */
     final double estimatedCostToGoal;
 
@@ -37,6 +48,28 @@ final class PathNode {
      */
     int bridgeRun;
 
+    /**
+     * ここまで頭が水に浸かったまま経過したtick数。水面に顔を出すか陸に上がれば0に戻る。
+     * {@link AStarPathfinder#relax}が上限判定に使う。
+     *
+     * <p>空気は{@code AIR_SUPPLY_TICKS}で尽きるので、これは「息が続くか」そのもの。
+     * <b>マス数ではなくtickで数える</b>のが要点——水中の採掘は1マスに数十tick、しかも
+     * 泳ぎながらなら25倍かかるのに、マス数で数えると40tickの採掘が「1マス」にしかならず、
+     * 水中を掘り進む経路が息の上限をすり抜けていた。
+     *
+     * <p>数える基準が<b>頭のセル</b>なのはバニラに合わせたため——{@code LivingEntity#baseTick}は
+     * {@code isEyeInFluid(WATER)}で空気を減らすので、腰まで浸かっていても顔が出ていれば減らない。
+     *
+     * <p>{@link #bridgeRun}と同じく<b>ノードの同一性には含まれない</b>（キーは座標のみ）。
+     * 同じセルへ短い潜水で来た経路と長い潜水で来た経路は同じノードに集約され、先に最安で
+     * 確定した方が残る。上限のせいで範囲内に道が無くなった場合は
+     * {@link AStarPathfinder#submergedRunCapBlocked()}を見て上限を外して探し直す。
+     *
+     * <p>始点は常に0から数える。潜り始めに空気が満タンとは限らないぶんは、上限側に
+     * 余裕を持たせて吸収している。
+     */
+    double submergedTicks;
+
     /** {@link BinaryHeapOpenSet}内での位置。decrease-keyに必要。-1はオープンセット外を表す。 */
     int heapPosition = -1;
 
@@ -51,10 +84,11 @@ final class PathNode {
      */
     boolean closed;
 
-    PathNode(int x, int y, int z, double estimatedCostToGoal) {
+    PathNode(int x, int y, int z, boolean boating, double estimatedCostToGoal) {
         this.x = x;
         this.y = y;
         this.z = z;
+        this.boating = boating;
         this.estimatedCostToGoal = estimatedCostToGoal;
     }
 

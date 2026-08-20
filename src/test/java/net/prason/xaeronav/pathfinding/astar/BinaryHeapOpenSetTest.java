@@ -17,8 +17,8 @@ import org.junit.jupiter.api.Test;
 class BinaryHeapOpenSetTest {
 
     private static PathNode node(int index, double combinedCost) {
-        // x, y, z, estimatedCostToGoalは今回のテストでは使わないので識別用のindexだけ意味を持つ
-        PathNode node = new PathNode(index, 0, 0, 0.0);
+        // x, y, z, boating, estimatedCostToGoalは今回のテストでは使わないので識別用のindexだけ意味を持つ
+        PathNode node = new PathNode(index, 0, 0, false, 0.0);
         node.combinedCost = combinedCost;
         return node;
     }

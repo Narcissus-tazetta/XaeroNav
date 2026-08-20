@@ -28,6 +28,10 @@ public record PathStep(BlockPos pos, MovementType movement, double cost,
         return movement == MovementType.SWIM;
     }
 
+    public boolean boating() {
+        return movement == MovementType.BOAT;
+    }
+
     public boolean climbing() {
         return movement == MovementType.CLIMB;
     }

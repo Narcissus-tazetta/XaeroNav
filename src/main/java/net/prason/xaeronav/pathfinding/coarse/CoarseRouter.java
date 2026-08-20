@@ -37,17 +37,26 @@ public final class CoarseRouter {
     private static final double STRAIGHT_COST = CELL_BLOCKS * ActionCosts.SPRINT_ONE_BLOCK;
     private static final double DIAGONAL_COST = STRAIGHT_COST * ActionCosts.DIAGONAL_DISTANCE;
 
-    /** 水面を渡る倍率。実測の徒歩と遊泳の速度比（4.317 / 2.2）そのもの。 */
+    /**
+     * 水面を渡る倍率。疾走とうつ伏せ泳ぎの速度比（5.612 / 3.6）そのもの。
+     *
+     * <p>層1が水セルに見ているのは<b>水面を渡る</b>コストなので、水底を歩く
+     * {@link ActionCosts#WALK_ONE_IN_WATER}ではなく{@link ActionCosts#SWIM_ONE_BLOCK}を使う。
+     *
+     * <p>分母が{@link ActionCosts#SPRINT_ONE_BLOCK}なのは、倍率を掛ける相手の
+     * {@link #STRAIGHT_COST}が疾走を基準にしているから。徒歩で割ると、陸を疾走で見積もりながら
+     * 水との比だけ徒歩で測ることになり、比が体系的にずれる。
+     */
     private static final double WATER_MULTIPLIER =
-            ActionCosts.WALK_ONE_IN_WATER / ActionCosts.WALK_ONE_BLOCK;
+            ActionCosts.SWIM_ONE_BLOCK / ActionCosts.SPRINT_ONE_BLOCK;
 
     /**
      * ボートで進むときの水面通過倍率。{@link ActionCosts#PADDLE_ONE_BLOCK}が
-     * {@link ActionCosts#WALK_ONE_BLOCK}より小さいため、{@link #WATER_MULTIPLIER}と違い
+     * {@link ActionCosts#SPRINT_ONE_BLOCK}より小さいため、{@link #WATER_MULTIPLIER}と違い
      * 1未満になる＝水を避けるコストではなく積極的に選ぶ近道になる。
      */
     private static final double BOAT_MULTIPLIER =
-            ActionCosts.PADDLE_ONE_BLOCK / ActionCosts.WALK_ONE_BLOCK;
+            ActionCosts.PADDLE_ONE_BLOCK / ActionCosts.SPRINT_ONE_BLOCK;
 
     /**
      * 地図に無いセルを通る倍率。通れないと決めつけると、未訪問の土地を挟む目的地へは
