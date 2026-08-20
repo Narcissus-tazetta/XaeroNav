@@ -184,6 +184,19 @@ public final class ActionCosts {
     public static final double MLG_WATER_OVERHEAD_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
 
     /**
+     * ボートを出して乗り、渡り終えて降りて回収するまでの手間。区間の入口で1度だけ払う。
+     *
+     * <p>{@link #PLACE_BLOCK_OVERHEAD_TICKS}（狙って置く1動作）の2回分にしてある——
+     * 出す・乗るで1往復、降りる・回収するで1往復。降りる側を別の移動として作らず入口にまとめるのは、
+     * A*のノードが座標だけをキーにしていて「いま乗っているか」を状態として持てないため。
+     *
+     * <p>この値が損益分岐を決める: 泳ぎ({@link #SWIM_ONE_BLOCK})とボート({@link #PADDLE_ONE_BLOCK})の
+     * 差は1マスあたり約3tickなので、10マスちょっと以上の水面を渡るときだけボートが選ばれる。
+     * 小川を渡るのにいちいちボートを出せとは言わない、という線引きになる。
+     */
+    public static final double BOAT_OVERHEAD_TICKS = 2.0 * PLACE_BLOCK_OVERHEAD_TICKS;
+
+    /**
      * 溶岩の上に足場を置いて渡る1ブロックあたりの追加ペナルティ。設置を1回でも外せば死ぬので
      * 通常の設置より重くするが、<b>詳細探索が現実的な予算で橋を見つけられる範囲に収める</b>。
      *

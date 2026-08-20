@@ -15,6 +15,17 @@ final class PathNode {
     final int y;
     final int z;
 
+    /**
+     * ボートに乗った状態か。<b>座標と並ぶノードの同一性の一部</b>で、
+     * {@link AStarPathfinder}は乗っている状態と乗っていない状態を別のノードとして持つ。
+     *
+     * <p>{@link #bridgeRun}や{@link #submergedRun}のように非キーの近似にできない。乗る手間は
+     * 1手に集中する大きな一時コストで、A*は安い辺から展開するため、同一ノードに集約すると
+     * <b>必ず泳ぎ側が先に確定して{@link #closed}になり、ボートの枝が二度と改善できない</b>——
+     * 総コストでどれだけ有利でも選ばれなくなる。
+     */
+    final boolean boating;
+
     /** ゴールまでの推定コスト。座標とゴールが決まれば不変なので生成時に1度だけ計算する。 */
     final double estimatedCostToGoal;
 
@@ -69,10 +80,11 @@ final class PathNode {
      */
     boolean closed;
 
-    PathNode(int x, int y, int z, double estimatedCostToGoal) {
+    PathNode(int x, int y, int z, boolean boating, double estimatedCostToGoal) {
         this.x = x;
         this.y = y;
         this.z = z;
+        this.boating = boating;
         this.estimatedCostToGoal = estimatedCostToGoal;
     }
 

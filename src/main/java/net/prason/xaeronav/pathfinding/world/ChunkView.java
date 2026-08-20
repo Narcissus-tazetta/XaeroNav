@@ -11,6 +11,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
@@ -70,6 +71,7 @@ public final class ChunkView implements CellSource {
     private final int maxSubmergedRunBlocks;
     private final int maxFallDamagePoints;
     private final boolean canMlgWaterBucket;
+    private final boolean boatAvailable;
     private final double minDescentTicksPerBlock;
     private final int minBuildHeight;
     private final int maxBuildHeight;
@@ -93,7 +95,8 @@ public final class ChunkView implements CellSource {
                       ItemStack[] hotbar, int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
                       boolean jumpGapEnabled, boolean lavaBridgingEnabled, int maxBridgeRunBlocks,
                       int maxSubmergedRunBlocks, int maxFallDamagePoints,
-                      boolean canMlgWaterBucket, double minDescentTicksPerBlock, int minBuildHeight,
+                      boolean canMlgWaterBucket, boolean boatAvailable,
+                      double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection) {
         this.chunks = chunks;
         this.totalChunksInBounds = totalChunksInBounds;
@@ -108,6 +111,7 @@ public final class ChunkView implements CellSource {
         this.maxSubmergedRunBlocks = maxSubmergedRunBlocks;
         this.maxFallDamagePoints = maxFallDamagePoints;
         this.canMlgWaterBucket = canMlgWaterBucket;
+        this.boatAvailable = boatAvailable;
         this.minDescentTicksPerBlock = minDescentTicksPerBlock;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
@@ -159,6 +163,7 @@ public final class ChunkView implements CellSource {
         // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
         boolean canMlgWaterBucket = fallDamageToleranceEnabled && !level.dimensionType().ultraWarm()
                 && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
+        boolean boatAvailable = player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
 
         // 下降のヒューリスティックの下限は、実際に生成されうる最大の落差で決まる。
         // FALL_TO_WATERは着水先に水があるときだけ生成され、ultraWarmな次元（ネザー）には水が
@@ -176,7 +181,8 @@ public final class ChunkView implements CellSource {
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, diggingEnabled,
                 bridgingEnabled && canPlaceBlocks, jumpGapEnabled, lavaBridgingEnabled, maxBridgeRunBlocks,
-                maxSubmergedRunBlocks, maxFallDamagePoints, canMlgWaterBucket, minDescentTicksPerBlock, level.getMinBuildHeight(),
+                maxSubmergedRunBlocks, maxFallDamagePoints, canMlgWaterBucket, boatAvailable,
+                minDescentTicksPerBlock, level.getMinBuildHeight(),
                 level.getMaxBuildHeight(), level.getMinSection());
     }
 
@@ -198,7 +204,7 @@ public final class ChunkView implements CellSource {
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
                 jumpGapEnabled, lavaBridgingEnabled, maxBridgeRunBlocks, maxSubmergedRunBlocks,
-                maxFallDamagePoints, canMlgWaterBucket,
+                maxFallDamagePoints, canMlgWaterBucket, boatAvailable,
                 minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection);
     }
 
@@ -252,6 +258,11 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean canMlgWaterBucket() {
         return canMlgWaterBucket;
+    }
+
+    @Override
+    public boolean boatAvailable() {
+        return boatAvailable;
     }
 
     /** 初回アクセス時に計算してキャッシュする。 */

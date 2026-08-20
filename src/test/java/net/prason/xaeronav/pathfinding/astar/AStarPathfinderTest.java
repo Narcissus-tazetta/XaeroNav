@@ -10,6 +10,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -399,6 +400,63 @@ class AStarPathfinderTest {
                 "斜めに泳げば1手で1マスずつXZ両方に進む: " + result.steps().stream().map(PathStep::pos).toList());
         assertTrue(result.steps().stream().allMatch(step -> step.movement() == MovementType.SWIM),
                 "水中の斜めも泳ぎとして案内する: " + movements(result));
+    }
+
+    /**
+     * 岸(x=0)から水面(x=1..width)を渡って対岸(x=width+1)へ。水面は y=62、岸は y=63 で、
+     * 水面のほうが1マス低い普通の海岸の形。
+     */
+    private static FakeCells strait(int width) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, width + 12, 76, 8));
+        for (int x = -1; x <= width + 2; x++) {
+            for (int z = -1; z <= 1; z++) {
+                cells.set(x, 60, z, FakeCells.BEDROCK);
+                boolean water = x >= 1 && x <= width;
+                cells.set(x, 61, z, water ? FakeCells.WATER : FakeCells.BEDROCK);
+                cells.set(x, 62, z, water ? FakeCells.WATER : FakeCells.BEDROCK);
+            }
+        }
+        return cells;
+    }
+
+    @Test
+    void takesTheBoatAcrossAWideStrait() {
+        CellSource cells = strait(40).boatAvailable(true);
+
+        PathResult result = search(cells, new BlockPos(0, 63, 0), new BlockPos(41, 63, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().anyMatch(PathStep::boating),
+                "40マスの水面はボートで渡る: " + movements(result));
+        assertEquals(1, result.steps().stream().filter(step -> step.movement() == MovementType.BOAT
+                        && step.cost() > ActionCosts.BOAT_OVERHEAD_TICKS).count(),
+                "出す・乗る手間を払うのは漕ぎ出す1回だけ: " + movements(result));
+    }
+
+    /**
+     * 同じ形の細い水路ならボートは出さない。乗り降りの手間（{@code BOAT_OVERHEAD_TICKS}）が
+     * 泳ぎとの差を上回るため——「小川を渡るのにいちいちボートを出せ」とは言わない。
+     */
+    @Test
+    void swimsAcrossANarrowChannelInsteadOfLaunchingABoat() {
+        CellSource cells = strait(3).boatAvailable(true);
+
+        PathResult result = search(cells, new BlockPos(0, 63, 0), new BlockPos(4, 63, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().noneMatch(PathStep::boating),
+                "3マスの水路はそのまま泳いで渡る: " + movements(result));
+    }
+
+    @Test
+    void doesNotOfferABoatWithoutOneInTheInventory() {
+        CellSource cells = strait(40).boatAvailable(false);
+
+        PathResult result = search(cells, new BlockPos(0, 63, 0), new BlockPos(41, 63, 0));
+
+        assertTrue(result.complete(), "ボートが無くても泳いで渡れる");
+        assertTrue(result.steps().stream().noneMatch(PathStep::boating),
+                "持っていないボートを出せとは言わない: " + movements(result));
     }
 
     @Test

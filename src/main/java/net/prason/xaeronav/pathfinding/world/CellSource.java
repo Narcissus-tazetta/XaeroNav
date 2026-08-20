@@ -90,6 +90,14 @@ public interface CellSource {
     boolean canMlgWaterBucket();
 
     /**
+     * ボートを持っているか。水面をボートで渡る移動を提示してよいかの判断に使う。
+     *
+     * <p>{@link #canMlgWaterBucket()}と同じくプレイヤーの持ち物に依存するので、
+     * 持ち物を知らない層2は常にfalseを返す。
+     */
+    boolean boatAvailable();
+
+    /**
      * この列で頭上に何も無くなる最小のY。{@code y >= openSkyY(x, z)}なら、そのセルは空の下にある。
      *
      * <p>「地上に出た」を高さだけで判定すると、天井の下にある洞窟も地上に数えてしまう。

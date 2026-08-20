@@ -120,6 +120,12 @@ public final class SurfaceCellSource implements CellSource {
         return false;
     }
 
+    /** 層2は持ち物を知らないので、ボートも提示しない。 */
+    @Override
+    public boolean boatAvailable() {
+        return false;
+    }
+
     @Override
     public int openSkyY(int x, int z) {
         byte kind = grid.kindAt(x, z);

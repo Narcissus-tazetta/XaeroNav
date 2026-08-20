@@ -74,6 +74,8 @@ public final class FakeCells implements CellSource {
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
     private boolean canMlgWaterBucket;
+    /** 既定はfalse。ボートを持たせたいテストだけが明示的に立てる。 */
+    private boolean boatAvailable;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
     /**
@@ -181,6 +183,11 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    public FakeCells boatAvailable(boolean value) {
+        this.boatAvailable = value;
+        return this;
+    }
+
     public FakeCells bounds(SearchBounds value) {
         this.bounds = value;
         return this;
@@ -280,6 +287,11 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean canMlgWaterBucket() {
         return canMlgWaterBucket;
+    }
+
+    @Override
+    public boolean boatAvailable() {
+        return boatAvailable;
     }
 
     /**

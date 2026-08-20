@@ -163,6 +163,12 @@ public final class AStarPathfinder {
     private static final int MAX_PRESIZED_NODES = 1 << 16;
 
     private final Long2ObjectOpenHashMap<PathNode> nodes;
+    /**
+     * ボートに乗った状態のノード。{@link PathNode#boating}が同一性の一部なので、座標が同じでも
+     * 乗っている／いないは別のノードになる。{@link BlockPos#asLong}は64bitを使い切っていて
+     * キーに1bit足せないため、表そのものを分けている。ボートを持っていなければ空のまま。
+     */
+    private final Long2ObjectOpenHashMap<PathNode> boatNodes = new Long2ObjectOpenHashMap<>();
     private final BinaryHeapOpenSet open = new BinaryHeapOpenSet();
     private final PathNode[] bestSoFar = new PathNode[COEFFICIENTS.length];
     private final double[] bestHeuristic = new double[COEFFICIENTS.length];
@@ -379,7 +385,7 @@ public final class AStarPathfinder {
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
         }
         Collections.reverse(steps);
-        return new PathResult(steps, termination, expanded, nodes.size());
+        return new PathResult(steps, termination, expanded, nodes.size() + boatNodes.size());
     }
 
     /**
@@ -409,8 +415,13 @@ public final class AStarPathfinder {
     }
 
     private PathNode node(int x, int y, int z) {
+        return node(x, y, z, false);
+    }
+
+    private PathNode node(int x, int y, int z, boolean boating) {
+        Long2ObjectOpenHashMap<PathNode> table = boating ? boatNodes : nodes;
         long key = BlockPos.asLong(x, y, z);
-        PathNode existing = nodes.get(key);
+        PathNode existing = table.get(key);
         if (existing != null) {
             return existing;
         }
@@ -422,7 +433,10 @@ public final class AStarPathfinder {
         if (surfaceGoal) {
             heuristic = Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
         } else {
-            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock);
+            // ボートに乗っているノードは水平の下限が漕ぎ速度まで下がる。疾走のまま見積もると
+            // ボートの枝に対して非許容になり、乗り込む1手の一時コストと相まって一度も展開されない
+            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock,
+                    boating ? ActionCosts.PADDLE_ONE_BLOCK : ActionCosts.SPRINT_ONE_BLOCK);
             if (goalRadius > 0) {
                 // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
                 // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
@@ -438,8 +452,8 @@ public final class AStarPathfinder {
                 heuristic = Math.max(heuristic, costToGo.estimate(x, y, z));
             }
         }
-        PathNode created = new PathNode(x, y, z, heuristic);
-        nodes.put(key, created);
+        PathNode created = new PathNode(x, y, z, boating, heuristic);
+        table.put(key, created);
         return created;
     }
 
@@ -451,12 +465,15 @@ public final class AStarPathfinder {
             addAscend(current, dx, dz);
             addDescend(current, dx, dz);
             addSwim(current, dx, dz);
+            addBoatPaddle(current, dx, dz, false);
+            addBoatEnter(current, dx, dz);
             addClimb(current, dx, dz);
             addJumpGap(current, dx, dz);
         }
         for (int i = 0; i < DIAGONAL_DX.length; i++) {
             addDiagonalTraverse(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
             addDiagonalSwim(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            addBoatPaddle(current, DIAGONAL_DX[i], DIAGONAL_DZ[i], true);
             addDiagonalAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
             addDiagonalDescend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
         }
@@ -586,6 +603,69 @@ public final class AStarPathfinder {
             return;
         }
         relax(from, x, y, z, ActionCosts.SWIM_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE, MoveKind.SWIM);
+    }
+
+    /**
+     * ボートが浮けるセルか。水面＝「そのセルが水で、真上は水ではなく体を置ける」。
+     * 水中の途中の高さにボートは浮かないので、この判定が船の高さそのものになる。
+     */
+    private boolean isBoatSurface(int x, int y, int z) {
+        long here = view.cell(x, y, z);
+        long above = view.cell(x, y + 1, z);
+        return CellData.water(here) && !CellData.water(above)
+                && CellData.occupiableWithoutDigging(above);
+    }
+
+    /**
+     * 水面をボートで進む。1マスあたりは泳ぎの半分以下。乗っている状態からしか出ないので、
+     * 乗り降りの手間（{@link ActionCosts#BOAT_OVERHEAD_TICKS}）は{@link #addBoatEnter}で必ず先に払う。
+     *
+     * <p>水面から降りる移動は既存のTraverse/Ascendがそのまま担う——降りる手間は入口の
+     * オーバーヘッドに畳み込んである。
+     */
+    private void addBoatPaddle(PathNode from, int dx, int dz, boolean diagonal) {
+        if (!from.boating) {
+            return;
+        }
+        int x = from.x + dx;
+        int z = from.z + dz;
+        if (!isBoatSurface(x, from.y, z)) {
+            return;
+        }
+        if (diagonal && (!clearWithoutDigging(x, from.y, from.z)
+                || !clearWithoutDigging(from.x, from.y, z))) {
+            return;
+        }
+        double cost = ActionCosts.PADDLE_ONE_BLOCK * (diagonal ? ActionCosts.DIAGONAL_DISTANCE : 1.0);
+        relaxBoating(from, x, from.y, z, cost, MoveKind.BOAT_PADDLE);
+    }
+
+    /**
+     * ボートを出して乗り込む。乗り降りの手間をここで1度だけ払うので、短い水路では泳いで渡る方が
+     * 安いままになる（損益分岐は{@link ActionCosts#BOAT_OVERHEAD_TICKS}参照）。
+     *
+     * <p>岸から漕ぎ出す場合と、泳いでいる途中で出す場合の両方がある。水面は岸より1マス低いのが
+     * 普通なので、同じ高さと1つ下の両方を試す。
+     */
+    private void addBoatEnter(PathNode from, int dx, int dz) {
+        if (!view.boatAvailable() || from.boating) {
+            return;
+        }
+        // 岸に立っているか、水面に浮いているか。水中で潜ったままボートは出せない
+        boolean onShore = CellData.standable(view.cell(from.x, from.y - 1, from.z))
+                && !CellData.water(view.cell(from.x, from.y, from.z));
+        if (!onShore && !isBoatSurface(from.x, from.y, from.z)) {
+            return;
+        }
+        int x = from.x + dx;
+        int z = from.z + dz;
+        for (int y = from.y; y >= from.y - 1; y--) {
+            if (isBoatSurface(x, y, z)) {
+                relaxBoating(from, x, y, z,
+                        ActionCosts.PADDLE_ONE_BLOCK + ActionCosts.BOAT_OVERHEAD_TICKS, MoveKind.BOAT_ENTER);
+                return;
+            }
+        }
     }
 
     /** 立った姿勢が占める2セルを、掘らずにそのまま通り抜けられるか。 */
@@ -1084,11 +1164,21 @@ public final class AStarPathfinder {
         relax(from, x, y, z, edgeCost, kind, 0);
     }
 
+    /** ボートに乗った状態のノードへ緩和する。{@link #addBoatEnter}/{@link #addBoatPaddle}専用。 */
+    private void relaxBoating(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
+        relax(from, x, y, z, edgeCost, kind, 0, true);
+    }
+
     /**
      * {@code bridgeRun}を明示的に渡す版。{@link #addBridge}だけが非0を渡す——
      * それ以外の移動は橋の連続を断つので0になる。
      */
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
+        relax(from, x, y, z, edgeCost, kind, bridgeRun, false);
+    }
+
+    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
+                        boolean boating) {
         // 移動の種類に関わらず、着地点で頭が水に浸かるなら潜水が1マス続いたことになる。
         // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・水へ落ちる）でも息は同じだけ減るため
         int submergedRun = 0;
@@ -1101,7 +1191,7 @@ public final class AStarPathfinder {
         }
 
         double tentativeCost = from.cost + edgeCost;
-        PathNode neighbor = node(x, y, z);
+        PathNode neighbor = node(x, y, z, boating);
         if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
             return;
         }

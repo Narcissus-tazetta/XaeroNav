@@ -23,6 +23,10 @@ enum MoveKind {
     SWIM_UP(MovementType.SWIM),
     SWIM_DOWN(MovementType.SWIM),
     SWIM_DESCEND(MovementType.SWIM),
+    /** 岸からボートを出して乗り、水面へ漕ぎ出す。{@code BOAT_OVERHEAD_TICKS}を払うのはここだけ。 */
+    BOAT_ENTER(MovementType.BOAT),
+    /** 水面をボートで進む。 */
+    BOAT_PADDLE(MovementType.BOAT),
     CLIMB(MovementType.CLIMB),
     CLIMB_UP(MovementType.CLIMB),
     CLIMB_DOWN(MovementType.CLIMB),

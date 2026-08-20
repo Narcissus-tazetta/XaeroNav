@@ -30,6 +30,7 @@
   "hud.xaeronav.coarse_route_progress": "Long-range route %1$d/%2$d",
   "hud.xaeronav.waypoint_ahead": "Waypoint ahead",
   "hud.xaeronav.drowning": "Long dive ahead — watch your air",
+  "hud.xaeronav.boat_ahead": "Route crosses water by boat — bring one out at the shore",
   "hud.xaeronav.fall_damage": "Route includes a drop that deals fall damage",
   "hud.xaeronav.sneak_over_magma": "Route crosses magma blocks - sneak over them",
   "hud.xaeronav.mlg_required": "Route includes a drop needing a water bucket landing (MLG)",
