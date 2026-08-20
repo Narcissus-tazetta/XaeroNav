@@ -73,6 +73,7 @@ public final class ChunkView implements CellSource {
     private final int maxFallDamagePoints;
     private final boolean canMlgWaterBucket;
     private final boolean boatAvailable;
+    private final boolean ridingBoat;
     private final double minDescentTicksPerBlock;
     private final int minBuildHeight;
     private final int maxBuildHeight;
@@ -96,7 +97,7 @@ public final class ChunkView implements CellSource {
                       ItemStack[] hotbar, int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
                       boolean jumpGapEnabled, boolean lavaBridgingEnabled, int maxBridgeRunBlocks,
                       int maxSubmergedRunBlocks, int maxFallDamagePoints,
-                      boolean canMlgWaterBucket, boolean boatAvailable,
+                      boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
                       double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection) {
         this.chunks = chunks;
@@ -113,6 +114,7 @@ public final class ChunkView implements CellSource {
         this.maxFallDamagePoints = maxFallDamagePoints;
         this.canMlgWaterBucket = canMlgWaterBucket;
         this.boatAvailable = boatAvailable;
+        this.ridingBoat = ridingBoat;
         this.minDescentTicksPerBlock = minDescentTicksPerBlock;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
@@ -176,6 +178,7 @@ public final class ChunkView implements CellSource {
         boolean canMlgWaterBucket = fallDamageToleranceEnabled && !level.dimensionType().ultraWarm()
                 && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
         boolean boatAvailable = boatAvailable(player);
+        boolean ridingBoat = player.getVehicle() instanceof Boat;
 
         // 下降のヒューリスティックの下限は、実際に生成されうる最大の落差で決まる。
         // FALL_TO_WATERは着水先に水があるときだけ生成され、ultraWarmな次元（ネザー）には水が
@@ -193,7 +196,7 @@ public final class ChunkView implements CellSource {
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, diggingEnabled,
                 bridgingEnabled && canPlaceBlocks, jumpGapEnabled, lavaBridgingEnabled, maxBridgeRunBlocks,
-                maxSubmergedRunBlocks, maxFallDamagePoints, canMlgWaterBucket, boatAvailable,
+                maxSubmergedRunBlocks, maxFallDamagePoints, canMlgWaterBucket, boatAvailable, ridingBoat,
                 minDescentTicksPerBlock, level.getMinBuildHeight(),
                 level.getMaxBuildHeight(), level.getMinSection());
     }
@@ -216,7 +219,7 @@ public final class ChunkView implements CellSource {
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
                 jumpGapEnabled, lavaBridgingEnabled, maxBridgeRunBlocks, maxSubmergedRunBlocks,
-                maxFallDamagePoints, canMlgWaterBucket, boatAvailable,
+                maxFallDamagePoints, canMlgWaterBucket, boatAvailable, ridingBoat,
                 minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection);
     }
 
@@ -275,6 +278,11 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean boatAvailable() {
         return boatAvailable;
+    }
+
+    @Override
+    public boolean ridingBoat() {
+        return ridingBoat;
     }
 
     /** 初回アクセス時に計算してキャッシュする。 */

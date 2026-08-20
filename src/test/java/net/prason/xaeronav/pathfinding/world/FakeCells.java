@@ -76,6 +76,8 @@ public final class FakeCells implements CellSource {
     private boolean canMlgWaterBucket;
     /** 既定はfalse。ボートを持たせたいテストだけが明示的に立てる。 */
     private boolean boatAvailable;
+    /** 既定はfalse。乗っている状態から始めたいテストだけが明示的に立てる。 */
+    private boolean ridingBoat;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
     /**
@@ -188,6 +190,12 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    /** 乗っている状態から探索を始める。{@link #boatAvailable}も併せて立てること。 */
+    public FakeCells ridingBoat(boolean value) {
+        this.ridingBoat = value;
+        return this;
+    }
+
     public FakeCells bounds(SearchBounds value) {
         this.bounds = value;
         return this;
@@ -292,6 +300,11 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean boatAvailable() {
         return boatAvailable;
+    }
+
+    @Override
+    public boolean ridingBoat() {
+        return ridingBoat;
     }
 
     /**

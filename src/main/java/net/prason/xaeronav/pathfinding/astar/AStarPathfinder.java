@@ -296,7 +296,12 @@ public final class AStarPathfinder {
     }
 
     private PathResult runSearch(BlockPos start, BooleanSupplier cancelled) {
-        PathNode startNode = node(start.getX(), start.getY(), start.getZ());
+        // 既にボートに乗っているなら、乗っている状態から始める。乗り込む1手のコストをもう一度
+        // 計上すると、残りの水面が短い場面で「降りて泳いだ方が安い」という案内になる。
+        // 水面のセルであることも確かめるのは、乗ったまま陸に乗り上げている場合を除くため
+        boolean startBoating = view.ridingBoat()
+                && isBoatSurface(start.getX(), start.getY(), start.getZ());
+        PathNode startNode = node(start.getX(), start.getY(), start.getZ(), startBoating);
         startNode.bridgeRun = startBridgeRun;
         startNode.cost = 0.0;
         startNode.combinedCost = heuristicWeight * startNode.estimatedCostToGoal;

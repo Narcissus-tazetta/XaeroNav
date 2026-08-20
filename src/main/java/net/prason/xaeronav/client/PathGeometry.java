@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
@@ -22,6 +23,9 @@ import net.prason.xaeronav.pathfinding.world.CellData;
  * 陸と違って1手ごとの位置に意味が無く、格子の目に沿った階段がそのままジグザグに見えるため。
  */
 final class PathGeometry {
+
+    /** 水面の区間の線を水面よりわずかに浮かせ、水面のテクスチャとのZファイティングを避ける。 */
+    private static final double WATER_SURFACE_OFFSET = 0.05;
 
     /** 2区間を一直線とみなす外積の大きさの上限。区間長が約1ブロックなので、この値なら実質的に厳密一致。 */
     private static final double COLLINEAR_EPSILON = 1.0e-6;
@@ -150,11 +154,16 @@ final class PathGeometry {
         double[] rawY = new double[count + 1];
         double[] rawZ = new double[count + 1];
         float[][] rawColor = new float[count][];
+        // 描画位置とは別に、元のブロック座標も持っておく。水面の区間は線を水面の上へ持ち上げる
+        // ので、描画位置をそのまま通行判定に使うと1つ上の空気のセルを見てしまう
+        BlockPos[] rawBlock = new BlockPos[count + 1];
 
-        center(start, rawX, rawY, rawZ, 0);
+        rawBlock[0] = start;
+        center(level, start, rawX, rawY, rawZ, 0);
         for (int i = 0; i < count; i++) {
             PathStep step = steps.get(i);
-            center(step.pos(), rawX, rawY, rawZ, i + 1);
+            rawBlock[i + 1] = step.pos();
+            center(level, step.pos(), rawX, rawY, rawZ, i + 1);
             rawColor[i] = PathColors.forStep(step);
         }
 
@@ -172,6 +181,8 @@ final class PathGeometry {
         int fadeFromSegment = Integer.MAX_VALUE;
 
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        // いま伸ばしている区間の始点にあたる raw の添字。水中の近道判定はこの点からの弦を見る
+        int segmentStart = 0;
         for (int i = 1; i <= count; i++) {
             float[] color = rawColor[i - 1];
             boolean inTail = i > tailStartStep;
@@ -179,9 +190,7 @@ final class PathGeometry {
                     && (continuesStraight(outX[points - 2], outY[points - 2], outZ[points - 2],
                     outX[points - 1], outY[points - 1], outZ[points - 1],
                     rawX[i], rawY[i], rawZ[i])
-                    || fluidShortcut(level, cursor, color,
-                    outX[points - 2], outY[points - 2], outZ[points - 2],
-                    rawX[i], rawY[i], rawZ[i]))) {
+                    || fluidShortcut(level, cursor, color, rawBlock[segmentStart], rawBlock[i]))) {
                 outX[points - 1] = rawX[i];
                 outY[points - 1] = rawY[i];
                 outZ[points - 1] = rawZ[i];
@@ -196,6 +205,7 @@ final class PathGeometry {
             outColor[segments] = color;
             outEndStep[segments] = i - 1;
             segments++;
+            segmentStart = i - 1;
             if (inTail && fadeFromSegment == Integer.MAX_VALUE) {
                 fadeFromSegment = segments - 1;
             }
@@ -268,18 +278,18 @@ final class PathGeometry {
      * 岬や浅瀬を突っ切る線になり、後者を見ないと天井の低い水路で体がつかえる線になる。
      */
     private static boolean fluidShortcut(Level level, BlockPos.MutableBlockPos cursor, float[] color,
-                                         double ax, double ay, double az,
-                                         double bx, double by, double bz) {
+                                         BlockPos from, BlockPos to) {
         if (color != PathColors.SWIM && color != PathColors.BOAT && color != PathColors.DROWNING) {
             return false;
         }
-        double dx = bx - ax;
-        double dy = by - ay;
-        double dz = bz - az;
-        if (dx * dx + dy * dy + dz * dz > MAX_FLUID_SHORTCUT_BLOCKS * MAX_FLUID_SHORTCUT_BLOCKS) {
+        if (from.distSqr(to) > (double) MAX_FLUID_SHORTCUT_BLOCKS * MAX_FLUID_SHORTCUT_BLOCKS) {
             return false;
         }
-        return VoxelRay.traverse(new Vec3(ax, ay, az), new Vec3(bx, by, bz), (x, y, z) -> {
+        // 判定はブロック座標のセル中心どうしで行う。描画位置は水面の区間だけ持ち上げてあるので、
+        // そちらを渡すと1つ上の空気のセルを走査してしまう
+        Vec3 a = new Vec3(from.getX() + 0.5, from.getY() + 0.5, from.getZ() + 0.5);
+        Vec3 b = new Vec3(to.getX() + 0.5, to.getY() + 0.5, to.getZ() + 0.5);
+        return VoxelRay.traverse(a, b, (x, y, z) -> {
             cursor.set(x, y, z);
             if (!CellData.water(CellData.flagsOf(level.getBlockState(cursor)))) {
                 return false;
@@ -311,14 +321,25 @@ final class PathGeometry {
     /**
      * 経路のセルを線の通過点にする。
      *
-     * <p>水中も他と同じく実際のセルのYを使う。以前は水中のセルを「水面のすぐ上」あるいは
-     * 「プレイヤーの足元の高さ」へ揃えていたが、どちらも<b>同じ列の高さ違いを1点に潰す</b>ので、
-     * XZが同一でYだけ違う{@code SwimUp}/{@code SwimDown}が区間長0になって描画ごと消えていた。
-     * 潜降・浮上が線として見えないのはそれが理由。
+     * <p><b>水面のセルだけ</b>は線を水面の上へ持ち上げる。水面のセルはブロックの高さで言えば
+     * 水の中なので、セル中心（+0.55）に描くと水面の描画に沈み、ボートに乗っていると自分の体の
+     * 真下になって見えない。水の上を進む区間（ボート・水面を泳ぐ）はこれが常態になる。
+     *
+     * <p>持ち上げるのを水面のセルに限るのが要点。以前は<b>水中のセルを列ごと水面へ揃えて</b>いて、
+     * XZが同一でYだけ違う{@code SwimUp}/{@code SwimDown}が1点に潰れ、潜降・浮上が
+     * 区間長0になって描画ごと消えていた。ここでは自分自身が水面でない限りセルのYを使うので、
+     * 高さ違いが潰れることはない。
      */
-    private static void center(BlockPos pos, double[] outX, double[] outY, double[] outZ, int index) {
+    private static void center(Level level, BlockPos pos, double[] outX, double[] outY, double[] outZ,
+                               int index) {
         outX[index] = pos.getX() + 0.5;
-        outY[index] = pos.getY() + 0.55;
+        outY[index] = pos.getY() + (isWaterSurface(level, pos) ? 1.0 + WATER_SURFACE_OFFSET : 0.55);
         outZ[index] = pos.getZ() + 0.5;
+    }
+
+    /** 水のセルで、かつ真上が水でない＝そこが水面。 */
+    private static boolean isWaterSurface(Level level, BlockPos pos) {
+        return level.getFluidState(pos).is(FluidTags.WATER)
+                && !level.getFluidState(pos.above()).is(FluidTags.WATER);
     }
 }

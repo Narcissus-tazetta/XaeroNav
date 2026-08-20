@@ -448,6 +448,25 @@ class AStarPathfinderTest {
                 "3マスの水路はそのまま泳いで渡る: " + movements(result));
     }
 
+    /**
+     * すでに乗っているなら、乗り込む手間をもう一度払わせない。払わせると、残りの水面が短い場面で
+     * 「降りて泳いだ方が安い」という案内になる。
+     */
+    @Test
+    void doesNotChargeBoardingAgainWhileAlreadyRiding() {
+        CellSource cells = strait(40).boatAvailable(true).ridingBoat(true);
+
+        // 始点は水面（乗っている位置）。目的地は対岸
+        PathResult result = search(cells, new BlockPos(1, 62, 0), new BlockPos(41, 63, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().allMatch(step -> !step.boating()
+                        || step.cost() < ActionCosts.BOAT_OVERHEAD_TICKS),
+                "乗り込む手間を払う区間が残っている: "
+                        + result.steps().stream().filter(PathStep::boating)
+                                .map(PathStep::cost).toList());
+    }
+
     @Test
     void doesNotOfferABoatWithoutOneInTheInventory() {
         CellSource cells = strait(40).boatAvailable(false);
