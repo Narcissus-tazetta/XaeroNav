@@ -81,6 +81,18 @@ public final class PathfindingState {
     private static final int FLIGHT_COARSE_MIN_REMAINING_WAYPOINTS = 4;
 
     /**
+     * 目的地までこの水平距離まで来たら、飛行の案内をやめて歩行の経路へ引き継ぐ（ブロック）。
+     * 歩行の探索が一度で解ける距離（{@code detailHorizonBlocks}の既定96）に合わせてある。
+     */
+    private static final double LANDING_APPROACH_ENTER_BLOCKS = 96.0;
+
+    /** 引き継いだ後、これを超えて離れたら飛行の案内へ戻す。往復しないよう入口より広く取る。 */
+    private static final double LANDING_APPROACH_EXIT_BLOCKS = 160.0;
+
+    /** 着地できる地面を探す深さ（ブロック）。{@code StanceFinder.VERTICAL_SEARCH}に合わせる。 */
+    private static final int LANDING_GROUND_SEARCH_BLOCKS = 32;
+
+    /**
      * 空中経路が一度に狙う最大の水平距離（ブロック）。
      *
      * <p><b>地形によらない固定値であることが要点</b>——歩行の{@code detailHorizonBlocks}とまったく
@@ -373,6 +385,8 @@ public final class PathfindingState {
     // 通過済みとみなす中間目標の数。地図・ワールドの点線をどこから描くかにだけ使う。
     // 単調に進める——経路が予算切れで短くなって末端が後退しても、通過済みが戻らないようにする
     private volatile int flightPassedWaypoints;
+    // 目的地の近くまで来て歩行の案内へ引き継いだか。境界での往復を防ぐヒステリシスに使う
+    private volatile boolean landingApproachActive;
     // 空中経路が引けなかったときの代替。目的地への点線を山の上・横へ曲げた2〜3点
     private volatile List<Vec3> flightGuideWaypoints;
 
@@ -520,6 +534,7 @@ public final class PathfindingState {
         this.flightPassedWaypoints = 0;
         this.flightExtendBlockedAt = null;
         this.flightExtendBlockedFrom = null;
+        this.landingApproachActive = false;
         this.arrivedTicks = 0;
     }
 
@@ -742,7 +757,7 @@ public final class PathfindingState {
         if (mc.screen != null) {
             return;
         }
-        boolean nowFlying = airborne(mc.player);
+        boolean nowFlying = airborne(mc.player) && !landingApproach(mc.level, mc.player, currentGoal);
         if (nowFlying != flying) {
             flying = nowFlying;
             if (nowFlying) {
@@ -1237,16 +1252,23 @@ public final class PathfindingState {
             flightAimedWaypoint = null;
             return goalVec;
         }
+        // 後戻りの歯止め。列の添字はルートの順序なので、これより手前は「もう通った」ことになる
+        int from = Math.max(nearestWaypointIndex(waypoints, start) + 1, flightPassedWaypoints);
         // いま狙っている点がまだ列にあって、まだ十分先なら狙い続ける。目標が動くと同じ始点でも
-        // 別の経路が出るので、ここを毎回選び直すと太線が数秒おきに描き変わる
+        // 別の経路が出るので、ここを毎回選び直すと太線が数秒おきに描き変わる。
+        //
+        // <b>距離だけで判断してはいけない</b>——角を曲がりきれずに中間目標の脇を通り過ぎると、
+        // 距離は96を超えたままなので歯止めが永久に外れず、経路が<b>後ろの点へ引き返す</b>
+        // （ユーザー報告「あるところに行ってから戻らされる」）。歩行側の
+        // 「最寄りのwaypointフォールバックが通り過ぎた点を掴んで引き返す」とまったく同じ穴
         BlockPos aimed = flightAimedWaypoint;
-        if (aimed != null && waypoints.contains(aimed)) {
+        if (aimed != null) {
+            int index = waypoints.indexOf(aimed);
             double distance = Math.sqrt(aimed.distToCenterSqr(start));
-            if (distance > FLIGHT_AIM_ADVANCE_BLOCKS && distance <= reach) {
+            if (index >= from && distance > FLIGHT_AIM_ADVANCE_BLOCKS && distance <= reach) {
                 return Vec3.atCenterOf(aimed);
             }
         }
-        int from = nearestWaypointIndex(waypoints, start) + 1;
         BlockPos target = null;
         for (int i = from; i < waypoints.size(); i++) {
             if (Math.sqrt(waypoints.get(i).distToCenterSqr(start)) > reach) {
@@ -1351,22 +1373,21 @@ public final class PathfindingState {
 
     /**
      * 継ぎ足しが狙う先。{@code lead}の内側で最も遠い中間目標、無ければ{@code lead}ぶん目的地へ寄った点。
+     *
+     * <p><b>「先」は列の添字で決める</b>（＝ルートの順序）。「目的地に近い方」で選ぶと、ルートが
+     * 曲がっている所で<b>後ろの中間目標の方が直線距離では目的地に近い</b>ことがあり、経路が
+     * 引き返す。歩行側が添字で持っているのと同じ理由。
      */
-    private static Vec3 flightExtensionTarget(Vec3 tail, Vec3 goalVec, List<BlockPos> waypoints, double lead) {
+    static Vec3 flightExtensionTarget(Vec3 tail, Vec3 goalVec, List<BlockPos> waypoints, double lead) {
         if (tail.distanceTo(goalVec) <= lead) {
             return goalVec;
         }
         Vec3 target = null;
-        for (BlockPos waypoint : waypoints) {
-            Vec3 candidate = Vec3.atCenterOf(waypoint);
-            if (tail.distanceTo(candidate) > lead) {
-                continue;
+        for (int i = nearestWaypointIndex(waypoints, tail) + 1; i < waypoints.size(); i++) {
+            if (Math.sqrt(waypoints.get(i).distToCenterSqr(tail)) > lead) {
+                break;
             }
-            // 末端より先にあるものだけ（ゴールへ近づく側）
-            if (candidate.distanceTo(goalVec) < tail.distanceTo(goalVec)
-                    && (target == null || tail.distanceTo(candidate) > tail.distanceTo(target))) {
-                target = candidate;
-            }
+            target = Vec3.atCenterOf(waypoints.get(i));
         }
         if (target != null) {
             return target;
@@ -1607,6 +1628,51 @@ public final class PathfindingState {
         double dy = pos.getY() - position.y;
         double dz = pos.getZ() + 0.5 - position.z;
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * 目的地の近くまで来ていて、そろそろ降りて歩くべきか。
+     *
+     * <p>空中経路は「どちらへ機首を向けるか」を示すもので、着地と最後の数十ブロックはそれでは
+     * 案内できない。目的地の近くまで来たら歩行の経路へ引き継ぐ方が、降りる場所も歩く道も
+     * そのまま出る。
+     *
+     * <p>条件に<b>真下に地面があること</b>を入れているのが要点。高い所を飛んでいる間に切り替えると、
+     * {@code StanceFinder.resolveStart}が始点を解決できず（真下{@code VERTICAL_SEARCH}ブロックしか
+     * 見ない）、辺が1本も出ないまま探索を投げ続けてHUDに「経路なし」が出続ける——飛行中に地上の
+     * 探索を止めている元々の理由そのもの。降りられる高さに来て初めて切り替える。
+     *
+     * <p>いったん切り替えたら、少し離れたくらいでは戻さない（{@link #LANDING_APPROACH_EXIT_BLOCKS}）。
+     * 境界上で飛行と歩行を往復すると、そのたびに経路が丸ごと作り直される。
+     */
+    private boolean landingApproach(Level level, Player player, BlockPos currentGoal) {
+        double distance = Math.sqrt(horizontalDistanceSq(player, currentGoal));
+        if (landingApproachActive) {
+            // 真下の地面は<b>入るとき</b>にだけ要る。留まる条件にも入れると、谷や溶岩の海を
+            // またぐたびに飛行へ戻り、そのたびに経路が丸ごと作り直される
+            landingApproachActive = distance <= LANDING_APPROACH_EXIT_BLOCKS;
+        } else {
+            landingApproachActive = distance <= LANDING_APPROACH_ENTER_BLOCKS && groundBelow(level, player);
+        }
+        return landingApproachActive;
+    }
+
+    /** 真下に立てる場所があるか（{@code StanceFinder}と同じ判定・同じ深さ）。 */
+    private static boolean groundBelow(Level level, Player player) {
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        int x = player.blockPosition().getX();
+        int z = player.blockPosition().getZ();
+        int y = player.blockPosition().getY();
+        for (int dy = 0; dy <= LANDING_GROUND_SEARCH_BLOCKS; dy++) {
+            cursor.set(x, y - dy, z);
+            if (cursor.getY() < level.getMinBuildHeight()) {
+                return false;
+            }
+            if (CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
