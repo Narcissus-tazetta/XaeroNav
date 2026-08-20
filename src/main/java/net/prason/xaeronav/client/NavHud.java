@@ -11,12 +11,14 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathRisk;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
+import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 
 /**
  * 画面上部の案内表示。「次にどちらへ曲がるか」「残りの道のり・所要時間」を出す。
@@ -60,11 +62,19 @@ public final class NavHud {
         if (PathfindingState.INSTANCE.arrived()) {
             add(Component.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
         } else if (PathfindingState.INSTANCE.flying()) {
-            // 滑空中は経路そのものを計算していない。「検索中」「経路なし」と同じ扱いにすると
-            // 失敗しているように読めるので、意図して案内を止めていることが分かる文言を出す
-            add(Component.translatable("hud.xaeronav.flying"), SECONDARY_COLOR);
+            // 空中経路が引けなかったこと（読み込み済みの範囲に抜け道が無い）と、そもそも案内が
+            // 出ていないことは別。前者を「経路なし」と同じ文言にすると、地上と同じ失敗に見える
+            add(PathfindingState.INSTANCE.flightRoute().isEmpty()
+                    ? Component.translatable("hud.xaeronav.flying_no_route")
+                    : Component.translatable("hud.xaeronav.flying"), SECONDARY_COLOR);
             add(Component.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
+            int climb = upcomingClimb(PathfindingState.INSTANCE.flightRoute());
+            if (climb >= CLIMB_NOTICE_BLOCKS) {
+                // 上昇はプレイヤーが行動を要求される唯一の点。ロケットが無ければ速度と高度を
+                // 交換するしかなく、線だけ見て「登れ」と分かっても間に合わないことがある
+                add(Component.translatable("hud.xaeronav.flight_climb", climb), WARNING_COLOR);
+            }
         } else if (result == null || result.steps().isEmpty()) {
             if (stuck != null) {
                 addUnreachable(stuck);
@@ -169,6 +179,19 @@ public final class NavHud {
     }
 
     /** 目的地までの直線距離。経路が出せないときでも、せめて遠いのか近いのかは分かるようにする。 */
+    /** これ以上の上昇が控えているなら知らせる（ブロック）。 */
+    private static final int CLIMB_NOTICE_BLOCKS = 12;
+
+    /** 経路の残りで登ることになる高さの合計。降下は差し引かない（降りた分は登り返さないため）。 */
+    private static int upcomingClimb(FlightRoute route) {
+        List<Vec3> points = route.points();
+        double climb = 0.0;
+        for (int i = FlightProgress.INSTANCE.segmentFor(route); i + 1 < points.size(); i++) {
+            climb += Math.max(0.0, points.get(i + 1).y - points.get(i).y);
+        }
+        return (int) Math.round(climb);
+    }
+
     private static int straightDistance(Minecraft mc, BlockPos goal) {
         if (goal == null) {
             return 0;

@@ -35,10 +35,10 @@ public final class MapPathOverlay {
      * 「何かあるか」の判定と実際の描画が別々に読むと、あると判断した経路が描く頃には消えている。
      */
     public record Snapshot(PathResult ground, BlockPos goal, BlockPos playerPos,
-                            List<BlockPos> coarseWaypoints, List<Vec3> flightBend) {
+                            List<BlockPos> coarseWaypoints, List<Vec3> flightRoute, int flightRouteFrom, List<Vec3> flightDash) {
 
         public boolean isEmpty() {
-            return ground == null && goal == null && coarseWaypoints.isEmpty();
+            return ground == null && goal == null && coarseWaypoints.isEmpty() && flightRoute.isEmpty();
         }
     }
 
@@ -49,7 +49,7 @@ public final class MapPathOverlay {
     public static Snapshot snapshot() {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
-            return new Snapshot(null, null, null, List.of(), List.of());
+            return new Snapshot(null, null, null, List.of(), List.of(), 0, List.of());
         }
         PathResult ground = PathfindingState.INSTANCE.currentResult();
         if (ground != null && ground.steps().isEmpty()) {
@@ -60,7 +60,9 @@ public final class MapPathOverlay {
                 : null;
         return new Snapshot(ground, goal, player.blockPosition(),
                 PathfindingState.INSTANCE.coarseRouteWaypoints(),
-                PathfindingState.INSTANCE.flightGuideWaypoints());
+                PathfindingState.INSTANCE.flightRoute().points(),
+                PathfindingState.INSTANCE.flightRouteFrom(),
+                PathfindingState.INSTANCE.flightDashWaypoints());
     }
 
     public static void draw(Snapshot snapshot, DotSink sink) {
@@ -103,6 +105,28 @@ public final class MapPathOverlay {
             }
         }
 
+        // 空中経路。地図は平面なので高度は表現できないが、「どちらへ回り込むのか」は出る。
+        // ワールド内の太線と同じ色にして、点線（方角だけの線）と区別する
+        List<Vec3> flightRoute = snapshot.flightRoute();
+        Vec3 flightTail = flightRoute.isEmpty() ? null : flightRoute.get(flightRoute.size() - 1);
+        if (!flightRoute.isEmpty()) {
+            int previousX = snapshot.playerPos().getX();
+            int previousZ = snapshot.playerPos().getZ();
+            // 通り過ぎた区間は描かない（ワールド内のrenderFlightRouteと同じ添字を使うこと）。
+            // 先頭は計算した時点のプレイヤー位置なので捨て、今の位置から引く
+            for (int i = Math.min(snapshot.flightRouteFrom(), flightRoute.size() - 1);
+                    i < flightRoute.size(); i++) {
+                Vec3 next = flightRoute.get(i);
+                int nextX = (int) Math.floor(next.x);
+                int nextZ = (int) Math.floor(next.z);
+                StraightDots.forEach(previousX, previousZ, nextX, nextZ,
+                        (x, z) -> sink.dot(x, z,
+                                PathColors.FLIGHT[0], PathColors.FLIGHT[1], PathColors.FLIGHT[2]));
+                previousX = nextX;
+                previousZ = nextZ;
+            }
+        }
+
         BlockPos goal = snapshot.goal();
         if (goal != null) {
             // 点線の始点は、粗いルートがあればその終点、無ければ経路の末端。経路も粗いルートも
@@ -110,7 +134,11 @@ public final class MapPathOverlay {
             // ときはfrom=toで長さ0になり、StraightDots側が何も描かず自然に消える
             int fromX;
             int fromZ;
-            if (lastCoarseWaypoint != null) {
+            if (flightTail != null) {
+                // 空中経路が引けている区間の先だけを点線で繋ぐ
+                fromX = (int) Math.floor(flightTail.x);
+                fromZ = (int) Math.floor(flightTail.z);
+            } else if (lastCoarseWaypoint != null) {
                 fromX = lastCoarseWaypoint.getX();
                 fromZ = lastCoarseWaypoint.getZ();
             } else if (dots != null && dots.count > 0) {
@@ -120,11 +148,8 @@ public final class MapPathOverlay {
                 fromX = snapshot.playerPos().getX();
                 fromZ = snapshot.playerPos().getZ();
             }
-            // 滑空中の曲がり点だけを辿る（先頭は計算した時点の位置なので使わない）。
-            // 曲げる必要が無ければ空リストで、従来どおり目的地まで1本引かれる
-            List<Vec3> bend = snapshot.flightBend();
-            for (int i = 1; i < bend.size() - 1; i++) {
-                Vec3 point = bend.get(i);
+            // 滑空中は長距離ルートの中間目標を辿る（無ければ曲がり点線、それも無ければ直線）
+            for (Vec3 point : snapshot.flightDash()) {
                 int nextX = (int) Math.floor(point.x);
                 int nextZ = (int) Math.floor(point.z);
                 straightDots(sink, fromX, fromZ, nextX, nextZ);

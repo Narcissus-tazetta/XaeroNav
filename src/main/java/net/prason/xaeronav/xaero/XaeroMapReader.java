@@ -87,39 +87,70 @@ public final class XaeroMapReader {
      */
     private static final int CAVE_MODE_DEPTH = 30;
 
+    /**
+     * 天井の無い次元で洞窟レイヤーを読む範囲（参照Yからの距離、ブロック）。
+     *
+     * <p>1枚のレイヤーが持つのは{@code caveStart}から{@link #CAVE_MODE_DEPTH}下までのスライス
+     * だけなので、中心が丸ごと1スライスぶん離れたレイヤーは「今いる高さ帯とは別の地形」を
+     * 記述している。地上を移動しているときに深い洞窟のレイヤーまで読むのは、メインスレッドの
+     * 地図読み（ここが層1でいちばん重い）を増やすだけで案内は変わらない。
+     *
+     * <p>天井のある次元には掛けない——ネザーはデータが洞窟レイヤーにしか無く、参照Yから
+     * 離れたレイヤーを落とすと読めるものが無くなる場面がある。
+     */
+    private static final int CAVE_LAYER_RELEVANCE_BLOCKS = CAVE_MODE_DEPTH;
+
     private XaeroMapReader() {
     }
 
     /**
-     * この範囲を読むときに見るべきレイヤー。天井のある次元（ネザー）だけが洞窟レイヤーを使い、
-     * それ以外は従来どおり地表レイヤー1つ。
+     * この範囲を読むときに見るべきレイヤー。参照Yに近い順に最大{@value #MAX_CAVE_LAYERS}枚。
      *
-     * <p>ネザーでは頭上が必ず岩盤天井で塞がっているため、Xaeroの{@code CaveStartCalculator}が
-     * 常に洞窟側に倒れる。データは{@code caveStart >> 4}というY帯ごとのレイヤーに分かれ、
-     * 地表レイヤーには何も入らない。
+     * <p>Xaeroの{@code CaveStartCalculator}は「頭上3×3の全列に不透明ブロックがあるか」で
+     * 洞窟レイヤーへ書くかを決める。<b>これは次元の性質ではなくその場の地形の性質</b>なので、
+     * 現世の洞窟にいるときも洞窟レイヤーに書かれている——ネザーだけの話ではない。
      *
-     * <p>判定に{@code hasSkyLight()}を使わないのはジ・エンドのため。エンドもスカイライトを持たないが、
-     * 頭上が開けているので{@code CaveStartCalculator}は地表側を返す——つまりエンドのデータは
-     * 地表レイヤーに入る。
+     * <p>ネザーは頭上が必ず岩盤天井で塞がっているため常に洞窟側へ倒れ、地表レイヤーには何も
+     * 入らない。現世は<b>両方</b>に入る（地上を歩けば地表レイヤー、洞窟に潜れば洞窟レイヤー）ので、
+     * 地表レイヤーを必ず含めたうえで洞窟レイヤーを足す。
+     *
+     * <p>ジ・エンドは頭上が開けているので{@code CaveStartCalculator}が地表側を返し、洞窟
+     * レイヤーには何も書かれない——{@code caveLayers}が空になって自然に地表だけへ落ちる。
+     * （{@code hasSkyLight()}で分けるとエンドを誤って洞窟側に倒すが、そもそも次元で分けない）
+     *
+     * <p><b>合計を{@link CoarseMap#MAX_FLOORS}以内に収めること。</b>{@code CoarseMapBuilder.putFloor}は
+     * 上限を超えたとき<b>最も高い床</b>を捨てる（呼び出し側が絞る前提の実装）。現世では地表の床が
+     * まさに最も高いので、地表＋洞窟4枚を渡すと地表が捨てられ、地上のナビが壊れる。
      *
      * <p>レイヤー番号を{@code caveStart}の計算式から予測しないのは、{@code caveStart}が
      * プレイヤーの頭上の地形次第で決まるため。実際にメモリに載っているものだけを見る。
      */
     private static int[] layersFor(MapProcessor processor, int referenceY) {
         Level level = Minecraft.getInstance().level;
-        if (level == null || !level.dimensionType().hasCeiling()) {
-            return new int[] {SURFACE_LAYER};
-        }
+        boolean hasCeiling = level != null && level.dimensionType().hasCeiling();
         List<Integer> caveLayers = new ArrayList<>(loadedLayers(processor));
         caveLayers.removeIf(layer -> layer == SURFACE_LAYER);
         if (caveLayers.isEmpty()) {
             return new int[] {SURFACE_LAYER};
         }
+        if (!hasCeiling) {
+            caveLayers.removeIf(
+                    layer -> Math.abs(layerCenterY(layer) - referenceY) > CAVE_LAYER_RELEVANCE_BLOCKS);
+            if (caveLayers.isEmpty()) {
+                return new int[] {SURFACE_LAYER};
+            }
+        }
         caveLayers.sort(Comparator.comparingInt(layer -> Math.abs(layerCenterY(layer) - referenceY)));
-        int count = Math.min(caveLayers.size(), MAX_CAVE_LAYERS);
-        int[] layers = new int[count];
+        // 天井のある次元は地表レイヤーに何も入らないので枠を空けない。それ以外は地表を必ず残す
+        int caveSlots = hasCeiling ? MAX_CAVE_LAYERS : MAX_CAVE_LAYERS - 1;
+        int count = Math.min(caveLayers.size(), caveSlots);
+        int[] layers = new int[hasCeiling ? count : count + 1];
+        int at = 0;
+        if (!hasCeiling) {
+            layers[at++] = SURFACE_LAYER;
+        }
         for (int i = 0; i < count; i++) {
-            layers[i] = caveLayers.get(i);
+            layers[at++] = caveLayers.get(i);
         }
         return layers;
     }
