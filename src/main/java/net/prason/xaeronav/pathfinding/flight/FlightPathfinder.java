@@ -56,6 +56,12 @@ public final class FlightPathfinder {
 
     private static final double MIN_IMPROVEMENT = 0.01;
 
+    /**
+     * 探索の期限を過ぎてから、平滑化に更に許す時間（ミリ秒）。ここを設けないと、上限いっぱいまで
+     * 探索した回の平滑化が青天井になる（実機で探索2秒＋平滑化6.5秒）。
+     */
+    private static final long SMOOTHING_ALLOWANCE_MILLIS = 400L;
+
     private final AirGrid grid;
     private final boolean rockets;
     private final SearchLimits limits;
@@ -80,6 +86,7 @@ public final class FlightPathfinder {
 
     private Vec3 goal;
     private double goalRadius;
+    private long deadline;
 
     /**
      * @param clearancePenaltyTicks 26近傍が完全に塞がったセルへ入るときの割増（tick）。0で無効。
@@ -135,7 +142,7 @@ public final class FlightPathfinder {
         Arrays.fill(bestSoFar, startNode);
         Arrays.fill(bestHeuristic, estimate[startNode]);
 
-        long deadline = System.currentTimeMillis() + limits.timeLimitMillis();
+        this.deadline = System.currentTimeMillis() + limits.timeLimitMillis();
         int expanded = 0;
         PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
 
@@ -302,7 +309,8 @@ public final class FlightPathfinder {
         // 先頭はプレイヤーがいるセルの中心なので、実際の位置へ差し替える。ここを中心のままにすると
         // 線が自分の横から生えて見える
         reversed.set(0, start);
-        List<Vec3> smoothed = FlightSmoother.smooth(reversed, grid, rockets, clearancePenaltyTicks);
+        List<Vec3> smoothed = FlightSmoother.smooth(reversed, grid, rockets, clearancePenaltyTicks,
+                deadline + SMOOTHING_ALLOWANCE_MILLIS);
         return new FlightRoute(List.copyOf(smoothed), termination, expanded, grid.cellBlocks());
     }
 

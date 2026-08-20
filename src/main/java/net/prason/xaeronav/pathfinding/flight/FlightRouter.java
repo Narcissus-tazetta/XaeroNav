@@ -1,6 +1,7 @@
 package net.prason.xaeronav.pathfinding.flight;
 
 import net.minecraft.world.phys.Vec3;
+import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 
 /**
@@ -22,6 +23,15 @@ public final class FlightRouter {
     /** 粒度を落とす下限（ブロック）。これより細かくしても格子の意味（クリアランス）が無くなる。 */
     private static final int MIN_CELL_BLOCKS = 2;
 
+    /**
+     * 2回目の挑戦に踏み切るために残っていてほしい時間（ミリ秒）。
+     *
+     * <p>段階ごとに期限を取り直すと、呼び出し1回の総時間が段数ぶん膨らむ。飛んでいる相手への案内
+     * なので、<b>全体で1回ぶんの時間に収める</b>方が正しい——遅れて出てくる完璧な線より、
+     * 今出てくる粗い線の方が役に立つ。
+     */
+    private static final long MIN_RETRY_BUDGET_MILLIS = 500L;
+
     private FlightRouter() {
     }
 
@@ -32,8 +42,16 @@ public final class FlightRouter {
     public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
                                      FlightTuning tuning) {
         FlightRoute best = FlightRoute.NONE;
+        long deadline = System.currentTimeMillis() + tuning.limits().timeLimitMillis();
         for (int cells = tuning.cellBlocks(); cells >= MIN_CELL_BLOCKS; cells /= 2) {
-            FlightRoute route = new FlightPathfinder(new AirGrid(view, cells), rockets, tuning.limits(),
+            long remaining = deadline - System.currentTimeMillis();
+            if (best != FlightRoute.NONE && remaining < MIN_RETRY_BUDGET_MILLIS) {
+                // 既に何か出せていて時間も無い。ここで粘るより今ある線を返す
+                break;
+            }
+            SearchLimits limits = new SearchLimits(tuning.limits().maxExpandedNodes(),
+                    Math.max(MIN_RETRY_BUDGET_MILLIS, remaining), tuning.limits().heuristicWeight());
+            FlightRoute route = new FlightPathfinder(new AirGrid(view, cells), rockets, limits,
                     tuning.clearancePenaltyTicks()).search(start, goal, cells * GOAL_RADIUS_CELLS);
             if (route.complete()) {
                 return route;

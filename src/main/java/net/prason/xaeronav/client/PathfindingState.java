@@ -68,10 +68,17 @@ public final class PathfindingState {
     private static final int MIN_FLIGHT_RECALC_INTERVAL_TICKS = 10;
 
     /**
-     * 空中の長距離ルートを引き直すプレイヤーの移動距離（ブロック）。{@code XaeroMapReader.readSurface}は
-     * <b>メインスレッド専用</b>で重いので、層3の継ぎ足しよりずっと粗い間隔にする。中間目標は64ブロック間隔なので、これくらい動くまでは同じ列を辿ればよい。
+     * 空中の長距離ルートから、プレイヤーがこれだけ離れたら引き直す（ブロック）。
+     *
+     * <p>移動距離ではなく<b>ルートから外れた距離</b>で見るのが要点。{@code XaeroMapReader.readSurface}は
+     * <b>メインスレッド専用で重く</b>、移動距離で引くとエリトラの速度では数秒おきに走る——実機で
+     * サーバースレッドが「Can't keep up (7250ms behind)」を出していた原因がこれ。長距離ルートは
+     * 目的地まで通しで引いてあるので、<b>それに沿って飛んでいる限り引き直す理由が無い</b>。
      */
-    private static final double FLIGHT_COARSE_RECALC_MOVE_BLOCKS = 128.0;
+    private static final double FLIGHT_COARSE_OFF_ROUTE_BLOCKS = 192.0;
+
+    /** 残りの中間目標がこれを下回ったら、先を作るために引き直す。 */
+    private static final int FLIGHT_COARSE_MIN_REMAINING_WAYPOINTS = 4;
 
     /**
      * 空中経路が一度に狙う最大の水平距離（ブロック）。
@@ -1170,9 +1177,7 @@ public final class PathfindingState {
         }
         BlockPos from = player.blockPosition();
         FlightCoarseRoute existing = flightCoarseRoute;
-        if (existing != null && existing.goal().equals(currentGoal)
-                && Math.sqrt(existing.computedFrom().distSqr(from)) < FLIGHT_COARSE_RECALC_MOVE_BLOCKS) {
-            // 同じ場所からでは同じ結果になる（歩行の層1と同じ歯止め）
+        if (existing != null && existing.goal().equals(currentGoal) && stillFollowing(existing, player)) {
             return existing.waypoints();
         }
 
@@ -1198,6 +1203,21 @@ public final class PathfindingState {
         flightCoarseRoute = new FlightCoarseRoute(currentGoal, from, route.waypoints());
         flightPassedWaypoints = 0;
         return route.waypoints();
+    }
+
+    /**
+     * その長距離ルートをまだ辿れているか。辿れている限り引き直さない——同じ地図から同じ結果が
+     * 出るだけで、メインスレッドの地図読みを1回焼くことにしかならない。
+     */
+    private boolean stillFollowing(FlightCoarseRoute route, Player player) {
+        List<BlockPos> waypoints = route.waypoints();
+        if (waypoints.size() - flightPassedWaypoints < FLIGHT_COARSE_MIN_REMAINING_WAYPOINTS) {
+            // 残りが尽きかけている。この先を作るには引き直すしかない
+            return false;
+        }
+        int nearest = nearestWaypointIndex(waypoints, player.position());
+        return nearest >= 0 && Math.sqrt(waypoints.get(nearest).distToCenterSqr(player.position()))
+                <= FLIGHT_COARSE_OFF_ROUTE_BLOCKS;
     }
 
     /**
