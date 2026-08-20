@@ -36,7 +36,7 @@ public final class Heuristic {
      *
      * <p>{@code Ascend}系は必ず水平1歩を伴うが、その1歩は<b>戻せる</b>のが要点。高さを1段稼ぐ
      * 全ての移動の中で最安なのは{@code Ascend}なので、水平の相乗り先を使い切ったあとも下限は
-     * これで変わらない（{@code DiagonalAscend}=6.551、{@code ClimbUp}=8.511、{@code SwimUp}=9.091、
+     * これで変わらない（{@code DiagonalAscend}=6.551、{@code ClimbUp}=8.511、{@code SwimUp}=7.407、
      * {@code Pillar}はさらに設置コストが乗る）。
      */
     private static final double MIN_PURE_ASCEND = ActionCosts.ASCEND_ONE_BLOCK;

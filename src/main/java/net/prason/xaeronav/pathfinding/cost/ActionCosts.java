@@ -13,6 +13,45 @@ public final class ActionCosts {
     public static final double WALK_ONE_IN_WATER = 20.0 / 2.2;
 
     /**
+     * 水中を泳いで1マス進む。{@code LivingEntity#travel}の水中分岐は
+     * {@code moveRelative(f5)}で速度に{@code f5}を加え、そのあと{@code f4}を掛けるので
+     * 漸化式は v_(n+1) = (v_n + f5)·f4、収束先は v* = f4·f5/(1−f4)。
+     *
+     * <p>{@code f4}は{@code isSprinting()}なら0.9、そうでなければ{@code getWaterSlowDown()}=0.8。
+     * {@code f5}は0.02。<b>海を渡るプレイヤーは必ずうつ伏せ泳ぎ</b>（{@code Entity#updateSwimming}の
+     * 継続条件が「疾走中かつ体が水中」）なので0.9側を採る:
+     * v* = 0.9·0.02/0.1 = 0.18 blocks/tick = 3.6 blocks/秒。
+     *
+     * <p>{@link #WALK_ONE_IN_WATER}(2.2 blocks/秒)と分けるのは、あちらが<b>水底を歩く</b>速度だから。
+     * 泳ぎに流用すると1.6倍の過大評価になり、水面を泳ぐより陸を大きく迂回する方が安く見える。
+     */
+    public static final double SWIM_ONE_BLOCK = 20.0 / 3.6;
+
+    /**
+     * 水中を1マス浮上する（ジャンプキー長押し）。{@code LivingEntity#jumpInLiquid}が毎tick
+     * y速度に+0.04を足し、{@code travel}がそれに0.8を掛けてから重力
+     * （{@code Attributes.GRAVITY}=0.08の1/16＝0.005）を引く。
+     * v* = 0.8·(v* + 0.04) − 0.005 → v* = 0.135 blocks/tick = 2.7 blocks/秒。
+     */
+    public static final double SWIM_UP_ONE_BLOCK = 20.0 / 2.7;
+
+    /**
+     * 水中を1マス潜降する（スニーク長押し）。浮上と同じ漸化式で加算が−0.04になる。
+     * v* = 0.8·(v* − 0.04) − 0.005 → v* = −0.185 blocks/tick = 3.7 blocks/秒。
+     *
+     * <p><b>浮上より潜降の方が速い</b>のは、重力が浮上では減速側・潜降では加速側に効くため。
+     * 上下を同じ値にすると、A*が「潜ってから浮上する」経路を実際より安く見積もる。
+     */
+    public static final double SWIM_DOWN_ONE_BLOCK = 20.0 / 3.7;
+
+    /**
+     * 空気が尽きるまでのtick数（{@code Entity#getMaxAirSupply}）。目が水に浸かっている間
+     * {@code decreaseAirSupply}が毎tick1ずつ減らし、−20に達した時点で溺れダメージが入る。
+     * 水面に出れば{@code increaseAirSupply}が毎tick4ずつ戻す。
+     */
+    public static final int AIR_SUPPLY_TICKS = 300;
+
+    /**
      * ボートで直進し続けたときの定常速度（1ブロックあたりのtick数）。
      * {@code Boat#floatBoat()}（水上時 invFriction=0.9F）と{@code Boat#controlBoat()}
      * （前進キー押下時、friction適用後に f=0.04F を加算）から、速度の漸化式

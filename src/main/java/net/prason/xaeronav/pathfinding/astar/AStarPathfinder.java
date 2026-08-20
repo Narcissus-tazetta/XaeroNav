@@ -318,7 +318,7 @@ public final class AStarPathfinder {
         // 既定の地上高より上を通ることが珍しくない。そこで中継を終えると、洞窟の中から
         // 目的地へ直行する経路＝避けたかった一直線の掘り進みに戻る
         if (surfaceGoal) {
-            return node.y >= surfaceY && node.y >= view.openSkyY(node.x, node.z);
+            return node.y >= surfaceY && node.y >= view.surfacedY(node.x, node.z);
         }
         if (goalRadius <= 0) {
             return node.x == goalX && node.y == goalY && node.z == goalZ;
@@ -589,7 +589,7 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        double baseCost = intoWater ? ActionCosts.WALK_ONE_IN_WATER
+        double baseCost = intoWater ? ActionCosts.SWIM_ONE_BLOCK
                 : ActionCosts.descendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z));
         relax(from, x, y, z, baseCost + submerged(bodyCost, x, y + 1, z),
                 intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
@@ -786,7 +786,7 @@ public final class AStarPathfinder {
                 || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.WALK_ONE_IN_WATER, MoveKind.SWIM);
+        relax(from, x, y, z, ActionCosts.SWIM_ONE_BLOCK, MoveKind.SWIM);
     }
 
     /** 水中を浮上する。水面まで上がってから水平に泳ぐ経路を作るために要る。 */
@@ -796,7 +796,7 @@ public final class AStarPathfinder {
                 || !CellData.occupiableWithoutDigging(view.cell(from.x, y + 1, from.z))) {
             return;
         }
-        relax(from, from.x, y, from.z, ActionCosts.WALK_ONE_IN_WATER, MoveKind.SWIM_UP);
+        relax(from, from.x, y, from.z, ActionCosts.SWIM_UP_ONE_BLOCK, MoveKind.SWIM_UP);
     }
 
     /** 水中を潜る。水底の地形沿いに進む方が近い場合に使う。 */
@@ -805,7 +805,7 @@ public final class AStarPathfinder {
         if (!CellData.water(view.cell(from.x, y, from.z))) {
             return;
         }
-        relax(from, from.x, y, from.z, ActionCosts.WALK_ONE_IN_WATER, MoveKind.SWIM_DOWN);
+        relax(from, from.x, y, from.z, ActionCosts.SWIM_DOWN_ONE_BLOCK, MoveKind.SWIM_DOWN);
     }
 
     /**
@@ -1002,7 +1002,12 @@ public final class AStarPathfinder {
         // 置く先は自分がいるセルそのもの。梯子・ツタに掴まっている間は onGround() が false で
         // jumpFromGround() が呼ばれず（LivingEntity#aiStep）、掴まったまま接地していても
         // handleOnClimbable が水平・下向きの速度を±0.15に固定するので、跳んで積む動作が成立しない
-        if (!CellData.replaceable(standing) || CellData.climbable(standing)) {
+        // 水はreplaceableなので、水中も「置ける場所」として素通りしていた。実際には浮いたまま
+        // 踏み切れないので、案内した通りに積み上げることはできない
+        // 水はreplaceableなので、水中も「置ける場所」として素通りしていた。実際には浮いたまま
+        // 踏み切れないので、案内した通りに積み上げることはできない
+        if (!CellData.replaceable(standing) || CellData.climbable(standing)
+                || CellData.water(standing)) {
             return;
         }
         double clearanceCost = columnCost(from.x, from.y + 2, from.y + 2, from.z, null);

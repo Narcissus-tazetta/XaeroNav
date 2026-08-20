@@ -2575,8 +2575,15 @@ public final class PathfindingState {
         if (!level.dimensionType().hasSkyLight() || level.dimensionType().hasCeiling()) {
             return false;
         }
-        // 頭の上に空が見えているなら地上。屋根の下・洞窟の中にいるときだけ中継区間を挟む
-        if (level.canSeeSky(start.above())) {
+        // 頭の上に空が見えているなら地上。屋根の下・洞窟の中にいるときだけ中継区間を挟む。
+        //
+        // canSeeSkyではなくcanSeeSkyFromBelowWaterを使うのは、水がスカイライトを減衰させるため
+        // canSeeSkyが水中で必ずfalseになるから。海底は既定のgroundLevelY(60)を下回るので、
+        // 潜っただけで「洞窟の中」と判定されて中継区間に入っていた。しかも中継区間のゴールは
+        // openSkyY（MOTION_BLOCKINGは流体を含むので水面の1つ上＝水の外）で、そこは空気で足場が
+        // 無い＝外洋では原理的に到達できず、届かなかった中継経路は空の経路として表示される。
+        // これが「海の下から線が伸びない」の正体だった。
+        if (level.canSeeSkyFromBelowWater(start.above())) {
             return false;
         }
         BlockPos failedAt = surfaceLegFailedAt;

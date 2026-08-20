@@ -24,7 +24,7 @@ final class PathProgress {
     private static final int WINDOW_AHEAD = 32;
     private static final int WINDOW_BEHIND = 8;
 
-    /** 窓の中に近い点が無ければ経路から外れたとみなし、全体を探し直す（ブロック）。 */
+    /** 窓の中に近い点が無ければ経路から外れたとみなし、全体を探し直す（ブロック、<b>水平距離</b>）。 */
     private static final double FULL_SCAN_DISTANCE = 8.0;
 
     private PathResult source;
@@ -49,7 +49,8 @@ final class PathProgress {
         int from = Math.max(0, index - WINDOW_BEHIND);
         int to = Math.min(steps.size() - 1, index + WINDOW_AHEAD);
         int best = nearest(steps, position, from, to);
-        if (distanceSq(steps.get(best).pos(), position) > FULL_SCAN_DISTANCE * FULL_SCAN_DISTANCE) {
+        if (horizontalDistanceSq(steps.get(best).pos(), position)
+                > FULL_SCAN_DISTANCE * FULL_SCAN_DISTANCE) {
             best = nearest(steps, position, 0, steps.size() - 1);
         }
         index = best;
@@ -100,5 +101,21 @@ final class PathProgress {
         double dy = step.getY() - position.y;
         double dz = step.getZ() + 0.5 - position.z;
         return dx * dx + dy * dy + dz * dz;
+    }
+
+    /**
+     * 全体走査へ落ちるかの判定にだけ使う水平距離。
+     *
+     * <p>ここでYを見ると、水面を泳いでいて経路が水中を通る場面（高低差だけで8ブロックを超える）で
+     * 毎tick全体走査に落ちる。全体走査は経路が自分自身の近くを通る地形で遠くの区間へ飛び移るので、
+     * 手前の案内がまるごと描かれなくなる。<b>真上にいるなら経路を辿れている</b>と見るのが正しい。
+     *
+     * <p>{@link #nearest}の側はYを見たままにしてある。折り返し階段のように同じXZを高さ違いで
+     * 通る経路では、Yが唯一の手がかりになる。
+     */
+    private static double horizontalDistanceSq(BlockPos step, Vec3 position) {
+        double dx = step.getX() + 0.5 - position.x;
+        double dz = step.getZ() + 0.5 - position.z;
+        return dx * dx + dz * dz;
     }
 }

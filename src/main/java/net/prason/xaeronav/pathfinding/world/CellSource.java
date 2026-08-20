@@ -87,4 +87,20 @@ public interface CellSource {
      * 空の下だと言い切れない以上、地上として扱ってはいけない。
      */
     int openSkyY(int x, int z);
+
+    /**
+     * この列で「地上に出た」とみなしてよい最小のY。陸では{@link #openSkyY}と同じ。
+     *
+     * <p>水柱だけが1マス下がる。{@code openSkyY}が使うMOTION_BLOCKINGハイトマップは
+     * <b>流体を含む</b>ので、海では水面の1つ上＝水の外を指す。そこは空気で足場が無く、
+     * 泳いでいるプレイヤーが立てるノードにならない——外洋では「地上へ出る」中継探索が
+     * 原理的に成功できなくなっていた。水面に顔を出せていればそこはもう地上として扱う。
+     */
+    default int surfacedY(int x, int z) {
+        int sky = openSkyY(x, z);
+        if (sky == Integer.MAX_VALUE) {
+            return sky;
+        }
+        return CellData.water(cell(x, sky - 1, z)) ? sky - 1 : sky;
+    }
 }

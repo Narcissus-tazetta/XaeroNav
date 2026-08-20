@@ -145,8 +145,8 @@ public final class PathRenderer {
         PathGeometry current = null;
         if (hasGround) {
             current = geometry;
-            if (current == null || !current.matches(groundResult, playerInWater, playerFeetY)) {
-                current = PathGeometry.build(mc.level, groundResult, playerPos, playerInWater, playerFeetY);
+            if (current == null || !current.matches(groundResult)) {
+                current = PathGeometry.build(groundResult, playerPos);
                 geometry = current;
             }
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);

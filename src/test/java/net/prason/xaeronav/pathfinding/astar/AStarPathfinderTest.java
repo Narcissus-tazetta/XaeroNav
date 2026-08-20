@@ -291,6 +291,31 @@ class AStarPathfinderTest {
                 "既存の坑道を歩いて出られるなら掘らない: " + movements(result));
     }
 
+    /**
+     * 海の中では「水面に顔を出せた」を地上到達として認める。{@code openSkyY}が使う
+     * MOTION_BLOCKINGハイトマップは流体を含むので水面の<b>1つ上</b>を指すが、そこは空気で
+     * 足場が無く、泳いでいるプレイヤーが立てるノードにならない。そのまま条件にすると、
+     * 外洋では地上へ出る中継探索が原理的に成功できなかった。
+     */
+    @Test
+    void surfaceSearchReachesTheWaterLineWhenTheColumnIsSea() {
+        // y=62 が海底、y=63〜66 が水、y=67 から上は空（fillWithを使わないので図の外は空気）
+        CellSource cells = FakeCells.of(0, 62, 0, """
+                ......
+                ~~~~~~
+                ~~~~~~
+                ~~~~~~
+                ~~~~~~
+                ######""");
+
+        PathResult result = new AStarPathfinder(cells)
+                .searchToSurface(new BlockPos(0, 63, 0), 64, NOT_CANCELLED);
+
+        assertTrue(result.complete(), "泳ぎ上がれば水面に出られる");
+        assertEquals(66, last(result).pos().getY(),
+                "水面のセルで到達とみなす（その1つ上は水の外＝立てない）: " + last(result).pos());
+    }
+
     @Test
     void samePathIsReturnedForTheSameTerrain() {
         // 展開ノード数で打ち切るのは、同じ入力なら同じ経路を返させるため。
@@ -799,22 +824,53 @@ class AStarPathfinderTest {
                 "遥か下が溶岩と気付かず、迂回できるのに橋を架けた: " + movements(result));
     }
 
+    /**
+     * 水面より高い岩盤の断崖に面した縦穴。水面(y=63)からは縁(y=67)へ登れないので、
+     * 上に出る手段は「水中から積み上げる」しか無い。壁を水面より高くしてあるのが要点で、
+     * 同じ高さだと泳ぎ上がって縁へ{@code Ascend}できてしまい、積むかどうかを問えない。
+     */
+    private static FakeCells floodedShaft() {
+        return FakeCells.of(0, 60, 0, """
+                ......
+                ......
+                .BBB..
+                .BBB..
+                .BBB..
+                ~BBB..
+                ~BBB..
+                ~BBB..
+                BBBBBB""")
+                .fillWith(FakeCells.BEDROCK);
+    }
+
     @Test
     void doesNotPillarWhileFloatingInWater() {
-        // 水中に浮いている状態。踏み切って真下にブロックを置くことはできない
-        CellSource cells = FakeCells.of(0, 60, 0, """
-                ......
-                ......
-                .~~~..
-                .~~~..
-                BBBBBB""")
-                .fillWith(FakeCells.BEDROCK)
-                .canPlaceBlocks(true);
+        CellSource cells = floodedShaft().canPlaceBlocks(true);
 
-        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(1, 64, 0));
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 67, 0));
 
+        assertFalse(result.complete(), "水中から積み上げられない以上、断崖の上には出られない");
         assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
                 "水中から積み上げる案内はしない: " + result.steps());
+    }
+
+    /**
+     * {@link #doesNotPillarWhileFloatingInWater}が空振りしていないことの裏付け。同じ地形の
+     * 縦穴から水を抜けば、そこは積んで登れる＝登れない理由が水であることが確かめられる。
+     */
+    @Test
+    void pillarsUpTheSameShaftWhenItIsNotFlooded() {
+        CellSource cells = floodedShaft()
+                .set(0, 61, 0, FakeCells.AIR)
+                .set(0, 62, 0, FakeCells.AIR)
+                .set(0, 63, 0, FakeCells.AIR)
+                .canPlaceBlocks(true);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 67, 0));
+
+        assertTrue(result.complete(), "水が無ければ積んで登れる");
+        assertTrue(result.steps().stream().anyMatch(PathStep::bridging),
+                "積んで登る区間が出る: " + movements(result));
     }
 
     /**

@@ -5,24 +5,16 @@ import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.tags.FluidTags;
-import net.minecraft.world.level.Level;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 
 /**
  * ワールド内描画用に経路を焼き固めたもの。経路が変わったときにだけ組み直す。
  *
- * <p>描画位置の決定には水面の探索（{@code getFluidState}と上方向スキャン）が要る。経路が変わらない限り
- * 結果は同じなので、毎フレームやるとステップ数×フレームレートぶんのブロック参照を無駄に繰り返すことになる。
- *
- * <p>合わせて、同色かつ一直線に続く区間は1本の区間へまとめる。平坦な地形では数十〜数百の区間が
+ * <p>同色かつ一直線に続く区間は1本の区間へまとめる。平坦な地形では数十〜数百の区間が
  * 1本になり、描画する頂点数がそのまま桁で減る。まとめても両端は元のままなので見た目は変わらない。
  */
 final class PathGeometry {
-
-    /** 水上区間の線をブロック上面よりわずかに浮かせ、水面のテクスチャとのZファイティングを避ける。 */
-    private static final double WATER_SURFACE_OFFSET = 0.05;
 
     /** 2区間を一直線とみなす外積の大きさの上限。区間長が約1ブロックなので、この値なら実質的に厳密一致。 */
     private static final double COLLINEAR_EPSILON = 1.0e-6;
@@ -34,8 +26,6 @@ final class PathGeometry {
     private static final int FADE_TAIL_STEPS = 8;
 
     private final PathResult source;
-    private final boolean playerInWater;
-    private final double playerFeetY;
 
     /** 区間の端点。要素数は「区間数 + 1」。 */
     final double[] pointX;
@@ -75,14 +65,11 @@ final class PathGeometry {
     /** この区間から先は打ち切られた末端。手前から順に薄くしていく。到達済みの経路では区間数と同じ。 */
     final int fadeFromSegment;
 
-    private PathGeometry(PathResult source, boolean playerInWater, double playerFeetY,
-                         double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
+    private PathGeometry(PathResult source, double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
                          int[] segmentEndStep, double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
                          boolean[] highlightPlacement, int nextDigFrom, int nextDigTo, int fadeFromSegment) {
         this.source = source;
-        this.playerInWater = playerInWater;
-        this.playerFeetY = playerFeetY;
         this.pointX = pointX;
         this.pointY = pointY;
         this.pointZ = pointZ;
@@ -135,15 +122,11 @@ final class PathGeometry {
         return stepZ[step + 1];
     }
 
-    boolean matches(PathResult result, boolean playerInWater, double playerFeetY) {
-        // 足元の高さは水中にいるときしか描画位置に影響しない
-        return this.source == result
-                && this.playerInWater == playerInWater
-                && (!playerInWater || this.playerFeetY == playerFeetY);
+    boolean matches(PathResult result) {
+        return this.source == result;
     }
 
-    static PathGeometry build(Level level, PathResult result, BlockPos start,
-                              boolean playerInWater, double playerFeetY) {
+    static PathGeometry build(PathResult result, BlockPos start) {
         List<PathStep> steps = result.steps();
         int count = steps.size();
 
@@ -152,10 +135,10 @@ final class PathGeometry {
         double[] rawZ = new double[count + 1];
         float[][] rawColor = new float[count][];
 
-        center(level, start, playerInWater, playerFeetY, rawX, rawY, rawZ, 0);
+        center(start, rawX, rawY, rawZ, 0);
         for (int i = 0; i < count; i++) {
             PathStep step = steps.get(i);
-            center(level, step.pos(), playerInWater, playerFeetY, rawX, rawY, rawZ, i + 1);
+            center(step.pos(), rawX, rawY, rawZ, i + 1);
             rawColor[i] = PathColors.forStep(step);
         }
 
@@ -245,7 +228,7 @@ final class PathGeometry {
             hPlacement[i] = highlightPlacements.get(i);
         }
 
-        return new PathGeometry(result, playerInWater, playerFeetY,
+        return new PathGeometry(result,
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), rawX, rawY, rawZ,
                 hx, hy, hz, hColor, hPlacement, nextDigFrom, nextDigTo,
@@ -272,26 +255,16 @@ final class PathGeometry {
     }
 
     /**
-     * 水中を通る区間は、実際の経路（海底沿い）ではなく水面のすぐ上に線を描く方が見やすい。
-     * ただしプレイヤー自身が水中にいる場合は水面まで届かないその場の見た目のほうが自然なので、
-     * プレイヤーの足元の高さで揃える（design doc §2-5、経路の視覚表現）。
+     * 経路のセルを線の通過点にする。
+     *
+     * <p>水中も他と同じく実際のセルのYを使う。以前は水中のセルを「水面のすぐ上」あるいは
+     * 「プレイヤーの足元の高さ」へ揃えていたが、どちらも<b>同じ列の高さ違いを1点に潰す</b>ので、
+     * XZが同一でYだけ違う{@code SwimUp}/{@code SwimDown}が区間長0になって描画ごと消えていた。
+     * 潜降・浮上が線として見えないのはそれが理由。
      */
-    private static void center(Level level, BlockPos pos, boolean playerInWater, double playerFeetY,
-                               double[] outX, double[] outY, double[] outZ, int index) {
+    private static void center(BlockPos pos, double[] outX, double[] outY, double[] outZ, int index) {
         outX[index] = pos.getX() + 0.5;
+        outY[index] = pos.getY() + 0.55;
         outZ[index] = pos.getZ() + 0.5;
-        if (!level.getFluidState(pos).is(FluidTags.WATER)) {
-            outY[index] = pos.getY() + 0.55;
-            return;
-        }
-        if (playerInWater) {
-            outY[index] = playerFeetY;
-            return;
-        }
-        BlockPos cursor = pos;
-        while (level.getFluidState(cursor.above()).is(FluidTags.WATER)) {
-            cursor = cursor.above();
-        }
-        outY[index] = cursor.getY() + 1 + WATER_SURFACE_OFFSET;
     }
 }

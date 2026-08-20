@@ -271,7 +271,9 @@ public final class FakeCells implements CellSource {
 
     /**
      * 本番の{@link ChunkView}はハイトマップを引くが、ここには地形しか無いので列を上から舐めて求める。
-     * 頭上を塞ぐのは空気でも水でもないセル（＝{@code MOTION_BLOCKING}に相当）。
+     * 頭上を塞ぐのは空気ではないセル——<b>水も含む</b>。本番が使う{@code MOTION_BLOCKING}の述語が
+     * {@code blocksMotion() || !getFluidState().isEmpty()}で流体を数えるのに合わせてある
+     * （海では「水面の1つ上」が返る）。
      */
     @Override
     public int openSkyY(int x, int z) {
