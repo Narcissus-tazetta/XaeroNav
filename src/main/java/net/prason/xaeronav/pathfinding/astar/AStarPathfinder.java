@@ -129,7 +129,7 @@ public final class AStarPathfinder {
     /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
     private final int maxSubmergedTicks;
 
-    /** この探索が{@link #maxSubmergedRun}を理由に移動を1つでも捨てたか。 */
+    /** この探索が{@link #maxSubmergedTicks}を理由に移動を1つでも捨てたか。 */
     private boolean submergedRunCapBlocked;
 
     /** 始点がすでに橋の途中である場合の、そこまでの連続長。 */
@@ -1158,8 +1158,6 @@ public final class AStarPathfinder {
         // 置く先は自分がいるセルそのもの。梯子・ツタに掴まっている間は onGround() が false で
         // jumpFromGround() が呼ばれず（LivingEntity#aiStep）、掴まったまま接地していても
         // handleOnClimbable が水平・下向きの速度を±0.15に固定するので、跳んで積む動作が成立しない
-        // 水はreplaceableなので、水中も「置ける場所」として素通りしていた。実際には浮いたまま
-        // 踏み切れないので、案内した通りに積み上げることはできない
         // 水はreplaceableなので、水中も「置ける場所」として素通りしていた。実際には浮いたまま
         // 踏み切れないので、案内した通りに積み上げることはできない
         if (!CellData.replaceable(standing) || CellData.climbable(standing)
