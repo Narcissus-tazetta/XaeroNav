@@ -87,6 +87,24 @@ class FlightProgressTest {
     }
 
     @Test
+    void carryingOverKeepsTheSegmentWhenTheRouteIsExtended() {
+        // 継ぎ足しは手前の点の添字を変えないので、対応づけはそのまま通用する。
+        // 引き継がないと添字が0へ戻り、伸ばした瞬間だけ通過済みの区間が描き直される
+        FlightRoute route = straight();
+        at(route, new Vec3(150.0, 64.0, 0.0));
+        assertEquals(1, FlightProgress.INSTANCE.segmentFor(route));
+
+        FlightRoute extended = route.append(new FlightRoute(
+                List.of(new Vec3(200.0, 64.0, 0.0), new Vec3(300.0, 64.0, 0.0)),
+                PathResult.Termination.REACHED_GOAL, 1, 4));
+        FlightProgress.INSTANCE.carryOver(extended);
+
+        assertEquals(4, extended.points().size(), "継ぎ足しで点が重複している");
+        assertEquals(1, FlightProgress.INSTANCE.segmentFor(extended),
+                "継ぎ足しで対応づけが先頭へ戻っている");
+    }
+
+    @Test
     void anEmptyRouteReportsNoDeviation() {
         assertFalse(at(FlightRoute.NONE, new Vec3(0.0, 64.0, 0.0)).deviated(THRESHOLD));
     }

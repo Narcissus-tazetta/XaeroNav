@@ -65,6 +65,21 @@ final class FlightProgress {
     /** 窓の中に近い区間が無ければ全体を探し直す境界（ブロック）。 */
     private static final double FULL_SCAN_DISTANCE = 48.0;
 
+    /**
+     * 末尾に区間を継ぎ足しただけの経路へ、対応づけをそのまま引き継ぐ。継ぎ足しは手前の点の
+     * 添字を変えないので、いま指している区間はそのまま通用する。
+     *
+     * <p>これを呼ばずに新しい{@link FlightRoute}を渡すと、{@link #update}が別経路とみなして
+     * 添字を0に戻す。点線の切り詰めがその添字を使っているので、伸ばした瞬間だけ通過済みの区間が
+     * 描き直される（歩行の{@code PathProgress.carryOver}と同じ理由）。
+     */
+    void carryOver(FlightRoute extended) {
+        if (source == null) {
+            return;
+        }
+        source = extended;
+    }
+
     /** {@code route}に対応づけ済みの区間。違う経路なら先頭。 */
     int segmentFor(FlightRoute route) {
         return route == source ? segment : 0;

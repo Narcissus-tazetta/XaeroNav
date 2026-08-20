@@ -45,6 +45,22 @@ public record FlightRoute(List<Vec3> points, PathResult.Termination termination,
                 || termination == PathResult.Termination.TIME_LIMIT;
     }
 
+    /**
+     * この経路の末端から続く{@code extension}を繋いだ新しい経路。
+     *
+     * <p>手前の点の添字は変わらない——{@code FlightProgress}の対応づけをそのまま引き継げるのは
+     * そのため。{@code extension}の先頭はこちらの末端と同じ点なので落とす。
+     */
+    public FlightRoute append(FlightRoute extension) {
+        if (extension.points().size() < 2) {
+            return this;
+        }
+        List<Vec3> combined = new java.util.ArrayList<>(points);
+        combined.addAll(extension.points().subList(1, extension.points().size()));
+        return new FlightRoute(List.copyOf(combined), extension.termination(),
+                expandedNodes + extension.expandedNodes(), cellBlocks);
+    }
+
     /** 折れ線の末端。空なら{@code null}。 */
     public Vec3 tail() {
         return points.isEmpty() ? null : points.get(points.size() - 1);
