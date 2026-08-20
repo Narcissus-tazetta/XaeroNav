@@ -474,7 +474,7 @@ public final class PathfindingState {
         int x = goal.getX();
         int z = goal.getZ();
         if (!level.hasChunkAt(x, z)) {
-            BlockPos fromMap = XaeroPresence.mapPresent() ? resolveWaypointOnSurface(goal) : null;
+            BlockPos fromMap = XaeroPresence.mapPresent() ? resolveGoalOnSurface(goal) : null;
             return fromMap != null ? fromMap : goal;
         }
         int minY = level.getMinBuildHeight() + 1;
@@ -2457,6 +2457,19 @@ public final class PathfindingState {
      * （長距離ルートの他の発動条件と同じく、層2が使えない場合は素の層1へフォールバックする）。
      */
     private static BlockPos resolveWaypointOnSurface(BlockPos waypoint) {
+        return resolveOnSurface(waypoint, false);
+    }
+
+    /**
+     * 目的地版。水の列で<b>要求されたYに近い方</b>（水面か水底か）を選ぶ点だけが違う。
+     * 中間目標は向かう方角を示すものなので水面で構わないが、目的地はユーザーが指した点そのもので、
+     * 海底を指したなら水面で「到着」にしてはいけない。
+     */
+    private static BlockPos resolveGoalOnSurface(BlockPos goal) {
+        return resolveOnSurface(goal, true);
+    }
+
+    private static BlockPos resolveOnSurface(BlockPos waypoint, boolean preferRequestedY) {
         int chunkX = waypoint.getX() >> 4;
         int chunkZ = waypoint.getZ() >> 4;
         int referenceY = waypoint.getY();
@@ -2465,7 +2478,9 @@ public final class PathfindingState {
             XaeroMapReader.requestLoad(chunkX, chunkZ, 1, 1, referenceY);
         }
         SurfaceGrid grid = XaeroMapReader.readSurfaceDetailed(chunkX * 16, chunkZ * 16, 16, 16, referenceY);
-        BlockPos resolved = grid.resolveStandable(waypoint.getX(), waypoint.getZ());
+        BlockPos resolved = preferRequestedY
+                ? grid.resolveStandableNear(waypoint.getX(), waypoint.getZ(), referenceY)
+                : grid.resolveStandable(waypoint.getX(), waypoint.getZ());
         return resolved != null ? resolved : waypoint;
     }
 
