@@ -44,6 +44,7 @@ public final class ActionCosts {
      */
     public static final double SWIM_DOWN_ONE_BLOCK = 20.0 / 3.7;
 
+
     /**
      * 空気が尽きるまでのtick数（{@code Entity#getMaxAirSupply}）。目が水に浸かっている間
      * {@code decreaseAirSupply}が毎tick1ずつ減らし、−20に達した時点で溺れダメージが入る。
@@ -127,6 +128,17 @@ public final class ActionCosts {
     public static final double DIAGONAL_DISTANCE = Math.sqrt(2.0);
 
     /**
+     * 水中を進みながら1マス浮上する。{@link #ASCEND_ONE_BLOCK}と同じ「同時にこなす2つの成分のうち
+     * 遅い方」というmaxモデルを踏襲する（浮きながら前へ進んでいるので加算ではない）。
+     *
+     * <p>結果として真上への浮上（{@link #SWIM_UP_ONE_BLOCK}）と同値になり、<b>水平の進みが
+     * ただで付いてくる</b>。陸の{@code Ascend}が水平1歩をジャンプ時間に相乗りさせているのと同じ形で、
+     * これが無いと「真上へ上がってから横へ」というL字の経路しか作れない。
+     */
+    public static final double SWIM_ASCEND_ONE_BLOCK =
+            Math.max(SWIM_UP_ONE_BLOCK, SWIM_ONE_BLOCK * DIAGONAL_DISTANCE);
+
+    /**
      * 斜め1マスで1段登るコスト（tick）。{@link #ASCEND_ONE_BLOCK}と同じ「跳ぶ時間と水平移動時間の
      * 大きい方」というmaxモデルを踏襲する（跳んでいる間も水平には進んでいるので加算ではない）。
      *
@@ -170,21 +182,32 @@ public final class ActionCosts {
     public static final double SWIMMING_DIG_PENALTY = 25.0;
 
     /**
-     * 頭を水に浸けたまま<b>水平に進む</b>ときの割増。潜ったまま横断せず、先に水面へ出てから
-     * 渡る経路を選ばせるための重み。
+     * 頭を水に浸けたまま<b>高さを稼がずに</b>進むときの割増。潜ったまま横断せず、先に水面へ
+     * 出てから渡る経路を選ばせるための重み。浮上（{@link #SWIM_ASCEND_ONE_BLOCK}）だけが対象外で、
+     * 水平移動にも潜降にも掛かる。
      *
-     * <p>浮上・潜降には掛けない。息を減らしながら進んでいるのは水平移動の方で、浮上はむしろ
-     * その解消手段だから——両方に掛けると「上がるのも高い」ことになり、潜ったまま進む経路と
-     * 差が付かなくなる。
+     * <p>浮上を対象外にするのは、息を減らしながら進んでいるのが水平移動の方で、浮上はその
+     * 解消手段だから——全部に掛けると「上がるのも高い」ことになり、潜ったまま進む経路と差が付かない。
      *
-     * <p>値はA*の展開順から決まる。重み付きA*が1手ごとに見るのは「実コスト − 重み×ヒューリスティックの
-     * 減り」で、浮上は約0.45／水平は素のままだと約0.21。<b>水平の方が安く見えるので後回しに浮上する</b>。
-     * 2倍にすると水平が約5.8になり、確実に浮上が先に来る。
+     * <p><b>値は上下2つの条件で挟まれる。</b>どちらもA*の展開のされ方から決まるもので、
+     * 重さの好みではない。既定の1.3は窓の真ん中:
+     *
+     * <ul>
+     * <li><b>下限は1.0（＝割増があること）</b>。1.0では潜ったまま横断し、目的地の真下に来てから
+     *     ようやく浮上する（実測: 水底から58マス先の水面を目指して、57手ぶん潜ったまま進んでいた）。
+     *     1.05まで上げれば斜めに上がり始める</li>
+     * <li><b>上限は{@link #DIAGONAL_DISTANCE}（√2 ≒ 1.414）</b>。これを超えると<b>上下に跳ねて
+     *     割増を回避できてしまう</b>——斜め浮上だけが対象外なので、「斜めに上がって斜めに降りる」を
+     *     繰り返せば水平に進める。往復が水平2手より安くならない条件が
+     *     {@code SWIM_ASCEND_ONE_BLOCK + SWIM_ONE_BLOCK·P ≧ 2·SWIM_ONE_BLOCK·P}、
+     *     つまり {@code P ≦ SWIM_ASCEND_ONE_BLOCK / SWIM_ONE_BLOCK}。
+     *     実測でも1.4は平坦、1.45から跳ね始める</li>
+     * </ul>
      *
      * <p>水面へ出られない場所（水没した洞窟・天井のある水路）では、割増が一様に乗るだけで
      * 経路の形は変わらない。「水中洞窟は除く」がこの形で自然に満たされる。
      */
-    public static final double SUBMERGED_TRAVEL_PENALTY = 2.0;
+    public static final double SUBMERGED_TRAVEL_PENALTY = 1.3;
 
     /**
      * ブロックを設置して空洞を渡る際の照準・設置オーバーヘッド（design doc §4-1 Pillar水平版）。

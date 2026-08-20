@@ -559,9 +559,44 @@ class AStarPathfinderTest {
             }
         }
         assertTrue(surfacedAt >= 0, "水面に出る: " + result.steps().stream().map(PathStep::pos).toList());
-        int horizontalBeforeSurfacing = Math.abs(result.steps().get(surfacedAt).pos().getX());
-        assertTrue(horizontalBeforeSurfacing <= 4,
-                "横断を始める前に浮上する（水面に出るまでの水平移動）: " + horizontalBeforeSurfacing);
+        // 水底(55)から水面(70)まで15マス。1手ごとに1マス上がるので、無駄なく上がれば15手で着く
+        assertTrue(surfacedAt <= 16, "寄り道せずに浮上する（浮上までの手数）: " + (surfacedAt + 1));
+        // その間ずっと目的地の方へ進んでいる＝真上に上がってから横へ、のL字にならない
+        int advancedWhileRising = result.steps().get(surfacedAt).pos().getX();
+        assertTrue(advancedWhileRising >= 10,
+                "目的地へ向かいながら斜めに上がる（浮上までに進んだ水平距離）: " + advancedWhileRising);
+    }
+
+    /**
+     * 浮上の割増免除を悪用して上下に跳ねない。斜め浮上だけが割増の対象外なので、値を大きくしすぎると
+     * 「斜めに上がって斜めに降りる」を繰り返すのが水平移動より安くなり、水中で延々と波打つ経路になる。
+     * {@code SUBMERGED_TRAVEL_PENALTY}の上限はここから決まっている。
+     */
+    @Test
+    void doesNotBobUpAndDownToDodgeTheSubmergedPenalty() {
+        // 天井のある水没した一本道。カーディナルにしか進めないので、上下に跳ねる以外の抜け道が無い
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 24, 76, 8));
+        for (int x = -1; x <= 13; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+            for (int y = 61; y <= 64; y++) {
+                cells.set(x, y, 0, FakeCells.WATER);
+            }
+            cells.set(x, 65, 0, FakeCells.BEDROCK);
+        }
+
+        PathResult result = search(cells.maxSubmergedRunBlocks(0), new BlockPos(0, 61, 0),
+                new BlockPos(12, 61, 0));
+
+        assertTrue(result.complete());
+        int climbs = 0;
+        List<PathStep> steps = result.steps();
+        for (int i = 1; i < steps.size(); i++) {
+            if (steps.get(i).pos().getY() > steps.get(i - 1).pos().getY()) {
+                climbs++;
+            }
+        }
+        assertTrue(climbs <= 1, "水中で上下に波打っている: "
+                + steps.stream().map(step -> step.pos().getY()).toList());
     }
 
     /**
