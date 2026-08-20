@@ -316,6 +316,65 @@ class AStarPathfinderTest {
                 "水面のセルで到達とみなす（その1つ上は水の外＝立てない）: " + last(result).pos());
     }
 
+    /**
+     * 水没した横穴と、遠回りだが息継ぎできる迂回路。息が続かない潜水は<b>移動そのものを作らない</b>ので、
+     * 探索は最初から迂回路だけを見る。
+     *
+     * <p>y=63が水面（顔が出せる高さ）、y=61〜62が水中の横穴。北(z=1)側は水面まで開けている。
+     */
+    private static FakeCells floodedTunnel() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 24, 76, 8))
+                .fillWith(FakeCells.BEDROCK);
+        for (int x = -1; x <= 13; x++) {
+            // z=0: 天井(y=64)で塞がれた水没坑道。ここを泳ぐ間ずっと頭が水に浸かる
+            for (int y = 61; y <= 63; y++) {
+                cells.set(x, y, 0, FakeCells.WATER);
+            }
+            // z=2: 空の下に水面がある水路。y=63を泳げば顔が出るので息は減らない
+            for (int y = 61; y <= 63; y++) {
+                cells.set(x, y, 2, FakeCells.WATER);
+            }
+            cells.set(x, 64, 2, FakeCells.AIR);
+        }
+        // 両端(x=-1, x=13)だけが2本を繋ぐ。途中のz=1は岩盤の壁なので、坑道の途中で
+        // 顔を出しに抜けることはできない
+        for (int x : new int[] {-1, 13}) {
+            for (int y = 61; y <= 63; y++) {
+                cells.set(x, y, 1, FakeCells.WATER);
+            }
+            cells.set(x, 64, 1, FakeCells.AIR);
+        }
+        return cells;
+    }
+
+    @Test
+    void doesNotRouteThroughADiveLongerThanOneBreath() {
+        CellSource cells = floodedTunnel().maxSubmergedRunBlocks(4);
+
+        PathResult result = search(cells, new BlockPos(0, 62, 0), new BlockPos(12, 62, 0));
+
+        assertTrue(result.complete(), "顔を出せる水路を回れば到達できる");
+        assertTrue(result.steps().stream().anyMatch(step -> step.pos().getZ() != 0),
+                "息の続かない水没坑道を突っ切らず、顔を出せる水路へ逸れる: "
+                        + result.steps().stream().map(PathStep::pos).toList());
+    }
+
+    /**
+     * {@link #doesNotRouteThroughADiveLongerThanOneBreath}が空振りしていないことの裏付け。
+     * 上限を外せば同じ地形で水没横穴を直進する＝逸れる理由が息であることが確かめられる。
+     */
+    @Test
+    void divesStraightThroughWhenTheBreathLimitIsOff() {
+        CellSource cells = floodedTunnel().maxSubmergedRunBlocks(0);
+
+        PathResult result = search(cells, new BlockPos(0, 62, 0), new BlockPos(12, 62, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().allMatch(step -> step.pos().getZ() == 0),
+                "上限が無ければ最短の水没坑道を直進する: "
+                        + result.steps().stream().map(PathStep::pos).toList());
+    }
+
     @Test
     void samePathIsReturnedForTheSameTerrain() {
         // 展開ノード数で打ち切るのは、同じ入力なら同じ経路を返させるため。

@@ -296,12 +296,15 @@ public final class PathfindingExecutor {
                                      CostToGo costToGo, SearchCall run) {
         AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
         PathResult result = run.search(pathfinder, cancelled);
-        if (result.termination() == PathResult.Termination.EXHAUSTED && pathfinder.bridgeRunCapBlocked()) {
-            // 範囲内のオープンセットが尽きた＝道が一本も無い。橋の長さの上限で移動を捨てているので、
-            // それが原因かもしれない。詰むよりは長い橋の方がマシ、という優先順で上限を外して試す。
+        if (result.termination() == PathResult.Termination.EXHAUSTED
+                && (pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked())) {
+            // 範囲内のオープンセットが尽きた＝道が一本も無い。橋の長さや潜水の長さの上限で移動を
+            // 捨てているので、それが原因かもしれない。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、
+            // という優先順で上限を外して試す。片方だけ外しても、もう片方で詰んでいれば同じ結果を
+            // もう一度払うだけになるので両方まとめて外す。
             // 予算切れ（NODE_BUDGET/TIME_LIMIT）では試さない——そちらは上限とは無関係に資源が
             // 足りていないだけで、同じ探索をもう一度払うだけになる
-            PathResult uncapped = run.search(new AStarPathfinder(view, limits, costToGo, 0), cancelled);
+            PathResult uncapped = run.search(new AStarPathfinder(view, limits, costToGo, 0, 0), cancelled);
             if (uncapped.complete()) {
                 result = uncapped;
             }

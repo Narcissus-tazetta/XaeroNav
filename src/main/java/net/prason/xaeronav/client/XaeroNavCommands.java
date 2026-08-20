@@ -418,7 +418,7 @@ public final class XaeroNavCommands {
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), goal,
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, 0, false);
         boolean rockets = player.getInventory().contains(stack -> stack.getItem() instanceof FireworkRocketItem);
 
         long startedAt = System.nanoTime();
@@ -468,6 +468,7 @@ public final class XaeroNavCommands {
                 XaeroNavConfig.INSTANCE.diggingEnabled(), XaeroNavConfig.INSTANCE.bridgingEnabled(),
                 XaeroNavConfig.INSTANCE.jumpGapEnabled(), XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedRunBlocks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         reportGoalCell(source, normalView, normalBounds, start, goal, renderRadius);
 
@@ -572,6 +573,7 @@ public final class XaeroNavCommands {
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedRunBlocks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         return runProbe(view, bounds, start, goal);
     }

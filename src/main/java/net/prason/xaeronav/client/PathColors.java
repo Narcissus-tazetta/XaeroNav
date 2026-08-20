@@ -23,8 +23,14 @@ final class PathColors {
     static final float[] LAVA_ADJACENT = {1.0f, 0.1f, 0.1f};
     static final float[] VOID_BELOW = {0.8f, 0.1f, 0.8f};
     static final float[] WATER_INFLOW = {0.1f, 0.7f, 1.0f};
-    /** 息継ぎできない潜水区間。同じ水色でも{@link #SWIM}とは明確に違う暗さにする。 */
-    static final float[] DROWNING = {0.1f, 0.15f, 0.55f};
+    /**
+     * 息継ぎできない潜水区間。<b>暖色にするのが要点</b>——この線が見えるのは水の中からで、
+     * 背景も霧も青い。以前は{@link #SWIM}と区別するために暗い青にしていたが、
+     * それは水中でいちばん埋もれる色だった（遮蔽側の描画は不透明度0.3まで落ちるので尚更）。
+     * 溶岩の赤（{@link #LAVA_ADJACENT}）とも落下（{@link #FALL_DAMAGE}）の橙とも取り違えないよう、
+     * 赤寄りでも青を残した色にしてある。
+     */
+    static final float[] DROWNING = {1.0f, 0.35f, 0.55f};
     /** 体力が減る降下。危険色の中では警告寄り（{@link #LAVA_ADJACENT}の赤ほど強くない）。 */
     static final float[] FALL_DAMAGE = {1.0f, 0.35f, 0.0f};
     /** 着地寸前の水バケツが要る降下。{@link #FALL_DAMAGE}と同系だが、水を使うことが分かる色にする。 */

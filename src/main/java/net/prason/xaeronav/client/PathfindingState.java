@@ -1009,7 +1009,7 @@ public final class PathfindingState {
                 routing ? renderRadius : FlightLineRouter.HORIZONTAL_MARGIN_BLOCKS,
                 FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         // 飛行判定に掘削・ブロック設置・隙間跳び・落下ダメージはどれも無関係なので全てfalse
-        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, 0, false);
         // 長距離ルートはメインスレッドで先に済ませ、ワーカーへは不変の結果だけを渡す
         // （XaeroMapReader.readSurfaceはメインスレッド専用）
         List<BlockPos> coarse = routing
@@ -1346,7 +1346,7 @@ public final class PathfindingState {
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), new BlockPos(
                         Mth.floor(target.x), Mth.floor(target.y), Mth.floor(target.z)),
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, false);
+        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, 0, false);
         // 継ぎ足しは短い区間を何度も繋ぐので、1回の予算を絞って回数で稼ぐ。満額を許すと
         // 地形が詰まったときに毎回2秒かけて少ししか伸びず、飛ぶ速度に追いつかない
         FlightTuning tuning = flightTuning(XaeroNavConfig.INSTANCE.flightExtendMaxExpandedNodes());
@@ -1845,6 +1845,7 @@ public final class PathfindingState {
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedRunBlocks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
 
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
@@ -2037,6 +2038,7 @@ public final class PathfindingState {
                 XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
                 XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
                 XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
+                XaeroNavConfig.INSTANCE.maxSubmergedRunBlocks(),
                 XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
         SearchLimits limits = new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
                 AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());

@@ -126,6 +126,12 @@ public final class AStarPathfinder {
     /** この探索が{@link #maxBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
     private boolean bridgeRunCapBlocked;
 
+    /** 頭を水に浸けたまま続けてよい長さ（ブロック）。0なら無制限。{@link CellSource#maxSubmergedRunBlocks()}。 */
+    private final int maxSubmergedRun;
+
+    /** この探索が{@link #maxSubmergedRun}を理由に移動を1つでも捨てたか。 */
+    private boolean submergedRunCapBlocked;
+
     /** 始点がすでに橋の途中である場合の、そこまでの連続長。 */
     private int startBridgeRun;
 
@@ -183,16 +189,18 @@ public final class AStarPathfinder {
      * {@link Heuristic}（既定の幾何学的下限）を使う既存の挙動と完全に同じになる。
      */
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo) {
-        this(view, limits, costToGo, view.maxBridgeRunBlocks());
+        this(view, limits, costToGo, view.maxBridgeRunBlocks(), view.maxSubmergedRunBlocks());
     }
 
     /**
-     * 連続する橋の長さの上限を明示するコンストラクタ。0を渡すと無制限になる——
+     * 連続する橋・連続する潜水の上限を明示するコンストラクタ。0を渡すと無制限になる——
      * 上限のせいで範囲内に道が一本も無くなった場合の、詰み回避の探し直しに使う
-     * （「マグマの橋は最後の手段だが、詰みよりはマシ」という優先順）。
+     * （「マグマの橋も溺れる危険も最後の手段だが、詰みよりはマシ」という優先順）。
      */
-    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun) {
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun,
+                            int maxSubmergedRun) {
         this.maxBridgeRun = maxBridgeRun;
+        this.maxSubmergedRun = maxSubmergedRun;
         this.view = view;
         this.minDescentPerBlock = view.minDescentTicksPerBlock();
         this.maxExpandedNodes = limits.maxExpandedNodes();
@@ -211,6 +219,14 @@ public final class AStarPathfinder {
      */
     public boolean bridgeRunCapBlocked() {
         return bridgeRunCapBlocked;
+    }
+
+    /**
+     * この探索が、連続する潜水の長さの上限を理由に移動を捨てたか。捨てていない場合、
+     * 上限を外して探し直しても結果は変わらない。
+     */
+    public boolean submergedRunCapBlocked() {
+        return submergedRunCapBlocked;
     }
 
     /**
@@ -1045,6 +1061,17 @@ public final class AStarPathfinder {
      * それ以外の移動は橋の連続を断つので0になる。
      */
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
+        // 移動の種類に関わらず、着地点で頭が水に浸かるなら潜水が1マス続いたことになる。
+        // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・水へ落ちる）でも息は同じだけ減るため
+        int submergedRun = 0;
+        if (CellData.water(view.cell(x, y + 1, z))) {
+            submergedRun = from.submergedRun + 1;
+            if (maxSubmergedRun > 0 && submergedRun > maxSubmergedRun) {
+                submergedRunCapBlocked = true;
+                return;
+            }
+        }
+
         double tentativeCost = from.cost + edgeCost;
         PathNode neighbor = node(x, y, z);
         if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
@@ -1056,6 +1083,7 @@ public final class AStarPathfinder {
         neighbor.combinedCost = tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal;
         neighbor.kind = kind;
         neighbor.bridgeRun = bridgeRun;
+        neighbor.submergedRun = submergedRun;
         if (neighbor.isOpen()) {
             open.update(neighbor);
         } else {

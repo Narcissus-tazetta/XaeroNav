@@ -37,6 +37,24 @@ final class PathNode {
      */
     int bridgeRun;
 
+    /**
+     * ここまで頭が水に浸かったまま続いたブロック数。水面に顔を出すか陸に上がれば0に戻る。
+     * {@link AStarPathfinder#relax}が上限判定に使う。
+     *
+     * <p>空気は{@code AIR_SUPPLY_TICKS}で尽きるので、これは「息が続くか」そのもの。数える基準が
+     * <b>頭のセル</b>なのはバニラに合わせたため——{@code LivingEntity#baseTick}は
+     * {@code isEyeInFluid(WATER)}で空気を減らすので、腰まで浸かっていても顔が出ていれば減らない。
+     *
+     * <p>{@link #bridgeRun}と同じく<b>ノードの同一性には含まれない</b>（キーは座標のみ）。
+     * 同じセルへ短い潜水で来た経路と長い潜水で来た経路は同じノードに集約され、先に最安で
+     * 確定した方の連続長が残る。上限のせいで範囲内に道が無くなった場合は
+     * {@link AStarPathfinder#submergedRunCapBlocked()}を見て上限を外して探し直す。
+     *
+     * <p>始点の連続長は常に0から数える。潜り始めに空気が満タンとは限らないぶんは、上限側に
+     * 余裕を持たせて吸収している。
+     */
+    int submergedRun;
+
     /** {@link BinaryHeapOpenSet}内での位置。decrease-keyに必要。-1はオープンセット外を表す。 */
     int heapPosition = -1;
 
