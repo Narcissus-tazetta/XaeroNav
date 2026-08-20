@@ -17,6 +17,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 
 /**
  * design doc §2-5 / Phase 2項目9。Xaero非依存のワールド内描画。
@@ -34,6 +35,19 @@ public final class PathRenderer {
 
     /** 筒の断面半幅（ブロック）。以前の1px線より少し太い程度に留める。 */
     private static final double TUBE_RADIUS = 0.03;
+
+    /**
+     * 空中経路の筒の太さ。歩行の経路とは間合いが2桁違う——足元の線は数ブロック先だが、
+     * 空中経路は50〜200ブロック先まで伸びるので、{@link #TUBE_RADIUS}のままでは画面上で
+     * サブピクセルになって消える。
+     *
+     * <p>そこで<b>カメラからの距離に比例させて</b>、画面上の太さが間合いによらずおおよそ一定に
+     * なるようにする。近くでは{@link #FLIGHT_TUBE_MIN_RADIUS}で頭打ちにして、目の前で異様に
+     * 細くならないようにする（歩行の線より明らかに太い、というユーザーの要求はここで満たす）。
+     */
+    private static final double FLIGHT_TUBE_RADIUS_PER_BLOCK = 0.0075;
+    private static final double FLIGHT_TUBE_MIN_RADIUS = 0.12;
+    private static final double FLIGHT_TUBE_MAX_RADIUS = 0.8;
     private static final float TUBE_ALPHA = 0.9f;
 
     private static final float HIGHLIGHT_FILL_ALPHA = 0.35f;
@@ -93,8 +107,10 @@ public final class PathRenderer {
         }
 
         PathResult groundResult = PathfindingState.INSTANCE.currentResult();
+        FlightRoute flight = PathfindingState.INSTANCE.flightRoute();
         BlockPos goal = PathfindingState.INSTANCE.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
+        boolean hasFlight = !flight.isEmpty();
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
         boolean hasStraight = goal != null && XaeroNavConfig.INSTANCE.straightLineEnabled()
@@ -102,7 +118,7 @@ public final class PathRenderer {
         if (!hasGround) {
             geometry = null;
         }
-        if (!hasGround && !hasStraight) {
+        if (!hasGround && !hasFlight && !hasStraight) {
             return;
         }
 
@@ -135,8 +151,11 @@ public final class PathRenderer {
             }
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);
         }
+        if (hasFlight) {
+            renderFlightRoute(bufferSource, pose, flight, cullRadius, cameraPos);
+        }
         if (hasStraight) {
-            renderStraightLine(bufferSource, pose, current, goal, cullRadius);
+            renderStraightLine(bufferSource, pose, current, hasFlight ? flight.tail() : null, goal, cullRadius);
         }
 
         poseStack.popPose();
@@ -151,23 +170,28 @@ public final class PathRenderer {
      * 辿るものではなく方角と距離を示すものなので、遮蔽で消えると意味がなくなる。
      */
     private void renderStraightLine(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
-                                     PathGeometry geometry, BlockPos goal, double cullRadius) {
+                                     PathGeometry geometry, Vec3 flightTail, BlockPos goal, double cullRadius) {
         double fromX = playerX;
         double fromY = playerY;
         double fromZ = playerZ;
-        if (geometry != null) {
+        if (flightTail != null) {
+            // 空中経路が引けている区間の先だけを点線で繋ぐ。末端が目的地に届いていれば
+            // 長さが最小距離を下回り、drawStraightDashes側で自然に何も描かれなくなる
+            fromX = flightTail.x;
+            fromY = flightTail.y;
+            fromZ = flightTail.z;
+        } else if (geometry != null) {
             int last = geometry.pointX.length - 1;
             fromX = geometry.pointX[last];
             fromY = geometry.pointY[last];
             fromZ = geometry.pointZ[last];
         }
 
-        // 滑空中の曲がり点だけを使う（先頭は計算した時点の位置で古いので捨て、今の位置から引く）
-        List<Vec3> bend = PathfindingState.INSTANCE.flightGuideWaypoints();
+        // 滑空中は点線が長距離ルートの中間目標を辿る（無ければ曲がり点線）
+        List<Vec3> dash = PathfindingState.INSTANCE.flightDashWaypoints();
         int points = 0;
         points = pushStraightPoint(points, fromX, fromY, fromZ);
-        for (int i = 1; i < bend.size() - 1; i++) {
-            Vec3 point = bend.get(i);
+        for (Vec3 point : dash) {
             points = pushStraightPoint(points, point.x, point.y, point.z);
         }
         points = pushStraightPoint(points, goal.getX() + 0.5, goal.getY() + 0.55, goal.getZ() + 0.5);
@@ -182,6 +206,69 @@ public final class PathRenderer {
         VertexConsumer quadBuffer = bufferSource.getBuffer(RenderType.debugQuads());
         drawStraightDashes(quadBuffer, pose, points, cullRadius, STRAIGHT_ALPHA);
         bufferSource.endBatch(RenderType.debugQuads());
+    }
+
+    /**
+     * 空中経路を筒で描く。歩行の経路と違ってステップごとの色分け（危険・掘削・移動の種類）が無く、
+     * あるのは折れ線だけなので{@link PathGeometry}は通さない。
+     *
+     * <p>先頭の点は計算した時点のプレイヤー位置で、届く頃には最大で再計算間隔ぶん古い。今の位置から
+     * 引き直さないと、線が自分の少し後ろから生えているように見える。
+     */
+    private void renderFlightRoute(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
+                                    FlightRoute route, double cullRadius, Vec3 camera) {
+        List<Vec3> points = route.points();
+        // 通り過ぎた区間は描かない。空中経路は引き直しの合間に数十ブロック進むので、
+        // これが無いと線が自分の後ろへ伸びたままになる（歩行のrenderGroundPathと同じ理由）
+        int first = PathfindingState.INSTANCE.flightRouteFrom();
+        int count = 0;
+        count = pushStraightPoint(count, playerX, playerY, playerZ);
+        for (int i = first; i < points.size(); i++) {
+            Vec3 point = points.get(i);
+            count = pushStraightPoint(count, point.x, point.y, point.z);
+        }
+
+        // 遮蔽側を積み切ってからバッファを閉じ、それから通常側へ移る（renderStraightLineと同じ理由）
+        VertexConsumer occluded = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
+        drawFlightSegments(occluded, pose, count, cullRadius, OCCLUDED_TUBE_ALPHA, camera);
+        bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
+
+        VertexConsumer quads = bufferSource.getBuffer(RenderType.debugQuads());
+        drawFlightSegments(quads, pose, count, cullRadius, TUBE_ALPHA, camera);
+        bufferSource.endBatch(RenderType.debugQuads());
+    }
+
+    /** 画面上の太さを間合いによらず一定に保つための、この区間での筒の半幅。 */
+    private static double flightTubeRadius(Vec3 camera, double fromX, double fromY, double fromZ,
+                                            double toX, double toY, double toZ) {
+        double distance = Math.sqrt(distanceSqToSegment(camera, fromX, fromY, fromZ, toX, toY, toZ));
+        return Math.clamp(distance * FLIGHT_TUBE_RADIUS_PER_BLOCK,
+                FLIGHT_TUBE_MIN_RADIUS, FLIGHT_TUBE_MAX_RADIUS);
+    }
+
+    private void drawFlightSegments(VertexConsumer buffer, PoseStack.Pose pose, int points, double cullRadius,
+                                     float alpha, Vec3 camera) {
+        for (int i = 0; i + 1 < points; i++) {
+            double fromX = straightPoints[i * 3];
+            double fromY = straightPoints[i * 3 + 1];
+            double fromZ = straightPoints[i * 3 + 2];
+            double toX = straightPoints[i * 3 + 3];
+            double toY = straightPoints[i * 3 + 4];
+            double toZ = straightPoints[i * 3 + 5];
+            double dx = toX - fromX;
+            double dy = toY - fromY;
+            double dz = toZ - fromZ;
+            double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (length < 1.0e-4) {
+                continue;
+            }
+            // 描画距離の外は地形ごと描かれないので、そこまで積んでも見えない
+            double drawn = Math.min(length, cullRadius);
+            drawTube(buffer, pose, flightTubeRadius(camera, fromX, fromY, fromZ, toX, toY, toZ),
+                    fromX, fromY, fromZ,
+                    fromX + dx / length * drawn, fromY + dy / length * drawn, fromZ + dz / length * drawn,
+                    PathColors.FLIGHT[0], PathColors.FLIGHT[1], PathColors.FLIGHT[2], alpha);
+        }
     }
 
     private int pushStraightPoint(int count, double x, double y, double z) {
@@ -221,7 +308,7 @@ public final class PathRenderer {
                             double dirX, double dirY, double dirZ, double length, float alpha) {
         for (double start = 0.0; start < length; start += DASH_LENGTH + DASH_GAP) {
             double end = Math.min(start + DASH_LENGTH, length);
-            drawTube(buffer, pose,
+            drawTube(buffer, pose, TUBE_RADIUS,
                     fromX + dirX * start, fromY + dirY * start, fromZ + dirZ * start,
                     fromX + dirX * end, fromY + dirY * end, fromZ + dirZ * end,
                     PathColors.STRAIGHT[0], PathColors.STRAIGHT[1], PathColors.STRAIGHT[2], alpha);
@@ -306,7 +393,7 @@ public final class PathRenderer {
      */
     private void drawSegment(VertexConsumer buffer, PoseStack.Pose pose, PathGeometry geometry, int index,
                              float alpha, int cutStep) {
-        drawTube(buffer, pose,
+        drawTube(buffer, pose, TUBE_RADIUS,
                 cutStep >= 0 ? geometry.cutX(cutStep) : geometry.pointX[index],
                 cutStep >= 0 ? geometry.cutY(cutStep) : geometry.pointY[index],
                 cutStep >= 0 ? geometry.cutZ(cutStep) : geometry.pointZ[index],
@@ -400,7 +487,7 @@ public final class PathRenderer {
      * 区間を「筒」として描画する。フラットな線だと真横から見た時に見づらいため、
      * 進行方向に直交する正方形断面を押し出して立体的な形状にする。
      */
-    private void drawTube(VertexConsumer buffer, PoseStack.Pose pose,
+    private void drawTube(VertexConsumer buffer, PoseStack.Pose pose, double radius,
                           double fromX, double fromY, double fromZ, double toX, double toY, double toZ,
                           float red, float green, float blue, float alpha) {
         double dirX = toX - fromX;
@@ -424,17 +511,17 @@ public final class PathRenderer {
         double rightY = dirZ * refX;
         double rightZ = dirX * refY - dirY * refX;
         double rightLength = Math.sqrt(rightX * rightX + rightY * rightY + rightZ * rightZ);
-        rightX = rightX / rightLength * TUBE_RADIUS;
-        rightY = rightY / rightLength * TUBE_RADIUS;
-        rightZ = rightZ / rightLength * TUBE_RADIUS;
+        rightX = rightX / rightLength * radius;
+        rightY = rightY / rightLength * radius;
+        rightZ = rightZ / rightLength * radius;
 
         double upX = rightY * dirZ - rightZ * dirY;
         double upY = rightZ * dirX - rightX * dirZ;
         double upZ = rightX * dirY - rightY * dirX;
         double upLength = Math.sqrt(upX * upX + upY * upY + upZ * upZ);
-        upX = upX / upLength * TUBE_RADIUS;
-        upY = upY / upLength * TUBE_RADIUS;
-        upZ = upZ / upLength * TUBE_RADIUS;
+        upX = upX / upLength * radius;
+        upY = upY / upLength * radius;
+        upZ = upZ / upLength * radius;
 
         ringX[0] = upX + rightX;
         ringY[0] = upY + rightY;

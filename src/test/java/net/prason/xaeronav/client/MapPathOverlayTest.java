@@ -53,7 +53,7 @@ class MapPathOverlayTest {
         BlockPos player = new BlockPos(0, Y, 0);
         List<BlockPos> waypoints = List.of(new BlockPos(100, Y, 0), new BlockPos(200, Y, 0));
         MapPathOverlay.Snapshot snapshot =
-                new MapPathOverlay.Snapshot(null, new BlockPos(200, Y, 0), player, waypoints, List.of());
+                new MapPathOverlay.Snapshot(null, new BlockPos(200, Y, 0), player, waypoints, List.of(), 0, List.of());
 
         assertTrue(hasDotBetween(coarseDots(snapshot), 0, 100),
                 "最初の中間目標までの区間が描かれず、点線がプレイヤーから離れて浮いている");
@@ -65,7 +65,7 @@ class MapPathOverlayTest {
         PathResult detail = path(List.of(new BlockPos(0, Y, 0), new BlockPos(25, Y, 0), new BlockPos(50, Y, 0)));
         List<BlockPos> waypoints = List.of(new BlockPos(150, Y, 0), new BlockPos(250, Y, 0));
         MapPathOverlay.Snapshot snapshot =
-                new MapPathOverlay.Snapshot(detail, new BlockPos(250, Y, 0), player, waypoints, List.of());
+                new MapPathOverlay.Snapshot(detail, new BlockPos(250, Y, 0), player, waypoints, List.of(), 0, List.of());
 
         assertTrue(hasDotBetween(coarseDots(snapshot), 50, 150),
                 "詳細経路の末端と最初の中間目標の間が繋がっていない");
