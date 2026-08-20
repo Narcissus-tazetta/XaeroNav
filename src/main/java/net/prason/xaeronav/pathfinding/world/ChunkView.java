@@ -131,8 +131,13 @@ public final class ChunkView implements CellSource {
      * 「岸でボートを出せ」と案内した直後、その通りにした瞬間に前提が消えて経路が組み替わる。
      */
     public static boolean boatAvailable(Player player) {
-        return player.getVehicle() instanceof Boat
+        return ridingBoat(player)
                 || player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+    }
+
+    /** いまボートに乗っているか。 */
+    public static boolean ridingBoat(Player player) {
+        return player.getVehicle() instanceof Boat;
     }
 
     /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
@@ -178,7 +183,7 @@ public final class ChunkView implements CellSource {
         boolean canMlgWaterBucket = fallDamageToleranceEnabled && !level.dimensionType().ultraWarm()
                 && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
         boolean boatAvailable = boatAvailable(player);
-        boolean ridingBoat = player.getVehicle() instanceof Boat;
+        boolean ridingBoat = ridingBoat(player);
 
         // 下降のヒューリスティックの下限は、実際に生成されうる最大の落差で決まる。
         // FALL_TO_WATERは着水先に水があるときだけ生成され、ultraWarmな次元（ネザー）には水が
