@@ -1301,8 +1301,15 @@ public final class PathfindingState {
             return;
         }
         int renderRadius = level == null ? 0 : Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
-        // 末端から先に残っている「読み込み済みの余地」。ここを超える目標は未ロードの中に落ちる
-        double lead = renderRadius * FLIGHT_LOADED_MARGIN - player.position().distanceTo(tail);
+        // 末端から先に残っている「読み込み済みの余地」。ここを超える目標は未ロードの中に落ちる。
+        //
+        // <b>探索の地平でも頭打ちにする</b>。読み込み済みの余地は最大460ブロックにもなるが、
+        // 入り組んだ地形で1回の予算にそれを渡すと届かず、上限まで焼いてから数十ブロックの
+        // 部分経路を返す——実機ログで60,000ノード×1秒を8回連続、伸びは12〜80ブロックだった
+        // （届いた回はどれも6〜107msで約290ブロック伸びている）。狙う先が届く範囲にあるかどうかが
+        // 速さと伸びの両方を決める
+        double lead = Math.min(FLIGHT_DETAIL_HORIZON_BLOCKS,
+                renderRadius * FLIGHT_LOADED_MARGIN - player.position().distanceTo(tail));
         if (lead < FLIGHT_MIN_EXTENSION_BLOCKS) {
             // まだ伸ばせるだけの余地が無い。プレイヤーが進めば自然に開く
             flightExtendBlockedAt = tail;
@@ -1361,8 +1368,17 @@ public final class PathfindingState {
                         flightExtendBlockedFrom = from;
                         return;
                     }
-                    flightExtendBlockedAt = null;
-                    flightExtendBlockedFrom = null;
+                    if (extension.budgetExhausted()
+                            && tail.distanceTo(grown) < FLIGHT_MIN_EXTENSION_BLOCKS) {
+                        // 予算を焼き切って数十ブロックしか伸びなかった。この末端から投げ直しても
+                        // 同じことの繰り返しになるので、プレイヤーが進んで地形が変わるまで待つ。
+                        // 伸びたぶんは捨てずに繋ぐ
+                        flightExtendBlockedAt = extension.tail();
+                        flightExtendBlockedFrom = from;
+                    } else {
+                        flightExtendBlockedAt = null;
+                        flightExtendBlockedFrom = null;
+                    }
                     FlightRoute extended = current.append(extension);
                     // 対応づけを引き継がないと、伸ばした瞬間だけ通過済みの区間が描き直される
                     FlightProgress.INSTANCE.carryOver(extended);
