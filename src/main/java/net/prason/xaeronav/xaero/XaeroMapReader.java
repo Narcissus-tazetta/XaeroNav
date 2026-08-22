@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Consumer;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.tags.FluidTags;
@@ -248,7 +249,8 @@ public final class XaeroMapReader {
 
         for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
             for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
-                readRegion(processor, caveLayer, regionX, regionZ, builder);
+                forEachLoadedTile(processor, caveLayer, regionX, regionZ,
+                        tile -> readTile(tile, builder));
             }
         }
     }
@@ -278,7 +280,8 @@ public final class XaeroMapReader {
         for (int caveLayer : layersFor(processor, referenceY)) {
             for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
                 for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
-                    readRegionDetailed(processor, caveLayer, regionX, regionZ, builder, merge);
+                    forEachLoadedTile(processor, caveLayer, regionX, regionZ,
+                            tile -> readTileDetailed(tile, builder, merge));
                 }
             }
         }
@@ -448,8 +451,13 @@ public final class XaeroMapReader {
         return processor != null && processor.isMapWorldUsable() ? processor : null;
     }
 
-    private static void readRegion(MapProcessor processor, int caveLayer, int regionX, int regionZ,
-                                    CoarseMapBuilder builder) {
+    /**
+     * 1リージョンの中の読み込み済みタイルをすべて訪ねる。リージョン→タイルチャンク→タイルの
+     * 3重の入れ子と「読めているか」の判定は、粗い読み方（{@link #readTile}）でも
+     * ブロック解像度（{@link #readTileDetailed}）でも変わらないのでここに畳んである。
+     */
+    private static void forEachLoadedTile(MapProcessor processor, int caveLayer, int regionX, int regionZ,
+                                           Consumer<MapTile> visitor) {
         // create=falseなので、Xaeroがまだ読み込んでいないリージョンはnullで返る。
         // ここでディスクから読ませないのは、読み込みが非同期で完了を待てないため
         MapRegion region = processor.getLeafMapRegion(caveLayer, regionX, regionZ, false);
@@ -462,19 +470,15 @@ public final class XaeroMapReader {
                 if (tileChunk == null) {
                     continue;
                 }
-                readTileChunk(tileChunk, builder);
-            }
-        }
-    }
-
-    private static void readTileChunk(MapTileChunk tileChunk, CoarseMapBuilder builder) {
-        for (int tileX = 0; tileX < TILES_PER_TILE_CHUNK; tileX++) {
-            for (int tileZ = 0; tileZ < TILES_PER_TILE_CHUNK; tileZ++) {
-                MapTile tile = tileChunk.getTile(tileX, tileZ);
-                if (tile == null || !tile.isLoaded()) {
-                    continue;
+                for (int tileX = 0; tileX < TILES_PER_TILE_CHUNK; tileX++) {
+                    for (int tileZ = 0; tileZ < TILES_PER_TILE_CHUNK; tileZ++) {
+                        MapTile tile = tileChunk.getTile(tileX, tileZ);
+                        if (tile == null || !tile.isLoaded()) {
+                            continue;
+                        }
+                        visitor.accept(tile);
+                    }
                 }
-                readTile(tile, builder);
             }
         }
     }
@@ -550,37 +554,6 @@ public final class XaeroMapReader {
         int representativeMax = heightSamples > 0 ? maxHeight : averageHeight;
         builder.putFloor(tile.getChunkX(), tile.getChunkZ(), kind, averageHeight, representativeMin,
                 representativeMax);
-    }
-
-    private static void readRegionDetailed(MapProcessor processor, int caveLayer, int regionX, int regionZ,
-                                            SurfaceGridBuilder builder, LayerMerge merge) {
-        // create=falseなので、Xaeroがまだ読み込んでいないリージョンはnullで返る（readRegionと同じ理由）
-        MapRegion region = processor.getLeafMapRegion(caveLayer, regionX, regionZ, false);
-        if (region == null || !region.isLoaded()) {
-            return;
-        }
-        for (int tileChunkX = 0; tileChunkX < TILE_CHUNKS_PER_REGION; tileChunkX++) {
-            for (int tileChunkZ = 0; tileChunkZ < TILE_CHUNKS_PER_REGION; tileChunkZ++) {
-                MapTileChunk tileChunk = region.getChunk(tileChunkX, tileChunkZ);
-                if (tileChunk == null) {
-                    continue;
-                }
-                readTileChunkDetailed(tileChunk, builder, merge);
-            }
-        }
-    }
-
-    private static void readTileChunkDetailed(MapTileChunk tileChunk, SurfaceGridBuilder builder,
-                                               LayerMerge merge) {
-        for (int tileX = 0; tileX < TILES_PER_TILE_CHUNK; tileX++) {
-            for (int tileZ = 0; tileZ < TILES_PER_TILE_CHUNK; tileZ++) {
-                MapTile tile = tileChunk.getTile(tileX, tileZ);
-                if (tile == null || !tile.isLoaded()) {
-                    continue;
-                }
-                readTileDetailed(tile, builder, merge);
-            }
-        }
     }
 
     /**

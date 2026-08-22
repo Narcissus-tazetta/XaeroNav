@@ -68,6 +68,7 @@ public final class FakeCells implements CellSource {
     /** 設定の既定値に合わせてtrue。溶岩の橋を禁じたいテストだけが明示的に切る。 */
     private boolean lavaBridgingEnabled = true;
     private int maxBridgeRunBlocks;
+    private int maxLavaBridgeRunBlocks;
     /** 既定は0（無制限）。潜水の上限を問うテストだけが明示的に設定する。 */
     private int maxSubmergedTicks;
     private double minDescentTicksPerBlock = ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
@@ -161,6 +162,12 @@ public final class FakeCells implements CellSource {
     /** 連続して架けてよい橋の長さ（ブロック）。既定の0は無制限。 */
     public FakeCells maxBridgeRunBlocks(int value) {
         this.maxBridgeRunBlocks = value;
+        return this;
+    }
+
+    /** 溶岩の上に架けてよい橋の長さ（ブロック）。既定の0は{@code maxBridgeRunBlocks}だけが効く。 */
+    public FakeCells maxLavaBridgeRunBlocks(int value) {
+        this.maxLavaBridgeRunBlocks = value;
         return this;
     }
 
@@ -264,6 +271,11 @@ public final class FakeCells implements CellSource {
     @Override
     public int maxBridgeRunBlocks() {
         return maxBridgeRunBlocks;
+    }
+
+    @Override
+    public int maxLavaBridgeRunBlocks() {
+        return maxLavaBridgeRunBlocks;
     }
 
     @Override

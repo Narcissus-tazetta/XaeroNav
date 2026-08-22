@@ -64,12 +64,8 @@ public final class ChunkView implements CellSource {
     private final ItemStack[] hotbar;
     /** ホットバー各スロットの効率強化レベル。エンチャントの解決にはレジストリが要るのでメインスレッドで取る。 */
     private final int[] hotbarEfficiency;
-    private final boolean diggingEnabled;
+    private final MovementOptions options;
     private final boolean canPlaceBlocks;
-    private final boolean jumpGapEnabled;
-    private final boolean lavaBridgingEnabled;
-    private final int maxBridgeRunBlocks;
-    private final int maxSubmergedTicks;
     private final int maxFallDamagePoints;
     private final boolean canMlgWaterBucket;
     private final boolean boatAvailable;
@@ -94,9 +90,8 @@ public final class ChunkView implements CellSource {
     private long cachedChunkKey = ChunkPos.INVALID_CHUNK_POS;
 
     private ChunkView(Long2ObjectMap<LevelChunk> chunks, int totalChunksInBounds, SearchBounds bounds,
-                      ItemStack[] hotbar, int[] hotbarEfficiency, boolean diggingEnabled, boolean canPlaceBlocks,
-                      boolean jumpGapEnabled, boolean lavaBridgingEnabled, int maxBridgeRunBlocks,
-                      int maxSubmergedTicks, int maxFallDamagePoints,
+                      ItemStack[] hotbar, int[] hotbarEfficiency, MovementOptions options, boolean canPlaceBlocks,
+                      int maxFallDamagePoints,
                       boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
                       double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection) {
@@ -105,12 +100,8 @@ public final class ChunkView implements CellSource {
         this.bounds = bounds;
         this.hotbar = hotbar;
         this.hotbarEfficiency = hotbarEfficiency;
-        this.diggingEnabled = diggingEnabled;
+        this.options = options;
         this.canPlaceBlocks = canPlaceBlocks;
-        this.jumpGapEnabled = jumpGapEnabled;
-        this.lavaBridgingEnabled = lavaBridgingEnabled;
-        this.maxBridgeRunBlocks = maxBridgeRunBlocks;
-        this.maxSubmergedTicks = maxSubmergedTicks;
         this.maxFallDamagePoints = maxFallDamagePoints;
         this.canMlgWaterBucket = canMlgWaterBucket;
         this.boatAvailable = boatAvailable;
@@ -141,10 +132,7 @@ public final class ChunkView implements CellSource {
     }
 
     /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
-    public static ChunkView capture(Level level, Player player, SearchBounds bounds, boolean diggingEnabled,
-                                     boolean bridgingEnabled, boolean jumpGapEnabled,
-                                     boolean lavaBridgingEnabled, int maxBridgeRunBlocks,
-                                     int maxSubmergedTicks, boolean fallDamageToleranceEnabled) {
+    public static ChunkView capture(Level level, Player player, SearchBounds bounds, MovementOptions options) {
         int minChunkX = bounds.minX() >> 4;
         int maxChunkX = bounds.maxX() >> 4;
         int minChunkZ = bounds.minZ() >> 4;
@@ -176,11 +164,11 @@ public final class ChunkView implements CellSource {
             canPlaceBlocks |= isBuildingBlock(stack);
         }
 
-        int maxFallDamagePoints = fallDamageToleranceEnabled
+        int maxFallDamagePoints = options.fallDamageToleranceEnabled()
                 ? (int) (player.getHealth() / FALL_DAMAGE_HEALTH_FRACTION) : 0;
         // ultraWarmな次元（ネザー）は水を置いても即座に蒸発するので、着地寸前に水バケツを置く
         // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
-        boolean canMlgWaterBucket = fallDamageToleranceEnabled && !level.dimensionType().ultraWarm()
+        boolean canMlgWaterBucket = options.fallDamageToleranceEnabled() && !level.dimensionType().ultraWarm()
                 && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
         boolean boatAvailable = boatAvailable(player);
         boolean ridingBoat = ridingBoat(player);
@@ -199,9 +187,9 @@ public final class ChunkView implements CellSource {
                 : Math.min(ActionCosts.fallCost(maxDrop) / maxDrop, ActionCosts.LADDER_DOWN_ONE_BLOCK);
 
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
-        return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, diggingEnabled,
-                bridgingEnabled && canPlaceBlocks, jumpGapEnabled, lavaBridgingEnabled, maxBridgeRunBlocks,
-                maxSubmergedTicks, maxFallDamagePoints, canMlgWaterBucket, boatAvailable, ridingBoat,
+        return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
+                options.bridgingEnabled() && canPlaceBlocks,
+                maxFallDamagePoints, canMlgWaterBucket, boatAvailable, ridingBoat,
                 minDescentTicksPerBlock, level.getMinBuildHeight(),
                 level.getMaxBuildHeight(), level.getMinSection());
     }
@@ -222,10 +210,9 @@ public final class ChunkView implements CellSource {
      * スレッド契約は据え置き）。
      */
     public ChunkView withoutDigging() {
-        return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, false, canPlaceBlocks,
-                jumpGapEnabled, lavaBridgingEnabled, maxBridgeRunBlocks, maxSubmergedTicks,
-                maxFallDamagePoints, canMlgWaterBucket, boatAvailable, ridingBoat,
-                minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection);
+        return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency,
+                options.withoutDigging(), canPlaceBlocks, maxFallDamagePoints, canMlgWaterBucket,
+                boatAvailable, ridingBoat, minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection);
     }
 
     /**
@@ -247,22 +234,27 @@ public final class ChunkView implements CellSource {
 
     @Override
     public boolean lavaBridgingEnabled() {
-        return lavaBridgingEnabled;
+        return options.lavaBridgingEnabled();
     }
 
     @Override
     public int maxBridgeRunBlocks() {
-        return maxBridgeRunBlocks;
+        return options.maxBridgeRunBlocks();
+    }
+
+    @Override
+    public int maxLavaBridgeRunBlocks() {
+        return options.maxLavaBridgeRunBlocks();
     }
 
     @Override
     public int maxSubmergedTicks() {
-        return maxSubmergedTicks;
+        return options.maxSubmergedTicks();
     }
 
     @Override
     public boolean jumpGapEnabled() {
-        return jumpGapEnabled;
+        return options.jumpGapEnabled();
     }
 
     @Override
@@ -354,7 +346,7 @@ public final class ChunkView implements CellSource {
         if (CellData.occupiableWithoutDigging(flags)) {
             digTicks = 0.0;
         } else if (CellData.lava(flags) || CellData.hazard(flags) || CellData.unresolvedShape(flags)
-                || !diggingEnabled) {
+                || !options.diggingEnabled()) {
             // 液体は掘削対象ではないので、進入不可を素手のdigTicksとして表現する。
             // 危険セル（炎・パウダースノー・ポータル等）も掘って通す対象にはしない。
             // diggingEnabled=falseの場合も同様に「掘って進入」という選択肢自体を消す。

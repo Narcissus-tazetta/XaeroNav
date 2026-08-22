@@ -23,7 +23,7 @@ import net.prason.xaeronav.client.XaeroNavCommands;
 import net.prason.xaeronav.client.XaeroNavKeys;
 import net.prason.xaeronav.client.gui.XaeroNavConfigScreen;
 import net.prason.xaeronav.config.XaeroNavConfig;
-import net.prason.xaeronav.pathfinding.cost.ForbiddenBlocks;
+import net.prason.xaeronav.pathfinding.cost.DiggableBlocks;
 
 @Mod(XaeroNav.MOD_ID)
 public final class XaeroNav {
@@ -41,13 +41,18 @@ public final class XaeroNav {
     }
 
     /**
-     * 掘削禁止ブロックだけはIDからBlockへの解決結果を保持するので、設定ファイルの再読み込みに
-     * 自分で追随する必要がある（他の設定値は参照のたびに読むので何もしなくてよい）。
+     * 掘削可否のブロックリストだけはIDからBlockへの解決結果を保持するので、設定ファイルの
+     * 再読み込みに自分で追随する必要がある（他の設定値は参照のたびに読むので何もしなくてよい）。
      */
     private static void onConfigReloaded(ModConfigEvent.Reloading event) {
         if (event.getConfig().getSpec() == XaeroNavConfig.SPEC) {
-            ForbiddenBlocks.reloadFromConfig(XaeroNavConfig.INSTANCE.additionalForbiddenBlocks());
+            reloadBlockLists();
         }
+    }
+
+    private static void reloadBlockLists() {
+        DiggableBlocks.reloadFromConfig(XaeroNavConfig.INSTANCE.additionalDiggableBlocks(),
+                XaeroNavConfig.INSTANCE.additionalForbiddenBlocks());
     }
 
     // クライアント専用クラス（Minecraft/RenderLevelStageEvent等）への参照はFMLClientSetupEvent内に
@@ -56,7 +61,7 @@ public final class XaeroNav {
     public static final class ClientSetup {
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
-            ForbiddenBlocks.reloadFromConfig(XaeroNavConfig.INSTANCE.additionalForbiddenBlocks());
+            reloadBlockLists();
             NeoForge.EVENT_BUS.register(new PathRenderer());
             NeoForge.EVENT_BUS.register(new NavHud());
             NeoForge.EVENT_BUS.register(new ClientTickHandler());

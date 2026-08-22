@@ -123,7 +123,13 @@ public final class AStarPathfinder {
     /** 連続して架けてよい橋の長さ（ブロック）。0なら無制限。{@link CellSource#maxBridgeRunBlocks()}。 */
     private final int maxBridgeRun;
 
-    /** この探索が{@link #maxBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
+    /**
+     * 溶岩の上で効く橋の長さの上限（ブロック）。0なら無制限。{@link RunCaps#effectiveLavaBridgeRun()}が
+     * {@link #maxBridgeRun}との厳しい方を選んだ後の値なので、ここでは単独で比べてよい。
+     */
+    private final int maxLavaBridgeRun;
+
+    /** この探索が{@link #maxBridgeRun}・{@link #maxLavaBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
     private boolean bridgeRunCapBlocked;
 
     /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
@@ -195,18 +201,18 @@ public final class AStarPathfinder {
      * {@link Heuristic}（既定の幾何学的下限）を使う既存の挙動と完全に同じになる。
      */
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo) {
-        this(view, limits, costToGo, view.maxBridgeRunBlocks(), view.maxSubmergedTicks());
+        this(view, limits, costToGo, RunCaps.of(view));
     }
 
     /**
-     * 連続する橋の長さ・潜水し続けてよい時間の上限を明示するコンストラクタ。0を渡すと無制限になる——
-     * 上限のせいで範囲内に道が一本も無くなった場合の、詰み回避の探し直しに使う
+     * 連続する橋の長さ・潜水し続けてよい時間の上限を明示するコンストラクタ。{@link RunCaps#NONE}を
+     * 渡すと無制限になる——上限のせいで範囲内に道が一本も無くなった場合の、詰み回避の探し直しに使う
      * （「マグマの橋も溺れる危険も最後の手段だが、詰みよりはマシ」という優先順）。
      */
-    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, int maxBridgeRun,
-                            int maxSubmergedTicks) {
-        this.maxBridgeRun = maxBridgeRun;
-        this.maxSubmergedTicks = maxSubmergedTicks;
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, RunCaps caps) {
+        this.maxBridgeRun = caps.maxBridgeRunBlocks();
+        this.maxLavaBridgeRun = caps.effectiveLavaBridgeRun();
+        this.maxSubmergedTicks = caps.maxSubmergedTicks();
         this.view = view;
         this.minDescentPerBlock = view.minDescentTicksPerBlock();
         this.maxExpandedNodes = limits.maxExpandedNodes();
@@ -1121,9 +1127,13 @@ public final class AStarPathfinder {
         // 連続した橋の長さで打ち切る。ここで「重いコスト」ではなく「移動を作らない」を選ぶのが要点——
         // 重みで抑えると、A*は安い辺から展開するので橋に手を伸ばす前に周囲を展開し尽くし、
         // 展開ノード数を焼き切ったうえで結局その先に進めない（ActionCosts#LAVA_BRIDGE_PENALTY_TICKS
-        // に記録された実測そのもの）。辺を作らなければ、探索は最初から迂回路だけを見る
+        // に記録された実測そのもの）。辺を作らなければ、探索は最初から迂回路だけを見る。
+        //
+        // 溶岩の上だけは別（より短い）上限で切る。空洞なら足場を外しても落ちるだけだが、
+        // 溶岩の上では即死するので、同じ長さの橋でも許してよい範囲が違う
+        int cap = lavaNearby ? maxLavaBridgeRun : maxBridgeRun;
         int bridgeRun = from.bridgeRun + 1;
-        if (maxBridgeRun > 0 && bridgeRun > maxBridgeRun) {
+        if (cap > 0 && bridgeRun > cap) {
             bridgeRunCapBlocked = true;
             return;
         }

@@ -37,6 +37,7 @@ import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
@@ -127,6 +128,28 @@ public final class XaeroNavCommands {
      * チャットに列挙するだけ。実データの海や山で意図通り曲がるかは、これで見るしかない。
      */
     private static int reportRoute(CommandSourceStack source, BlockPos goal) {
+        return withCoarseRoute(source, goal, (start, waypoints) -> {
+            for (int i = 0; i < waypoints.size(); i++) {
+                int number = i + 1;
+                BlockPos waypoint = waypoints.get(i);
+                source.sendSuccess(() -> Component.translatable("commands.xaeronav.route_waypoint",
+                        number, waypoints.size(), waypoint.toShortString()), false);
+            }
+        });
+    }
+
+    /** {@link #withCoarseRoute}が層1の要約を出した後に呼ぶ、コマンドごとの続き。 */
+    @FunctionalInterface
+    private interface RouteDetail {
+        void report(BlockPos start, List<BlockPos> waypoints);
+    }
+
+    /**
+     * 2つの診断コマンドが共有する前半——プレイヤーと地図データの確認、層1の実行、経路が
+     * 引けなかった場合の報告、waypoint数と所要時間の要約まで。要約まで出せたときだけ
+     * {@code detail}を呼ぶ。
+     */
+    private static int withCoarseRoute(CommandSourceStack source, BlockPos goal, RouteDetail detail) {
         Player player = Minecraft.getInstance().player;
         if (player == null) {
             return 0;
@@ -137,9 +160,9 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
-        boolean boatAvailable = ChunkView.boatAvailable(player);
         long startNanos = System.nanoTime();
-        CoarseRouter.Route route = computeRouteOrFail(source, start, goal, boatAvailable);
+        CoarseRouter.Route route =
+                computeRouteOrFail(source, start, goal, ChunkView.boatAvailable(player));
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
         if (route == null) {
             return 0;
@@ -159,12 +182,7 @@ public final class XaeroNavCommands {
                 route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
                         : "commands.xaeronav.route_summary_partial",
                 waypoints.size(), elapsedMillis), false);
-        for (int i = 0; i < waypoints.size(); i++) {
-            int number = i + 1;
-            BlockPos waypoint = waypoints.get(i);
-            source.sendSuccess(() -> Component.translatable("commands.xaeronav.route_waypoint",
-                    number, waypoints.size(), waypoint.toShortString()), false);
-        }
+        detail.report(start, waypoints);
         return 1;
     }
 
@@ -197,46 +215,15 @@ public final class XaeroNavCommands {
      * こちらはその場でチャットに結果を出す同期実行の確認用コマンドとして独立に残す。
      */
     private static int reportCorridor(CommandSourceStack source, BlockPos goal) {
-        Player player = Minecraft.getInstance().player;
-        if (player == null) {
-            return 0;
-        }
-        if (!XaeroPresence.mapPresent()) {
-            source.sendFailure(Component.translatable("commands.xaeronav.mapdata_unavailable"));
-            return 0;
-        }
-
-        BlockPos start = player.blockPosition();
-        boolean boatAvailable = ChunkView.boatAvailable(player);
-        long startNanos = System.nanoTime();
-        CoarseRouter.Route route = computeRouteOrFail(source, start, goal, boatAvailable);
-        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
-        if (route == null) {
-            return 0;
-        }
-        if (route.isEmpty()) {
-            if (route.reachedGoal()) {
-                source.sendSuccess(() -> Component.translatable("commands.xaeronav.route_same_chunk"), false);
-                return 1;
+        return withCoarseRoute(source, goal, (start, waypoints) -> {
+            List<BlockPos> legs = new ArrayList<>();
+            legs.add(start);
+            legs.addAll(waypoints);
+            int legCount = legs.size() - 1;
+            for (int i = 0; i < legCount; i++) {
+                reportCorridorLeg(source, i + 1, legCount, legs.get(i), legs.get(i + 1));
             }
-            source.sendFailure(Component.translatable("commands.xaeronav.route_none", elapsedMillis));
-            return 0;
-        }
-
-        List<BlockPos> waypoints = route.waypoints();
-        source.sendSuccess(() -> Component.translatable(
-                route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
-                        : "commands.xaeronav.route_summary_partial",
-                waypoints.size(), elapsedMillis), false);
-
-        List<BlockPos> legs = new ArrayList<>();
-        legs.add(start);
-        legs.addAll(waypoints);
-        int legCount = legs.size() - 1;
-        for (int i = 0; i < legCount; i++) {
-            reportCorridorLeg(source, i + 1, legCount, legs.get(i), legs.get(i + 1));
-        }
-        return 1;
+        });
     }
 
     private static void reportCorridorLeg(CommandSourceStack source, int index, int total, BlockPos from, BlockPos to) {
@@ -417,7 +404,7 @@ public final class XaeroNavCommands {
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), goal,
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, false, false, false, false, 0, 0, false);
+        ChunkView view = ChunkView.capture(level, player, bounds, MovementOptions.NONE);
         boolean rockets = player.getInventory().contains(stack -> stack.getItem() instanceof FireworkRocketItem);
 
         long startedAt = System.nanoTime();
@@ -463,12 +450,8 @@ public final class XaeroNavCommands {
 
         SearchBounds normalBounds = SearchBounds.around(level, start, goal, normalMargin, verticalMargin,
                 renderRadius);
-        ChunkView normalView = ChunkView.capture(level, player, normalBounds,
-                XaeroNavConfig.INSTANCE.diggingEnabled(), XaeroNavConfig.INSTANCE.bridgingEnabled(),
-                XaeroNavConfig.INSTANCE.jumpGapEnabled(), XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
-                XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
-                XaeroNavConfig.INSTANCE.maxSubmergedTicks(),
-                XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
+        ChunkView normalView =
+                ChunkView.capture(level, player, normalBounds, XaeroNavConfig.INSTANCE.movementOptions());
         reportGoalCell(source, normalView, normalBounds, start, goal, renderRadius);
 
         ProbeRun normal = runProbe(normalView, normalBounds, start, goal);
@@ -568,18 +551,12 @@ public final class XaeroNavCommands {
     private static ProbeRun runProbe(Level level, Player player, BlockPos start, BlockPos goal,
                                       int horizontalMargin, int verticalMargin, int renderRadius) {
         SearchBounds bounds = SearchBounds.around(level, start, goal, horizontalMargin, verticalMargin, renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.diggingEnabled(),
-                XaeroNavConfig.INSTANCE.bridgingEnabled(), XaeroNavConfig.INSTANCE.jumpGapEnabled(),
-                XaeroNavConfig.INSTANCE.lavaBridgingEnabled(),
-                XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
-                XaeroNavConfig.INSTANCE.maxSubmergedTicks(),
-                XaeroNavConfig.INSTANCE.fallDamageToleranceEnabled());
+        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
         return runProbe(view, bounds, start, goal);
     }
 
     private static ProbeRun runProbe(ChunkView view, SearchBounds bounds, BlockPos start, BlockPos goal) {
-        return runProbe(view, bounds, start, goal, new SearchLimits(XaeroNavConfig.INSTANCE.maxExpandedNodes(),
-                AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight()));
+        return runProbe(view, bounds, start, goal, XaeroNavConfig.INSTANCE.searchLimits());
     }
 
     private static ProbeRun runProbe(ChunkView view, SearchBounds bounds, BlockPos start, BlockPos goal,
