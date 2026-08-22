@@ -42,9 +42,6 @@ neoForge {
     addModdingDependenciesTo(sourceSets["test"])
 
     runs {
-        configureEach {
-            systemProperty("neoforge.enabledGameTestNamespaces", prop("mod_id"))
-        }
         create("client") {
             client()
         }
@@ -100,12 +97,25 @@ tasks.matching { it.name == "runClient" }.configureEach {
 }
 
 // 実機デバッグ用: mods.tomlのversionにgitの短縮ハッシュを付ける（例: "0.1.0+f118060"）。
-// 「治ってない」報告が再ビルド未反映によるものかを/xaeronav versionで見分けられるようにするため
-// （このprovider自体はconfiguration cache対応。git未導入環境は想定しない — このMODは常にgit
-// リポジトリ内で開発する前提）。
-val gitCommitHash = providers.exec {
-    commandLine("git", "rev-parse", "--short", "HEAD")
-}.standardOutput.asText.map { it.trim() }
+// 「治ってない」報告が再ビルド未反映によるものかを/xaeronav versionで見分けられるようにするため。
+//
+// gitが無い・リポジトリ外（GitHubのソースzipを展開しただけ等）ならハッシュ無しの素のバージョンに
+// 落とす。ここで失敗させると、リリースjarをソースから組み直したい人がビルドできない
+fun gitCommitHash(): String? {
+    val output = runCatching {
+        providers.exec {
+            commandLine("git", "rev-parse", "--short", "HEAD")
+            isIgnoreExitValue = true
+        }
+    }.getOrNull() ?: return null
+    val exitValue = runCatching { output.result.get().exitValue }.getOrNull()
+    if (exitValue != 0) {
+        return null
+    }
+    return output.standardOutput.asText.get().trim().ifEmpty { null }
+}
+
+val modVersion = prop("mod_version") + (gitCommitHash()?.let { "+$it" } ?: "")
 
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = mapOf(
@@ -113,7 +123,7 @@ tasks.named<ProcessResources>("processResources").configure {
         "neoforge_loader_version_range" to prop("neoforge_loader_version_range"),
         "mod_id" to prop("mod_id"),
         "mod_name" to prop("mod_name"),
-        "mod_version" to "${prop("mod_version")}+${gitCommitHash.get()}",
+        "mod_version" to modVersion,
         "mod_authors" to prop("mod_authors"),
         "mod_description" to prop("mod_description"),
         "mod_license" to prop("mod_license"),

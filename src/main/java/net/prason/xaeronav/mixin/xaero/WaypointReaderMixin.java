@@ -10,6 +10,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.client.PathfindingState;
+import net.prason.xaeronav.xaero.XaeroHookMarker;
 import xaero.map.gui.IRightClickableElement;
 import xaero.map.gui.dropdown.rightclick.RightClickOption;
 import xaero.map.mods.gui.Waypoint;
@@ -23,7 +24,7 @@ import xaero.map.mods.gui.WaypointReader;
  * <p>required=falseの専用mixin configに属し、対象メソッドが見つからない場合はこの機能だけが無効化される。
  */
 @Mixin(WaypointReader.class)
-public abstract class WaypointReaderMixin {
+public abstract class WaypointReaderMixin implements XaeroHookMarker {
 
     @ModifyReturnValue(
             method = "getRightClickOptions(Lxaero/map/mods/gui/Waypoint;Lxaero/map/gui/IRightClickableElement;)Ljava/util/ArrayList;",
