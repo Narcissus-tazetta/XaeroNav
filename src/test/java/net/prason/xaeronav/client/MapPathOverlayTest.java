@@ -1,5 +1,6 @@
 package net.prason.xaeronav.client;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -69,5 +70,36 @@ class MapPathOverlayTest {
 
         assertTrue(hasDotBetween(coarseDots(snapshot), 50, 150),
                 "詳細経路の末端と最初の中間目標の間が繋がっていない");
+    }
+
+    /**
+     * 詳細経路が中間目標を辿っていない間（層2の精緻化中は本来の目的地へ直接向かう）、通過済みの
+     * 目印は進まないので未通過ぶんの先頭は現在地の遥か後ろに残る。そのまま順に結ぶと、後ろへ戻る線と
+     * ルート本体の線が並んで走り、黄色い点線が2本出ているようにしか見えない。
+     */
+    @Test
+    void coarseRouteDoesNotRunBackToWaypointsAlreadyBehind() {
+        BlockPos player = new BlockPos(300, Y, 0);
+        PathResult detail = path(List.of(new BlockPos(300, Y, 0), new BlockPos(325, Y, 0), new BlockPos(350, Y, 0)));
+        List<BlockPos> waypoints = List.of(
+                new BlockPos(0, Y, 0), new BlockPos(100, Y, 0), new BlockPos(200, Y, 0),
+                new BlockPos(300, Y, 0), new BlockPos(400, Y, 0), new BlockPos(500, Y, 0));
+        MapPathOverlay.Snapshot snapshot =
+                new MapPathOverlay.Snapshot(detail, new BlockPos(500, Y, 0), player, waypoints, List.of(), 0, List.of());
+
+        assertFalse(hasDotBetween(coarseDots(snapshot), 0, 340),
+                "経路の末端より後ろの中間目標まで点線が引き返し、黄色い点線が2本出ている");
+    }
+
+    /** 引き返しの読み飛ばしが、本当に後戻りするルート（始点が行き過ぎている）まで削らないこと。 */
+    @Test
+    void coarseRouteKeepsAGenuineBacktrack() {
+        BlockPos player = new BlockPos(120, Y, 0);
+        List<BlockPos> waypoints = List.of(new BlockPos(100, Y, 0), new BlockPos(100, Y, 200));
+        MapPathOverlay.Snapshot snapshot =
+                new MapPathOverlay.Snapshot(null, new BlockPos(100, Y, 200), player, waypoints, List.of(), 0, List.of());
+
+        assertTrue(coarseDots(snapshot).stream().anyMatch(dot -> dot.getZ() > 20 && dot.getZ() < 180),
+                "後戻りを含むルートの先頭が読み飛ばされ、点線がルートから外れている");
     }
 }

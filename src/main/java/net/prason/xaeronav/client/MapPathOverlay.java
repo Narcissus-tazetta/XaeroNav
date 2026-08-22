@@ -96,7 +96,8 @@ public final class MapPathOverlay {
                 previousX = snapshot.playerPos().getX();
                 previousZ = snapshot.playerPos().getZ();
             }
-            for (BlockPos next : coarseWaypoints) {
+            for (int i = firstAheadWaypoint(coarseWaypoints, previousX, previousZ); i < coarseWaypoints.size(); i++) {
+                BlockPos next = coarseWaypoints.get(i);
                 StraightDots.forEach(previousX, previousZ, next.getX(), next.getZ(),
                         (x, z) -> sink.dot(x, z,
                                 PathColors.COARSE_ROUTE[0], PathColors.COARSE_ROUTE[1], PathColors.COARSE_ROUTE[2]));
@@ -158,6 +159,33 @@ public final class MapPathOverlay {
             }
             straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ());
         }
+    }
+
+    /**
+     * 始点から結び始める中間目標。ルートが始点へ近づき続けている間は読み飛ばす。
+     *
+     * <p>通過済みの判定は「詳細経路が何番目の中間目標を向いているか」で行うが、詳細経路が
+     * 中間目標を辿っていない間（層2の精緻化中は本来の目的地へ直接向かう）はその番号が進まず、
+     * 未通過ぶんの先頭が現在地の遥か後ろに残る。そのまま順に結ぶと、現在地から後ろへ戻る線と
+     * ルート本体の線が同じ回廊を並んで走り、<b>黄色い点線が2本出ている</b>ようにしか見えない。
+     *
+     * <p>逆に、ルートが本当に引き返す形（始点が行き過ぎている）なら2点目は始点から遠ざかるので、
+     * ここでは読み飛ばさない。
+     */
+    private static int firstAheadWaypoint(List<BlockPos> waypoints, int fromX, int fromZ) {
+        int first = 0;
+        while (first + 1 < waypoints.size()
+                && distanceSq(waypoints.get(first + 1), fromX, fromZ)
+                        <= distanceSq(waypoints.get(first), fromX, fromZ)) {
+            first++;
+        }
+        return first;
+    }
+
+    private static long distanceSq(BlockPos pos, int x, int z) {
+        long dx = pos.getX() - (long) x;
+        long dz = pos.getZ() - (long) z;
+        return dx * dx + dz * dz;
     }
 
     private static void straightDots(DotSink sink, int fromX, int fromZ, int toX, int toZ) {
