@@ -18,7 +18,3 @@ logs/
 
 # OS files
 .DS_Store
-
-# Local planning docs
-plan.md
-pathfinding-mod-design.md

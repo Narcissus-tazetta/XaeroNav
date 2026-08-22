@@ -18,6 +18,7 @@ import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathSafetyChecker;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
+import net.prason.xaeronav.pathfinding.astar.RunCaps;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
@@ -304,7 +305,7 @@ public final class PathfindingExecutor {
             // もう一度払うだけになるので両方まとめて外す。
             // 予算切れ（NODE_BUDGET/TIME_LIMIT）では試さない——そちらは上限とは無関係に資源が
             // 足りていないだけで、同じ探索をもう一度払うだけになる
-            PathResult uncapped = run.search(new AStarPathfinder(view, limits, costToGo, 0, 0), cancelled);
+            PathResult uncapped = run.search(new AStarPathfinder(view, limits, costToGo, RunCaps.NONE), cancelled);
             if (uncapped.complete()) {
                 result = uncapped;
             }

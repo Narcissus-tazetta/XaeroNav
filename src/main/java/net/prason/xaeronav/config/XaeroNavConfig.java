@@ -7,6 +7,8 @@ import org.apache.commons.lang3.tuple.Pair;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
+import net.prason.xaeronav.pathfinding.astar.SearchLimits;
+import net.prason.xaeronav.pathfinding.world.MovementOptions;
 
 /**
  * design doc §6 Phase3項目15。TOML設定ファイル（{@code config/xaeronav-client.toml}）としてクライアント側に生成される。
@@ -32,6 +34,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
     private final ModConfigSpec.IntValue detailHorizonBlocks;
     private final ModConfigSpec.IntValue maxBridgeRunBlocks;
+    private final ModConfigSpec.IntValue maxLavaBridgeRunBlocks;
     private final ModConfigSpec.IntValue maxSubmergedTicks;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
@@ -51,6 +54,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue flightMaxExpandedNodes;
     private final ModConfigSpec.IntValue flightExtendMaxExpandedNodes;
     private final ModConfigSpec.DoubleValue flightHeuristicWeight;
+    private final ModConfigSpec.ConfigValue<List<? extends String>> diggableBlocks;
     private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
     private final ModConfigSpec.BooleanValue hudEnabled;
     private final ModConfigSpec.BooleanValue straightLineEnabled;
@@ -122,6 +126,15 @@ public final class XaeroNavConfig {
                         "範囲内に迂回路が無く経路が一本も引けなかった場合に限り、上限を外して探し直す",
                         "（詰むよりは長い橋の方がマシ、という優先順）")
                 .defineInRange("maxBridgeRunBlocks", 30, 0, 256);
+
+        maxLavaBridgeRunBlocks = builder
+                .comment("そのうち溶岩の上に架ける橋を、何マスまで許すか（0で無制限）",
+                        "空洞に架ける橋と分けて持つのは、足場を外したときの結末が違うから——",
+                        "空洞なら落ちるだけだが、溶岩の上では即死する",
+                        "橋の連続長そのものはmaxBridgeRunBlocksと共通なので、実際に効くのは小さい方",
+                        "既定はmaxBridgeRunBlocksと同じ30で、下げるとネザーの溶岩の海を渡る距離が縮む",
+                        "（渡れる道が無くなれば層1が溶岩を避ける大回りのルートを選び直す）")
+                .defineInRange("maxLavaBridgeRunBlocks", 30, 0, 256);
 
         maxSubmergedTicks = builder
                 .comment("頭を水に浸けたまま何tickまで進む経路を許すか（0で無制限）",
@@ -243,10 +256,20 @@ public final class XaeroNavConfig {
                         "上げるほど同じ予算で遠くまで届く。遠くまで検索したいときは格子幅の次に効く")
                 .defineInRange("flightHeuristicWeight", 2.5, 1.0, 5.0);
 
+        diggableBlocks = builder
+                .comment("掘って通ってよいブロックの追加リスト（例: \"minecraft:cobblestone\"）",
+                        "既定で掘れるのは自然生成の地形（石・土・砂・鉱石・葉・ネザーラック等）だけで、",
+                        "加工されたブロック（丸石・石レンガ・板材…）や中身を持つブロック（チェスト・かまど・",
+                        "modの機械）は誰かが置いたものとみなして掘らない。知らないブロックも掘らない側に倒す",
+                        "modが追加した石や土で経路が塞がる場合、そのブロックIDをここへ足す")
+                .defineListAllowEmpty("additionalDiggableBlocks", Collections.emptyList(),
+                        () -> "minecraft:cobblestone", o -> o instanceof String);
+
         forbiddenBlocks = builder
-                .comment("掘削禁止ブロックの追加リスト（例: \"minecraft:chest\"）。デフォルト禁止リストへの追加分")
+                .comment("掘削禁止ブロックのリスト（例: \"minecraft:diamond_ore\"）。上のリストより優先される",
+                        "既定で掘れる自然地形のうち、壊したくないものを個別に外すために使う")
                 .defineListAllowEmpty("additionalForbiddenBlocks", Collections.emptyList(),
-                        () -> "minecraft:stone", o -> o instanceof String);
+                        () -> "minecraft:diamond_ore", o -> o instanceof String);
 
         builder.pop();
         builder.comment("XaeroNav 表示設定").push("display");
@@ -284,6 +307,10 @@ public final class XaeroNavConfig {
 
     public int maxBridgeRunBlocks() {
         return maxBridgeRunBlocks.get();
+    }
+
+    public int maxLavaBridgeRunBlocks() {
+        return maxLavaBridgeRunBlocks.get();
     }
 
     public int maxSubmergedTicks() {
@@ -403,8 +430,26 @@ public final class XaeroNavConfig {
         return flightHeuristicWeight.get();
     }
 
+    public List<? extends String> additionalDiggableBlocks() {
+        return diggableBlocks.get();
+    }
+
     public List<? extends String> additionalForbiddenBlocks() {
         return forbiddenBlocks.get();
+    }
+
+    /**
+     * 探索へ渡す「何をしてよいか」一式。項目ごとに読んで呼び出し側で組み立てると、
+     * 探索を投げる箇所が増えるたびに同じ並びを写すことになる。
+     */
+    public MovementOptions movementOptions() {
+        return new MovementOptions(diggingEnabled(), bridgingEnabled(), jumpGapEnabled(), lavaBridgingEnabled(),
+                maxBridgeRunBlocks(), maxLavaBridgeRunBlocks(), maxSubmergedTicks(), fallDamageToleranceEnabled());
+    }
+
+    /** 歩行の探索の打ち切り条件。時間の上限だけは設定に出していない。 */
+    public SearchLimits searchLimits() {
+        return new SearchLimits(maxExpandedNodes(), AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, heuristicWeight());
     }
 
     public boolean hudEnabled() {

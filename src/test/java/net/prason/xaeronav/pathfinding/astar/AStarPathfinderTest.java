@@ -1121,6 +1121,40 @@ class AStarPathfinderTest {
         assertTrue(result.complete(), "上限0なら長さに関わらず渡る");
     }
 
+    /**
+     * 溶岩の上だけを別の上限で切れる。空洞に架ける橋は外しても落ちるだけだが、溶岩の上では
+     * 即死するので、同じ長さでも許してよい範囲が違う。
+     */
+    @Test
+    void refusesToBridgeOverLavaBeyondTheLavaRunEvenWhenTheGeneralCapIsOff() {
+        CellSource cells = lavaChannel(12).maxBridgeRunBlocks(0).maxLavaBridgeRunBlocks(6);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(13, 61, 0));
+
+        assertFalse(result.complete(), "溶岩側の上限を超える橋しか無いなら渡らない");
+    }
+
+    /** 溶岩側の上限は溶岩の上でだけ効く。空洞に架ける橋は今までどおりmaxBridgeRunBlocksが見る。 */
+    @Test
+    void theLavaRunCapLeavesBridgesOverEmptySpaceAlone() {
+        CellSource cells = chasm(6).jumpGapEnabled(false).canPlaceBlocks(true)
+                .maxBridgeRunBlocks(0).maxLavaBridgeRunBlocks(2);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(8, 61, 0));
+
+        assertTrue(result.complete(), "溶岩の無い割れ目は溶岩側の上限に縛られない: " + movements(result));
+    }
+
+    /** 溶岩の上では両方の上限が掛かる。厳しい方が勝つ。 */
+    @Test
+    void theStricterOfTheTwoCapsWinsOverLava() {
+        CellSource cells = lavaChannel(12).maxBridgeRunBlocks(6).maxLavaBridgeRunBlocks(0);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(13, 61, 0));
+
+        assertFalse(result.complete(), "溶岩側が無制限でも、橋そのものの上限は残る");
+    }
+
     /** 上限で移動を捨てたかどうかは、上限を外して探し直す価値があるかの判定に使う。 */
     @Test
     void reportsWhetherTheCapActuallyBlockedAnything() {

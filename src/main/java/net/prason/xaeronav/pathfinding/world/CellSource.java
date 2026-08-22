@@ -55,6 +55,16 @@ public interface CellSource {
     int maxBridgeRunBlocks();
 
     /**
+     * そのうち<b>溶岩の上</b>に架けてよい長さ。0なら{@link #maxBridgeRunBlocks}だけが効く。
+     *
+     * <p>空洞に架ける橋と分けて持つのは、外したときの結末が違うから——空洞なら落ちるだけだが、
+     * 溶岩の上では即死する。橋の連続長そのものは共通なので、実際に効くのは両者の小さい方になる。
+     */
+    default int maxLavaBridgeRunBlocks() {
+        return maxBridgeRunBlocks();
+    }
+
+    /**
      * 頭を水に浸けたまま何tickまで続けてよいか。0なら無制限。
      *
      * <p>{@link #maxBridgeRunBlocks}と同じく<b>移動の生成そのもの</b>で切る。溺れる危険を重い

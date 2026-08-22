@@ -27,7 +27,7 @@ public final class DigCost {
     }
 
     public static double compute(ItemStack[] hotbar, int[] hotbarEfficiency, BlockState state) {
-        if (ForbiddenBlocks.isForbidden(state)) {
+        if (!DiggableBlocks.isDiggable(state)) {
             return ActionCosts.INFEASIBLE;
         }
 
