@@ -18,6 +18,17 @@
 
 ---
 
+![Xaero's World Mapに描かれた経路](docs/images/map-image.png)
+
+## インストール
+
+1. Minecraft 1.21.1 用の [NeoForge](https://neoforged.net/) 21.1.228 以降を導入する。
+2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から最新の
+   `xaeronav-*.jar` をダウンロードし、`mods` フォルダへ入れる。
+3. （任意・地図連携用）Xaero's World Map 1.44.2 以降、Xaero's Minimap 26.4.2 以降を導入する。
+
+クライアント専用——サーバー側に入れるものはありません。
+
 ## 何ができるか
 
 - **地形を実際に辿れる経路を出す。** 直線距離ではなく、歩く・登る・降りる・泳ぐ・ボートに乗る・
@@ -48,6 +59,8 @@
 | ウェイポイント | ウェイポイントを右クリック → 「ここへ経路探索」 |
 | キーバインド | 「見ているブロックへ経路探索」（既定は未割り当て） |
 | コマンド | `/xaeronav goto <x> <y> <z>` |
+
+![Xaero's World Mapの右クリックメニューで「ここへ経路探索」を選ぶ様子](docs/images/how-to-use.png)
 
 エリトラで滑空を始めると自動的に案内を切り替えます。地形を避ける空中の経路を計算して
 表示し（水色の折れ線）、着地すると同じ目的地への徒歩ナビへ即座に戻ります。
