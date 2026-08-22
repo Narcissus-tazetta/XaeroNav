@@ -115,7 +115,10 @@ fun gitCommitHash(): String? {
     return output.standardOutput.asText.get().trim().ifEmpty { null }
 }
 
-val modVersion = prop("mod_version") + (gitCommitHash()?.let { "+$it" } ?: "")
+// リリースビルド（`-Prelease`）ではコミットハッシュを付けない。配布物のバージョンは
+// タグ名（=mod_version）とそのまま一致させたいため
+val isRelease = project.hasProperty("release")
+val modVersion = prop("mod_version") + if (isRelease) "" else (gitCommitHash()?.let { "+$it" } ?: "")
 
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = mapOf(
