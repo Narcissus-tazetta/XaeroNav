@@ -14,6 +14,19 @@ places — the world, Xaero's World Map, and Xaero's Minimap — with turn-by-tu
 
 ---
 
+![Route drawn on Xaero's World Map](docs/images/map-image.png)
+
+## Installation
+
+1. Install [NeoForge](https://neoforged.net/) 21.1.228 or newer for Minecraft 1.21.1.
+2. Download the latest `xaeronav-*.jar` from the
+   [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) and drop it into your
+   `mods` folder.
+3. *(Optional, for map integration)* Install Xaero's World Map 1.44.2+ and/or Xaero's Minimap
+   26.4.2+.
+
+Client-only — there's nothing to install on the server.
+
 ## What it does
 
 - **Routes over real terrain**, not straight-line distance. The A* search combines walking,
@@ -44,6 +57,8 @@ places — the world, Xaero's World Map, and Xaero's Minimap — with turn-by-tu
 | Waypoint | Right-click a waypoint → "Route here" |
 | Keybind | "Route to block looked at" (unbound by default) |
 | Command | `/xaeronav goto <x> <y> <z>` |
+
+![Right-click menu on Xaero's World Map showing "Navigate Here"](docs/images/how-to-use.png)
 
 Starting to glide with an elytra automatically switches the guidance: it computes and shows a
 terrain-avoiding aerial path (a light-blue line), and lands back onto walking navigation to the

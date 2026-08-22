@@ -10,6 +10,7 @@ displayName="${mod_name}"
 authors="${mod_authors}"
 displayURL="${mod_display_url}"
 description='''${mod_description}'''
+logoFile="xaeronav_icon.png"
 
 # Xaero連携だけを持つ専用config（required=false）。Xaero未導入・注入先が変わった場合は
 # この機能だけが無効になり、MOD本体はワールド内描画で動き続ける
