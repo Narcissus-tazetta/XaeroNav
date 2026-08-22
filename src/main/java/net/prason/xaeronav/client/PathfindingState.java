@@ -454,6 +454,7 @@ public final class PathfindingState {
         this.goalDimension = level.dimension();
         // 滑空中に指定された目的地は、着地するまで経路を引かない（引いても表示せず捨てるだけになる）
         this.flying = airborne(player);
+        GoalWaypoint.sync(this.goal);
         if (this.flying) {
             recalculateFlightLine();
         } else {
@@ -503,6 +504,7 @@ public final class PathfindingState {
     public void clear() {
         // 世代を進めた時点で実行中の探索の結果は捨てられる。その結果待ちを表すcomputingもここで下ろす
         generation.incrementAndGet();
+        GoalWaypoint.sync(null);
         this.computing = false;
         this.goal = null;
         this.goalDimension = null;
@@ -571,7 +573,9 @@ public final class PathfindingState {
             ground = null;
         }
         return new MapPathOverlay.Snapshot(ground,
-                XaeroNavConfig.INSTANCE.straightLineEnabled() ? currentGoal : null,
+                currentGoal,
+                XaeroNavConfig.INSTANCE.straightLineEnabled(),
+                XaeroNavConfig.INSTANCE.goalMarkerEnabled() && !GoalWaypoint.placed(),
                 playerPos,
                 coarseRouteWaypoints(shown, currentGoal, airborne, done),
                 route.points(),
@@ -766,6 +770,7 @@ public final class PathfindingState {
         if (currentGoal == null) {
             return;
         }
+        GoalWaypoint.sync(currentGoal);
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) {
             return;

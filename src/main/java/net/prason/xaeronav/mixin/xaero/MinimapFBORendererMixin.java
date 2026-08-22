@@ -38,6 +38,14 @@ public abstract class MinimapFBORendererMixin implements XaeroHookMarker {
      */
     private static final int CULL_RADIUS_BLOCKS = 320;
 
+    /**
+     * FBO上の1単位が画面上のおおよそ何ピクセルになるか。目的地の目印だけは画面上で一定の大きさに
+     * したいが、FBOはここでは1単位＝1ブロックで描かれ、画面への倍率は貼り付けるとき（この描画の
+     * 外側）に掛かるので行列からは読めない。既定の大きさ・ズームでの代表値を使う——ズーム設定まで
+     * 読みに行くとXaeroの設定クラスへの依存が増えるわりに、目印が数ピクセル変わるだけになる。
+     */
+    private static final double SCREEN_PIXELS_PER_BLOCK = 2.0;
+
     @WrapOperation(
             method = "renderChunksToFBO",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 0)
@@ -50,14 +58,19 @@ public abstract class MinimapFBORendererMixin implements XaeroHookMarker {
         if (!snapshot.isEmpty()) {
             VertexConsumer overlayBuffer = renderTypeBuffers.getBuffer(CustomRenderTypes.MAP_CHUNK_OVERLAY);
             Matrix4f pose = matrixStack.last().pose();
-            MapPathOverlay.draw(snapshot, (blockX, blockZ, red, green, blue) -> {
-                if (Math.abs(blockX - xFloored) > CULL_RADIUS_BLOCKS
-                        || Math.abs(blockZ - zFloored) > CULL_RADIUS_BLOCKS) {
+            MapPathOverlay.draw(snapshot, (blockX1, blockZ1, blockX2, blockZ2, red, green, blue) -> {
+                int x1 = blockX1 - xFloored;
+                int z1 = blockZ1 - zFloored;
+                int x2 = blockX2 - xFloored;
+                int z2 = blockZ2 - zFloored;
+                // 矩形ごと外にあるものだけを捨てる。角が1つでも入っていれば描く
+                if (x2 < -CULL_RADIUS_BLOCKS || x1 > CULL_RADIUS_BLOCKS
+                        || z2 < -CULL_RADIUS_BLOCKS || z1 > CULL_RADIUS_BLOCKS) {
                     return;
                 }
-                RenderBufferUtil.addColoredRect(pose, overlayBuffer, blockX - xFloored, blockZ - zFloored, 1, 1,
+                RenderBufferUtil.addColoredRect(pose, overlayBuffer, x1, z1, x2 - x1, z2 - z1,
                         red, green, blue, DOT_ALPHA);
-            });
+            }, MapPathOverlay.pixelsPerBlock(pose) * SCREEN_PIXELS_PER_BLOCK);
         }
         original.call(renderTypeBuffers);
     }

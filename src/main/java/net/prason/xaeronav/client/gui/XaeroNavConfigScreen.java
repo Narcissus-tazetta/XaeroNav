@@ -52,6 +52,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 cfg.hudEnabled(), cfg::setHudEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.straight_line_enabled",
                 cfg.straightLineEnabled(), cfg::setStraightLineEnabled));
+        this.list.addBig(boolOption("gui.xaeronav.config.goal_marker_enabled",
+                cfg.goalMarkerEnabled(), cfg::setGoalMarkerEnabled));
     }
 
     private static OptionInstance<Boolean> boolOption(String key, boolean initial, Consumer<Boolean> setter) {

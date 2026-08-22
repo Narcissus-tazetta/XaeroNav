@@ -46,6 +46,15 @@ final class PathColors {
     static final float[] ASCEND = {1.0f, 0.9f, 0.2f};
     static final float[] DESCEND = {0.3f, 0.6f, 1.0f};
     static final float[] WALK = {0.2f, 0.9f, 0.5f};
+    /**
+     * 地図に置く目的地のピン。本体の赤・穴の白・縁取りの暗色を重ねる。
+     *
+     * <p>1色では必ずどこかの地形に沈む——白は雪原と砂漠で、暗色はネザーと深海で、赤は溶岩とキノコ島で
+     * 見えなくなる。3色を重ねておけば、どの地形でもどれかの組み合わせが必ず立つ。
+     */
+    static final float[] GOAL_MARKER = {0.95f, 0.15f, 0.15f};
+    static final float[] GOAL_MARKER_HOLE = {1.0f, 1.0f, 1.0f};
+    static final float[] GOAL_MARKER_OUTLINE = {0.05f, 0.05f, 0.07f};
 
     private PathColors() {
     }

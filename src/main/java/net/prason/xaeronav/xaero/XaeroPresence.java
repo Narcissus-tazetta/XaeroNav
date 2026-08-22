@@ -16,11 +16,17 @@ import net.neoforged.fml.ModList;
 public final class XaeroPresence {
 
     private static final String WORLD_MAP_MOD_ID = "xaeroworldmap";
+    private static final String MINIMAP_MOD_ID = "xaerominimap";
 
     private XaeroPresence() {
     }
 
     public static boolean mapPresent() {
         return ModList.get().isLoaded(WORLD_MAP_MOD_ID);
+    }
+
+    /** ミニマップ側。地図データは世界地図が持つので、こちらはウェイポイントを置けるかの判定にだけ使う。 */
+    public static boolean minimapPresent() {
+        return ModList.get().isLoaded(MINIMAP_MOD_ID);
     }
 }
