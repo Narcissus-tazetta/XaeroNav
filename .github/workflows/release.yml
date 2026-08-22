@@ -1,11 +1,15 @@
 name: Release
 
-# 手動実行（Actionsタブの "Run workflow"）で、好きなタイミングにリリースできる。
-# gradle.properties の mod_version からタグを自動生成・push するので、事前にタグを打つ手順は不要。
-# 従来通り `git tag vX.Y.Z && git push --tags` で起動することもできる（タグと mod_version の
-# 不一致はここで弾く）。
+# 手動実行（Actionsタブの "Run workflow"）で、好きなタイミング・好きなバージョンでリリースできる。
+# バージョンはgradle.propertiesを書き換えず `-Pmod_version` でビルド時に上書きするので、
+# リリースのたびにコミットが要らない。従来通り `git tag vX.Y.Z && git push --tags` で
+# 起動することもできる（その場合はタグ名がそのままバージョンになる）。
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "リリースするバージョン（例: 0.1.1）"
+        required: true
   push:
     tags:
       - "v*"
@@ -28,48 +32,48 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Read mod_version
-        id: mod_version
-        run: echo "value=$(grep '^mod_version=' gradle.properties | cut -d'=' -f2)" >> "$GITHUB_OUTPUT"
-
-      # workflow_dispatch: mod_versionからタグ名を導く（vX.Y.Z）
-      # タグpush: 打たれたタグがmod_versionと一致するか検証する（ズレたタグでのリリースを防ぐ）
-      - name: Resolve release tag
-        id: tag
+      # workflow_dispatch: 入力されたバージョンを使う。タグpush: タグ名から取り出す
+      - name: Resolve version and tag
+        id: release
         run: |
-          EXPECTED="v${{ steps.mod_version.outputs.value }}"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="$EXPECTED"
+            VERSION="${{ inputs.version }}"
           else
-            TAG="${GITHUB_REF#refs/tags/}"
-            if [ "$TAG" != "$EXPECTED" ]; then
-              echo "::error::タグ $TAG が gradle.properties の mod_version(${{ steps.mod_version.outputs.value }}) と一致しません。期待されるタグ: $EXPECTED"
-              exit 1
-            fi
+            VERSION="${GITHUB_REF#refs/tags/v}"
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::バージョンは X.Y.Z の形式で指定してください（入力値: $VERSION）"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      # workflow_dispatchのときだけ、ここでタグを作ってpushする。同名タグが既にあれば
-      # mod_versionの上げ忘れなのでエラーにする（同じバージョンでの上書きリリースを防ぐ）
+      # 手動実行のときだけ確認する。タグpushでは、そのタグ自体が既にリモートにある
+      # のが正常なのでチェック対象外（同じタグを打ち直すのは別の問題として自然に失敗する）
+      - name: Ensure version doesn't collide with an existing release
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "::error::タグ $TAG は既に存在します。別のバージョンを指定してください。"
+            exit 1
+          fi
+
       - name: Create and push tag
         if: github.event_name == 'workflow_dispatch'
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
-            echo "::error::タグ $TAG は既に存在します。gradle.properties の mod_version を上げてから実行してください。"
-            exit 1
-          fi
+          TAG="${{ steps.release.outputs.tag }}"
           git tag "$TAG"
           git push origin "$TAG"
 
       - name: Build
-        run: ./gradlew build -Prelease
+        run: ./gradlew build -Prelease -Pmod_version=${{ steps.release.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: ${{ steps.release.outputs.tag }}
           draft: true
           generate_release_notes: true
           files: build/libs/xaeronav-*.jar
