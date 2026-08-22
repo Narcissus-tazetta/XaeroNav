@@ -58,6 +58,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
     private final ModConfigSpec.BooleanValue hudEnabled;
     private final ModConfigSpec.BooleanValue straightLineEnabled;
+    private final ModConfigSpec.BooleanValue goalMarkerEnabled;
 
     private XaeroNavConfig(ModConfigSpec.Builder builder) {
         builder.comment("XaeroNav 経路探索設定").push("pathfinding");
@@ -282,6 +283,10 @@ public final class XaeroNavConfig {
                 .comment("経路が分からない区間（未読み込みチャンクの先など）を目的地までの点線で示すか")
                 .define("straightLineEnabled", true);
 
+        goalMarkerEnabled = builder
+                .comment("Xaeroの世界地図・ミニマップの目的地にピンを立てるか")
+                .define("goalMarkerEnabled", true);
+
         builder.pop();
     }
 
@@ -470,5 +475,13 @@ public final class XaeroNavConfig {
 
     public void setStraightLineEnabled(boolean value) {
         straightLineEnabled.set(value);
+    }
+
+    public boolean goalMarkerEnabled() {
+        return goalMarkerEnabled.get();
+    }
+
+    public void setGoalMarkerEnabled(boolean value) {
+        goalMarkerEnabled.set(value);
     }
 }

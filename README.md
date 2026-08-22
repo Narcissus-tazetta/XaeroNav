@@ -49,6 +49,13 @@ Starting to glide with an elytra automatically switches the guidance: it compute
 terrain-avoiding aerial path (a light-blue line), and lands back onto walking navigation to the
 same destination the moment you touch down.
 
+However you set it, the destination is marked on Xaero's maps, so you can see where you are heading
+without following the line to its end. With Xaero's Minimap installed it is registered as a
+**temporary Xaero waypoint** — it stays upright on a rotating minimap, moves to the edge with a
+distance readout once it is off screen, and shows in the world like any other waypoint. It is never
+written to disk, and it is removed when you clear the route. Without the minimap, XaeroNav draws its
+own pin on the world map instead, which keeps the same size on screen however far you zoom out.
+
 Clear the route with `/xaeronav clear` or its keybind.
 
 ### Commands
@@ -98,6 +105,7 @@ All **unbound by default** (`Options → Controls → XaeroNav`).
 | 🟠 Pale orange | ⚠ Sneaking across a magma block |
 | ⚪ Off-white | Dotted line for a stretch with no known route (heads toward the unexplored destination) |
 | 🟡 Amber | Coarse waypoint chain for a long-distance route |
+| 📍 Red pin | The destination, drawn by XaeroNav when Xaero's Minimap is not installed (stays the same size on screen at any zoom) |
 | 🔷 Sky blue | Aerial path while gliding with an elytra |
 
 Warning colors take priority over movement-type colors — danger needs to read first.
@@ -150,6 +158,7 @@ netherrack, etc.). Processed blocks (cobblestone, stone bricks, planks) and bloc
 |---|---|---|
 | `hudEnabled` | `true` | On-screen guidance at the top of the screen |
 | `straightLineEnabled` | `true` | Show a dotted line to the destination for stretches with no known route |
+| `goalMarkerEnabled` | `true` | Mark the destination on Xaero's maps (a temporary waypoint with the minimap installed, otherwise a pin drawn by XaeroNav) |
 
 ## Known limitations
 

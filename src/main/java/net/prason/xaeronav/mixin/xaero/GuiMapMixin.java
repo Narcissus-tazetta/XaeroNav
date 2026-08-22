@@ -45,12 +45,12 @@ public abstract class GuiMapMixin implements XaeroHookMarker {
         if (!snapshot.isEmpty()) {
             VertexConsumer overlayBuffer = renderTypeBuffers.getBuffer(CustomRenderTypes.MAP_COLOR_OVERLAY);
             Matrix4f pose = matrixStack.last().pose();
-            MapPathOverlay.draw(snapshot, (blockX, blockZ, red, green, blue) -> {
-                int x1 = blockX - flooredCameraX;
-                int z1 = blockZ - flooredCameraZ;
-                MapRenderHelper.fillIntoExistingBuffer(pose, overlayBuffer, x1, z1, x1 + 1, z1 + 1,
-                        red, green, blue, DOT_ALPHA);
-            });
+            MapPathOverlay.draw(snapshot, (blockX1, blockZ1, blockX2, blockZ2, red, green, blue) ->
+                    MapRenderHelper.fillIntoExistingBuffer(pose, overlayBuffer,
+                            blockX1 - flooredCameraX, blockZ1 - flooredCameraZ,
+                            blockX2 - flooredCameraX, blockZ2 - flooredCameraZ,
+                            red, green, blue, DOT_ALPHA),
+                    MapPathOverlay.pixelsPerBlock(pose));
         }
         original.call(renderTypeBuffers);
     }
