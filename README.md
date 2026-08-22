@@ -1,161 +1,199 @@
 # XaeroNav
 
-**Google マップのような最短経路案内を Minecraft に持ち込むクライアント MOD。**
-目的地を指定すると、そこまでの実際に歩ける経路を計算して、ワールド内・Xaero's World Map・
-Xaero's Minimap の 3 箇所に描き、画面上部に「次にどちらへ曲がるか」「残りの道のり・所要時間」を出します。
+English | [日本語](README.ja.md)
 
-> *A client-side navigation mod for Minecraft. Pick a destination and XaeroNav computes a walkable
-> route — including digging, bridging, swimming, ladders and one-block jumps — then draws it in the
-> world and on Xaero's World Map / Minimap, with turn-by-turn guidance on screen.*
+**A client-side mod that computes an actually walkable route to a destination and draws it in three
+places — the world, Xaero's World Map, and Xaero's Minimap — with turn-by-turn guidance on screen.**
 
 | | |
 |---|---|
 | Minecraft | 1.21.1 |
-| ローダー | NeoForge 21.1.228 以降 |
-| 側 | **クライアント専用**（サーバーへの導入は不要） |
-| ライセンス | MIT |
+| Loader | NeoForge 21.1.228+ |
+| Side | **Client-only** (no server install needed) |
+| License | MIT |
 
 ---
 
-## 何ができるか
+## What it does
 
-- **地形を実際に辿れる経路を出す。** 直線距離ではなく、歩く・登る・降りる・泳ぐ・梯子を使う・
-  1 マスの隙間を跳ぶ・掘る・空洞にブロックを置いて渡る、を組み合わせた経路を A* で探索します。
-- **手段ごとに色を変える。** 掘る場所は壁の中でも見えるようにハイライトされ、次に掘る 1 区間だけは
-  枠付きではっきり出ます。
-- **危険を色で警告する。** 溶岩に隣接する掘削、水が流れ込む掘削、下が奈落、息が続かない潜水区間。
-- **地下からは先に地上へ出る。** 地上の目的地へ向かうとき、地下にいる場合は目的地の真下を
-  一直線に掘り上がるのではなく、まず最寄りの出口（洞窟・崖）へ出てから改めて目的地を目指します。
-- **経路の再計算を控えめにする。** 線から数マスずれた程度では引き直しません。歩いているだけで
-  案内がころころ変わるのを防ぐためです。
-- **Xaero が無くても動く。** 地図への描画と右クリックメニューだけが無効になり、
-  ワールド内の描画と HUD はそのまま使えます。
+- **Routes over real terrain**, not straight-line distance. The A* search combines walking,
+  climbing, descending, swimming, riding a boat, ladders/vines, jumping 1–3 block gaps, digging,
+  and bridging over gaps with placed blocks.
+- **Colors each segment by its type.** Blocks to be dug are highlighted through walls, and the
+  very next segment to dig gets an outline.
+- **Warns about danger with color.** Digging next to lava, digging that lets water flow in, a void
+  below, a swim that runs out of breath, a fall that deals damage (when allowed).
+- **Solves long distance in three tiers.** Beyond loaded chunks, a coarse route is drawn from
+  Xaero's map data and the detailed search is stitched onto it segment by segment. This also
+  handles dimensions where multiple floors stack at the same XZ, such as the Nether.
+- **Surfaces before beelining underground.** When heading to a surface destination while
+  underground, it first routes to the nearest exit (cave/cliff) instead of digging straight up
+  toward the target (sky-having dimensions only).
+- **Computes a real 3D path while gliding with an elytra**, avoiding terrain, with its own
+  deviation threshold and recalculation interval separate from walking.
+- **Recalculates conservatively.** Straying a few blocks from the line doesn't trigger a redraw,
+  so the guidance doesn't flicker while you walk.
+- **Works without Xaero too.** Only map drawing and the right-click menu are disabled; in-world
+  rendering and the HUD still work.
 
-## 目的地の指定
+## Setting a destination
 
-| 方法 | 操作 |
+| Method | Action |
 |---|---|
-| 世界地図 | 地図の何もない場所を右クリック → 「ここへ経路探索」 |
-| ウェイポイント | ウェイポイントを右クリック → 「ここへ経路探索」 |
-| キーバインド | 「見ているブロックへ経路探索」（既定は未割り当て） |
-| コマンド | `/xaeronav goto <x> <y> <z>` |
+| World map | Right-click empty space on the map → "Route here" |
+| Waypoint | Right-click a waypoint → "Route here" |
+| Keybind | "Route to block looked at" (unbound by default) |
+| Command | `/xaeronav goto <x> <y> <z>` |
 
-エリトラで滑空を始めると自動的に案内を切り替えます。滑空中は経路探索を止め、目的地までの
-直線（点線）だけを表示します——空に障害物を避ける経路は要らず、行き先さえ見えていれば自分で
-操縦できるためです。着地すると同じ目的地への徒歩ナビが即座に再開します。
+Starting to glide with an elytra automatically switches the guidance: it computes and shows a
+terrain-avoiding aerial path (a light-blue line), and lands back onto walking navigation to the
+same destination the moment you touch down.
 
-経路を消すのは `/xaeronav clear` かキーバインド。
+Clear the route with `/xaeronav clear` or its keybind.
 
-### キーバインド
+### Keybinds
 
-いずれも**既定では未割り当て**です（`設定 → 操作設定 → XaeroNav`）。
+All **unbound by default** (`Options → Controls → XaeroNav`).
 
-| 動作 | 用途 |
+| Action | Purpose |
 |---|---|
-| 見ているブロックへ経路探索 | Xaero を入れていない環境での主な指定手段 |
-| 経路をクリア | |
-| 案内表示の切り替え | HUD の表示・非表示（設定ファイルへ書き戻されます） |
+| Route to block looked at | Main way to set a destination without Xaero installed |
+| Clear route | |
+| Toggle HUD | Show/hide the on-screen guidance (persisted to the config file) |
+| Open config screen | Edit `config/xaeronav-client.toml` via GUI |
 
-## 経路の色
+## Route colors
 
-| 色 | 意味 |
+| Color | Meaning |
 |---|---|
-| 🟢 緑 | 歩く |
-| 🟡 黄 | 登る |
-| 🔵 青 | 降りる |
-| 🔷 濃い青 | 泳ぐ |
-| 🟣 紫 | 梯子・ツタ |
-| 🌸 桃 | 1 マスの隙間を跳ぶ |
-| 🟠 橙 | **掘る**（対象のブロックが壁越しにハイライトされる） |
-| 🩵 水色 | **ブロックを置いて渡る** |
-| 🔴 赤 | ⚠ 溶岩に隣接している |
-| 🔵 明るい青 | ⚠ 掘ると水が流れ込む |
-| 🟪 赤紫 | ⚠ 下が奈落 |
-| 🟦 暗い青 | ⚠ 息継ぎできない潜水区間 |
-| ⚪ 灰白 | 経路が分からない区間の点線（未探索の先へ向かう方角） |
+| 🟢 Green | Walking |
+| 🟡 Yellow | Climbing up |
+| 🔵 Blue | Climbing/stepping down |
+| 🔷 Dark blue | Swimming |
+| 🩵 Light cyan | Riding a boat |
+| 🟣 Purple | Ladder / vine |
+| 🌸 Pink | Jumping a gap |
+| 🟠 Orange | **Digging** (target block highlighted through walls) |
+| 🩵 Cyan | **Bridging** with placed blocks |
+| 🔴 Red | ⚠ Adjacent to lava |
+| 🟪 Magenta | ⚠ Void below |
+| 🔵 Light blue | ⚠ Digging lets water flow in |
+| 🌹 Reddish pink | ⚠ Swim segment with no breath left |
+| 🟧 Orange-red | ⚠ Fall that deals damage |
+| 🟢 Teal | Fall softened by placing water at the last moment (MLG) |
+| 🟠 Pale orange | ⚠ Sneaking across a magma block |
+| ⚪ Off-white | Dotted line for a stretch with no known route (heads toward the unexplored destination) |
+| 🟡 Amber | Coarse waypoint chain for a long-distance route |
+| 🔷 Sky blue | Aerial path while gliding with an elytra |
 
-警告色は移動手段の色より優先されます。危険の方が先に伝わらないと意味がないためです。
+Warning colors take priority over movement-type colors — danger needs to read first.
 
-## 設定
+## Configuration
 
-`config/xaeronav-client.toml`。**Mods 一覧の「設定」ボタンから GUI でも変更できます。**
+`config/xaeronav-client.toml`. **Also editable via the "Config" button in the Mods list.**
 
 ### `[pathfinding]`
 
-| 項目 | 既定 | 説明 |
+| Key | Default | Description |
 |---|---|---|
-| `diggingEnabled` | `true` | 掘削を経路に含めてよいか |
-| `bridgingEnabled` | `true` | 空洞を渡るブロック設置を含めてよいか（ホットバーに置けるブロックが無ければ提示されません） |
-| `searchHorizontalMargin` | `64` | 探索範囲の水平マージン（ブロック） |
-| `searchVerticalMargin` | `32` | 探索範囲の垂直マージン（ブロック） |
-| `deviationThresholdBlocks` | `4.0` | 経路からこれだけ離れたら再計算。大きいほど線が落ち着きます |
-| `arrivalRadiusBlocks` | `3.0` | 到着とみなす距離 |
-| `groundLevelY` | `60` | この高さ以上で頭上が開けた場所を地上とみなす（地上優先ナビの基準） |
-| `recalcIntervalTicks` | `40` | 経路上のブロック変化を確認する間隔 |
-| `maxExpandedNodes` | `100000` | 1 回の探索で展開するノード数の上限。大きいほど遠くまで正確ですが CPU とメモリを使います |
-| `heuristicWeight` | `1.5` | ゴールへの近さを重視する度合い。`1.0` は最短経路を保証しますが、掘削や遊泳のように実コストが見積もりを上回る場所で経路が届かなくなります。上げるほど遠くまで届くかわり、遠回りが混じります |
-| `additionalForbiddenBlocks` | `[]` | 掘削禁止に追加するブロック ID（例: `"minecraft:chest"`） |
+| `diggingEnabled` | `true` | Allow digging in routes |
+| `bridgingEnabled` | `true` | Allow placing blocks to bridge gaps or climb cliffs |
+| `lavaBridgingEnabled` | `true` | Allow bridging over lava (also requires `bridgingEnabled`; last resort when no route avoiding lava exists) |
+| `jumpGapEnabled` | `true` | Allow jumping gaps up to 3 blocks wide |
+| `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
+| `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
+| `costToGoGuideEnabled` | `true` | Use the coarse route's cost estimate as an additional heuristic for detailed search (helps in 3D mazes like the Nether) |
+| `detailHorizonBlocks` | `96` | Max horizontal distance the detailed search targets in one shot; farther destinations get intermediate waypoints |
+| `maxBridgeRunBlocks` | `30` | How many consecutive blocks a bridge over open air can run before it's abandoned for a detour (`0` = unlimited) |
+| `maxLavaBridgeRunBlocks` | `30` | Same, but specifically for bridges over lava (`0` = unlimited) |
+| `maxSubmergedTicks` | `250` | How many ticks a route may keep your head underwater (`0` = unlimited) |
+| `searchHorizontalMargin` | `64` | Horizontal search margin (blocks) |
+| `searchVerticalMargin` | `32` | Vertical search margin (blocks) |
+| `deviationThresholdBlocks` | `4.0` | Recalculate once you're this far from the line; higher keeps the line steadier |
+| `arrivalRadiusBlocks` | `3.0` | Distance counted as "arrived" |
+| `groundLevelY` | `60` | Y level and above, with open sky, counted as "surface" (basis for surface-first routing; inactive in dimensions without sky) |
+| `recalcIntervalTicks` | `40` | Interval for checking block changes along the route |
+| `maxExpandedNodes` | `100000` | Cap on nodes expanded per search; higher reaches farther accurately but costs more CPU/memory |
+| `heuristicWeight` | `1.5` | How much the search favors getting close to the goal; `1.0` guarantees the shortest path but can fail to reach destinations where real cost (digging, swimming) outruns the estimate |
+| `flightRoutingEnabled` | `true` | Compute an aerial path while gliding/flying (`false` reverts to a straight line to the destination) |
+| `flightCellBlocks` | `6` | Side length (blocks) of the grid used to solve the aerial path; smaller fits through tighter gaps but reaches less far |
+| `flightDeviationThresholdBlocks` | `24.0` | Recalculate the aerial path once you're this far from it |
+| `flightRecalcIntervalTicks` | `20` | Recalculation interval (ticks) while gliding |
+| `flightClearanceDetourBlocks` | `12` | How many blocks of detour a tight passage is worth avoiding (`0` disables this) |
+| `flightMaxExpandedNodes` | `150000` | Cap on cells expanded per aerial search |
+| `flightExtendMaxExpandedNodes` | `60000` | Cap on cells expanded when extending the path further from its end |
+| `flightHeuristicWeight` | `2.5` | Heuristic weight for the aerial search |
+| `additionalDiggableBlocks` | `[]` | Extra block IDs allowed to dig (e.g. modded terrain blocks; example: `"minecraft:cobblestone"`) |
+| `additionalForbiddenBlocks` | `[]` | Extra block IDs forbidden to dig; takes priority over the list above (example: `"minecraft:diamond_ore"`) |
 
-掘削禁止は既定でチェスト・かまど・作業台・スポナー・鉄のドア・**原木**が入っています。
+By default, digging only allows naturally generated terrain (stone, dirt, sand, ores, leaves,
+netherrack, etc.). Processed blocks (cobblestone, stone bricks, planks) and blocks with inventory
+(chests, furnaces) are never dug, and unrecognized blocks default to not-diggable.
 
 ### `[display]`
 
-| 項目 | 既定 | 説明 |
+| Key | Default | Description |
 |---|---|---|
-| `hudEnabled` | `true` | 画面上部の案内表示 |
-| `straightLineEnabled` | `true` | 経路が分からない区間を目的地までの点線で示す |
+| `hudEnabled` | `true` | On-screen guidance at the top of the screen |
+| `straightLineEnabled` | `true` | Show a dotted line to the destination for stretches with no known route |
 
-## 既知の制約
+## Known limitations
 
-- 探索は読み込み済みチャンクの中だけで行われ、展開ノード数の上限で打ち切られます。遠い目的地では
-  経路が途中で終わり、そこから先は点線になります（進めば続きが計算されます）。HUD にも
-  「この先は未探索」と出ます。
-- 探索範囲は Minecraft の**描画距離**で頭打ちになります（描画距離 8 なら 128 ブロック）。サーバーから
-  送られてこないチャンクは読めず、MOD 側から要求する手段もない（バニラのプロトコルにチャンクを
-  要求するパケットが無い）ためです。遠距離の案内が途中で切れるときは描画距離を上げてください。
-- エリトラ経路には逸脱検知・自動再計算がありません。指定した時点で 1 度だけ計算します。
-- HUD はエリトラ経路のときは表示されません（徒歩の目的地が設定されているときだけ出ます）。
-- 次元をまたぐ経路は扱いません。別の次元へ移動すると目的地ごとクリアされます。
-- ネザー・ジ・エンドでは地上優先ナビは働きません（「地上」が存在しないため）。
+- Search only covers loaded chunks and stops at the expanded-node cap. Far destinations get a
+  route that ends partway, continuing as a dotted line (it fills in as you get closer); the HUD
+  also shows "unexplored beyond this point."
+- Search range is capped by Minecraft's **render distance** (render distance 8 = 128 blocks) —
+  chunks the server hasn't sent can't be read, and there's no vanilla packet to request them. If
+  long-distance guidance keeps cutting off, raise your render distance.
+- Long-distance routing that relies on Xaero's map data isn't available without Xaero installed,
+  or in areas you haven't visited yet (it falls back to computing from loaded chunks only).
+- The HUD is hidden for aerial (elytra) routes — it only shows when a walking destination is set.
+- Routes don't cross dimensions. Changing dimension clears the current destination.
+- Surface-first routing (surfacing before beelining underground) doesn't work in dimensions
+  without sky (Nether, the End).
 
-## ビルド
+## Building
 
 ```bash
 ./gradlew build
 ```
 
-`spotlessCheck`（未使用 import・行末の空白・末尾の改行）とテストが一緒に走ります。
-成果物は `build/libs/`。
+This also runs `spotlessCheck` (unused imports, trailing whitespace, final newline) and the test
+suite. Artifacts land in `build/libs/`.
 
-開発用クライアントの起動:
+Running a dev client:
 
 ```bash
-./gradlew runClient                      # Xaero 込み
-./gradlew runClient -Pwith_xaero=false   # Xaero 抜き（フォールバック動作の確認用）
+./gradlew runClient                      # with Xaero
+./gradlew runClient -Pwith_xaero=false   # without Xaero (to check fallback behavior)
 ```
 
-Xaero はコンパイル時にだけ必要な依存（`compileOnly`）で、配布物には含まれません。
+Xaero is a compile-time-only dependency (`compileOnly`) and isn't bundled with the release.
 
-### 構成
+### Layout
 
 ```
 pathfinding/
-  astar/    A* 本体、ヒープ、ヒューリスティック、安全確認
-  world/    ブロックの読み取り（CellSource / ChunkView / CellData）と探索範囲
-  cost/     移動・掘削コストの基準値
-  async/    ワーカースレッドでの実行とキャンセル
-client/     経路の状態管理・描画・HUD・案内・コマンド・キーバインド
-mixin/xaero/  Xaero の世界地図・ミニマップへのフック（required=false）
-config/     TOML 設定
+  astar/    A* core, heap, heuristics, safety checks
+  coarse/   Coarse terrain from Xaero's map / live sampling, and long-distance waypoint chains
+  flight/   3D aerial pathfinding while gliding (coarse route, grid A*, smoothing)
+  world/    Block reads (CellSource / ChunkView / CellData) and search bounds
+  cost/     Movement and digging cost baselines
+  async/    Worker-thread execution and cancellation
+client/     Route state, rendering, HUD, guidance, commands, keybinds
+mixin/xaero/  Hooks into Xaero's World Map / Minimap (required=false)
+config/     TOML configuration
 ```
 
-探索コアは Minecraft のワールドを直接見ず、[`CellSource`](src/main/java/net/prason/xaeronav/pathfinding/world/CellSource.java)
-という 4 メソッドの窓越しにブロックを読みます。本番の実装は `ChunkView`、テストでは地形を文字で書ける
-`FakeCells` を渡します。
+The search core never looks at the Minecraft world directly — it reads blocks through
+[`CellSource`](src/main/java/net/prason/xaeronav/pathfinding/world/CellSource.java), a 4-method
+window. The production implementation is `ChunkView`; tests pass `FakeCells`, which lets terrain
+be written as text.
 
-## ライセンス
+## License
 
-MIT（[LICENSE](LICENSE)）。
+MIT ([LICENSE](LICENSE)).
 
-移動コストの基準値は [Baritone](https://github.com/cabaletta/baritone)（LGPL）で使われている実測値を
-参考にしていますが、コードは独自実装です。
+Movement cost baselines are informed by measurements used in
+[Baritone](https://github.com/cabaletta/baritone) (LGPL), but the code itself is an independent
+implementation.
