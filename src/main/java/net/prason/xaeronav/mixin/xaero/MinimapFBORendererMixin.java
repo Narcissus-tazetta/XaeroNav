@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.At;
 
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.prason.xaeronav.client.MapPathOverlay;
+import net.prason.xaeronav.xaero.XaeroHookMarker;
 import xaero.common.graphics.CustomRenderTypes;
 import xaero.common.minimap.render.MinimapFBORenderer;
 import xaero.hud.render.util.RenderBufferUtil;
@@ -26,7 +27,7 @@ import xaero.hud.render.util.RenderBufferUtil;
  * <p>required=falseの専用mixin configに属し、対象メソッドの形が変わった場合はこの機能だけが無効化される。
  */
 @Mixin(MinimapFBORenderer.class)
-public abstract class MinimapFBORendererMixin {
+public abstract class MinimapFBORendererMixin implements XaeroHookMarker {
 
     private static final float DOT_ALPHA = 0.9f;
 

@@ -6,7 +6,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
-import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 
 /**
@@ -51,18 +50,7 @@ public final class MapPathOverlay {
         if (player == null) {
             return new Snapshot(null, null, null, List.of(), List.of(), 0, List.of());
         }
-        PathResult ground = PathfindingState.INSTANCE.currentResult();
-        if (ground != null && ground.steps().isEmpty()) {
-            ground = null;
-        }
-        BlockPos goal = XaeroNavConfig.INSTANCE.straightLineEnabled()
-                ? PathfindingState.INSTANCE.goal()
-                : null;
-        return new Snapshot(ground, goal, player.blockPosition(),
-                PathfindingState.INSTANCE.coarseRouteWaypoints(),
-                PathfindingState.INSTANCE.flightRoute().points(),
-                PathfindingState.INSTANCE.flightRouteFrom(),
-                PathfindingState.INSTANCE.flightDashWaypoints());
+        return PathfindingState.INSTANCE.mapOverlaySnapshot(player.blockPosition());
     }
 
     public static void draw(Snapshot snapshot, DotSink sink) {

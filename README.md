@@ -51,6 +51,20 @@ same destination the moment you touch down.
 
 Clear the route with `/xaeronav clear` or its keybind.
 
+### Commands
+
+| Command | What it does |
+|---|---|
+| `/xaeronav goto <x> <y> <z>` | Set the destination |
+| `/xaeronav clear` | Clear the route |
+| `/xaeronav version` | Print the running build (include this in bug reports) |
+
+`/xaeronav debug ...` holds measurement commands that print numbers to chat without navigating
+anywhere: `mapdata [radiusChunks]` (how much of Xaero's map data is available around you), `route`
+and `corridor` (the coarse waypoint chain and its per-leg refinement), `probe` (what the detailed
+search reached, and why it stopped), and `flight` (the aerial route). They exist to explain a route
+that came out wrong — attach their output to a bug report.
+
 ### Keybinds
 
 All **unbound by default** (`Options → Controls → XaeroNav`).
@@ -149,6 +163,9 @@ netherrack, etc.). Processed blocks (cobblestone, stone bricks, planks) and bloc
   or in areas you haven't visited yet (it falls back to computing from loaded chunks only).
 - The HUD is hidden for aerial (elytra) routes — it only shows when a walking destination is set.
 - Routes don't cross dimensions. Changing dimension clears the current destination.
+- Map integration hooks into Xaero's internals. If a newer Xaero changes them, only that part
+  switches off — XaeroNav says which part in chat once per session, and in-world rendering and the
+  HUD keep working.
 - Surface-first routing (surfacing before beelining underground) doesn't work in dimensions
   without sky (Nether, the End).
 

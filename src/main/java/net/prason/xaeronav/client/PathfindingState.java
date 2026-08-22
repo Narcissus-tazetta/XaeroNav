@@ -550,6 +550,35 @@ public final class PathfindingState {
         return shown == null ? null : shown.result();
     }
 
+    /**
+     * 地図描画がその1フレームで必要とするものを、状態を1つにつき1度だけ読んで組む。
+     *
+     * <p>個別のgetterで埋めてはいけない。経路・目的地・長距離ルート・空中経路はワーカースレッドが
+     * それぞれ別のタイミングで差し替えるので、読む順に古い状態と新しい状態が混ざる——
+     * 「もう捨てた経路の末端から新しい目的地へ伸びる点線」のような、どの時点にも存在しなかった
+     * 組み合わせが1フレームだけ描かれる。{@link MapPathOverlay.Snapshot}が防いでいるのと同じ
+     * 食い違いが、1段内側で起きることになる。
+     */
+    public MapPathOverlay.Snapshot mapOverlaySnapshot(BlockPos playerPos) {
+        boolean airborne = flying;
+        boolean done = arrived;
+        BlockPos currentGoal = goal;
+        DisplayedPath shown = displayed;
+        FlightRoute route = airborne ? flightRoute : FlightRoute.NONE;
+
+        PathResult ground = airborne || shown == null ? null : shown.result();
+        if (ground != null && ground.steps().isEmpty()) {
+            ground = null;
+        }
+        return new MapPathOverlay.Snapshot(ground,
+                XaeroNavConfig.INSTANCE.straightLineEnabled() ? currentGoal : null,
+                playerPos,
+                coarseRouteWaypoints(shown, currentGoal, airborne, done),
+                route.points(),
+                FlightProgress.INSTANCE.segmentFor(route) + 1,
+                flightDashWaypoints(airborne, done, currentGoal));
+    }
+
     /** エリトラで滑空中か。滑空中は経路を計算せず、目的地への直線（点線）だけを見せる。 */
     public boolean flying() {
         return flying;
@@ -585,10 +614,14 @@ public final class PathfindingState {
      * 「点線をどこで折るか」という1つの問いなので、2つの供給元をここで1本にまとめる。
      */
     public List<Vec3> flightDashWaypoints() {
-        if (!flying) {
+        return flightDashWaypoints(flying, arrived, goal);
+    }
+
+    private List<Vec3> flightDashWaypoints(boolean airborne, boolean done, BlockPos currentGoal) {
+        if (!airborne) {
             return List.of();
         }
-        List<BlockPos> coarse = flightCoarseWaypoints();
+        List<BlockPos> coarse = flightCoarseWaypoints(airborne, done, currentGoal);
         if (!coarse.isEmpty()) {
             return coarse.stream().map(Vec3::atCenterOf).toList();
         }
@@ -675,17 +708,17 @@ public final class PathfindingState {
      * 点線がいつまでも「ルートを計算した当時の位置」から伸びたままになる。プレイヤーが経路から
      * 大きく外れるほど現在地と点線が食い違い、古いルートが残っているように見える。
      */
-    public List<BlockPos> coarseRouteWaypoints() {
+    private List<BlockPos> coarseRouteWaypoints(DisplayedPath shown, BlockPos currentGoal,
+                                                 boolean airborne, boolean done) {
         // 到着表示の間は目的地ごと残っている（すぐ片付けると「着いた」が見えない）。中継地点は
         // もう案内ではないので、ここで描くと着いた瞬間に来た道へ点線が戻る
-        if (flying || arrived) {
+        if (airborne || done) {
             return List.of();
         }
-        List<BlockPos> all = currentRouteWaypoints();
+        List<BlockPos> all = currentRouteWaypoints(currentGoal);
         if (all.isEmpty()) {
             return all;
         }
-        DisplayedPath shown = displayed;
         if (shown != null && shown.mode() == PathMode.GOAL && shown.result().complete()) {
             // 詳細経路が本来の目的地まで届いている＝中継地点はもう案内に使っていない。ここで
             // 残りを描くと、先読みの最後の区間が目的地へ届いた瞬間に歩いてきた道へ点線が戻る
@@ -710,11 +743,15 @@ public final class PathfindingState {
      * 実害は「表示だけ」だが、それ自体が過去に踏んだ罠なので構造で防ぐ）。
      */
     private List<BlockPos> currentRouteWaypoints() {
+        return currentRouteWaypoints(goal);
+    }
+
+    private List<BlockPos> currentRouteWaypoints(BlockPos currentGoal) {
         // detail-target選定(reachableWaypointTarget)とHUD/地図描画(coarseRouteWaypoints等)は
         // 必ず同じリストを共有すること。別リストにするとwaypointIndexが指す先が食い違い、
         // 地図の点線とHUDのカウンタが壊れる
         CoarseRoute route = coarseRoute;
-        if (route == null || !route.goal().equals(goal)) {
+        if (route == null || !route.goal().equals(currentGoal)) {
             return List.of();
         }
         RefinedRoute refined = refinedRoute;
@@ -1127,12 +1164,12 @@ public final class PathfindingState {
      * <p>点線はこれを辿る。太線（読み込み済みチャンクを見る空中経路）が届く所までは確実な経路で、
      * その先は「どちらへ向かうか」しか言えない、という区別をそのまま見た目にしてある。
      */
-    public List<BlockPos> flightCoarseWaypoints() {
-        if (!flying || arrived) {
+    private List<BlockPos> flightCoarseWaypoints(boolean airborne, boolean done, BlockPos currentGoal) {
+        if (!airborne || done) {
             return List.of();
         }
         FlightCoarseRoute route = flightCoarseRoute;
-        if (route == null || !route.goal().equals(goal)) {
+        if (route == null || !route.goal().equals(currentGoal)) {
             return List.of();
         }
         int from = flightPassedWaypoints;
@@ -1208,7 +1245,7 @@ public final class PathfindingState {
      * Xaeroの地図から空中の長距離ルートを1本解く。<b>メインスレッド専用</b>
      * （{@code XaeroMapReader.readSurface}がXaeroの書き込みスレッドと同じ構造を触るため）。
      *
-     * <p>診断コマンド（{@code /xaeronav flight}）もここを通すこと。範囲やマージンを別々に組むと、
+     * <p>診断コマンド（{@code /xaeronav debug flight}）もここを通すこと。範囲やマージンを別々に組むと、
      * 測った数字が実際の案内と食い違う——実際に、診断側の独自実装はチャンク範囲が常に1つ狭く、
      * 目的地が地図の外に落ちると「中間目標0本」と報告していた（{@link #flightTuning()}を
      * 1箇所に置いてあるのと同じ理由）。

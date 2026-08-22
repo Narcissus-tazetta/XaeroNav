@@ -11,9 +11,8 @@ authors="${mod_authors}"
 displayURL="${mod_display_url}"
 description='''${mod_description}'''
 
-[[mixins]]
-config="${mod_id}.mixins.json"
-
+# Xaero連携だけを持つ専用config（required=false）。Xaero未導入・注入先が変わった場合は
+# この機能だけが無効になり、MOD本体はワールド内描画で動き続ける
 [[mixins]]
 config="${mod_id}-xaero.mixins.json"
 

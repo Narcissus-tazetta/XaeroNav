@@ -43,8 +43,11 @@ import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 
 /**
- * {@code /xaeronav goto <pos>}（徒歩・掘削） / {@code /xaeronav clear}。
- * Xaeroの右クリックメニュー等からの目的地設定はPhase 2後半（Xaeroアダプタ層）で追加する想定の暫定UI。
+ * {@code /xaeronav} のクライアントコマンド。
+ *
+ * <p>案内そのものに使うのは{@code goto} / {@code clear} / {@code version}の3つだけ。残りは経路を
+ * 引かずに数値をチャットへ出す計測用なので{@code debug}の下へ入れてある——同じ高さに並べると、
+ * 目的地を設定したいだけの人のタブ補完が計測用の名前で埋まる。
  */
 public final class XaeroNavCommands {
 
@@ -81,33 +84,34 @@ public final class XaeroNavCommands {
                                     () -> Component.translatable("commands.xaeronav.cleared"), false);
                             return 1;
                         }))
-                .then(Commands.literal("mapdata")
-                        .executes(ctx -> reportMapData(ctx.getSource(), DEFAULT_MAPDATA_RADIUS_CHUNKS))
-                        .then(Commands.argument("radiusChunks", IntegerArgumentType.integer(1, 512))
-                                .executes(ctx -> reportMapData(ctx.getSource(),
-                                        IntegerArgumentType.getInteger(ctx, "radiusChunks")))))
-                .then(Commands.literal("route")
-                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> reportRoute(ctx.getSource(),
-                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
-                .then(Commands.literal("corridor")
-                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> reportCorridor(ctx.getSource(),
-                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
-                .then(Commands.literal("probe")
-                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> reportProbe(ctx.getSource(),
-                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
-                .then(Commands.literal("flight")
-                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> reportFlight(ctx.getSource(),
-                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
                 .then(Commands.literal("version")
                         .executes(ctx -> {
                             ctx.getSource().sendSuccess(
                                     () -> Component.translatable("commands.xaeronav.version", modVersion()), false);
                             return 1;
-                        })));
+                        }))
+                .then(Commands.literal("debug")
+                        .then(Commands.literal("mapdata")
+                                .executes(ctx -> reportMapData(ctx.getSource(), DEFAULT_MAPDATA_RADIUS_CHUNKS))
+                                .then(Commands.argument("radiusChunks", IntegerArgumentType.integer(1, 512))
+                                        .executes(ctx -> reportMapData(ctx.getSource(),
+                                                IntegerArgumentType.getInteger(ctx, "radiusChunks")))))
+                        .then(Commands.literal("route")
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> reportRoute(ctx.getSource(),
+                                                BlockPosArgument.getBlockPos(ctx, "pos")))))
+                        .then(Commands.literal("corridor")
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> reportCorridor(ctx.getSource(),
+                                                BlockPosArgument.getBlockPos(ctx, "pos")))))
+                        .then(Commands.literal("probe")
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> reportProbe(ctx.getSource(),
+                                                BlockPosArgument.getBlockPos(ctx, "pos")))))
+                        .then(Commands.literal("flight")
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> reportFlight(ctx.getSource(),
+                                                BlockPosArgument.getBlockPos(ctx, "pos")))))));
     }
 
     /** 実機デバッグ用: 今読み込まれているビルドがどのgitコミットかを確認する（ビルド時にmod_versionへ埋め込み済み）。 */

@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.At;
 
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.prason.xaeronav.client.MapPathOverlay;
+import net.prason.xaeronav.xaero.XaeroHookMarker;
 import xaero.map.graphics.CustomRenderTypes;
 import xaero.map.graphics.MapRenderHelper;
 import xaero.map.gui.GuiMap;
@@ -28,7 +29,7 @@ import xaero.map.gui.GuiMap;
  * 形が変わった場合はこの1機能だけが無効化され、MOD本体はワールド内描画のみで動作を続ける。
  */
 @Mixin(GuiMap.class)
-public abstract class GuiMapMixin {
+public abstract class GuiMapMixin implements XaeroHookMarker {
 
     private static final float DOT_ALPHA = 0.9f;
 
