@@ -2,17 +2,13 @@
 
 English | [日本語](README.ja.md)
 
-**A client-side mod that computes an actually walkable route to a destination and draws it in three
-places — the world, Xaero's World Map, and Xaero's Minimap — with turn-by-turn guidance on screen.**
+A client-side Minecraft mod that finds a route you can actually walk to a destination, then draws
+it in the world, on Xaero's World Map, and on Xaero's Minimap. The top of the screen tells you
+where to go next.
 
-| | |
-|---|---|
-| Minecraft | 1.21.1 |
-| Loader | NeoForge 21.1.228+ |
-| Side | **Client-only** (no server install needed) |
-| License | MIT |
-
----
+- Minecraft 1.21.1, NeoForge 21.1.228 or newer
+- Client-only. Nothing to install on the server.
+- MIT licensed
 
 ![Route drawn on Xaero's World Map](docs/images/map-image.png)
 
@@ -22,32 +18,33 @@ places — the world, Xaero's World Map, and Xaero's Minimap — with turn-by-tu
 2. Download the latest `xaeronav-*.jar` from the
    [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) and drop it into your
    `mods` folder.
-3. *(Optional, for map integration)* Install Xaero's World Map 1.44.2+ and/or Xaero's Minimap
-   26.4.2+.
-
-Client-only — there's nothing to install on the server.
+3. For map integration, also install Xaero's World Map 1.44.2+ and/or Xaero's Minimap 26.4.2+.
+   This part is optional.
 
 ## What it does
 
-- **Routes over real terrain**, not straight-line distance. The A* search combines walking,
-  climbing, descending, swimming, riding a boat, ladders/vines, jumping 1–3 block gaps, digging,
-  and bridging over gaps with placed blocks.
-- **Colors each segment by its type.** Blocks to be dug are highlighted through walls, and the
-  very next segment to dig gets an outline.
-- **Warns about danger with color.** Digging next to lava, digging that lets water flow in, a void
-  below, a swim that runs out of breath, a fall that deals damage (when allowed).
-- **Solves long distance in three tiers.** Beyond loaded chunks, a coarse route is drawn from
-  Xaero's map data and the detailed search is stitched onto it segment by segment. This also
-  handles dimensions where multiple floors stack at the same XZ, such as the Nether.
-- **Surfaces before beelining underground.** When heading to a surface destination while
-  underground, it first routes to the nearest exit (cave/cliff) instead of digging straight up
-  toward the target (sky-having dimensions only).
-- **Computes a real 3D path while gliding with an elytra**, avoiding terrain, with its own
-  deviation threshold and recalculation interval separate from walking.
-- **Recalculates conservatively.** Straying a few blocks from the line doesn't trigger a redraw,
-  so the guidance doesn't flicker while you walk.
-- **Works without Xaero too.** Only map drawing and the right-click menu are disabled; in-world
-  rendering and the HUD still work.
+Routes are found with A* over the actual terrain, not by straight-line distance. The move set
+covers walking, climbing, descending, swimming, riding a boat, ladders and vines, jumping gaps of
+1 to 3 blocks, digging, and placing blocks to bridge a gap.
+
+Each segment is colored by what you do there. Blocks that need digging are highlighted through
+walls, and the next one to dig gets an outline. Colors also flag trouble ahead: digging next to
+lava, digging that lets water flow in, a void below, a swim longer than your breath, a fall that
+deals damage when those are allowed.
+
+Long distances are handled in three stages. Beyond the loaded chunks a coarse route is drawn from
+Xaero's map data, and the detailed search is stitched onto it one segment at a time. That also
+covers dimensions where several floors stack at the same XZ, like the Nether. If you are
+underground and the destination is on the surface, the route heads for the nearest cave mouth or
+cliff first instead of digging straight up under the target. Dimensions without a sky are the
+exception; there is no surface to aim for.
+
+Start gliding with an elytra and the mod switches to a 3D aerial path that avoids terrain, with
+its own deviation threshold and recalculation interval. Recalculation is deliberately lazy while
+walking, so drifting a few blocks off the line does not redraw it and the guidance stays still.
+
+Without Xaero installed, only the map drawing and the right-click menu go away. In-world rendering
+and the HUD work as usual.
 
 ## Setting a destination
 
@@ -60,16 +57,16 @@ Client-only — there's nothing to install on the server.
 
 ![Right-click menu on Xaero's World Map showing "Navigate Here"](docs/images/how-to-use.png)
 
-Starting to glide with an elytra automatically switches the guidance: it computes and shows a
-terrain-avoiding aerial path (a light-blue line), and lands back onto walking navigation to the
-same destination the moment you touch down.
+Taking off with an elytra switches the guidance on its own: it computes a terrain-avoiding aerial
+path and shows it as a light-blue line, then goes back to walking navigation toward the same
+destination as soon as you touch down.
 
-However you set it, the destination is marked on Xaero's maps, so you can see where you are heading
-without following the line to its end. With Xaero's Minimap installed it is registered as a
-**temporary Xaero waypoint** — it stays upright on a rotating minimap, moves to the edge with a
-distance readout once it is off screen, and shows in the world like any other waypoint. It is never
-written to disk, and it is removed when you clear the route. Without the minimap, XaeroNav draws its
-own pin on the world map instead, which keeps the same size on screen however far you zoom out.
+However you set it, the destination is marked on Xaero's maps, so you can tell where you are
+headed without following the line to its end. With Xaero's Minimap installed it is registered as a
+temporary Xaero waypoint: upright on a rotating minimap, pinned to the edge with a distance
+readout once it goes off screen, and visible in the world like any other waypoint. It is never
+written to disk and disappears when you clear the route. Without the minimap, XaeroNav draws its
+own pin on the world map, which keeps the same on-screen size however far you zoom out.
 
 Clear the route with `/xaeronav clear` or its keybind.
 
@@ -82,52 +79,65 @@ Clear the route with `/xaeronav clear` or its keybind.
 | `/xaeronav version` | Print the running build (include this in bug reports) |
 
 `/xaeronav debug ...` holds measurement commands that print numbers to chat without navigating
-anywhere: `mapdata [radiusChunks]` (how much of Xaero's map data is available around you), `route`
-and `corridor` (the coarse waypoint chain and its per-leg refinement), `probe` (what the detailed
-search reached, and why it stopped), and `flight` (the aerial route). They exist to explain a route
-that came out wrong — attach their output to a bug report.
+anywhere: `mapdata [radiusChunks]` for how much of Xaero's map data is available around you,
+`route` and `corridor` for the coarse waypoint chain and its per-leg refinement, `probe` for what
+the detailed search reached and why it stopped, and `flight` for the aerial route. They are there
+to explain a route that came out wrong, so attach their output to a bug report.
 
 ### Keybinds
 
-All **unbound by default** (`Options → Controls → XaeroNav`).
+All unbound by default (`Options → Controls → XaeroNav`).
 
 | Action | Purpose |
 |---|---|
 | Route to block looked at | Main way to set a destination without Xaero installed |
 | Clear route | |
-| Toggle HUD | Show/hide the on-screen guidance (persisted to the config file) |
+| Toggle HUD | Show or hide the on-screen guidance (persisted to the config file) |
 | Open config screen | Edit `config/xaeronav-client.toml` via GUI |
 
 ## Route colors
 
+Movement:
+
 | Color | Meaning |
 |---|---|
-| 🟢 Green | Walking |
-| 🟡 Yellow | Climbing up |
-| 🔵 Blue | Climbing/stepping down |
-| 🔷 Dark blue | Swimming |
-| 🩵 Light cyan | Riding a boat |
-| 🟣 Purple | Ladder / vine |
-| 🌸 Pink | Jumping a gap |
-| 🟠 Orange | **Digging** (target block highlighted through walls) |
-| 🩵 Cyan | **Bridging** with placed blocks |
-| 🔴 Red | ⚠ Adjacent to lava |
-| 🟪 Magenta | ⚠ Void below |
-| 🔵 Light blue | ⚠ Digging lets water flow in |
-| 🌹 Reddish pink | ⚠ Swim segment with no breath left |
-| 🟧 Orange-red | ⚠ Fall that deals damage |
-| 🟢 Teal | Fall softened by placing water at the last moment (MLG) |
-| 🟠 Pale orange | ⚠ Sneaking across a magma block |
-| ⚪ Off-white | Dotted line for a stretch with no known route (heads toward the unexplored destination) |
-| 🟡 Amber | Coarse waypoint chain for a long-distance route |
-| 📍 Red pin | The destination, drawn by XaeroNav when Xaero's Minimap is not installed (stays the same size on screen at any zoom) |
-| 🔷 Sky blue | Aerial path while gliding with an elytra |
+| Green | Walking |
+| Yellow | Climbing up |
+| Blue | Climbing or stepping down |
+| Dark blue | Swimming |
+| Light cyan | Riding a boat |
+| Purple | Ladder or vine |
+| Pink | Jumping a gap |
+| Orange | Digging (target block highlighted through walls) |
+| Cyan | Bridging with placed blocks |
+| Teal | Fall softened by placing water at the last moment (MLG) |
 
-Warning colors take priority over movement-type colors — danger needs to read first.
+Warnings:
+
+| Color | Meaning |
+|---|---|
+| Red | Adjacent to lava |
+| Magenta | Void below |
+| Light blue | Digging lets water flow in |
+| Reddish pink | Swim segment with no breath left |
+| Orange-red | Fall that deals damage |
+| Pale orange | Sneaking across a magma block |
+
+A warning color always wins over the movement color for that segment, so a dangerous step never
+looks like an ordinary one.
+
+Other markings:
+
+| Color | Meaning |
+|---|---|
+| Off-white | Dotted line for a stretch with no known route, heading toward the unexplored destination |
+| Amber | Coarse waypoint chain for a long-distance route |
+| Sky blue | Aerial path while gliding with an elytra |
+| Red pin | The destination, drawn by XaeroNav when Xaero's Minimap is not installed |
 
 ## Configuration
 
-`config/xaeronav-client.toml`. **Also editable via the "Config" button in the Mods list.**
+`config/xaeronav-client.toml`, or the "Config" button in the Mods list.
 
 ### `[pathfinding]`
 
@@ -163,9 +173,9 @@ Warning colors take priority over movement-type colors — danger needs to read 
 | `additionalDiggableBlocks` | `[]` | Extra block IDs allowed to dig (e.g. modded terrain blocks; example: `"minecraft:cobblestone"`) |
 | `additionalForbiddenBlocks` | `[]` | Extra block IDs forbidden to dig; takes priority over the list above (example: `"minecraft:diamond_ore"`) |
 
-By default, digging only allows naturally generated terrain (stone, dirt, sand, ores, leaves,
-netherrack, etc.). Processed blocks (cobblestone, stone bricks, planks) and blocks with inventory
-(chests, furnaces) are never dug, and unrecognized blocks default to not-diggable.
+By default, digging only allows naturally generated terrain: stone, dirt, sand, ores, leaves,
+netherrack and so on. Processed blocks such as cobblestone, stone bricks and planks are never dug,
+neither are blocks with an inventory, and anything unrecognized is treated as not diggable.
 
 ### `[display]`
 
@@ -177,21 +187,20 @@ netherrack, etc.). Processed blocks (cobblestone, stone bricks, planks) and bloc
 
 ## Known limitations
 
-- Search only covers loaded chunks and stops at the expanded-node cap. Far destinations get a
-  route that ends partway, continuing as a dotted line (it fills in as you get closer); the HUD
-  also shows "unexplored beyond this point."
-- Search range is capped by Minecraft's **render distance** (render distance 8 = 128 blocks) —
-  chunks the server hasn't sent can't be read, and there's no vanilla packet to request them. If
+- The search only covers loaded chunks and stops at the expanded-node cap. A far destination gets
+  a route that ends partway and continues as a dotted line, filling in as you get closer. The HUD
+  also says "unexplored beyond this point."
+- Search range is capped by Minecraft's render distance (render distance 8 means 128 blocks).
+  Chunks the server hasn't sent can't be read, and vanilla has no packet to request them. If
   long-distance guidance keeps cutting off, raise your render distance.
-- Long-distance routing that relies on Xaero's map data isn't available without Xaero installed,
-  or in areas you haven't visited yet (it falls back to computing from loaded chunks only).
-- The HUD is hidden for aerial (elytra) routes — it only shows when a walking destination is set.
+- Long-distance routing depends on Xaero's map data, so it isn't available without Xaero installed
+  or in areas you haven't visited yet. It falls back to computing from loaded chunks only.
+- The HUD is hidden for aerial (elytra) routes. It only shows when a walking destination is set.
 - Routes don't cross dimensions. Changing dimension clears the current destination.
 - Map integration hooks into Xaero's internals. If a newer Xaero changes them, only that part
-  switches off — XaeroNav says which part in chat once per session, and in-world rendering and the
+  switches off; XaeroNav says which part in chat once per session, and in-world rendering and the
   HUD keep working.
-- Surface-first routing (surfacing before beelining underground) doesn't work in dimensions
-  without sky (Nether, the End).
+- Surface-first routing doesn't work in dimensions without a sky (Nether, the End).
 
 ## Building
 
@@ -226,10 +235,10 @@ mixin/xaero/  Hooks into Xaero's World Map / Minimap (required=false)
 config/     TOML configuration
 ```
 
-The search core never looks at the Minecraft world directly — it reads blocks through
+The search core never looks at the Minecraft world directly. It reads blocks through
 [`CellSource`](src/main/java/net/prason/xaeronav/pathfinding/world/CellSource.java), a 4-method
-window. The production implementation is `ChunkView`; tests pass `FakeCells`, which lets terrain
-be written as text.
+window. The production implementation is `ChunkView`; tests pass `FakeCells`, which lets terrain be
+written as text.
 
 ## License
 
