@@ -88,8 +88,11 @@ public final class XaeroNavKeys {
         }
     }
 
+    /** ブロック操作用のリーチ距離（4.5〜5マス程度）ではなく、描画距離相当まで狙えるようにする */
+    private static final double LOOK_PICK_DISTANCE = 512.0;
+
     private static void gotoLookingAt(Minecraft mc) {
-        HitResult hit = mc.hitResult;
+        HitResult hit = mc.player.pick(LOOK_PICK_DISTANCE, 1.0F, false);
         if (!(hit instanceof BlockHitResult blockHit) || hit.getType() != HitResult.Type.BLOCK) {
             mc.player.displayClientMessage(Component.translatable("hud.xaeronav.no_block_in_view"), true);
             return;
