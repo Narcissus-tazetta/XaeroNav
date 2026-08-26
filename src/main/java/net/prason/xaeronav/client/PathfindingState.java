@@ -81,13 +81,28 @@ public final class PathfindingState {
     private static final int FLIGHT_COARSE_MIN_REMAINING_WAYPOINTS = 4;
 
     /**
-     * 目的地までこの水平距離まで来たら、飛行の案内をやめて歩行の経路へ引き継ぐ（ブロック）。
-     * 歩行の探索が一度で解ける距離（{@code detailHorizonBlocks}の既定96）に合わせてある。
+     * 目的地までこの水平距離まで来たら、飛行の案内をやめて歩行の経路へ引き継ぐ（ブロック）＝3チャンク。
+     *
+     * <p>両側から挟んで決まる値。<b>遠すぎると</b>まだ空を飛んでいるうちに空中経路が消え、目的地への
+     * 直線だけになる。<b>近すぎると</b>歩行の経路が出るより先に着く——最良滑空の水平成分は
+     * 1.51ブロック/tick＝約30ブロック/秒（{@code ElytraPhysics}の掃引値）、急降下なら67ブロック/秒
+     * 出るので、16ブロックでは巡航で0.5秒・急降下で0.24秒しかなく、探索が間に合わない。
+     * 48ブロックなら巡航1.6秒・急降下0.7秒で、この距離の歩行探索は開けた地形なら十分収まる。
+     *
+     * <p>{@code detailHorizonBlocks}（既定96）の半分でもある——引き継いだ時点の歩行経路が必ず
+     * 一度の探索で解け、中間目標を挟まずに目的地まで通しで出る。
      */
-    private static final double LANDING_APPROACH_ENTER_BLOCKS = 96.0;
+    private static final double LANDING_APPROACH_ENTER_BLOCKS = 48.0;
 
-    /** 引き継いだ後、これを超えて離れたら飛行の案内へ戻す。往復しないよう入口より広く取る。 */
-    private static final double LANDING_APPROACH_EXIT_BLOCKS = 160.0;
+    /**
+     * 引き継いだ後、これを超えて離れたら飛行の案内へ戻す（ブロック）＝5チャンク。
+     *
+     * <p>往復しないよう入口より広く取るが、<b>広く取りすぎてはいけない</b>。留まる条件には
+     * 「真下に地面があること」が入っていない（谷や溶岩の海をまたぐたびに飛行へ戻さないため）ので、
+     * ここが広いと再び飛び立った後も歩行の案内のまま高空を滑空することになり、足元に床が無い始点で
+     * 探索を投げ続けて「経路なし」が出続ける。入口の1.67倍＝離陸し直してから約1秒で飛行へ戻る。
+     */
+    private static final double LANDING_APPROACH_EXIT_BLOCKS = 80.0;
 
     /** 着地できる地面を探す深さ（ブロック）。{@code StanceFinder.VERTICAL_SEARCH}に合わせる。 */
     private static final int LANDING_GROUND_SEARCH_BLOCKS = 32;
