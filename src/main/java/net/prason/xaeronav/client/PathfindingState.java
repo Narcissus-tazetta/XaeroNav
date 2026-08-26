@@ -812,6 +812,11 @@ public final class PathfindingState {
         // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
         // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
         if (mc.screen != null) {
+            // 一度きりの再挑戦だけは通す。地図で目的地を指定してそのまま地図で経路を眺めるのは
+            // 一番ありがちな操作で、ここで止めると「通常マージンでは届かなかった」遠い目的地の
+            // 経路が地図を閉じるまで出てこない（他の再計算トリガーはどれもプレイヤーが動くことを
+            // 前提にしているので、画面を開いている間に走る心配がない）
+            pendingEscalation(mc.player);
             return;
         }
         boolean nowFlying = airborne(mc.player) && !landingApproach(mc.level, mc.player, currentGoal);
@@ -880,26 +885,7 @@ public final class PathfindingState {
             // 3秒おきに焼き続けていた。プレイヤーが動くか、世界が変わりうるだけの時間が経つまで待つ
             return;
         }
-        if (pendingWideRetry) {
-            // 通常マージンでは届かなかった。以降のトリガーはどれもプレイヤーが動くまで来ないので、
-            // ここで範囲を広げて投げ直す（間隔を空ける必要はない — 広い範囲での探索は目的地ごとに
-            // 一度だけで、失敗しても二度目のpendingWideRetryは立たない）
-            pendingWideRetry = false;
-            recalculate(Escalation.WIDE);
-            return;
-        }
-        if (pendingCoarseGuideRetry) {
-            // 展開ノード数の上限に当たって未到達だった。範囲を広げても同じ上限に当たるだけなので、
-            // 代わりに粗い経由地チェーンで区間を分割して投げ直す
-            pendingCoarseGuideRetry = false;
-            recalculate(Escalation.COARSE_GUIDED);
-            return;
-        }
-        if (pendingRefinedRouteReady) {
-            // 層2廊下による精緻化がバックグラウンドで終わった。まだ層1ベースのwaypointへ
-            // 向かっていれば、精緻版へ切り替えるために引き直す
-            pendingRefinedRouteReady = false;
-            recalculate();
+        if (pendingEscalation(mc.player)) {
             return;
         }
 
@@ -954,6 +940,46 @@ public final class PathfindingState {
                 recalculate();
             }
         }
+    }
+
+    /**
+     * ワーカースレッドが立てた「一度きりの再挑戦」の予約を拾って投げ直す。投げたなら{@code true}。
+     *
+     * <p>他の再計算トリガー（逸脱・末端への到達・定期検証）と違って、これらはプレイヤーが動くことを
+     * 前提にしていない。探索が「範囲が足りなかった」「予算が足りなかった」と分かった時点で立ち、
+     * 立てた側は次の一手を持っていないので、ここで拾わないと予約は永久に消化されない。
+     *
+     * @return 引き直しを投げたか（投げたなら、この後の再計算トリガーは見なくてよい）
+     */
+    private boolean pendingEscalation(Player player) {
+        if (flying || computing) {
+            return false;
+        }
+        if (stuckReason != null && !stuckRetryDue(player)) {
+            return false;
+        }
+        if (pendingWideRetry) {
+            // 通常マージンでは届かなかった。範囲を広げて投げ直す（間隔を空ける必要はない —
+            // 広い範囲での探索は目的地ごとに一度だけで、失敗しても二度目のpendingWideRetryは立たない）
+            pendingWideRetry = false;
+            recalculate(Escalation.WIDE);
+            return true;
+        }
+        if (pendingCoarseGuideRetry) {
+            // 展開ノード数の上限に当たって未到達だった。範囲を広げても同じ上限に当たるだけなので、
+            // 代わりに粗い経由地チェーンで区間を分割して投げ直す
+            pendingCoarseGuideRetry = false;
+            recalculate(Escalation.COARSE_GUIDED);
+            return true;
+        }
+        if (pendingRefinedRouteReady) {
+            // 層2廊下による精緻化がバックグラウンドで終わった。まだ層1ベースのwaypointへ
+            // 向かっていれば、精緻版へ切り替えるために引き直す
+            pendingRefinedRouteReady = false;
+            recalculate();
+            return true;
+        }
+        return false;
     }
 
     /**
