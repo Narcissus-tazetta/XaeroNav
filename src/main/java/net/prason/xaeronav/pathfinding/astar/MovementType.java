@@ -1,7 +1,7 @@
 package net.prason.xaeronav.pathfinding.astar;
 
 /**
- * design doc §4-1。同一高度での斜め移動はTRAVERSEとして扱う（{@code AStarPathfinder#addDiagonalTraverse}）。
+ * 同一高度での斜め移動はTRAVERSEとして扱う（{@code AStarPathfinder#addDiagonalTraverse}）。
  * Fall/Pillarは後回し。
  */
 public enum MovementType {

@@ -42,7 +42,7 @@ public final class CorridorLegSolver {
      * 端点が溶岩列・未知列だったとき、代わりに立てる列を探す最大半径（ブロック）。
      * ネザーの溶岩の海の縁で端点がそのまま溶岩に落ちることは珍しくなく、数ブロック隣に
      * 陸があるだけで層2の廊下精緻化を丸ごと諦めるのは惜しい。広げすぎると廊下と無関係な
-     * 場所へ寄ってしまうので、waypoint間隔（24ブロック、design doc参照）より十分小さく保つ。
+     * 場所へ寄ってしまうので、waypoint間隔（24ブロック）より十分小さく保つ。
      */
     private static final int ENDPOINT_FALLBACK_RADIUS_BLOCKS = 8;
 

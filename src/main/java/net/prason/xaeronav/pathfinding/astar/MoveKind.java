@@ -17,7 +17,7 @@ enum MoveKind {
     TRAVERSE(MovementType.TRAVERSE),
     DIAGONAL(MovementType.TRAVERSE),
     BRIDGE(MovementType.TRAVERSE),
-    /** 足元にブロックを置いて真上へ登る（design doc §4-1のPillar）。{@link #BRIDGE}の垂直版。 */
+    /** 足元にブロックを置いて真上へ登る（Pillar）。{@link #BRIDGE}の垂直版。 */
     PILLAR(MovementType.ASCEND),
     SWIM(MovementType.SWIM),
     SWIM_UP(MovementType.SWIM),
@@ -34,7 +34,7 @@ enum MoveKind {
     CLIMB_DOWN(MovementType.CLIMB),
     ASCEND(MovementType.ASCEND),
     DESCEND(MovementType.DESCEND),
-    /** 斜め1マスで1段登る（design doc外・近距離レパートリー拡充）。カーディナル2手の分解を1手に短縮する。 */
+    /** 斜め1マスで1段登る（近距離レパートリー拡充）。カーディナル2手の分解を1手に短縮する。 */
     DIAGONAL_ASCEND(MovementType.ASCEND),
     /** 斜め1マスで1段降りる。{@link #DIAGONAL_ASCEND}と同じ狙い。 */
     DIAGONAL_DESCEND(MovementType.DESCEND),

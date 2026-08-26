@@ -28,7 +28,7 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
 
 /**
- * design doc §4-5/§4-6。ワーカースレッドでA*を実行する。新しいリクエストが来たら
+ * ワーカースレッドでA*を実行する。新しいリクエストが来たら
  * 実行中(または未着手)の古いジョブをキャンセルし、常に最新のリクエストだけが結果を返す。
  *
  * <p>{@link CellSource}の構築（メインスレッドでのチャンク参照集め）は呼び出し側の責務。
@@ -129,7 +129,7 @@ public final class PathfindingExecutor {
 
     /**
      * 地下から地上へ出る経路を、目的地の真下ではなく「y &gt;= surfaceY の空の下」を探して求める
-     * （design doc外・地上優先ナビ。{@link net.prason.xaeronav.client.PathfindingState}参照）。
+     * （地上優先ナビ。{@link net.prason.xaeronav.client.PathfindingState}参照）。
      *
      * <p>まず{@code onFoot}（掘削を禁じたビュー）で探し、地上まで届かなかったときだけ{@code digging}で
      * 探し直す。掘削を許したまま1度で済ませると、石を含めて分岐が桁違いに増え、展開数の上限が
@@ -151,7 +151,7 @@ public final class PathfindingExecutor {
     }
 
     /**
-     * 詳細探索が展開ノード数の上限に当たって未到達だったときの再挑戦（design doc外・層3の局所障害
+     * 詳細探索が展開ノード数の上限に当たって未到達だったときの再挑戦（層3の局所障害
      * 対策）。読み込み済みチャンクの生データから粗い地図を組み立て（{@link LiveCoarseSampler}）、
      * その上で{@link CoarseRouter}が引いた経由地を1区間ずつ詳細A*で辿る。1回の長い探索より
      * 短い区間の連続の方が、同じ予算でも局所的な崖・湖を迂回しやすい。

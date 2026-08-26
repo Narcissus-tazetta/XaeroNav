@@ -17,7 +17,7 @@ import xaero.map.mods.gui.Waypoint;
 import xaero.map.mods.gui.WaypointReader;
 
 /**
- * design doc §2-1/§2-5。ウェイポイントの右クリックメニュー（Edit/Teleport/Share/Disable/Delete）の末尾に
+ * ウェイポイントの右クリックメニュー（Edit/Teleport/Share/Disable/Delete）の末尾に
  * 「ここへ経路探索」を追加する。{@code getRightClickOptions}はジェネリクス消去によるブリッジメソッドと
  * 同名で存在するため、記述子を明示して{@code Waypoint}版だけを対象にする。
  *

@@ -11,7 +11,7 @@ import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 
 /**
- * design doc §6 Phase3項目15。TOML設定ファイル（{@code config/xaeronav-client.toml}）としてクライアント側に生成される。
+ * TOML設定ファイル（{@code config/xaeronav-client.toml}）としてクライアント側に生成される。
  * 設定GUI画面（{@link net.prason.xaeronav.client.gui.XaeroNavConfigScreen}）からも編集される。
  */
 public final class XaeroNavConfig {
@@ -151,15 +151,15 @@ public final class XaeroNavConfig {
                 .defineInRange("maxSubmergedTicks", 250, 0, 1200);
 
         searchHorizontalMargin = builder
-                .comment("探索範囲の水平方向マージン（ブロック数、design doc §4-3）")
+                .comment("探索範囲の水平方向マージン（ブロック数）")
                 .defineInRange("searchHorizontalMargin", 64, 8, 256);
 
         searchVerticalMargin = builder
-                .comment("探索範囲の垂直方向マージン（ブロック数、design doc §4-3）")
+                .comment("探索範囲の垂直方向マージン（ブロック数）")
                 .defineInRange("searchVerticalMargin", 32, 4, 128);
 
         deviationThresholdBlocks = builder
-                .comment("プレイヤーが経路からこの距離(ブロック)以上離れたら再計算する（design doc §4-6）",
+                .comment("プレイヤーが経路からこの距離(ブロック)以上離れたら再計算する",
                         "この距離の中を歩いている限り経路は引き直さないので、大きいほど線が落ち着く",
                         "既定値は線の横2〜3マスのずれを許す値")
                 .defineInRange("deviationThresholdBlocks", 4.0, 1.0, 16.0);

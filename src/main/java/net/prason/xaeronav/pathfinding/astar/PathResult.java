@@ -13,7 +13,7 @@ import java.util.List;
  */
 public record PathResult(List<PathStep> steps, Termination termination, int expandedNodes, int distinctNodes) {
 
-    /** 探索の打ち切り理由（design doc §4-4）。 */
+    /** 探索の打ち切り理由。 */
     public enum Termination {
         /** ゴールに到達した。 */
         REACHED_GOAL,

@@ -30,7 +30,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * 1ブロック分の探索用データを{@code long}に詰めた表現（design doc §4-5）。
+ * 1ブロック分の探索用データを{@code long}に詰めた表現。
  *
  * <p>レコードとして持つと、1セルあたりMapのエントリ込みで100バイト近くかかる。longに詰めることで
  * fastutilのプリミティブMapへそのまま格納でき、キャッシュ1件あたりのアロケーションがゼロになる。

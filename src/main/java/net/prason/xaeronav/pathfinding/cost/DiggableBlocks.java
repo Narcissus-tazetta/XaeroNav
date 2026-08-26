@@ -18,7 +18,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * 掘って通ってよいブロックの定義（design doc §3-3）。
+ * 掘って通ってよいブロックの定義。
  *
  * <p><b>「掘ってはいけないもの」ではなく「掘ってよいもの」を数える。</b>知らないブロック——modが
  * 足した機械・別の追加mod・このバージョンにまだ無いバニラブロック——が既定で掘ってよい側に落ちると、

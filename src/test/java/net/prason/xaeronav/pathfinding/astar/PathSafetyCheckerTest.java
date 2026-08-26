@@ -12,7 +12,7 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
 
 /**
- * 提示直前の安全性チェック（design doc §3-4）。コストで表現しきれない「歩けるが条件がある」区間に
+ * 提示直前の安全性チェック。コストで表現しきれない「歩けるが条件がある」区間に
  * 印が付くかを見る。
  */
 class PathSafetyCheckerTest {

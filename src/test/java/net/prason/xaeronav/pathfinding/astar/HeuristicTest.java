@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 
 /**
- * {@link Heuristic}の軸別下限値（design doc §4-2）が式どおりに積算されているかの検証。
+ * {@link Heuristic}の軸別下限値が式どおりに積算されているかの検証。
  * A*はヒューリスティックが実コストの下限（admissible）であることに最適性を依存しているので、
  * ここが実コストを上回る方向へ壊れると、経路が最適から静かにずれても誰も気付けない。
  */

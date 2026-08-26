@@ -26,7 +26,7 @@ import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.cost.DigCost;
 
 /**
- * 探索範囲のブロックを読むためのビュー（design doc §4-5）。
+ * 探索範囲のブロックを読むためのビュー。
  *
  * <p>ブロックデータ自体は<b>コピーしない</b>。{@link #capture}がメインスレッドで集めるのは
  * 「読み込み済みチャンクへの参照」だけで、実際の{@link BlockState}はワーカースレッドが

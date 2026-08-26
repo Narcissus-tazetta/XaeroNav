@@ -20,7 +20,7 @@ import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 
 /**
- * design doc §2-5 / Phase 2項目9。Xaero非依存のワールド内描画。
+ * Xaero非依存のワールド内描画。
  * Xaero連携（世界地図・ミニマップアダプタ）が崩れてもこれだけは生き残る構成にする。
  *
  * <p>経路は平坦な1px線ではなく、進行方向に直交する正方形断面を押し出した「筒」として描画する

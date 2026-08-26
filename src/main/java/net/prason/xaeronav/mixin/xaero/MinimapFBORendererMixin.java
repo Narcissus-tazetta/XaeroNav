@@ -18,7 +18,7 @@ import xaero.common.minimap.render.MinimapFBORenderer;
 import xaero.hud.render.util.RenderBufferUtil;
 
 /**
- * design doc §2-1/§2-5。ミニマップ側のフック。{@code useWorldMap} true/false どちらの分岐で地形が
+ * ミニマップ側のフック。{@code useWorldMap} true/false どちらの分岐で地形が
  * 描かれても、この直後の1回目の{@code endBatch()}（ordinal 0）に両分岐が収束するため、フックは1箇所で足りる。
  *
  * <p>何をどの色で描くかは{@link MapPathOverlay}が決める（世界地図側と共有）。ここが持つのは
