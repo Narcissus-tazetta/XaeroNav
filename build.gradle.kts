@@ -41,12 +41,10 @@ neoForge {
     // テストはレジストリを起動しなくても動く範囲に留めること。
     addModdingDependenciesTo(sourceSets["test"])
 
+    // クライアント専用MOD（@Mod(dist = Dist.CLIENT)）なので、専用サーバーの実行設定は用意しない
     runs {
         create("client") {
             client()
-        }
-        create("server") {
-            server()
         }
     }
 }
