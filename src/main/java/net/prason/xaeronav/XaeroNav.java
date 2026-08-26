@@ -25,7 +25,9 @@ import net.prason.xaeronav.client.gui.XaeroNavConfigScreen;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.cost.DiggableBlocks;
 
-@Mod(XaeroNav.MOD_ID)
+// クライアント専用MOD。dist=CLIENTを付けないと、このエントリポイントが専用サーバー上でも走り、
+// クライアント側にしか意味の無いCLIENT configを登録しにいく
+@Mod(value = XaeroNav.MOD_ID, dist = Dist.CLIENT)
 public final class XaeroNav {
     public static final String MOD_ID = "xaeronav";
     public static final Logger LOGGER = LogUtils.getLogger();
