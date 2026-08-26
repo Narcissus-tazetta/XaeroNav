@@ -15,7 +15,7 @@ import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 
 /**
- * design doc §4。Traverse/Diagonal/Ascend/Descend/Bridgeを扱う。
+ * Traverse/Diagonal/Ascend/Descend/Bridgeを扱う。
  * ワーカースレッドから呼ぶ想定 — {@link CellSource}以外のMinecraft状態には一切触れない。
  *
  * <p>探索の内側ではオブジェクトを作らない。座標は{@code int}のまま扱い、隣接ノードの評価結果は
@@ -182,7 +182,7 @@ public final class AStarPathfinder {
     private int goalX;
     private int goalY;
     private int goalZ;
-    // trueなら「y >= surfaceY のセルならどこでもゴール」として探索する（design doc外・地上優先ナビ用）。
+    // trueなら「y >= surfaceY のセルならどこでもゴール」として探索する（地上優先ナビ用）。
     // 目的地の真下から一直線に掘るのではなく、周囲のどこからでも地上に出られる経路を許すために
     // 固定の1点ではなく高さだけを条件にする。
     private boolean surfaceGoal;
@@ -243,7 +243,7 @@ public final class AStarPathfinder {
 
     /**
      * 打ち切り条件（展開数上限・時間上限・cancelled）のいずれかに達したら、その時点で最も有望な
-     * 暫定経路を返す（design doc §4-4）。
+     * 暫定経路を返す。
      */
     public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled) {
         return search(start, goal, cancelled, 0, 0);
@@ -285,7 +285,7 @@ public final class AStarPathfinder {
     /**
      * 「y &gt;= surfaceY のセルならどこでもゴール」として探索する。地下から地上への移動を、
      * 出発地の真上を一直線に掘る1点ゴールではなく、周囲のどこからでも地上に出られる経路として
-     * 探すためのもの（design doc外・地上優先ナビ用、{@link net.prason.xaeronav.client.PathfindingState}参照）。
+     * 探すためのもの（地上優先ナビ用、{@link net.prason.xaeronav.client.PathfindingState}参照）。
      *
      * <p>ヒューリスティックは各ノード自身の(x, z)を目的地の(x, z)として扱う（水平距離0扱い）ことで、
      * 「あと何マス上がるか」だけの下限値になる。実際の残りコストには水平移動が乗ることがあるので
@@ -567,7 +567,7 @@ public final class AStarPathfinder {
     }
 
     /**
-     * 同一高度での斜め移動（design doc §4-1）。カーディナル4方向のみだと、斜めに続く地形で
+     * 同一高度での斜め移動。カーディナル4方向のみだと、斜めに続く地形で
      * 本来なら1手で行ける区間を2手のジグザグで迂回することになり不必要に遠回りになる。
      * 角の2セル（{@link #clearWithoutDigging}）が両方とも掘削なしで通行可能な場合のみ許可し、
      * 体が壁の角をすり抜ける経路を生成しないようにする。
@@ -734,7 +734,7 @@ public final class AStarPathfinder {
     }
 
     /**
-     * 斜め1マスで1段登りながら進む（design doc外・近距離レパートリー拡充）。カーディナル4方向限定の
+     * 斜め1マスで1段登りながら進む（近距離レパートリー拡充）。カーディナル4方向限定の
      * {@link #addAscend}だと、斜めに続く階段状の地形で本来1手の区間が「登ってから横へ」の2手に
      * 分解されてしまう。{@link #addDiagonalTraverse}と同じく、体が壁の角をすり抜けないよう
      * 角2セルの掘削なし通行可能性を求める。
@@ -1067,9 +1067,8 @@ public final class AStarPathfinder {
     }
 
     /**
-     * 床が存在しない空洞（ジ・エンドの島間など）をブロックを置いて渡る移動。design doc §4-1のPillarの
-     * 水平版。掘削とは逆に、床セルが完全な空虚（{@code passableEmpty}）である場合のみ許可する — 水面の
-     * 上には置かない（design doc §3-3の安全確認とは別に、そもそも設置対象として扱わない）。
+     * 床が存在しない空洞（ジ・エンドの島間など）をブロックを置いて渡る移動。Pillarの水平版。掘削とは逆に、床セルが完全な空虚（{@code passableEmpty}）である場合のみ許可する — 水面の
+     * 上には置かない（{@link PathSafetyChecker}の事後チェックとは別に、そもそも設置対象として扱わない）。
      *
      * <p>水面のすぐ上も空気なので、床セルだけを見ても空虚と区別がつかない。海の上にブロックを敷いて
      * 渡るのは泳いで渡れる場所にわざわざ足場を作ることになるので、下に水が見えたらこの移動を作らない。
@@ -1148,7 +1147,7 @@ public final class AStarPathfinder {
     }
 
     /**
-     * 跳びながら足元にブロックを置いて真上へ1マス登る（design doc §4-1のPillar）。
+     * 跳びながら足元にブロックを置いて真上へ1マス登る（Pillar）。
      * {@link #addBridge}の垂直版で、これが無いと断崖はどれだけ低くても迂回するしかない。
      *
      * <p>置く先は自分がいま立っているセルそのものなので、そこが本当の空気であることを求める。
@@ -1320,7 +1319,7 @@ public final class AStarPathfinder {
 
     /**
      * 縦1列（{@code bottomY}〜{@code topY}）の破壊コスト。さらに真上から落下ブロック（砂・砂利等）が
-     * 連なっている分を一度だけ加える（design doc §3-3）。必須セル自体は個別に数えるだけなので、
+     * 連なっている分を一度だけ加える。必須セル自体は個別に数えるだけなので、
      * 隣接する必須セル同士で連鎖コストが重複しない。
      *
      * <p>{@code cells}が非nullなら、実際に壊すセルをそこへ集める。コストを払う判断と壊すセルの列挙を

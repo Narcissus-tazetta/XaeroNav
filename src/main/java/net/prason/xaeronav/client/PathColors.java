@@ -5,7 +5,7 @@ import net.prason.xaeronav.pathfinding.astar.PathRisk;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 
 /**
- * ワールド内描画・Xaeroマップ描画の両方で使う経路の色分けルール。design doc §2-5参照。
+ * ワールド内描画・Xaeroマップ描画の両方で使う経路の色分けルール。
  *
  * <p>色は共有の定数配列として返す。ワールド内描画・世界地図・ミニマップの3経路がそれぞれ
  * 毎フレーム全ステップぶん{@link #forStep}を呼ぶため、ここで配列を作ると1フレームあたり

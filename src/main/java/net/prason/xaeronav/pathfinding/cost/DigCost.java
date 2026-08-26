@@ -6,8 +6,8 @@ import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * 掘削コスト計算（design doc §3）。1セル分の素の破壊コストのみを扱う。
- * 落下ブロック連鎖（§3-3）は複数セルにまたがる話なので、必須セル群を知っている
+ * 掘削コスト計算。1セル分の素の破壊コストのみを扱う。
+ * 落下ブロック連鎖は複数セルにまたがる話なので、必須セル群を知っている
  * {@code AStarPathfinder}側で一度だけスキャンする（ここで各セル個別に足すと二重計上になる）。
  *
  * <p>硬度・ツール速度は独自テーブルではなく、Minecraft本体が実際に使っている
@@ -19,7 +19,7 @@ import net.minecraft.world.level.block.state.BlockState;
  * <p>{@code BlockState#getDestroySpeed}は事前計算済みのフィールドを返すだけでlevelを参照しないため、
  * {@link EmptyBlockGetter}を渡してワーカースレッドから呼べる。ホットバーは
  * {@code ChunkView}がメインスレッドで複製したものを受け取る（ライブの{@code Inventory}を
- * ワーカースレッドから触ると競合するため、design doc §4-5）。
+ * ワーカースレッドから触ると競合するため）。
  */
 public final class DigCost {
 

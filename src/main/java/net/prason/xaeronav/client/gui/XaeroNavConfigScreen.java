@@ -10,12 +10,10 @@ import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.config.XaeroNavConfig;
 
 /**
- * design doc §6 Phase3項目15の続き。「土台」として既存TOML項目のうちトグル系だけを並べる画面にし、
- * 以降の機能追加のたびにここへ項目を足していく方式にする（[[xaeronav-dimension-nav-plan]] 実装順序案1）。
+ * {@link XaeroNavConfig}のうちトグル系の項目だけを並べる設定画面。
  *
- * <p>探索範囲・逸脱閾値・地上高さ等の数値系パラメータはユーザーとの相談の結果、GUI化の対象から外した
- * （2026-08-13）。たまにしか触らない・TOMLの直接編集で十分という判断。掘削禁止ブロック追加リストも同様の
- * 理由で対象外——GUIに置くほど頻繁に変える設定ではない。
+ * <p>探索範囲・逸脱閾値・地上高さ等の数値系パラメータと掘削禁止ブロックの追加リストはここに置かない。
+ * たまにしか触らない設定で、TOMLの直接編集で足りるため。
  *
  * <p>{@link OptionsSubScreen}はバニラのビデオ設定画面などと同じ土台（1列レイアウト・スクロール・
  * Doneボタン）を提供する。{@code options}引数はバニラの{@link net.minecraft.client.Options}に

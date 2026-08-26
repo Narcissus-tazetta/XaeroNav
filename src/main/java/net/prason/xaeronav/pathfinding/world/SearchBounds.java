@@ -4,7 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LevelHeightAccessor;
 
 /**
- * 探索範囲の制限（design doc §4-3）。開始地点と目的地を含むバウンディングボックス+マージン。
+ * 探索範囲の制限。開始地点と目的地を含むバウンディングボックス+マージン。
  */
 public record SearchBounds(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
 
@@ -21,7 +21,7 @@ public record SearchBounds(int minX, int minY, int minZ, int maxX, int maxY, int
      * <p>切り取るのは、遠いゴールを一度に解こうとしても意味がないため。読み込み済みチャンクの外は
      * そもそも読めないので、そこまで探索範囲を広げても未ロード扱いのセルを舐めるだけになる。
      * 範囲を切ると経路はゴール手前で打ち切られるが、プレイヤーが進めば次の区間が計算し直される
-     * （design doc §4-4の暫定経路と同じ扱い）。
+     * （暫定経路と同じ扱い）。
      */
     public static SearchBounds around(LevelHeightAccessor level, BlockPos start, BlockPos goal,
                                        int horizontalMargin, int verticalMargin, int maxRadius) {

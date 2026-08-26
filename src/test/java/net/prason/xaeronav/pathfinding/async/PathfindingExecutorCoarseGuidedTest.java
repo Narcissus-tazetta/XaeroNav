@@ -17,7 +17,7 @@ import net.prason.xaeronav.pathfinding.world.FakeCells;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 
 /**
- * {@link PathfindingExecutor#submitCoarseGuided}の2つの性質を確認する（design doc外・層3の
+ * {@link PathfindingExecutor#submitCoarseGuided}の2つの性質を確認する（層3の
  * 局所障害対策）。
  *
  * <ol>

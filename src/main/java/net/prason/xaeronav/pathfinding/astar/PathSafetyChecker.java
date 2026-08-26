@@ -10,7 +10,7 @@ import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 
 /**
- * design doc §3-4。コスト計算はあくまで事前見積もりなので、経路を提示する直前に
+ * コスト計算はあくまで事前見積もりなので、経路を提示する直前に
  * 掘削区間の安全性を再チェックする（溶岩隣接・水の流入・深い縦穴への露出）。
  * A*の探索コストには影響させず、結果に対する事後アノテーションとして分離する。
  */

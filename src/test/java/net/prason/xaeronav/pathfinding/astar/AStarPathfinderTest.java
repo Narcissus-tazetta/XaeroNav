@@ -214,7 +214,7 @@ class AStarPathfinderTest {
         PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(40, 61, 0));
 
         assertFalse(result.complete(), "ゴールには届いていない");
-        assertFalse(result.steps().isEmpty(), "届く範囲までは案内する（design doc §4-4の暫定経路）");
+        assertFalse(result.steps().isEmpty(), "届く範囲までは案内する（暫定経路）");
         assertTrue(last(result).pos().getX() >= 5,
                 "始点から MIN_DIST_PATH 以上進んだ地点を返す: " + last(result).pos());
     }

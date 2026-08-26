@@ -1,7 +1,7 @@
 package net.prason.xaeronav.pathfinding.cost;
 
 /**
- * 移動コストの基準値（単位: tick）。design doc §3-1/§4-1参照。
+ * 移動コストの基準値（単位: tick）。
  * 徒歩・スプリント・ジャンプ・落下の数値はBaritone(ActionCosts.java, LGPL)で使われている実測値と同一だが、
  * ここではアイデア・数値のみを参考にし、コード自体は独自実装している。
  * 昇降・水中採掘はMinecraft本体の実装から導出し、設置・ドア開閉のオーバーヘッドは本MOD独自の見積もり。
@@ -158,7 +158,7 @@ public final class ActionCosts {
 
     /**
      * 大きく落下する場合、tick/マスはterminal velocity(3.92 blocks/tick)に漸近しこれを下回らない。
-     * A*ヒューリスティックの下降成分に使う安全な下限値（design doc §4-2参照）。
+     * A*ヒューリスティックの下降成分に使う安全な下限値。
      */
     public static final double FALL_ASYMPTOTIC_MIN_PER_BLOCK = 1.0 / 3.92;
 
@@ -210,7 +210,7 @@ public final class ActionCosts {
     public static final double SUBMERGED_TRAVEL_PENALTY = 1.3;
 
     /**
-     * ブロックを設置して空洞を渡る際の照準・設置オーバーヘッド（design doc §4-1 Pillar水平版）。
+     * ブロックを設置して空洞を渡る際の照準・設置オーバーヘッド（Pillarの水平版）。
      *
      * <p>橋を架けながらの前進は「一度止まって足元の縁へ向き直り、狙って置く」の繰り返しなので、
      * 走るのに比べて1/3程度の速さしか出ない。ここを数tickに見積もると1マスあたり徒歩(4.63)より

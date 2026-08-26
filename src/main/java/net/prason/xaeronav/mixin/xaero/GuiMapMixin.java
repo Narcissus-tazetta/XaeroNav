@@ -18,9 +18,9 @@ import xaero.map.graphics.MapRenderHelper;
 import xaero.map.gui.GuiMap;
 
 /**
- * design doc §2-1/§2-5。世界地図の地形描画（{@code endBatch()}呼び出し1回目、ordinal 0）の直後に
+ * 世界地図の地形描画（{@code endBatch()}呼び出し1回目、ordinal 0）の直後に
  * 経路を1ブロック四方の色付き矩形の連なりとして描き足す。{@code flooredCameraX}/{@code flooredCameraZ}への
- * 引き算だけで地図座標に変換できるのは、地形描画自体が全く同じ変換を使っているため（design doc §2-2）。
+ * 引き算だけで地図座標に変換できるのは、地形描画自体が全く同じ変換を使っているため。
  *
  * <p>何をどの色で描くかは{@link MapPathOverlay}が決める（ミニマップ側と共有）。ここが持つのは
  * Xaero固有の描画先と座標変換だけに留める。

@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link ActionCosts}の定数同士が満たすべき大小関係の検証（design doc §3-1/§4-1）。
+ * {@link ActionCosts}の定数同士が満たすべき大小関係の検証。
  * 数値そのものはバニラの実測値からの直接計算なので固定するテストは書かないが、
  * 「歩くより走る方が安い」のような、崩れると経路の質が静かに悪化する関係はここで縛る。
  */

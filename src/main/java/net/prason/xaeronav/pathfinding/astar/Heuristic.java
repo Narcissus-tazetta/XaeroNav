@@ -3,9 +3,9 @@ package net.prason.xaeronav.pathfinding.astar;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 
 /**
- * 軸別ヒューリスティック（design doc §4-2、斜め昇降対応版）。
+ * 軸別ヒューリスティック（斜め昇降対応版）。
  * 水平・上昇・下降それぞれについて実コストを下回らない下限値を積算する。
- * 水平距離は斜め移動（同一高度のみ、§4-1）に対応したoctile距離を使う。
+ * 水平距離は斜め移動（同一高度のみ）に対応したoctile距離を使う。
  *
  * <p>例外は氷で、氷の上だけは1マスの実コストがこの下限（素の疾走）を下回る
  * （{@code CellData}の速度倍率）。そのぶん氷を含む経路は最適から少し外れうるが、
