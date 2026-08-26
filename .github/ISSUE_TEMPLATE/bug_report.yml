@@ -1,0 +1,82 @@
+name: Bug report
+description: A crash, a broken render, a setting that does nothing — anything other than a route coming out wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or 日本語, whichever you prefer.
+
+        If the mod works but picks a bad route (a detour, no route at all, a line through a
+        mountain), use **Route problem** instead — it asks for the coordinates and diagnostics
+        needed to reproduce a search.
+
+  - type: input
+    id: version
+    attributes:
+      label: XaeroNav version
+      description: Run `/xaeronav version` in game and paste the whole line. Development builds carry a commit hash, which tells us exactly what you are running.
+      placeholder: "0.1.0+f118060"
+    validations:
+      required: true
+
+  - type: input
+    id: loader
+    attributes:
+      label: Minecraft and NeoForge version
+      placeholder: "Minecraft 1.21.1 / NeoForge 21.1.228"
+    validations:
+      required: true
+
+  - type: input
+    id: xaero
+    attributes:
+      label: Xaero's World Map / Minimap version
+      description: Write "not installed" for either one you do not have. Map integration is optional, and knowing which half is present narrows most rendering reports down immediately.
+      placeholder: "World Map 1.44.2 / Minimap not installed"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Xaero's World Map
+        2. Right-click empty space → "Route here"
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Attach `logs/latest.log` (drag the file into this box). For a crash, attach the crash report from `crash-reports/` as well. Paste rather than attach only if it is short.
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Non-default settings
+      description: Paste `config/xaeronav-client.toml` if you changed anything in it.
+      render: toml
+    validations:
+      required: false
+
+  - type: textarea
+    id: other-mods
+    attributes:
+      label: Other mods
+      description: Does it still happen with only XaeroNav and Xaero's mods installed? If you did not check, say so — it is still worth reporting.
+    validations:
+      required: false
