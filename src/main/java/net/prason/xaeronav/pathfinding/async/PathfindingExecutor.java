@@ -61,6 +61,14 @@ public final class PathfindingExecutor {
      */
     private static final int COARSE_LEG_GOAL_RADIUS_BLOCKS = 8;
 
+    /**
+     * 上限で詰んだときに緩める倍率。最後は{@link RunCaps#NONE}（無制限）で締める。
+     *
+     * <p>いきなり無制限にすると、初回の詰みで唐突に長大な橋・長時間の潜水が案内に出かねない。
+     * 段階を踏むことで、実際に道を作るのに必要な最小限の長さで収まりやすくする。
+     */
+    private static final int[] RUN_CAP_LOOSEN_MULTIPLIERS = {2, 4};
+
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits) {
@@ -295,22 +303,59 @@ public final class PathfindingExecutor {
 
     private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled,
                                      CostToGo costToGo, SearchCall run) {
+        // 段階的な緩和も含めて、この呼び出し全体を limits の時間上限1回ぶんで縛るための期限。
+        // 段階ごとに期限を取り直すと総時間が段数ぶん膨らみ、呼び出し側が立てた予算
+        // （solveCoarseGuided の chainDeadline など）が意味を失う
+        long deadline = System.currentTimeMillis() + limits.timeLimitMillis();
         AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
         PathResult result = run.search(pathfinder, cancelled);
         if (result.termination() == PathResult.Termination.EXHAUSTED
                 && (pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked())) {
             // 範囲内のオープンセットが尽きた＝道が一本も無い。橋の長さや潜水の長さの上限で移動を
             // 捨てているので、それが原因かもしれない。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、
-            // という優先順で上限を外して試す。片方だけ外しても、もう片方で詰んでいれば同じ結果を
-            // もう一度払うだけになるので両方まとめて外す。
+            // という優先順で上限を段階的に緩めて試す。片方だけ緩めても、もう片方で詰んでいれば同じ
+            // 結果をもう一度払うだけになるので両方まとめて緩める。
             // 予算切れ（NODE_BUDGET/TIME_LIMIT）では試さない——そちらは上限とは無関係に資源が
             // 足りていないだけで、同じ探索をもう一度払うだけになる
-            PathResult uncapped = run.search(new AStarPathfinder(view, limits, costToGo, RunCaps.NONE), cancelled);
-            if (uncapped.complete()) {
-                result = uncapped;
+            for (RunCaps caps : loosenedCaps(RunCaps.of(view))) {
+                long remainingMillis = deadline - System.currentTimeMillis();
+                if (remainingMillis <= 0) {
+                    break;
+                }
+                SearchLimits stageLimits = new SearchLimits(limits.maxExpandedNodes(), remainingMillis,
+                        limits.heuristicWeight());
+                PathResult attempt = run.search(new AStarPathfinder(view, stageLimits, costToGo, caps), cancelled);
+                if (attempt.complete()) {
+                    result = attempt;
+                    break;
+                }
+                // EXHAUSTED以外（予算切れ・キャンセル）は、更に緩めても同じ壁に当たるだけ
+                if (attempt.termination() != PathResult.Termination.EXHAUSTED) {
+                    break;
+                }
             }
         }
         return PathSafetyChecker.annotate(view, result);
+    }
+
+    /** 緩める順に並べた上限。{@link #RUN_CAP_LOOSEN_MULTIPLIERS}倍したものの後に無制限を置く。 */
+    private static List<RunCaps> loosenedCaps(RunCaps base) {
+        List<RunCaps> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 1);
+        for (int multiplier : RUN_CAP_LOOSEN_MULTIPLIERS) {
+            stages.add(scaleCaps(base, multiplier));
+        }
+        stages.add(RunCaps.NONE);
+        return stages;
+    }
+
+    private static RunCaps scaleCaps(RunCaps base, int multiplier) {
+        return new RunCaps(scaleCap(base.maxBridgeRunBlocks(), multiplier),
+                scaleCap(base.maxLavaBridgeRunBlocks(), multiplier), scaleCap(base.maxSubmergedTicks(), multiplier));
+    }
+
+    /** {@code 0}は既に無制限なので、乗じてもそのまま無制限に留まる。 */
+    private static int scaleCap(int cap, int multiplier) {
+        return cap == 0 ? 0 : cap * multiplier;
     }
 
     private CompletableFuture<PathResult> submit(Function<BooleanSupplier, PathResult> work) {
