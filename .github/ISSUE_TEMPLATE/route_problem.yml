@@ -1,0 +1,120 @@
+name: Route problem
+description: The route detours, stops short, never appears, or goes somewhere you cannot follow
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or 日本語, whichever you prefer.
+
+        A route depends on the terrain it was solved over, so a description alone is rarely
+        enough to reproduce one. The coordinates and the `/xaeronav debug` output below are what
+        make a report actionable.
+
+  - type: input
+    id: version
+    attributes:
+      label: XaeroNav version
+      description: Run `/xaeronav version` and paste the whole line.
+      placeholder: "0.1.0+f118060"
+    validations:
+      required: true
+
+  - type: input
+    id: loader
+    attributes:
+      label: Minecraft and NeoForge version
+      placeholder: "Minecraft 1.21.1 / NeoForge 21.1.228"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What the route did
+      options:
+        - No route appeared at all
+        - The route stops partway and never continues
+        - The route takes an obvious detour
+        - The route goes somewhere I cannot actually follow
+        - The route keeps redrawing itself
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: dimension
+    attributes:
+      label: Dimension
+      placeholder: "overworld / the_nether / the_end"
+    validations:
+      required: true
+
+  - type: input
+    id: coords
+    attributes:
+      label: Start and destination coordinates
+      description: Where you were standing, and the destination you set. Without both, the search cannot be re-run.
+      placeholder: "from 120 68 -340 to 1450 72 -2100"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: travel
+    attributes:
+      label: How you were travelling
+      options:
+        - On foot
+        - Gliding with an elytra
+        - In a boat
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected the route to do
+      description: For a detour, say which way you would have gone instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        Stand where the problem happens and run the commands that match, then paste the chat output:
+
+        - `/xaeronav debug probe <x> <y> <z>` — what the detailed search reached and why it stopped (start here for almost everything)
+        - `/xaeronav debug route <x> <y> <z>` and `/xaeronav debug corridor <x> <y> <z>` — the long-distance waypoint chain, for destinations beyond render distance
+        - `/xaeronav debug flight <x> <y> <z>` — the aerial route, for elytra problems
+        - `/xaeronav debug mapdata` — how much of Xaero's map data exists around you, if no long-distance route appears at all
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Non-default settings
+      description: Paste `config/xaeronav-client.toml` if you changed anything. Digging, bridging and gap jumping being off changes which routes exist at all.
+      render: toml
+    validations:
+      required: false
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshot or video
+      description: A world map screenshot with the route drawn on it explains a detour faster than any description.
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Attach `logs/latest.log` if the search logged anything unusual.
+    validations:
+      required: false
