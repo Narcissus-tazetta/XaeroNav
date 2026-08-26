@@ -23,7 +23,7 @@ class FlightExtensionTargetTest {
                 new BlockPos(64, 64, 0), new BlockPos(128, 64, 0),
                 new BlockPos(192, 64, 0), new BlockPos(256, 64, 0));
 
-        Vec3 target = PathfindingState.flightExtensionTarget(new Vec3(0.0, 64.0, 0.0), GOAL, waypoints, 140.0);
+        Vec3 target = FlightNavState.extensionTarget(new Vec3(0.0, 64.0, 0.0), GOAL, waypoints, 140.0);
 
         assertEquals(128.5, target.x, 1.0e-6, "届く範囲で最も遠い点を選べていない");
     }
@@ -39,7 +39,7 @@ class FlightExtensionTargetTest {
                 new BlockPos(80, 64, 300));
         Vec3 tail = new Vec3(0.0, 64.0, 300.0);
 
-        Vec3 target = PathfindingState.flightExtensionTarget(tail, GOAL, waypoints, 200.0);
+        Vec3 target = FlightNavState.extensionTarget(tail, GOAL, waypoints, 200.0);
 
         assertTrue(target.z > 200.0, "後ろの中間目標へ引き返している: " + target);
         assertEquals(80.5, target.x, 1.0e-6);
@@ -47,7 +47,7 @@ class FlightExtensionTargetTest {
 
     @Test
     void aimsStraightAtTheGoalWhenItIsWithinReach() {
-        Vec3 target = PathfindingState.flightExtensionTarget(new Vec3(300.0, 64.0, 0.0), GOAL,
+        Vec3 target = FlightNavState.extensionTarget(new Vec3(300.0, 64.0, 0.0), GOAL,
                 List.of(new BlockPos(64, 64, 0)), 200.0);
 
         assertEquals(GOAL, target);
@@ -56,7 +56,7 @@ class FlightExtensionTargetTest {
     @Test
     void fallsBackToAPointTowardTheGoalWithNoWaypoints() {
         // 未訪問領域では長距離ルートが無い。目的地の方向へleadぶん進んだ点を狙う
-        Vec3 target = PathfindingState.flightExtensionTarget(new Vec3(0.0, 64.0, 0.0), GOAL, List.of(), 100.0);
+        Vec3 target = FlightNavState.extensionTarget(new Vec3(0.0, 64.0, 0.0), GOAL, List.of(), 100.0);
 
         assertEquals(100.0, target.x, 1.0e-6);
     }

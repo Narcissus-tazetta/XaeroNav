@@ -385,13 +385,13 @@ public final class XaeroNavCommands {
     /**
      * 徒歩の詳細A*を{@code goto}と同じ設定・範囲で同期実行し、到達可否・展開ノード数・移動種類の
      * 内訳（斜め昇降が実際に選ばれているか）をその場で確認する診断コマンド。「多分できてる」で
-     * 終わらせず数値で裏取りするためのもの（近距離レパートリー拡充・Phase 3）。
+     * 終わらせず数値で裏取りするためのもの。
      *
      * <p>1回目は通常のマージンで探索する。続けて同じ箱のまま掘削だけを切って探索し、展開ノード数を
      * 並べて報告する（掘削が分岐数に効いている量を測るため）。展開ノード数の上限に達して届かなかった
      * 場合は、上限を外して時間だけで打ち切る計測も行う（必要な展開ノード数そのものを知るため）。
-     * 範囲内なのに届かなかった場合は、{@link PathfindingState}のPhase 2（探索範囲を読み込み済み
-     * チャンクいっぱいまで広げる再挑戦）と同じ条件・同じ広さでもう一度探索し、その結果も併せて報告する。
+     * 範囲内なのに届かなかった場合は、{@link PathfindingState}の「探索範囲を読み込み済みチャンクいっぱい
+     * まで広げる再挑戦」と同じ条件・同じ広さでもう一度探索し、その結果も併せて報告する。
      */
     /**
      * 空中経路を1回だけ解いて中身を出す。飛んでいる必要は無い——地上から投げて格子の粒度や
@@ -413,7 +413,7 @@ public final class XaeroNavCommands {
 
         long startedAt = System.nanoTime();
         FlightRoute route = FlightRouter.route(view, player.position(), Vec3.atCenterOf(goal), rockets,
-                PathfindingState.flightTuning());
+                FlightNavState.tuning());
         long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
 
         Vec3 tail = route.tail();
@@ -429,7 +429,7 @@ public final class XaeroNavCommands {
             // 描画距離の外は粗い層（Xaeroの地図由来）が担当する。中間目標が0本なら、
             // その方向のデータが地図に無い＝未訪問ということ。
             // 範囲もマージンも本番と同じ道を通す——別々に組むと測った数字が案内と食い違う
-            CoarseRouter.Route coarse = PathfindingState.solveFlightCoarseRoute(
+            CoarseRouter.Route coarse = FlightNavState.solveCoarseRoute(
                     level, player.blockPosition(), goal, rockets);
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.flight_coarse",
                     coarse.waypoints().size(), coarse.reachedGoal() ? 1 : 0), false);
@@ -583,7 +583,7 @@ public final class XaeroNavCommands {
                 label, result.steps().size(), result.expandedNodes(), run.elapsedMillis(), spanX, spanZ,
                 result.distinctNodes()), false);
         if (run.loadedChunks() < run.totalChunks()) {
-            // 未読み込みチャンクは進入不可セルとして扱われる（design doc外・ChunkView#capture）。
+            // 未読み込みチャンクは進入不可セルとして扱われる（ChunkView#capture）。
             // 探索範囲の縁がまだ届いていないだけで、少し待てば同じ座標でも結果が変わりうる
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_chunks_missing",
                     run.loadedChunks(), run.totalChunks()), false);
@@ -633,7 +633,7 @@ public final class XaeroNavCommands {
     }
 
     /**
-     * {@link PathfindingState}のPhase 2発動条件と同じ水平距離の測り方（{@code y}は見ない）。
+     * {@link PathfindingState}が範囲を広げた再挑戦を発動する条件と同じ水平距離の測り方（{@code y}は見ない）。
      * ここでも同じ判定を再現する必要があるため、同じ式を独立に持つ。
      */
     private static double horizontalDistance(BlockPos a, BlockPos b) {
