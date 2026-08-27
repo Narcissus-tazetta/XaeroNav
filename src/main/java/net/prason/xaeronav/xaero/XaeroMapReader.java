@@ -1,5 +1,8 @@
 package net.prason.xaeronav.xaero;
 
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -233,15 +236,43 @@ public final class XaeroMapReader {
         if (processor == null) {
             return builder.build();
         }
+        LongSet voidCandidates = new LongOpenHashSet();
         for (int caveLayer : layersFor(processor, referenceY)) {
-            readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder);
+            readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder, voidCandidates);
         }
+        markVoidCells(builder, voidCandidates);
         return builder.build();
+    }
+
+    /**
+     * どのレイヤーからも床が得られなかったセルのうち、空気の列を実際に読めていたものを
+     * {@link CoarseMap#VOID}にする。
+     *
+     * <p><b>レイヤーごとに書かずに最後へ回すのが要点。</b>ネザーのように同じXZが複数のY帯で
+     * 記録される次元では、あるレイヤーで床が無くても別のレイヤーには床がある。レイヤー単位で
+     * 奈落を書くと、実在する床を持つセルに到達不能な床が1枚余計に積まれる。
+     */
+    private static void markVoidCells(CoarseMapBuilder builder, LongSet voidCandidates) {
+        LongIterator iterator = voidCandidates.iterator();
+        while (iterator.hasNext()) {
+            long key = iterator.nextLong();
+            int chunkX = (int) (key >> 32);
+            int chunkZ = (int) key;
+            if (builder.floorCount(chunkX, chunkZ) > 0) {
+                continue;
+            }
+            builder.putFloor(chunkX, chunkZ, CoarseMap.VOID, CoarseMap.UNKNOWN_HEIGHT,
+                    CoarseMap.UNKNOWN_HEIGHT, CoarseMap.UNKNOWN_HEIGHT);
+        }
+    }
+
+    private static long chunkKey(int chunkX, int chunkZ) {
+        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
     private static void readLayer(MapProcessor processor, int caveLayer,
                                    int minChunkX, int minChunkZ, int chunksX, int chunksZ,
-                                   CoarseMapBuilder builder) {
+                                   CoarseMapBuilder builder, LongSet voidCandidates) {
         int minRegionX = minChunkX >> CHUNKS_PER_REGION_SHIFT;
         int maxRegionX = (minChunkX + chunksX - 1) >> CHUNKS_PER_REGION_SHIFT;
         int minRegionZ = minChunkZ >> CHUNKS_PER_REGION_SHIFT;
@@ -250,7 +281,7 @@ public final class XaeroMapReader {
         for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
             for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
                 forEachLoadedTile(processor, caveLayer, regionX, regionZ,
-                        tile -> readTile(tile, builder));
+                        tile -> readTile(tile, builder, voidCandidates));
             }
         }
     }
@@ -408,8 +439,11 @@ public final class XaeroMapReader {
         List<LayerProbe> probes = new ArrayList<>();
         for (int caveLayer : loadedLayers(processor)) {
             CoarseMapBuilder builder = new CoarseMapBuilder(minChunkX, minChunkZ, chunksX, chunksZ);
-            // 1レイヤーだけを読むので、1セルに複数の床が積まれることはない（floor 0だけを見ればよい）
-            readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder);
+            // 1レイヤーだけを読むので、1セルに複数の床が積まれることはない（floor 0だけを見ればよい）。
+            // 奈落の印は付けない——この診断が答えるのは「このレイヤーが床をどれだけ持っているか」で、
+            // 高さを持たないVOIDの床を混ぜるとknownCellsも高さの範囲も意味が変わる
+            readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder,
+                    new LongOpenHashSet());
             CoarseMap map = builder.build();
 
             int minHeight = Integer.MAX_VALUE;
@@ -491,7 +525,7 @@ public final class XaeroMapReader {
      * 天井のある次元で上下に重なる独立した通路が、片方だけ生き残ったり不当な段差として
      * 繋がって見えたりする。
      */
-    private static void readTile(MapTile tile, CoarseMapBuilder builder) {
+    private static void readTile(MapTile tile, CoarseMapBuilder builder, LongSet voidCandidates) {
         int waterSamples = 0;
         int lavaSamples = 0;
         int heightSum = 0;
@@ -501,11 +535,18 @@ public final class XaeroMapReader {
         // 溶岩面の高さの平均。samplesが全部溶岩だった稀なケース（下記）だけで使う
         int lavaHeightSum = 0;
         int samples = 0;
+        // 「床が無いと分かっている」列の数。Xaeroは不透明ブロックが1つも無い列に空気を書くので、
+        // タイルが存在するのに空気だけ＝奈落。タイルそのものが無い（未訪問）のとは別物
+        int voidSamples = 0;
 
         for (int x = 0; x < 16; x += SAMPLE_STEP) {
             for (int z = 0; z < 16; z += SAMPLE_STEP) {
                 MapBlock block = tile.getBlock(x, z);
-                if (block == null || isEmpty(block)) {
+                if (block == null) {
+                    continue;
+                }
+                if (isEmpty(block)) {
+                    voidSamples++;
                     continue;
                 }
                 samples++;
@@ -532,6 +573,13 @@ public final class XaeroMapReader {
         }
 
         if (samples == 0) {
+            // 床のある列が1つも無い。空気の列を実際に読めていたなら、それは「まだ知らない」ではなく
+            // 「床が無い」という情報なので、未訪問と同じ扱いにしてはいけない。ただし他のレイヤーが
+            // このセルに床を持っているかもしれないので、ここでは覚えるだけにして判定は全レイヤーを
+            // 読み終えてから行う（{@link #markVoidCells}）
+            if (voidSamples > 0) {
+                voidCandidates.add(chunkKey(tile.getChunkX(), tile.getChunkZ()));
+            }
             return;
         }
         // 溶岩は水と同じく「過半数」で通行不能とし、それ未満は通れるが高いセルに落とす。
@@ -548,7 +596,7 @@ public final class XaeroMapReader {
             kind = CoarseMap.LAND;
         }
         // heightSamples==0はサンプル全部が溶岩のときだけ（＝kindは必ずLAVA）。ここは溶岩面の高さで
-        // 正しい——LavaPolicy.BRIDGEでこのセルを渡るとき、足場を置くのがまさにその高さになる
+        // 正しい——BridgePolicy.BRIDGEでこのセルを渡るとき、足場を置くのがまさにその高さになる
         int averageHeight = heightSamples > 0 ? heightSum / heightSamples : lavaHeightSum / lavaSamples;
         int representativeMin = heightSamples > 0 ? minHeight : averageHeight;
         int representativeMax = heightSamples > 0 ? maxHeight : averageHeight;

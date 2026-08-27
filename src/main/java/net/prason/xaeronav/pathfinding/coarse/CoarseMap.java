@@ -35,6 +35,21 @@ public final class CoarseMap {
      */
     public static final byte LAVA_MIXED = 4;
 
+    /**
+     * 床がまったく無いセル（ジ・エンドの奈落、ネザーの大空洞で底が読み取り範囲より下）。
+     *
+     * <p><b>{@link #NO_DATA}と分けるのが要点。</b>Xaeroは訪れた列を必ず記録し、不透明ブロックが
+     * 1つも見つからなかった列には「空気・高さ＝ワールド最低Y」を書く（{@code MapWriter#loadPixel}）。
+     * つまり<b>奈落は「データが無い」のではなく「床が無いというデータ」</b>で、タイルの有無で
+     * 未訪問と区別できる。区別せずに{@link #NO_DATA}へ倒していた頃は、未知セルの倍率
+     * （通行可能・ほぼ最安）が奈落にも適用され、層1がジ・エンドの島間をまっすぐ突っ切る
+     * 中間目標を並べていた——詳細探索はそこへ橋を架けられず、毎回予算を焼いていた。
+     *
+     * <p>高さは持たない（{@link #UNKNOWN_HEIGHT}）。奈落に代表高さは無く、0のような具体値を
+     * 入れると層2・層3がそこを目指してしまう。
+     */
+    public static final byte VOID = 5;
+
     /** データが無いセルの高さ。 */
     public static final short UNKNOWN_HEIGHT = Short.MIN_VALUE;
 

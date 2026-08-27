@@ -156,6 +156,18 @@ public final class AStarPathfinder {
     /** {@link #trimUnfinishedPlacements}が末尾から落とした設置ステップの数。診断用。 */
     private int trimmedPlacements;
 
+    /** 落下ダメージを何点まで許容してよいか。{@link CellSource#maxFallDamagePoints()}を上書きできる。 */
+    private final int maxFallDamagePoints;
+
+    /**
+     * この探索が、落下ダメージの許容量<b>だけ</b>を理由に着地を捨てたか。
+     *
+     * <p>立てる床が読めていて、そこへ落ちれば届くのにダメージが許容量を超えていた場合にだけ立てる。
+     * 奈落（{@link #NOTHING_BELOW}）や未ロード（{@link #UNREADABLE_BELOW}）で捨てた場合は立てない
+     * ——そちらは許容量をいくら緩めても着地点が現れないので、探し直しても同じ結果になる。
+     */
+    private boolean fallDamageCapBlocked;
+
     /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
     private final int maxSubmergedTicks;
 
@@ -225,21 +237,26 @@ public final class AStarPathfinder {
      * {@link Heuristic}（既定の幾何学的下限）を使う既存の挙動と完全に同じになる。
      */
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo) {
-        this(view, limits, costToGo, RunCaps.of(view));
+        this(view, limits, costToGo, Tolerances.of(view));
     }
 
     /**
-     * 連続する橋の長さ・潜水し続けてよい時間の上限を明示するコンストラクタ。{@link RunCaps#NONE}を
-     * 渡すと無制限になる——上限のせいで範囲内に道が一本も無くなった場合の、詰み回避の探し直しに使う
-     * （「マグマの橋も溺れる危険も最後の手段だが、詰みよりはマシ」という優先順）。
+     * 危険の許容量を明示するコンストラクタ。上限のせいで範囲内に道が一本も無くなった場合の、
+     * 詰み回避の探し直しに使う（「マグマの橋も溺れる危険も痛い落下も最後の手段だが、詰みよりは
+     * マシ」という優先順）。
      */
-    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, RunCaps caps) {
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, Tolerances tolerances) {
+        RunCaps caps = tolerances.caps();
         this.maxBridgeRun = caps.maxBridgeRunBlocks();
         this.maxLavaBridgeRun = caps.effectiveLavaBridgeRun();
         this.maxVoidBridgeRun = caps.effectiveVoidBridgeRun();
         this.maxSubmergedTicks = caps.maxSubmergedTicks();
+        this.maxFallDamagePoints = tolerances.maxFallDamagePoints();
         this.view = view;
-        this.minDescentPerBlock = view.minDescentTicksPerBlock();
+        // 落下ダメージの許容量を緩めたら下降の下限も一緒に緩める。許せる落差が伸びるほど
+        // 1ブロックあたりの実コストは終端速度へ近づいて安くなるので、元の下限のままでは
+        // ヒューリスティックが実コストを上回りうる（＝非許容）
+        this.minDescentPerBlock = view.minDescentTicksPerBlock(this.maxFallDamagePoints);
         this.maxExpandedNodes = limits.maxExpandedNodes();
         this.timeLimitMillis = limits.timeLimitMillis();
         this.heuristicWeight = limits.heuristicWeight();
@@ -1141,16 +1158,32 @@ public final class AStarPathfinder {
 
         // バニラのダメージは ceil(落下距離 - SAFE_FALL_DISTANCE)。落下距離が整数マスなのでそのまま引き算になる
         int damage = drop - ActionCosts.SAFE_FALL_BLOCKS;
-        if (view.canMlgWaterBucket()) {
+        boolean mlg = view.canMlgWaterBucket();
+        if (mlg) {
             relax(from, x, obstacleY + 1, z,
                     ActionCosts.fallCost(drop, takeoff) + ActionCosts.MLG_WATER_OVERHEAD_TICKS,
                     MoveKind.FALL_MLG);
         }
-        if (damage <= view.maxFallDamagePoints()) {
-            relax(from, x, obstacleY + 1, z,
-                    ActionCosts.fallCost(drop, takeoff) + damage * ActionCosts.FALL_DAMAGE_PENALTY_PER_POINT,
-                    MoveKind.FALL_DAMAGE);
+        if (damage > maxFallDamagePoints) {
+            // 立てる床はそこにあり、届きもする。許容量だけが足りない——緩めれば道になる可能性がある。
+            // ここまで来ている時点で奈落でも未ロードでもないので、フラグは「緩める意味がある」を正しく指す。
+            //
+            // 水バケツMLGで同じ着地を既に作れているなら立てない。その辺は許容量に関わらず通れるので、
+            // 緩めても増える移動が無い——立てると、緩和の梯子が何も変えずに探索を繰り返すだけになる
+            fallDamageCapBlocked |= !mlg;
+            return;
         }
+        relax(from, x, obstacleY + 1, z,
+                ActionCosts.fallCost(drop, takeoff) + damage * ActionCosts.FALL_DAMAGE_PENALTY_PER_POINT,
+                MoveKind.FALL_DAMAGE);
+    }
+
+    /**
+     * この探索が、落下ダメージの許容量を理由に着地を捨てたか。捨てていない場合、許容量を緩めて
+     * 探し直しても結果は変わらない。
+     */
+    public boolean fallDamageCapBlocked() {
+        return fallDamageCapBlocked;
     }
 
     /**

@@ -71,6 +71,12 @@ public final class ChunkView implements CellSource {
     private final boolean boatAvailable;
     private final boolean ridingBoat;
     private final double minDescentTicksPerBlock;
+
+    /**
+     * 落差に上限が無い落下がありうるか（水へ落ちる、または水バケツMLG）。落下ダメージの許容量を
+     * 変えたときに下降の下限を引き直すのに要る（{@link #minDescentTicksPerBlock(int)}）。
+     */
+    private final boolean deepFallPossible;
     private final int minBuildHeight;
     private final int maxBuildHeight;
     private final int minSection;
@@ -93,8 +99,9 @@ public final class ChunkView implements CellSource {
                       ItemStack[] hotbar, int[] hotbarEfficiency, MovementOptions options, boolean canPlaceBlocks,
                       int maxFallDamagePoints,
                       boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
-                      double minDescentTicksPerBlock, int minBuildHeight,
+                      boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection) {
+        this.deepFallPossible = deepFallPossible;
         this.chunks = chunks;
         this.totalChunksInBounds = totalChunksInBounds;
         this.bounds = bounds;
@@ -178,19 +185,13 @@ public final class ChunkView implements CellSource {
         // 存在しない（置いても蒸発する——BucketItemがそう書いてある）。水も水バケツMLGも無く、
         // 落下ダメージも許容しないなら、落ちられるのは安全高さまでで打ち止めになる
         boolean deepFallPossible = !level.dimensionType().ultraWarm() || canMlgWaterBucket;
-        int maxDrop = ActionCosts.SAFE_FALL_BLOCKS + maxFallDamagePoints;
-        // fallCost(d)/d はdについて単調減少（終端速度に漸近する）ので、生成されうる最大の落差での
-        // 値が下限になる。深い落下がありうるなら終端速度の下限まで緩める以外にない。
-        // 梯子（LADDER_DOWN_ONE_BLOCK）はこれを上回るが、下限として取り違えないよう明示的に比べる
-        double minDescentTicksPerBlock = deepFallPossible
-                ? ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK
-                : Math.min(ActionCosts.fallCost(maxDrop) / maxDrop, ActionCosts.LADDER_DOWN_ONE_BLOCK);
+        double minDescentTicksPerBlock = descentBound(deepFallPossible, maxFallDamagePoints);
 
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
                 options.bridgingEnabled() && canPlaceBlocks,
                 maxFallDamagePoints, canMlgWaterBucket, boatAvailable, ridingBoat,
-                minDescentTicksPerBlock, level.getMinBuildHeight(),
+                deepFallPossible, minDescentTicksPerBlock, level.getMinBuildHeight(),
                 level.getMaxBuildHeight(), level.getMinSection());
     }
 
@@ -212,7 +213,22 @@ public final class ChunkView implements CellSource {
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency,
                 options.withoutDigging(), canPlaceBlocks, maxFallDamagePoints, canMlgWaterBucket,
-                boatAvailable, ridingBoat, minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection);
+                boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock, minBuildHeight,
+                maxBuildHeight, minSection);
+    }
+
+    /**
+     * 落下ダメージの許容量から下降1ブロックあたりの下限を出す。落差に上限が無いなら終端速度の
+     * 下限まで緩める以外にない。
+     */
+    private static double descentBound(boolean deepFallPossible, int maxFallDamagePoints) {
+        return deepFallPossible ? ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK
+                : ActionCosts.descentBoundForMaxDrop(ActionCosts.SAFE_FALL_BLOCKS + maxFallDamagePoints);
+    }
+
+    @Override
+    public double minDescentTicksPerBlock(int maxFallDamagePoints) {
+        return descentBound(deepFallPossible, maxFallDamagePoints);
     }
 
     /**

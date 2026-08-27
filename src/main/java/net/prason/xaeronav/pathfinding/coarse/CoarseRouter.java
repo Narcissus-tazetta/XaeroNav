@@ -76,7 +76,7 @@ public final class CoarseRouter {
     private static final double LAVA_MIXED_MULTIPLIER = 2.5;
 
     /**
-     * {@link LavaPolicy#BRIDGE}で溶岩セルを渡る倍率。層1と層3はコストの単位をtickで揃えてあるので、
+     * {@link BridgePolicy#BRIDGE}で溶岩セルを渡る倍率。層1と層3はコストの単位をtickで揃えてあるので、
      * ここは勘ではなく層3の実コストから導く——1ブロックあたり
      * {@code SPRINT_ONE_BLOCK + PLACE_BLOCK_OVERHEAD_TICKS + LAVA_BRIDGE_PENALTY_TICKS ≒ 35.6}tick、
      * 通常の陸が3.564なので比は約10倍になる。
@@ -84,6 +84,20 @@ public final class CoarseRouter {
     private static final double LAVA_BRIDGE_MULTIPLIER =
             (ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                     + ActionCosts.LAVA_BRIDGE_PENALTY_TICKS) / ActionCosts.SPRINT_ONE_BLOCK;
+
+    /**
+     * {@link BridgePolicy#BRIDGE}で奈落セルを渡る倍率。{@link #LAVA_BRIDGE_MULTIPLIER}と同じく
+     * 層3の実コスト（{@link ActionCosts#VOID_BRIDGE_PENALTY_TICKS}）から導く。
+     *
+     * <p><b>この倍率が「どこまでの奈落なら渡るか」を実質的に決めている。</b>層1はA*なので橋の
+     * 連続長を状態に持てず（状態数がk倍になれば到達距離は1/√k）、{@code maxVoidBridgeRunBlocks}を
+     * 層1で表現する手段が無い。代わりに1セル＝16ブロックがこの倍率で効くので、奈落2セル
+     * （32ブロック）を渡る費用は徒歩約320ブロック相当になる——それより近い回り込みがあれば
+     * 必ずそちらが勝つ。詳細探索が上限で渡れない長さの奈落は、そもそも層1が選ばなくなる。
+     */
+    private static final double VOID_BRIDGE_MULTIPLIER =
+            (ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+                    + ActionCosts.VOID_BRIDGE_PENALTY_TICKS) / ActionCosts.SPRINT_ONE_BLOCK;
 
     /**
      * 高低差1ブロックあたりの追加コスト。登りも下りも同じだけ掛ける。
@@ -183,23 +197,29 @@ public final class CoarseRouter {
     }
 
     /**
-     * 溶岩セルの扱い。呼び出し側は{@link #AVOID}から順に試し、届かなかったときだけ緩める。
+     * <b>足場を置かないと通れないセル</b>（溶岩・奈落）の扱い。呼び出し側は{@link #AVOID}から
+     * 順に試し、届かなかったときだけ緩める。
      *
-     * <p>層1が溶岩地帯を突っ切ると決めると、そのwaypointへは詳細探索が原理的に到達できない
-     * （溶岩の上は歩けない）。段階を分けるのは「大きく迂回してでも溶岩を避ける道」を必ず先に
+     * <p>層1が溶岩地帯や奈落を突っ切ると決めると、そのwaypointへは詳細探索が原理的に到達できない
+     * （溶岩の上も奈落の上も歩けない）。段階を分けるのは「大きく迂回してでも避ける道」を必ず先に
      * 探させるため——迂回や後戻りはA*が勝手に見つけるので、ここで表現するのは可否だけでよい。
+     *
+     * <p>溶岩と奈落を1つのつまみにまとめてあるのは、どちらも「橋を架ける前提でなら通れる」という
+     * 同じ性質だから。ただし<b>緩む段が違う</b>——溶岩の橋には設定のスイッチがあるのに対し、
+     * 奈落の橋にはそれが無い（層3は{@code canPlaceBlocks}だけで判断する）ので、奈落は
+     * {@link #ALLOW}の時点で開く。
      */
-    public enum LavaPolicy {
-        /** 溶岩の混じるセルを一切通らない。大回りでも溶岩を避けた道があるならそれを見つける。 */
+    public enum BridgePolicy {
+        /** 溶岩の混じるセルも奈落も一切通らない。大回りでも避けた道があるならそれを見つける。 */
         AVOID,
-        /** 溶岩が混じるセルは通れるが高い。過半数が溶岩のセルは通行不能。 */
+        /** 溶岩が混じるセルと奈落は通れるが高い。過半数が溶岩のセルだけは通行不能。 */
         ALLOW,
-        /** 過半数が溶岩のセルも橋を架けて渡る前提で通す。最後の手段。 */
+        /** 過半数が溶岩のセルも含めて、橋を架けて渡る前提で通す。最後の手段。 */
         BRIDGE
     }
 
     public static Route findRoute(CoarseMap map, BlockPos start, BlockPos goal, boolean boatAvailable,
-                                   LavaPolicy lavaPolicy) {
+                                   BridgePolicy bridgePolicy) {
         int startX = start.getX() >> 4;
         int startZ = start.getZ() >> 4;
         int goalX = goal.getX() >> 4;
@@ -253,7 +273,7 @@ public final class CoarseRouter {
                         continue;
                     }
                     relaxHorizontal(map, cost, previous, closed, open, x, z, floor, dx, dz, goalX, goalZ,
-                            bestSoFar, bestHeuristic, waterMultiplier, lavaPolicy);
+                            bestSoFar, bestHeuristic, waterMultiplier, bridgePolicy);
                 }
             }
             relaxVertical(map, cost, previous, closed, open, x, z, floor, goalX, goalZ,
@@ -284,7 +304,7 @@ public final class CoarseRouter {
      * （{@code AStarPathfinder#node}参照）なので、この近似が探索を壊すことはない
      * （最悪でも幾何学的下限まで自然に落ちる）。
      */
-    public static CostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable, LavaPolicy lavaPolicy) {
+    public static CostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy) {
         int goalX = goal.getX() >> 4;
         int goalZ = goal.getZ() >> 4;
         int states = map.chunksX() * map.chunksZ() * CoarseMap.MAX_FLOORS;
@@ -319,7 +339,7 @@ public final class CoarseRouter {
                         continue;
                     }
                     relaxBackwardHorizontal(map, cost, closed, open, x, z, floor, dx, dz, waterMultiplier,
-                            lavaPolicy);
+                            bridgePolicy);
                 }
             }
             relaxBackwardVertical(map, cost, closed, open, x, z, floor);
@@ -353,7 +373,7 @@ public final class CoarseRouter {
 
     private static void relaxBackwardHorizontal(CoarseMap map, double[] cost, boolean[] closed,
                                                 PriorityQueue<Candidate> open, int x, int z, int floor,
-                                                int dx, int dz, double waterMultiplier, LavaPolicy lavaPolicy) {
+                                                int dx, int dz, double waterMultiplier, BridgePolicy bridgePolicy) {
         int neighborX = x + dx;
         int neighborZ = z + dz;
         if (!map.containsChunk(neighborX, neighborZ)) {
@@ -364,7 +384,7 @@ public final class CoarseRouter {
         for (int neighborFloor = 0; neighborFloor < neighborFloorCount; neighborFloor++) {
             // from/toを入れ替え: 「neighborからxへ入るコスト」を計算する（逆走なので）
             double step = horizontalStepCost(map, neighborX, neighborZ, neighborFloor, x, z, floor, diagonal,
-                    waterMultiplier, lavaPolicy);
+                    waterMultiplier, bridgePolicy);
             if (Double.isInfinite(step)) {
                 continue;
             }
@@ -425,7 +445,7 @@ public final class CoarseRouter {
     private static void relaxHorizontal(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
                                         PriorityQueue<Candidate> open, int x, int z, int floor, int dx, int dz,
                                         int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
-                                        double waterMultiplier, LavaPolicy lavaPolicy) {
+                                        double waterMultiplier, BridgePolicy bridgePolicy) {
         int nextX = x + dx;
         int nextZ = z + dz;
         if (!map.containsChunk(nextX, nextZ)) {
@@ -434,7 +454,7 @@ public final class CoarseRouter {
         boolean diagonal = dx != 0 && dz != 0;
         int nextFloor = nearestConnectableFloor(map, x, z, floor, nextX, nextZ);
         double step = horizontalStepCost(map, x, z, floor, nextX, nextZ, nextFloor, diagonal, waterMultiplier,
-                lavaPolicy);
+                bridgePolicy);
         if (Double.isInfinite(step)) {
             return;
         }
@@ -527,17 +547,17 @@ public final class CoarseRouter {
 
     private static double horizontalStepCost(CoarseMap map, int fromX, int fromZ, int fromFloor,
                                              int toX, int toZ, int toFloor, boolean diagonal,
-                                             double waterMultiplier, LavaPolicy lavaPolicy) {
+                                             double waterMultiplier, BridgePolicy bridgePolicy) {
         byte kind = stateKind(map, toX, toZ, toFloor);
-        double lavaMultiplier = lavaMultiplier(kind, lavaPolicy);
-        if (Double.isInfinite(lavaMultiplier)) {
+        double bridgeMultiplier = bridgeMultiplier(kind, bridgePolicy);
+        if (Double.isInfinite(bridgeMultiplier)) {
             return ActionCosts.INFEASIBLE;
         }
         double base = diagonal ? DIAGONAL_COST : STRAIGHT_COST;
         double multiplier = switch (kind) {
             case CoarseMap.WATER -> waterMultiplier;
             case CoarseMap.NO_DATA -> UNKNOWN_MULTIPLIER;
-            case CoarseMap.LAVA, CoarseMap.LAVA_MIXED -> lavaMultiplier;
+            case CoarseMap.LAVA, CoarseMap.LAVA_MIXED, CoarseMap.VOID -> bridgeMultiplier;
             default -> 1.0;
         };
 
@@ -553,15 +573,26 @@ public final class CoarseRouter {
     }
 
     /**
-     * 溶岩を含むセルの倍率。溶岩を含まないセルには1.0を返す（呼び出し側が他の倍率を使う）。
-     * {@link ActionCosts#INFEASIBLE}なら通行不能。
+     * 足場を置かないと通れないセル（溶岩・奈落）の倍率。それ以外のセルには1.0を返す
+     * （呼び出し側が他の倍率を使う）。{@link ActionCosts#INFEASIBLE}なら通行不能。
      */
-    private static double lavaMultiplier(byte kind, LavaPolicy lavaPolicy) {
+    private static double bridgeMultiplier(byte kind, BridgePolicy bridgePolicy) {
         if (kind == CoarseMap.LAVA) {
-            return lavaPolicy == LavaPolicy.BRIDGE ? LAVA_BRIDGE_MULTIPLIER : ActionCosts.INFEASIBLE;
+            return bridgePolicy == BridgePolicy.BRIDGE ? LAVA_BRIDGE_MULTIPLIER : ActionCosts.INFEASIBLE;
         }
         if (kind == CoarseMap.LAVA_MIXED) {
-            return lavaPolicy == LavaPolicy.AVOID ? ActionCosts.INFEASIBLE : LAVA_MIXED_MULTIPLIER;
+            return bridgePolicy == BridgePolicy.AVOID ? ActionCosts.INFEASIBLE : LAVA_MIXED_MULTIPLIER;
+        }
+        if (kind == CoarseMap.VOID) {
+            // 奈落を通行不能にするのは{@link BridgePolicy#AVOID}だけ。ALLOWでも橋で通す。
+            //
+            // 溶岩と非対称なのは、<b>溶岩の橋には設定のスイッチがあるのに奈落には無い</b>から
+            // （層3の{@code addBridge}は奈落を{@code canPlaceBlocks}だけで判断する）。
+            // ALLOWで奈落まで通行不能にすると、層3の区間分割（{@code solveCoarseGuided}）が
+            // ジ・エンドで区間を1つも作れず、島間を1回の探索で渡ろうとして予算を焼く——
+            // {@code PathfindingExecutor}に「一律ALLOWにすると溶岩の海の縁で同じことが起きる」と
+            // 実機の記録つきで書いてある、その奈落版になる。
+            return bridgePolicy == BridgePolicy.AVOID ? ActionCosts.INFEASIBLE : VOID_BRIDGE_MULTIPLIER;
         }
         return 1.0;
     }

@@ -209,7 +209,7 @@ public final class XaeroNavCommands {
         CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ,
                 (start.getY() + goal.getY()) / 2);
         // 診断コマンドは既定の重み付けをそのまま見せる（溶岩の梯子はPathfindingState側の話）
-        return CoarseRouter.findRoute(map, start, goal, boatAvailable, CoarseRouter.LavaPolicy.ALLOW);
+        return CoarseRouter.findRoute(map, start, goal, boatAvailable, CoarseRouter.BridgePolicy.ALLOW);
     }
 
     /**
@@ -317,6 +317,7 @@ public final class XaeroNavCommands {
         int water = 0;
         int lava = 0;
         int lavaMixed = 0;
+        int voidCells = 0;
         int noData = 0;
         for (int chunkX = minChunkX; chunkX < minChunkX + side; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ < minChunkZ + side; chunkZ++) {
@@ -331,6 +332,7 @@ public final class XaeroNavCommands {
                         case CoarseMap.WATER -> water++;
                         case CoarseMap.LAVA -> lava++;
                         case CoarseMap.LAVA_MIXED -> lavaMixed++;
+                        case CoarseMap.VOID -> voidCells++;
                         default -> noData++;
                     }
                 }
@@ -338,15 +340,16 @@ public final class XaeroNavCommands {
         }
         // 割合は既知セルに対して出す。全体に対してだと未探索で薄まって、
         // 通行可能領域がどれだけ削られているかが見えない
-        int known = land + water + lava + lavaMixed;
+        int known = land + water + lava + lavaMixed + voidCells;
         int lavaPercent = known == 0 ? 0 : lava * 100 / known;
         final int landCount = land;
         final int waterCount = water;
         final int lavaCount = lava;
         final int lavaMixedCount = lavaMixed;
+        final int voidCount = voidCells;
         final int noDataCount = noData;
         source.sendSuccess(() -> Component.translatable("commands.xaeronav.mapdata_kinds",
-                landCount, waterCount, lavaCount, lavaMixedCount, noDataCount, lavaPercent), false);
+                landCount, waterCount, lavaCount, lavaMixedCount, voidCount, noDataCount, lavaPercent), false);
     }
 
     /**
@@ -378,6 +381,7 @@ public final class XaeroNavCommands {
             case CoarseMap.WATER -> "commands.xaeronav.mapdata_water";
             case CoarseMap.LAVA -> "commands.xaeronav.mapdata_lava";
             case CoarseMap.LAVA_MIXED -> "commands.xaeronav.mapdata_lava_mixed";
+            case CoarseMap.VOID -> "commands.xaeronav.mapdata_void";
             default -> "commands.xaeronav.mapdata_none";
         });
     }

@@ -116,6 +116,21 @@ public interface CellSource {
     double minDescentTicksPerBlock();
 
     /**
+     * 落下ダメージの許容量を{@code maxFallDamagePoints}へ置き換えたときの下降1ブロックあたりの下限。
+     *
+     * <p>詰み時に許容量を段階的に緩める探し直し（{@code PathfindingExecutor}）のために要る。
+     * <b>許容量を上げたら下限も一緒に緩めないとヒューリスティックが非許容になる</b>——
+     * 許せる落差が伸びるほど1ブロックあたりの実コストは終端速度へ近づいて<b>安く</b>なるので、
+     * 元の（きつい）落差で求めた下限は実コストを上回りうる。
+     *
+     * <p>既定は{@link #minDescentTicksPerBlock()}をそのまま返す。落差に依らない下限
+     * （終端速度）を返す実装ではこれで正しく、緩めても下回ることがない。
+     */
+    default double minDescentTicksPerBlock(int maxFallDamagePoints) {
+        return minDescentTicksPerBlock();
+    }
+
+    /**
      * 着地寸前に水バケツを置いて落下ダメージを消す移動を提示してよいか。
      * 水バケツを持っていなければ実行できない指示にしかならない。
      */

@@ -1155,6 +1155,70 @@ class AStarPathfinderTest {
         assertFalse(result.complete(), "溶岩側が無制限でも、橋そのものの上限は残る");
     }
 
+    /**
+     * 段差の下に低い棚があるだけの地形。落差{@code drop}は落下ダメージ許容が無ければ渡れない。
+     * ジ・エンドで「低い島へ降りる」形を、奈落抜きで最小化したもの。
+     */
+    private static FakeCells ledgeBelow(int drop) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-4, 20, -4, 12, 90, 4))
+                .canPlaceBlocks(false);
+        for (int x = -2; x <= 1; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+            cells.set(x, 61, 0, FakeCells.AIR);
+            cells.set(x, 62, 0, FakeCells.AIR);
+        }
+        for (int x = 2; x <= 8; x++) {
+            cells.set(x, 60 - drop, 0, FakeCells.BEDROCK);
+            cells.set(x, 61 - drop, 0, FakeCells.AIR);
+            cells.set(x, 62 - drop, 0, FakeCells.AIR);
+        }
+        return cells.extrudeZ(-1, 1);
+    }
+
+    /**
+     * 落下ダメージの許容量<b>だけ</b>が足りずに着地を捨てたことを報告する。詰み時に許容量を
+     * 段階的に緩める探し直し（{@code PathfindingExecutor}）の発動条件になる。
+     *
+     * <p>奈落や未ロードで捨てた場合に立ててはいけない——そちらは緩めても着地点が現れない。
+     */
+    @Test
+    void reportsWhenOnlyTheFallDamageAllowanceBlockedALanding() {
+        AStarPathfinder blocked = new AStarPathfinder(ledgeBelow(8).maxFallDamagePoints(0));
+        PathResult result = blocked.search(new BlockPos(0, 61, 0), new BlockPos(6, 53, 0), NOT_CANCELLED);
+        assertFalse(result.complete(), "許容0なら8マスの落下は提示しない");
+        assertTrue(blocked.fallDamageCapBlocked(), "床は読めていて落差だけが問題なので、緩める価値がある");
+
+        AStarPathfinder allowed = new AStarPathfinder(ledgeBelow(8).maxFallDamagePoints(8));
+        assertTrue(allowed.search(new BlockPos(0, 61, 0), new BlockPos(6, 53, 0), NOT_CANCELLED).complete(),
+                "許容を開ければ同じ地形で降りられる");
+    }
+
+    /**
+     * 底が無い（奈落）場合は、落下ダメージをいくら緩めても着地点が現れない。ここでフラグを立てると
+     * 緩和の梯子を最後まで空回りさせることになる。
+     */
+    @Test
+    void doesNotBlameTheFallAllowanceForABottomlessDrop() {
+        AStarPathfinder pathfinder =
+                new AStarPathfinder(bottomlessGap(6).canPlaceBlocks(false).maxFallDamagePoints(0));
+        pathfinder.search(new BlockPos(0, 61, 0), new BlockPos(9, 61, 0), NOT_CANCELLED);
+        assertFalse(pathfinder.fallDamageCapBlocked(), "奈落は許容量の問題ではない");
+    }
+
+    /**
+     * {@link Tolerances}で許容量を上書きすると、{@link CellSource#maxFallDamagePoints()}が0でも
+     * その落下が生成される。詰み時の緩和はこの経路で効く。
+     */
+    @Test
+    void tolerancesOverrideTheViewsFallAllowance() {
+        FakeCells cells = ledgeBelow(8).maxFallDamagePoints(0);
+        AStarPathfinder loosened = new AStarPathfinder(cells, SearchLimits.DEFAULT, null,
+                new Tolerances(RunCaps.of(cells), 8));
+
+        assertTrue(loosened.search(new BlockPos(0, 61, 0), new BlockPos(6, 53, 0), NOT_CANCELLED).complete(),
+                "許容量を上書きしても落下が生成されないなら、緩和の梯子は空回りする");
+    }
+
     /** 上限で移動を捨てたかどうかは、上限を外して探し直す価値があるかの判定に使う。 */
     @Test
     void reportsWhetherTheCapActuallyBlockedAnything() {

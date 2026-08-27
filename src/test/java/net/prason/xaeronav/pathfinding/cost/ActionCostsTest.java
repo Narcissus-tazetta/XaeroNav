@@ -113,4 +113,32 @@ class ActionCostsTest {
     void safeFallBlocksMatchesVanillaFallDamageThreshold() {
         assertEquals(3, ActionCosts.SAFE_FALL_BLOCKS);
     }
+
+    /**
+     * 落下ダメージの許容量を緩める探し直しが成立する条件。許せる落差が伸びたら下降の下限は
+     * <b>必ず下がる</b>——ここが単調でないと、緩めた探索へ元の下限を渡し続けたときに
+     * ヒューリスティックが実コストを上回る（＝非許容）ことに気付けない。
+     */
+    @Test
+    void descentBoundNeverRisesAsTheAllowedDropGrows() {
+        double previous = Double.MAX_VALUE;
+        for (int maxDrop = 1; maxDrop <= 40; maxDrop++) {
+            double bound = ActionCosts.descentBoundForMaxDrop(maxDrop);
+            assertTrue(bound <= previous + 1e-12,
+                    maxDrop + "マスまで落ちられるのに下限が上がった: " + previous + " -> " + bound);
+            previous = bound;
+        }
+    }
+
+    /** 下限は名前のとおり下限であること。実際の1マスあたりのコストを上回ってはいけない。 */
+    @Test
+    void descentBoundStaysBelowTheRealPerBlockCost() {
+        for (int maxDrop = 1; maxDrop <= 40; maxDrop++) {
+            double bound = ActionCosts.descentBoundForMaxDrop(maxDrop);
+            for (int drop = 1; drop <= maxDrop; drop++) {
+                assertTrue(bound <= ActionCosts.fallCost(drop) / drop + 1e-12,
+                        "落差" + drop + "マスの実コストを下限が上回っている（maxDrop=" + maxDrop + "）");
+            }
+        }
+    }
 }

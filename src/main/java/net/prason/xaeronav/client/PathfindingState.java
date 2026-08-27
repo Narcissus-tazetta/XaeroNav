@@ -985,10 +985,11 @@ public final class PathfindingState {
     /**
      * 詰みの理由を、確度の高い順に見て決める。
      *
-     * <p>層1（Xaeroの地図）で目的地まで繋がっていないことが最も情報量が多い——粗い地図で通行不能に
-     * なるのは溶岩だけで、未探索セルは通行可能として扱われる。つまり橋を架ける前提でも届かないなら、
-     * 詳細探索をいくら回しても届かない。次に確かなのが{@code EXHAUSTED}（探索範囲の中に到達手段が
-     * 無いことの証明）で、残りは資源不足。
+     * <p>層1（Xaeroの地図）で目的地まで繋がっていないことが最も情報量が多い——<b>この判定に使う
+     * ルートは梯子の最終段（{@code BridgePolicy.BRIDGE}）まで試したもの</b>で、そこでは溶岩の海も
+     * 奈落も橋を架ける前提で通れることになっており、未探索セルも通行可能として扱われる。それでも
+     * 届かないなら、詳細探索をいくら回しても届かない。次に確かなのが{@code EXHAUSTED}（探索範囲の
+     * 中に到達手段が無いことの証明）で、残りは資源不足。
      */
     private StuckReason classifyStuck(PathResult.Termination termination) {
         CoarseRoute route = coarseRoute;
@@ -1937,9 +1938,9 @@ public final class PathfindingState {
      * 詳細探索が原理的に到達できない（溶岩の上は歩けない）ため、ネザーの溶岩の海の縁で詰む:
      *
      * <ol>
-     *   <li>{@link CoarseRouter.LavaPolicy#AVOID} — 溶岩を完全に避ける。大きく迂回・後戻りする道が
+     *   <li>{@link CoarseRouter.BridgePolicy#AVOID} — 溶岩を完全に避ける。大きく迂回・後戻りする道が
      *       あればA*が見つける</li>
-     *   <li>{@link CoarseRouter.LavaPolicy#BRIDGE} — 橋を架けて渡る前提で通す。最後の手段だが詰むよりはマシ</li>
+     *   <li>{@link CoarseRouter.BridgePolicy#BRIDGE} — 橋を架けて渡る前提で通す。最後の手段だが詰むよりはマシ</li>
      * </ol>
      *
      * <p>地図は1回だけ読んで{@code AVOID}と{@code BRIDGE}で使い回す（{@link XaeroMapReader#readSurface}が
@@ -1957,13 +1958,13 @@ public final class PathfindingState {
             return new CoarseRouter.Route(List.of(), false);
         }
         CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
-                CoarseRouter.LavaPolicy.AVOID);
+                CoarseRouter.BridgePolicy.AVOID);
         if (avoided.reachedGoal()) {
             return avoided;
         }
 
         CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
-                CoarseRouter.LavaPolicy.BRIDGE);
+                CoarseRouter.BridgePolicy.BRIDGE);
         if (bridged.reachedGoal()) {
             LOGGER.info("XaeroNav: 溶岩を避ける道が見つからないため、橋を架けて渡る長距離ルートに切り替えました");
             return bridged;

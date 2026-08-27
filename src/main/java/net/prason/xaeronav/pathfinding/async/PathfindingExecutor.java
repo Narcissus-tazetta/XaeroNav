@@ -20,6 +20,7 @@ import net.prason.xaeronav.pathfinding.astar.PathSafetyChecker;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.RunCaps;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
+import net.prason.xaeronav.pathfinding.astar.Tolerances;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
@@ -120,9 +121,9 @@ public final class PathfindingExecutor {
     private static CostToGo buildCostToGoGuide(CellSource view, BlockPos start, BlockPos goal,
                                                 BooleanSupplier cancelled) {
         CoarseMap coarseMap = LiveCoarseSampler.sample(view, view.bounds(), start.getY(), cancelled);
-        CoarseRouter.LavaPolicy lavaPolicy = view.lavaBridgingEnabled()
-                ? CoarseRouter.LavaPolicy.BRIDGE : CoarseRouter.LavaPolicy.ALLOW;
-        return CoarseRouter.costToGo(coarseMap, goal, false, lavaPolicy);
+        CoarseRouter.BridgePolicy bridgePolicy = view.lavaBridgingEnabled()
+                ? CoarseRouter.BridgePolicy.BRIDGE : CoarseRouter.BridgePolicy.ALLOW;
+        return CoarseRouter.costToGo(coarseMap, goal, false, bridgePolicy);
     }
 
     /**
@@ -196,18 +197,18 @@ public final class PathfindingExecutor {
         // 橋を架けられるなら粗い側でも溶岩を通す。ここを一律ALLOWにすると、溶岩の海の縁では
         // 出発点自身のセルがLAVA＝通行不能になって区間分割が1つも作れず、溶岩の海を1回の探索で
         // 渡ろうとして予算を焼き切る（実機で踏んだ: ステップ数0のまま20万ノード）
-        CoarseRouter.LavaPolicy lavaPolicy = view.lavaBridgingEnabled()
-                ? CoarseRouter.LavaPolicy.BRIDGE : CoarseRouter.LavaPolicy.ALLOW;
-        CoarseRouter.Route route = CoarseRouter.findRoute(coarseMap, start, goal, false, lavaPolicy);
+        CoarseRouter.BridgePolicy bridgePolicy = view.lavaBridgingEnabled()
+                ? CoarseRouter.BridgePolicy.BRIDGE : CoarseRouter.BridgePolicy.ALLOW;
+        CoarseRouter.Route route = CoarseRouter.findRoute(coarseMap, start, goal, false, bridgePolicy);
         // 粗い地図が空のまま「経路あり」になるのが最悪の失敗（全セルNO_DATAは通行可能なので、
         // 溶岩を無視した直線が引けてしまう）。知られたセル数を出しておかないと、
         // 「区間分割が下手」なのか「そもそも地形が見えていない」のかを切り分けられない
         LOGGER.info("XaeroNav: 粗い経由地チェーンの地図 (既知セル={}/{}, 中間目標={}個, 溶岩={})",
-                coarseMap.knownCells(), coarseMap.totalCells(), route.waypoints().size(), lavaPolicy);
+                coarseMap.knownCells(), coarseMap.totalCells(), route.waypoints().size(), bridgePolicy);
         if (route.waypoints().isEmpty()) {
             // 粗い側でも道が見つからない（孤立した地形等）。直接探索と同じ結果に留める
             CostToGo directCostToGo = costToGoGuideEnabled
-                    ? CoarseRouter.costToGo(coarseMap, goal, false, lavaPolicy) : null;
+                    ? CoarseRouter.costToGo(coarseMap, goal, false, bridgePolicy) : null;
             return search(view, limits, cancelled, directCostToGo, (pathfinder, c) ->
                     pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
                             c, 0, goalRadius));
@@ -253,7 +254,7 @@ public final class PathfindingExecutor {
             // 区間ごとのゴールに向けたガイド。同じcoarseMapを使い回すので逆向きDijkstraだけを
             // ゴールの数だけ繰り返す（地図の読み取りは1回で済んでいる）
             CostToGo legCostToGo = costToGoGuideEnabled
-                    ? CoarseRouter.costToGo(coarseMap, legGoal, false, lavaPolicy) : null;
+                    ? CoarseRouter.costToGo(coarseMap, legGoal, false, bridgePolicy) : null;
             // 区間の境目で橋の連続長が0に戻らないよう、直前までの末尾の連続長を引き継ぐ
             int carriedBridgeRun = trailingBridgeRun(steps);
             PathResult legResult = search(view, thisLegLimits, cancelled, legCostToGo,
@@ -310,21 +311,23 @@ public final class PathfindingExecutor {
         AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
         PathResult result = run.search(pathfinder, cancelled);
         if (result.termination() == PathResult.Termination.EXHAUSTED
-                && (pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked())) {
+                && (pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()
+                        || pathfinder.fallDamageCapBlocked())) {
             // 範囲内のオープンセットが尽きた＝道が一本も無い。橋の長さや潜水の長さの上限で移動を
             // 捨てているので、それが原因かもしれない。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、
             // という優先順で上限を段階的に緩めて試す。片方だけ緩めても、もう片方で詰んでいれば同じ
             // 結果をもう一度払うだけになるので両方まとめて緩める。
             // 予算切れ（NODE_BUDGET/TIME_LIMIT）では試さない——そちらは上限とは無関係に資源が
             // 足りていないだけで、同じ探索をもう一度払うだけになる
-            for (RunCaps caps : loosenedCaps(RunCaps.of(view))) {
+            for (Tolerances tolerances : loosenedTolerances(view)) {
                 long remainingMillis = deadline - System.currentTimeMillis();
                 if (remainingMillis <= 0) {
                     break;
                 }
                 SearchLimits stageLimits = new SearchLimits(limits.maxExpandedNodes(), remainingMillis,
                         limits.heuristicWeight());
-                PathResult attempt = run.search(new AStarPathfinder(view, stageLimits, costToGo, caps), cancelled);
+                PathResult attempt =
+                        run.search(new AStarPathfinder(view, stageLimits, costToGo, tolerances), cancelled);
                 if (attempt.complete()) {
                     result = attempt;
                     break;
@@ -338,14 +341,40 @@ public final class PathfindingExecutor {
         return PathSafetyChecker.annotate(view, result);
     }
 
-    /** 緩める順に並べた上限。{@link #RUN_CAP_LOOSEN_MULTIPLIERS}倍したものの後に無制限を置く。 */
-    private static List<RunCaps> loosenedCaps(RunCaps base) {
-        List<RunCaps> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 1);
+    /**
+     * 緩める順に並べた許容量。{@link RunCaps}側は{@link #RUN_CAP_LOOSEN_MULTIPLIERS}倍したものの後に
+     * 無制限、落下ダメージ側は全段で{@link #loosenedFallDamagePoints}の1段だけ。
+     *
+     * <p>2つを同じ梯子に載せるのは、片方だけ緩めてももう片方で詰んでいれば同じ探索をもう一度
+     * 払うだけになるから。<b>落下ダメージを1段目から開けるのが要点</b>——直前に失敗した探索が
+     * 既定の許容量そのもので走っているので、1段目に同じ値を置くと、落下だけが原因だったときに
+     * 何も変えない探索を1回まるごと捨てることになる。
+     */
+    private static List<Tolerances> loosenedTolerances(CellSource view) {
+        RunCaps base = RunCaps.of(view);
+        int fallPoints = loosenedFallDamagePoints(view);
+        List<Tolerances> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 1);
         for (int multiplier : RUN_CAP_LOOSEN_MULTIPLIERS) {
-            stages.add(scaleCaps(base, multiplier));
+            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints));
         }
-        stages.add(RunCaps.NONE);
+        stages.add(new Tolerances(RunCaps.NONE, fallPoints));
         return stages;
+    }
+
+    /**
+     * 詰み回避で開ける落下ダメージの許容量（0.5ハート単位）。
+     *
+     * <p><b>無制限の段は作らない。</b>橋の長さや潜水と違って、上限を外すと即死する落下が案内に
+     * 出る——「詰みよりはマシ」が成り立たない唯一の項目なので、体力から決まる上限で止める。
+     * 既定値が体力の1/3なので、その1.5倍＝体力の1/2まで開ける（体力満タンなら落差13マス）。
+     * エリトラを持たないプレイヤーがジ・エンドの低い島へ降りる、という本来の用途にはこれで足りる。
+     *
+     * <p>{@code fallDamageToleranceEnabled}がoffなら0のまま——設定で明示的に断られている以上、
+     * 詰み回避であっても勝手に痛い落下を提示しない。
+     */
+    private static int loosenedFallDamagePoints(CellSource view) {
+        int configured = view.maxFallDamagePoints();
+        return configured <= 0 ? 0 : configured * 3 / 2;
     }
 
     private static RunCaps scaleCaps(RunCaps base, int multiplier) {
