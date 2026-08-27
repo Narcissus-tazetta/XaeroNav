@@ -87,13 +87,28 @@ public final class LiveCoarseSampler {
         int baseX = chunkX << 4;
         int baseZ = chunkZ << 4;
         List<FloorAccumulator> floors = new ArrayList<>(CoarseMap.MAX_FLOORS);
+        // 床が1つも無いと確かめられた列の数。走査が未ロードで打ち切られた列とは区別する
+        int voidColumns = 0;
 
         for (int dx = 0; dx < 16; dx += SAMPLE_STEP) {
             for (int dz = 0; dz < 16; dz += SAMPLE_STEP) {
-                for (ColumnSample sample : sampleColumnFloors(view, bounds, baseX + dx, baseZ + dz)) {
+                ColumnScan scan = sampleColumnFloors(view, bounds, baseX + dx, baseZ + dz);
+                if (scan.voidColumn()) {
+                    voidColumns++;
+                }
+                for (ColumnSample sample : scan.floors()) {
                     accumulate(floors, sample);
                 }
             }
+        }
+        if (floors.isEmpty()) {
+            // 床のある列が1つも無い。空気だけの列を実際に読めていたなら「まだ知らない」ではなく
+            // 「床が無い」——XaeroMapReader#markVoidCellsと同じ区別を、ライブ読み取り側でも守る
+            if (voidColumns > 0) {
+                builder.putFloor(chunkX, chunkZ, CoarseMap.VOID, CoarseMap.UNKNOWN_HEIGHT,
+                        CoarseMap.UNKNOWN_HEIGHT, CoarseMap.UNKNOWN_HEIGHT);
+            }
+            return;
         }
         // 1列あたりはMAX_FLOORSで頭打ちだが、16列ぶんのクラスタを合わせると簡単に超える
         // （ネザーでは探索範囲が全高になるので常態）。溢れたぶんの取捨をCoarseMapBuilderへ
@@ -133,28 +148,45 @@ public final class LiveCoarseSampler {
      *
      * <p>1つの床を記録したら、次の床を認めるには再び空気を見る必要がある——同じ固まりの
      * 中で連続する固体セルを複数の床として二重に数えないため。
+     *
+     * <p>床が無かったとき、その理由を{@link ColumnScan#voidColumn()}で区別する。<b>床0には3通りの
+     * 意味がある</b>——空気しか無かった（奈落）、上から下まで固体で詰まっていた（岩の内部）、
+     * 未ロードで走査を打ち切った（分からない）。奈落だけを{@link CoarseMap#VOID}に落とすので、
+     * 「空気を実際に見た」ことまで確かめる必要がある。岩で詰まった列を奈落に倒すと、地中の
+     * セルが橋を架けて渡る対象になってしまう。
      */
-    private static List<ColumnSample> sampleColumnFloors(CellSource view, SearchBounds bounds, int x, int z) {
+    private static ColumnScan sampleColumnFloors(CellSource view, SearchBounds bounds, int x, int z) {
         int top = Math.min(view.openSkyY(x, z), bounds.maxY());
         int bottom = Math.max(bounds.minY(), top - MAX_SCAN_DEPTH);
         List<ColumnSample> floors = new ArrayList<>(CoarseMap.MAX_FLOORS);
         boolean airSeen = false;
+        boolean anyAir = false;
+        boolean anySolid = false;
         for (int y = top; y >= bottom && floors.size() < CoarseMap.MAX_FLOORS; y--) {
             long cell = view.cell(x, y, z);
             if (!CellData.present(cell)) {
                 // 未ロードチャンク。この先は分からないので打ち切る（範囲外はbottomで止まる）
-                return floors;
+                return new ColumnScan(floors, false);
             }
             if (CellData.passableEmpty(cell)) {
                 airSeen = true;
+                anyAir = true;
                 continue;
             }
+            anySolid = true;
             if (airSeen) {
                 floors.add(new ColumnSample(kindOf(cell), y));
                 airSeen = false;
             }
         }
-        return floors;
+        return new ColumnScan(floors, anyAir && !anySolid);
+    }
+
+    /**
+     * 1列の走査結果。{@code voidColumn}は「読み切ったうえで空気しか無かった」＝床が無いと
+     * 確かめられた列か。
+     */
+    private record ColumnScan(List<ColumnSample> floors, boolean voidColumn) {
     }
 
     private static byte kindOf(long cell) {

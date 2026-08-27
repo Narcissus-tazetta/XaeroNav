@@ -261,7 +261,7 @@ public final class ActionCosts {
      * 20ブロックの溶岩横断が徒歩200ブロックの迂回と釣り合い、詳細探索の箱（描画距離）に収まる
      * 迂回路を一通り試してから橋を選ぶ、というちょうどの重みになる。
      *
-     * <p>これより大きく迂回すべきかどうかは層1（{@code CoarseRouter.LavaPolicy}）が決める。
+     * <p>これより大きく迂回すべきかどうかは層1（{@code CoarseRouter.BridgePolicy}）が決める。
      * 描画距離の外の迂回路は詳細探索にはそもそも見えないので、ここで表現しようとしてはいけない。
      *
      * <p>「橋が長くなりすぎたら諦めて迂回する」はコストではなく
@@ -284,6 +284,22 @@ public final class ActionCosts {
      * 選ばせる場面。
      */
     public static final double VOID_BRIDGE_PENALTY_TICKS = LAVA_BRIDGE_PENALTY_TICKS;
+
+    /**
+     * 落差が{@code maxDrop}マスで頭打ちのとき、下降1ブロックあたりの最小コスト（tick）。
+     * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}の下降成分の下限に使う。
+     *
+     * <p>{@code fallCost(d)/d}は{@code d}について単調減少（終端速度に漸近する）なので、
+     * 生成されうる<b>最大の</b>落差での値が下限になる。<b>この単調性が要点</b>——落下ダメージの
+     * 許容量を緩めて{@code maxDrop}が伸びると下限は必ず下がるので、緩めた探索へ元の下限を
+     * 渡し続けると見積もりが実コストを上回る（＝非許容）。
+     *
+     * <p>梯子（{@link #LADDER_DOWN_ONE_BLOCK}）はこれを上回りうるが、下限として取り違えないよう
+     * 明示的に比べる。
+     */
+    public static double descentBoundForMaxDrop(int maxDrop) {
+        return Math.min(fallCost(maxDrop) / maxDrop, LADDER_DOWN_ONE_BLOCK);
+    }
 
     public static final double INFEASIBLE = Double.POSITIVE_INFINITY;
 

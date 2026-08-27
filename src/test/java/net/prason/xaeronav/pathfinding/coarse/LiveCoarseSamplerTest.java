@@ -257,4 +257,30 @@ class LiveCoarseSamplerTest {
         assertEquals(0, map.knownCells());
         assertEquals(0, map.floorCount(0, 0), "データが無いセルは床を1つも持たない");
     }
+
+    /**
+     * <b>床0には3通りの意味がある。</b>空気しか無かった（奈落）・上から下まで固体だった（岩の内部）・
+     * 未ロードで読めなかった（分からない）。奈落だけが{@link CoarseMap#VOID}で、他の2つは未知のまま。
+     *
+     * <p>奈落を未知に倒すと、層1が{@code UNKNOWN_MULTIPLIER}（通行可能・ほぼ最安）でジ・エンドの
+     * 島間をまっすぐ突っ切る。逆に岩や未ロードを奈落に倒すと、渡れるはずのない所へ橋を架ける
+     * 経路が出る。
+     */
+    @Test
+    void tellsVoidApartFromRockAndFromUnloaded() {
+        SearchBounds bounds = new SearchBounds(0, 50, 0, 15, 80, 15);
+
+        CoarseMap air = LiveCoarseSampler.sample(FakeCells.empty(bounds).fillWith(FakeCells.AIR), bounds);
+        assertEquals(1, air.floorCount(0, 0), "空気だけの列は「床が無い」と分かっている");
+        assertEquals(CoarseMap.VOID, air.kindAtFloor(0, 0, 0));
+        assertEquals(CoarseMap.UNKNOWN_HEIGHT, air.heightAtFloor(0, 0, 0),
+                "奈落に代表高さは無い。具体値を入れると層2・層3がそこを目指す");
+
+        CoarseMap rock = LiveCoarseSampler.sample(FakeCells.empty(bounds).fillWith(FakeCells.STONE), bounds);
+        assertEquals(0, rock.floorCount(0, 0), "岩で詰まった列は奈落ではない");
+
+        CoarseMap unloaded =
+                LiveCoarseSampler.sample(FakeCells.empty(bounds).fillWith(FakeCells.ABSENT), bounds);
+        assertEquals(0, unloaded.floorCount(0, 0), "未ロードは「床が無い」と言い切れない");
+    }
 }

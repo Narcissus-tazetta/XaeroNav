@@ -116,6 +116,19 @@ public final class CoarseMapBuilder {
         floorCount[cellIndex] = (byte) newCount;
     }
 
+    /**
+     * このセルに積まれている床の数。読み出し側が「どのレイヤーからも床が得られなかったセル」を
+     * 全レイヤーを読み終えてから判定するために要る。
+     */
+    public int floorCount(int chunkX, int chunkZ) {
+        int localX = chunkX - minChunkX;
+        int localZ = chunkZ - minChunkZ;
+        if (localX < 0 || localX >= chunksX || localZ < 0 || localZ >= chunksZ) {
+            return 0;
+        }
+        return floorCount[localZ * chunksX + localX];
+    }
+
     /** 代表の高さだけを知っていて内部の起伏が分からない場合。平坦（min=max=height）として扱う。 */
     public void replaceCell(int chunkX, int chunkZ, byte cellKind, int cellHeight) {
         replaceCell(chunkX, chunkZ, cellKind, cellHeight, cellHeight, cellHeight);

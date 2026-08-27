@@ -89,6 +89,16 @@ public final class CoarseAirMap {
                 int floors = map.floorCount(chunkX, chunkZ);
                 known[cell] = floors > 0;
                 int count = 0;
+                // 奈落のセルは床が1枚あるが高さを持たない（CoarseMap.VOID）。歩く側では通行不能でも
+                // 飛ぶ側では上から下まで全部が空なので、次元の全高を1本の帯にする。
+                // heightAtFloorの番兵（UNKNOWN_HEIGHT）をそのまま足してminYへクランプさせても
+                // 同じ値にはなるが、番兵の値に依存した偶然に見えるので明示的に分ける
+                if (floors == 1 && map.kindAtFloor(chunkX, chunkZ, 0) == CoarseMap.VOID) {
+                    bottom[cell * MAX_BANDS] = (short) minY;
+                    top[cell * MAX_BANDS] = (short) maxY;
+                    bandCount[cell] = 1;
+                    continue;
+                }
                 for (int floor = 0; floor < floors; floor++) {
                     int bandBottom = map.heightAtFloor(chunkX, chunkZ, floor) + FLOOR_MARGIN;
                     int bandTop = floor + 1 < floors

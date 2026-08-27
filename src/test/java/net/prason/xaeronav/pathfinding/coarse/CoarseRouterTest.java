@@ -35,7 +35,7 @@ class CoarseRouterTest {
         CoarseMap map = flatLand().build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
@@ -59,7 +59,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
@@ -84,7 +84,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertTrue(route.waypoints().stream().allMatch(waypoint -> waypoint.getZ() >= -16),
@@ -104,7 +104,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), true,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
@@ -124,7 +124,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertEquals(20 * 16 + 8, last(route).getX());
@@ -141,7 +141,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         // 溶岩で完全に分断されているので、目的地へは到達できない
         assertFalse(route.reachedGoal());
@@ -165,7 +165,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertEquals(20 * 16 + 8, last(route).getX());
@@ -184,7 +184,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         for (BlockPos waypoint : route.waypoints()) {
@@ -196,7 +196,7 @@ class CoarseRouterTest {
     }
 
     /**
-     * {@link CoarseRouter.LavaPolicy#AVOID}は溶岩混じりも通行不能にする。ネザーではこれで
+     * {@link CoarseRouter.BridgePolicy#AVOID}は溶岩混じりも通行不能にする。ネザーではこれで
      * 経路が繋がらなくなることが多いが、それは呼び出し側が次の段へ進む合図になる。
      */
     @Test
@@ -210,7 +210,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.AVOID);
+                CoarseRouter.BridgePolicy.AVOID);
 
         assertFalse(route.reachedGoal());
         for (BlockPos waypoint : route.waypoints()) {
@@ -230,7 +230,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.AVOID);
+                CoarseRouter.BridgePolicy.AVOID);
 
         assertTrue(route.reachedGoal());
         assertEquals(20 * 16 + 8, last(route).getX());
@@ -248,10 +248,10 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         assertFalse(CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW).reachedGoal());
+                CoarseRouter.BridgePolicy.ALLOW).reachedGoal());
 
         CoarseRouter.Route bridged = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.BRIDGE);
+                CoarseRouter.BridgePolicy.BRIDGE);
 
         assertTrue(bridged.reachedGoal());
         assertEquals(20 * 16 + 8, last(bridged).getX());
@@ -269,7 +269,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.BRIDGE);
+                CoarseRouter.BridgePolicy.BRIDGE);
 
         assertTrue(route.reachedGoal());
         for (BlockPos waypoint : route.waypoints()) {
@@ -295,7 +295,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         // 未知を突っ切る直線より、分かっている陸の帯へ寄る
@@ -308,7 +308,7 @@ class CoarseRouterTest {
         CoarseMap map = flatLand().build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(RADIUS + 10, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertFalse(route.reachedGoal());
         assertTrue(route.isEmpty());
@@ -324,7 +324,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         for (BlockPos waypoint : route.waypoints()) {
@@ -343,7 +343,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(0, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertTrue(route.waypoints().stream().anyMatch(waypoint -> waypoint.getZ() != 8),
@@ -375,7 +375,7 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(-20, 0), atChunk(20, 0), false,
-                CoarseRouter.LavaPolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         // 迂回した場合はz=8から一時的に外れるはず。崖の1マスを素通りしたなら終始z=8のまま
@@ -397,7 +397,7 @@ class CoarseRouterTest {
 
         BlockPos start = new BlockPos(8, 41, 8);
         BlockPos goal = new BlockPos(8, 91, 8);
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertFalse(route.isEmpty());
@@ -426,7 +426,7 @@ class CoarseRouterTest {
 
         BlockPos start = new BlockPos(8, 41, 8);
         BlockPos goal = new BlockPos(24, 91, 8);
-        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.BridgePolicy.ALLOW);
 
         assertTrue(route.reachedGoal());
         assertEquals(90, last(route).getY());
@@ -441,7 +441,7 @@ class CoarseRouterTest {
         CoarseMap map = flatLand().build();
         BlockPos goal = atChunk(5, 5);
 
-        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.BridgePolicy.ALLOW);
 
         assertEquals(0.0, guide.estimate(goal.getX(), goal.getY(), goal.getZ()), 1e-9);
     }
@@ -450,7 +450,7 @@ class CoarseRouterTest {
     void costToGoIncreasesWithDistanceOnFlatLand() {
         CoarseMap map = flatLand().build();
         BlockPos goal = atChunk(0, 0);
-        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.BridgePolicy.ALLOW);
 
         double near = guide.estimate(atChunk(2, 0).getX(), 64, atChunk(2, 0).getZ());
         double far = guide.estimate(atChunk(10, 0).getX(), 64, atChunk(10, 0).getZ());
@@ -469,7 +469,7 @@ class CoarseRouterTest {
     void costToGoReturnsZeroOutsideTheMap() {
         CoarseMap map = flatLand().build();
         BlockPos goal = atChunk(0, 0);
-        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.BridgePolicy.ALLOW);
 
         BlockPos farOutside = atChunk(RADIUS + 100, 0);
         assertEquals(0.0, guide.estimate(farOutside.getX(), 64, farOutside.getZ()));
@@ -488,7 +488,7 @@ class CoarseRouterTest {
         }
         CoarseMap map = builder.build();
         BlockPos goal = atChunk(20, 0);
-        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.AVOID);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.BridgePolicy.AVOID);
 
         BlockPos cutOff = atChunk(-20, 0);
         assertEquals(0.0, guide.estimate(cutOff.getX(), 64, cutOff.getZ()));
@@ -503,10 +503,156 @@ class CoarseRouterTest {
         CoarseMap map = builder.build();
 
         BlockPos goal = new BlockPos(8, 91, 8);
-        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.LavaPolicy.ALLOW);
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.BridgePolicy.ALLOW);
 
         double atLowerFloor = guide.estimate(8, 41, 8);
         assertTrue(atLowerFloor > 0.0, "50ブロックの階層差はコスト0では済まないはず");
+    }
+
+    /**
+     * ジ・エンドの群島。目的地の島との間は奈落で、同じ高さの島を経由すれば回り込める。
+     * 島は4チャンク角、間は奈落2チャンク（32ブロック）。
+     */
+    private static CoarseMapBuilder archipelago() {
+        CoarseMapBuilder builder = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
+        // 何も書かなければ床0＝未知。奈落は明示的にVOIDで埋める
+        for (int x = -RADIUS; x < RADIUS; x++) {
+            for (int z = -RADIUS; z < RADIUS; z++) {
+                builder.putFloor(x, z, CoarseMap.VOID, CoarseMap.UNKNOWN_HEIGHT,
+                        CoarseMap.UNKNOWN_HEIGHT, CoarseMap.UNKNOWN_HEIGHT);
+            }
+        }
+        return builder;
+    }
+
+    private static void island(CoarseMapBuilder builder, int minChunkX, int minChunkZ, int height) {
+        for (int x = minChunkX; x < minChunkX + 4; x++) {
+            for (int z = minChunkZ; z < minChunkZ + 4; z++) {
+                builder.replaceCell(x, z, CoarseMap.LAND, height);
+            }
+        }
+    }
+
+    /**
+     * 奈落は「まだ知らない」ではなく「床が無いと分かっている」。未知セル並みに安く通れると、
+     * 層1がジ・エンドの島間をまっすぐ突っ切る中間目標を並べ、詳細探索が毎回予算を焼く。
+     */
+    @Test
+    void doesNotRouteThroughVoidWhenAvoiding() {
+        CoarseMapBuilder builder = archipelago();
+        island(builder, 0, 0, 64);
+        island(builder, 10, 0, 64);
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(1, 1), atChunk(11, 1), false,
+                CoarseRouter.BridgePolicy.AVOID);
+
+        assertFalse(route.reachedGoal(), "奈落を挟んだ島へAVOIDで届いてはいけない");
+    }
+
+    /**
+     * <b>奈落は{@link CoarseRouter.BridgePolicy#ALLOW}の時点で開く（溶岩より1段早い）。</b>
+     *
+     * <p>溶岩の橋には設定のスイッチがあるのに対し、奈落の橋には無い（層3は{@code canPlaceBlocks}
+     * だけで判断する）。ALLOWで奈落まで通行不能にすると、層3の区間分割がジ・エンドで区間を
+     * 1つも作れず、島間を1回の探索で渡ろうとして予算を焼く。
+     */
+    @Test
+    void voidOpensOneStepEarlierThanLava() {
+        CoarseMapBuilder voidBuilder = archipelago();
+        island(voidBuilder, 0, 0, 64);
+        island(voidBuilder, 10, 0, 64);
+        assertTrue(CoarseRouter.findRoute(voidBuilder.build(), atChunk(1, 1), atChunk(11, 1), false,
+                CoarseRouter.BridgePolicy.ALLOW).reachedGoal(),
+                "ALLOWで奈落が通行不能だと、層3の区間分割がジ・エンドで成立しない");
+
+        // 溶岩は据え置き。ALLOWでは「過半数が溶岩」のセルを渡らない
+        CoarseMapBuilder lavaBuilder = flatLand();
+        for (int x = 4; x <= 8; x++) {
+            for (int z = -RADIUS; z < RADIUS; z++) {
+                lavaBuilder.replaceCell(x, z, CoarseMap.LAVA, 62);
+            }
+        }
+        assertFalse(CoarseRouter.findRoute(lavaBuilder.build(), atChunk(0, 0), atChunk(12, 0), false,
+                CoarseRouter.BridgePolicy.ALLOW).reachedGoal(),
+                "溶岩の橋は設定で切れる以上、ALLOWで勝手に渡ってはいけない");
+    }
+
+    /** 橋を架ける前提（最後の手段）なら、同じ地形で届く。 */
+    @Test
+    void bridgesAcrossVoidWhenNothingElseWorks() {
+        CoarseMapBuilder builder = archipelago();
+        island(builder, 0, 0, 64);
+        island(builder, 10, 0, 64);
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(1, 1), atChunk(11, 1), false,
+                CoarseRouter.BridgePolicy.BRIDGE);
+
+        assertTrue(route.reachedGoal(), "BRIDGEでも届かないなら奈落を渡る手段が無い");
+    }
+
+    /**
+     * <b>これが「回り込み」の核心。</b>低い島へは（下向きの橋が作れないので）詳細探索が降りられない。
+     * 同じ高さの島を経由する道があるなら、奈落を最短で突っ切るより<b>遠回りでもそちらを選ぶ</b>
+     * ——奈落の倍率がそれを決めている。
+     */
+    @Test
+    void prefersSteppingStoneIslandsOverTheShortestVoidCrossing() {
+        CoarseMapBuilder builder = archipelago();
+        island(builder, 0, 0, 64);
+        // 目的地の島。まっすぐ向かうと奈落が6チャンク（96ブロック）続く
+        island(builder, 12, 0, 64);
+        // 飛び石。遠回りになるが、奈落は1チャンクずつしか跨がない
+        island(builder, 5, 6, 64);
+        island(builder, 10, 5, 64);
+        CoarseMap map = builder.build();
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(map, atChunk(1, 1), atChunk(13, 1), false,
+                CoarseRouter.BridgePolicy.BRIDGE);
+
+        assertTrue(route.reachedGoal());
+        // まっすぐ突っ切っていれば、経路はZ=0の帯から出ない。飛び石を経由していればZが下がる
+        int maxZ = route.waypoints().stream().mapToInt(BlockPos::getZ).max().orElse(0);
+        assertTrue(maxZ > 32, "奈落を最短で突っ切っている（飛び石を経由していない）: maxZ=" + maxZ);
+
+        // 対照: 同じ地形の奈落を陸にすると、遠回りする理由が消えてまっすぐ進む。
+        // これが無いと「そもそも常に遠回りする経路しか出ない」テストと区別が付かない
+        CoarseMapBuilder allLand = archipelago();
+        for (int x = -RADIUS; x < RADIUS; x++) {
+            for (int z = -RADIUS; z < RADIUS; z++) {
+                allLand.replaceCell(x, z, CoarseMap.LAND, 64);
+            }
+        }
+        CoarseRouter.Route control = CoarseRouter.findRoute(allLand.build(), atChunk(1, 1), atChunk(13, 1),
+                false, CoarseRouter.BridgePolicy.BRIDGE);
+        int controlMaxZ = control.waypoints().stream().mapToInt(BlockPos::getZ).max().orElse(0);
+        assertTrue(controlMaxZ <= 32, "陸なら遠回りする理由が無い: maxZ=" + controlMaxZ);
+    }
+
+    /**
+     * 奈落と未訪問は別物。データが無いだけのセルは従来どおり通れる——未探索を通行不能にすると
+     * 迂回路ごと消えて詰む。
+     */
+    @Test
+    void unvisitedCellsStayPassableUnlikeVoid() {
+        CoarseMapBuilder builder = flatLand();
+        // 目的地との間を「未訪問」で塞ぐ（床を消すのではなく、そもそも書かない領域を作る）
+        CoarseMapBuilder sparse = new CoarseMapBuilder(-RADIUS, -RADIUS, RADIUS * 2, RADIUS * 2);
+        for (int x = -RADIUS; x < RADIUS; x++) {
+            for (int z = -RADIUS; z < RADIUS; z++) {
+                if (x >= 4 && x <= 8) {
+                    continue;
+                }
+                sparse.putFloor(x, z, CoarseMap.LAND, 64);
+            }
+        }
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(sparse.build(), atChunk(0, 0), atChunk(12, 0), false,
+                CoarseRouter.BridgePolicy.AVOID);
+
+        assertTrue(route.reachedGoal(), "未訪問セルを通行不能にすると、探索していない方角へ行けなくなる");
+        assertFalse(builder.build().containsChunk(999, 999));
     }
 
     private static BlockPos last(CoarseRouter.Route route) {
