@@ -456,6 +456,7 @@ public final class XaeroNavCommands {
                 renderRadius);
         ChunkView normalView =
                 ChunkView.capture(level, player, normalBounds, XaeroNavConfig.INSTANCE.movementOptions());
+        reportPlacementAvailability(source, normalView);
         reportGoalCell(source, normalView, normalBounds, start, goal, renderRadius);
 
         ProbeRun normal = runProbe(normalView, normalBounds, start, goal);
@@ -527,14 +528,20 @@ public final class XaeroNavCommands {
         }
         long feetCell = view.cell(x, y, z);
         long headCell = view.cell(x, y + 1, z);
-        boolean groundBelow = CellData.standable(view.cell(x, y - 1, z));
+        long belowCell = view.cell(x, y - 1, z);
+        // 足場が無くても、そこへ置いて立てるなら到達しうる（addBridgeが床を作って着く）。
+        // 置ける状態かを見ずに「原理的に到達しない」と言い切ると、橋で届く目的地まで
+        // 探索の側の問題として誤読させる
+        boolean floorReachable = CellData.standable(belowCell)
+                || view.canPlaceBlocks()
+                && (CellData.lava(belowCell) || CellData.replaceable(belowCell));
         Component feet = describeGoalCell(feetCell);
         Component head = describeGoalCell(headCell);
-        if (groundBelow && enterable(feetCell) && enterable(headCell)) {
+        if (floorReachable && enterable(feetCell) && enterable(headCell)) {
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_goal_ok", feet, head), false);
         } else {
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_goal_blocked",
-                    Component.translatable(groundBelow ? "commands.xaeronav.probe_goal_cell_ok"
+                    Component.translatable(floorReachable ? "commands.xaeronav.probe_goal_cell_ok"
                             : "commands.xaeronav.probe_goal_cell_blocked"), feet, head), false);
         }
     }
@@ -565,10 +572,12 @@ public final class XaeroNavCommands {
 
     private static ProbeRun runProbe(ChunkView view, SearchBounds bounds, BlockPos start, BlockPos goal,
                                       SearchLimits limits) {
+        AStarPathfinder pathfinder = new AStarPathfinder(view, limits);
         long startNanos = System.nanoTime();
-        PathResult result = new AStarPathfinder(view, limits).search(start, goal, () -> false);
+        PathResult result = pathfinder.search(start, goal, () -> false);
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
-        return new ProbeRun(start, result, bounds, elapsedMillis, view.loadedChunksInBounds(), view.totalChunksInBounds());
+        return new ProbeRun(start, result, bounds, elapsedMillis, view.loadedChunksInBounds(),
+                view.totalChunksInBounds(), pathfinder.trimmedPlacements(), pathfinder.bridgeRunCapBlocked());
     }
 
     private static void reportProbeRun(CommandSourceStack source, String labelKey, ProbeRun run) {
@@ -591,7 +600,75 @@ public final class XaeroNavCommands {
         if (!result.steps().isEmpty()) {
             String breakdown = describeMovements(result.steps(), run.start());
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_movements", breakdown), false);
+            reportWorkload(source, result.steps(), run.start());
         }
+        if (run.trimmedPlacements() > 0) {
+            // 切り落とした後の経路を見るだけでは「橋を架けなかった」と「架けたが渡り切れなかった」が
+            // 同じ設置0に見える。原因が正反対なので、切った事実の方を出す
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_trimmed",
+                    run.trimmedPlacements()), false);
+        }
+        if (run.bridgeRunCapBlocked()) {
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_bridge_cap_blocked",
+                    XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
+                    XaeroNavConfig.INSTANCE.maxLavaBridgeRunBlocks(),
+                    XaeroNavConfig.INSTANCE.maxVoidBridgeRunBlocks()), false);
+        }
+    }
+
+    /**
+     * 足場を置く移動を提示できる状態か。設定と持ち物の両方が要る（{@code ChunkView#capture}）。
+     *
+     * <p>これを出さないと、ホットバーにブロックが1つも無いだけの回と、地形の側で橋が架からない回が
+     * 同じ「設置0」に見える。橋の挙動を調べているときに最初に潰すべき前提なので、探索の前に出す。
+     */
+    private static void reportPlacementAvailability(CommandSourceStack source, ChunkView view) {
+        if (view.canPlaceBlocks()) {
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_placing_on",
+                    XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
+                    XaeroNavConfig.INSTANCE.maxLavaBridgeRunBlocks(),
+                    XaeroNavConfig.INSTANCE.maxVoidBridgeRunBlocks()), false);
+        } else {
+            source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_placing_off",
+                    Component.translatable(XaeroNavConfig.INSTANCE.bridgingEnabled()
+                            ? "commands.xaeronav.probe_placing_no_blocks"
+                            : "commands.xaeronav.probe_placing_disabled")), false);
+        }
+    }
+
+    /**
+     * 経路が要求する作業量。{@code MovementType}の内訳だけでは見えないものを出す。
+     *
+     * <p>橋と柱は{@code MoveKind}の区別で、公開APIの{@link MovementType}には出てこない
+     * （どちらもTRAVERSE/ASCENDとして数えられる）ので、設置先の有無から数え直す。
+     *
+     * <p>累積昇降量を並べるのは、上下動が「地形上どうしようもない量」なのか「経路の選び方が
+     * 生んだ量」なのかを、直線距離と比べて判断するため。数字が無いままでは、上下動の多さは
+     * 印象でしか語れない。
+     */
+    private static void reportWorkload(CommandSourceStack source, List<PathStep> steps, BlockPos start) {
+        int placements = 0;
+        int digCells = 0;
+        int climbed = 0;
+        int descended = 0;
+        BlockPos previous = start;
+        for (PathStep step : steps) {
+            if (step.bridging()) {
+                placements++;
+            }
+            digCells += step.digCells().size();
+            int dy = step.pos().getY() - previous.getY();
+            if (dy > 0) {
+                climbed += dy;
+            } else {
+                descended -= dy;
+            }
+            previous = step.pos();
+        }
+        Component line = Component.translatable("commands.xaeronav.probe_workload",
+                placements, digCells, climbed, descended,
+                steps.get(steps.size() - 1).pos().getY() - start.getY());
+        source.sendSuccess(() -> line, false);
     }
 
     /**
@@ -627,9 +704,15 @@ public final class XaeroNavCommands {
         return text.toString();
     }
 
-    /** {@link #runProbe}1回分の結果。{@link #reportProbeRun}が探索範囲のサイズを求めるのに始点も要る。 */
+    /**
+     * {@link #runProbe}1回分の結果。{@link #reportProbeRun}が探索範囲のサイズを求めるのに始点も要る。
+     *
+     * @param trimmedPlacements 提示できないとして末尾から落とした設置ステップ数。0でない＝橋は架かったが
+     *                          渡り切れなかった、という「設置0」とは正反対の結論になる
+     */
     private record ProbeRun(BlockPos start, PathResult result, SearchBounds bounds, long elapsedMillis,
-                             int loadedChunks, int totalChunks) {
+                             int loadedChunks, int totalChunks, int trimmedPlacements,
+                             boolean bridgeRunCapBlocked) {
     }
 
     /**
