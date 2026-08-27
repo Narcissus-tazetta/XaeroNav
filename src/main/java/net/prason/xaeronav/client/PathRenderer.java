@@ -18,6 +18,7 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.pathfinding.world.CellData;
 
 /**
  * Xaero非依存のワールド内描画。
@@ -345,10 +346,17 @@ public final class PathRenderer {
         }
         bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
 
-        // 次に掘る場所だけは枠も壁越しに出す。全部の枠を通すと掘り進む先の線が重なって読めなくなる
-        if (geometry.nextDigTo > geometry.nextDigFrom) {
+        // 次に掘る場所と次に置く場所だけは枠も壁越しに出す。全部の枠を通すと掘り進む先・架け進む先の
+        // 線が重なって読めなくなる。置く方をここに入れるのは、溶岩に架ける橋の設置先が定義上いつも
+        // 不透明な流体の中にあり、深度テストの掛かった枠線では一切見えないため
+        if (geometry.nextDigTo > geometry.nextDigFrom || geometry.nextPlaceTo > geometry.nextPlaceFrom) {
             VertexConsumer occludedLines = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_LINES);
             for (int i = geometry.nextDigFrom; i < geometry.nextDigTo; i++) {
+                if (highlightVisible(geometry, i, camera, cullRadiusSq)) {
+                    drawHighlightOutline(occludedLines, pose, geometry, i);
+                }
+            }
+            for (int i = geometry.nextPlaceFrom; i < geometry.nextPlaceTo; i++) {
                 if (highlightVisible(geometry, i, camera, cullRadiusSq)) {
                     drawHighlightOutline(occludedLines, pose, geometry, i);
                 }
@@ -449,8 +457,13 @@ public final class PathRenderer {
     }
 
     /**
-     * 設置予定地がまだ空いているか。置いた瞬間に枠を消すためのもので、経路の引き直しを待たない
+     * 設置予定地がまだ置ける状態か。置いた瞬間に枠を消すためのもので、経路の引き直しを待たない
      * （経路は数十tickに一度しか作り直されないので、置いた足場に枠が残り続けて見える）。
+     *
+     * <p>判定は{@link CellData#replaceable}——探索側（{@code AStarPathfinder#addBridge}）が
+     * 置ける場所を決めているのと同じ規則にする。空気かどうかで見ていた頃は、
+     * <b>溶岩・草・雪の層に置く足場の枠が一度も描かれなかった</b>（どれも空気ではないが置ける）。
+     * 溶岩に架ける橋はまさにこの形なので、案内はあるのに置く場所が分からない状態になっていた。
      */
     private boolean placementPending(PathGeometry geometry, int index) {
         Level level = Minecraft.getInstance().level;
@@ -459,7 +472,7 @@ public final class PathRenderer {
         }
         BlockPos pos = new BlockPos(geometry.highlightX[index], geometry.highlightY[index],
                 geometry.highlightZ[index]);
-        return level.getBlockState(pos).isAir();
+        return CellData.replaceable(CellData.flagsOf(level.getBlockState(pos)));
     }
 
     /**

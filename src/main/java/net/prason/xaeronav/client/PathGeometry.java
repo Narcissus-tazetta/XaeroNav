@@ -82,13 +82,21 @@ final class PathGeometry {
      */
     final int nextDigFrom;
     final int nextDigTo;
+    /**
+     * 「次に置く場所」にあたるハイライトの添字範囲 {@code [nextPlaceFrom, nextPlaceTo)}。
+     * {@link #nextDigFrom}と同じ扱いで、ここだけは枠線も壁越しに出す——溶岩に架ける橋の設置先は
+     * 定義上いつも不透明な流体の中にあり、深度テストの掛かった枠線は一切見えないため。
+     */
+    final int nextPlaceFrom;
+    final int nextPlaceTo;
     /** この区間から先は打ち切られた末端。手前から順に薄くしていく。到達済みの経路では区間数と同じ。 */
     final int fadeFromSegment;
 
     private PathGeometry(PathResult source, double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
                          int[] segmentEndStep, double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
-                         boolean[] highlightPlacement, int nextDigFrom, int nextDigTo, int fadeFromSegment) {
+                         boolean[] highlightPlacement, int nextDigFrom, int nextDigTo,
+                         int nextPlaceFrom, int nextPlaceTo, int fadeFromSegment) {
         this.source = source;
         this.pointX = pointX;
         this.pointY = pointY;
@@ -105,6 +113,8 @@ final class PathGeometry {
         this.highlightPlacement = highlightPlacement;
         this.nextDigFrom = nextDigFrom;
         this.nextDigTo = nextDigTo;
+        this.nextPlaceFrom = nextPlaceFrom;
+        this.nextPlaceTo = nextPlaceTo;
         this.fadeFromSegment = fadeFromSegment;
     }
 
@@ -223,6 +233,8 @@ final class PathGeometry {
         List<Boolean> highlightPlacements = new ArrayList<>();
         int nextDigFrom = 0;
         int nextDigTo = 0;
+        int nextPlaceFrom = 0;
+        int nextPlaceTo = 0;
         for (PathStep step : steps) {
             if (nextDigTo == 0 && step.digging()) {
                 nextDigFrom = highlightCells.size();
@@ -234,6 +246,10 @@ final class PathGeometry {
                 highlightPlacements.add(false);
             }
             if (step.bridging()) {
+                if (nextPlaceTo == 0) {
+                    nextPlaceFrom = highlightCells.size();
+                    nextPlaceTo = nextPlaceFrom + 1;
+                }
                 highlightCells.add(step.placedBlockPos());
                 highlightColors.add(PathColors.BRIDGE);
                 highlightPlacements.add(true);
@@ -261,7 +277,7 @@ final class PathGeometry {
         return new PathGeometry(result,
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), rawX, rawY, rawZ,
-                hx, hy, hz, hColor, hPlacement, nextDigFrom, nextDigTo,
+                hx, hy, hz, hColor, hPlacement, nextDigFrom, nextDigTo, nextPlaceFrom, nextPlaceTo,
                 Math.min(fadeFromSegment, segments));
     }
 
