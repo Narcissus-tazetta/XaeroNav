@@ -1340,6 +1340,21 @@ public final class AStarPathfinder {
         if (from.bridgeRun > 0 && from.kind != MoveKind.PILLAR) {
             return;
         }
+        // 柱にも連続長の上限を掛ける。{@code bridgeRun}を増やすだけで検査していなかったため、
+        // 塔が探索範囲の天井まで伸び放題だった——実機（the_end）では島の立てるセルすべてから
+        // 約150段が展開対象になり、51万セルを焼いて予算切れで終わっていた。
+        //
+        // 本当の害はノード数ではなく、そのせいで{@code EXHAUSTED}に到達できないこと。
+        // {@code PathfindingExecutor}の上限緩和は「範囲内に道が無いと証明できた」ときにしか走らないので、
+        // 予算切れで終わる限り一度も発動しない＝橋が上限に張り付いたまま渡り切れない。
+        //
+        // 溶岩・奈落の上限は掛けない。柱は実在する床から始まる（上の分岐がそれを保証する）ので、
+        // 「外したら死ぬ場所に架かっている」という前提が成り立たない
+        int pillarRun = from.bridgeRun + 1;
+        if (maxBridgeRun > 0 && pillarRun > maxBridgeRun) {
+            bridgeRunCapBlocked = true;
+            return;
+        }
         long standing = view.cell(from.x, from.y, from.z);
         // 置く先は自分がいるセルそのもの。梯子・ツタに掴まっている間は onGround() が false で
         // jumpFromGround() が呼ばれず（LivingEntity#aiStep）、掴まったまま接地していても
@@ -1363,7 +1378,7 @@ public final class AStarPathfinder {
         // ノードへ別経路が同コストで届けばそちらの連続長が残る）、そのぶん質が悪い——同じ地形でも
         // 上限が効いたり効かなかったりし、効かなかった回は bridgeRunCapBlocked が立たないので
         // PathfindingExecutorの上限緩和も走らないまま階段状の経路が確定する
-        relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR, from.bridgeRun + 1);
+        relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR, pillarRun);
     }
 
     /**

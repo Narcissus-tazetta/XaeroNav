@@ -158,6 +158,15 @@ public final class LiveCoarseSampler {
     private static ColumnScan sampleColumnFloors(CellSource view, SearchBounds bounds, int x, int z) {
         int top = Math.min(view.openSkyY(x, z), bounds.maxY());
         int bottom = Math.max(bounds.minY(), top - MAX_SCAN_DEPTH);
+        if (top < bottom) {
+            // 走査の上端が探索帯の下端より下。床が1つも無い列では{@code MOTION_BLOCKING}が空になり、
+            // {@code ChunkView#openSkyY}が<b>ワールド最低Y+1</b>を返すために起きる——ジ・エンドの
+            // 奈落がまさにこれで、そのまま下の走査へ入るとループ本体が一度も実行されず、
+            // 「空気を見なかった」＝未知として扱われる（実機ログで既知セル51/154にしかならなかった）。
+            //
+            // チャンクが読めているなら「この帯に床は無い」と言い切れる。読めていなければ分からない
+            return new ColumnScan(List.of(), CellData.present(view.cell(x, bottom, z)));
+        }
         List<ColumnSample> floors = new ArrayList<>(CoarseMap.MAX_FLOORS);
         boolean airSeen = false;
         boolean anyAir = false;
