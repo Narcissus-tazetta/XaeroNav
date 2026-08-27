@@ -350,7 +350,9 @@ public final class PathfindingExecutor {
 
     private static RunCaps scaleCaps(RunCaps base, int multiplier) {
         return new RunCaps(scaleCap(base.maxBridgeRunBlocks(), multiplier),
-                scaleCap(base.maxLavaBridgeRunBlocks(), multiplier), scaleCap(base.maxSubmergedTicks(), multiplier));
+                scaleCap(base.maxLavaBridgeRunBlocks(), multiplier),
+                scaleCap(base.maxVoidBridgeRunBlocks(), multiplier),
+                scaleCap(base.maxSubmergedTicks(), multiplier));
     }
 
     /** {@code 0}は既に無制限なので、乗じてもそのまま無制限に留まる。 */

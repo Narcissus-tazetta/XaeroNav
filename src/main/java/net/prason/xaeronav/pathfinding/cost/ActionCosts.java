@@ -270,6 +270,21 @@ public final class ActionCosts {
      */
     public static final double LAVA_BRIDGE_PENALTY_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
 
+    /**
+     * 底の無い空虚（ジ・エンドの奈落、探索範囲より深い大空洞）の上に足場を置いて渡る1ブロックあたりの
+     * 追加ペナルティ。{@link #LAVA_BRIDGE_PENALTY_TICKS}と同値にしてある——<b>設置を1回でも外したときの
+     * 結末が同じ</b>（即死＋持ち物の全損）だから、重みを分ける理由が無い。
+     *
+     * <p>上限が探索アルゴリズムの側から決まるという{@link #LAVA_BRIDGE_PENALTY_TICKS}の議論も
+     * そのまま当てはまる。「橋が長くなりすぎたら諦める」は
+     * {@code CellSource#maxVoidBridgeRunBlocks()}（移動を生成しない上限）が受け持つ。
+     *
+     * <p>ジ・エンドの島間は<b>ほぼ全ての橋がこれに当たる</b>ので、この値は経路の形をほとんど変えない
+     * （迂回路が存在しないため）。効くのは地上世界の深い渓谷・洞窟で、「渡るより回り込む」を
+     * 選ばせる場面。
+     */
+    public static final double VOID_BRIDGE_PENALTY_TICKS = LAVA_BRIDGE_PENALTY_TICKS;
+
     public static final double INFEASIBLE = Double.POSITIVE_INFINITY;
 
     private ActionCosts() {

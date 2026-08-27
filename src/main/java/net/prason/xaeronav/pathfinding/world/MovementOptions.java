@@ -9,20 +9,24 @@ package net.prason.xaeronav.pathfinding.world;
  *
  * @param maxLavaBridgeRunBlocks 溶岩の上に架けてよい橋の長さ。{@code maxBridgeRunBlocks}とは別に持つ。
  *                               空洞に架ける橋は外しても落ちるだけだが、溶岩の上では即死する
+ * @param maxVoidBridgeRunBlocks 底の無い空虚の上に架けてよい橋の長さ。溶岩と分けて持つのは、
+ *                               ジ・エンドではほぼ全ての橋がこれに当たるため
  */
 public record MovementOptions(boolean diggingEnabled, boolean bridgingEnabled, boolean jumpGapEnabled,
                                boolean lavaBridgingEnabled, int maxBridgeRunBlocks, int maxLavaBridgeRunBlocks,
-                               int maxSubmergedTicks, boolean fallDamageToleranceEnabled) {
+                               int maxVoidBridgeRunBlocks, int maxSubmergedTicks,
+                               boolean fallDamageToleranceEnabled) {
 
     /**
      * 掘る・置く・跳ぶ・危ない落下のどれも許さない。地形を「いま手を加えずに通れるか」だけで
      * 見たいとき（目的地や中継地点の足場探し）に使う。
      */
     public static final MovementOptions NONE =
-            new MovementOptions(false, false, false, false, 0, 0, 0, false);
+            new MovementOptions(false, false, false, false, 0, 0, 0, 0, false);
 
     public MovementOptions withoutDigging() {
         return new MovementOptions(false, bridgingEnabled, jumpGapEnabled, lavaBridgingEnabled,
-                maxBridgeRunBlocks, maxLavaBridgeRunBlocks, maxSubmergedTicks, fallDamageToleranceEnabled);
+                maxBridgeRunBlocks, maxLavaBridgeRunBlocks, maxVoidBridgeRunBlocks, maxSubmergedTicks,
+                fallDamageToleranceEnabled);
     }
 }

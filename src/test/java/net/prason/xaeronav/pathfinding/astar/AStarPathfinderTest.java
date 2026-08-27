@@ -1212,6 +1212,281 @@ class AStarPathfinderTest {
     }
 
     /**
+     * 1マスの割れ目に低い天井を張ったもの。<b>渡る高さを y=61（設置先は y=60）に固定する</b>ため。
+     * 天井が無いと「柱を1マス積んで1段高い所を渡る」経路が出て、ツタから離れた別のセルへ
+     * 足場を置いてしまい、ツタの判定を問えなくなる。
+     */
+    private static FakeCells vinedChasm() {
+        FakeCells cells = chasm(1).jumpGapEnabled(false).canPlaceBlocks(true);
+        for (int x = 0; x <= 4; x++) {
+            cells.set(x, 63, 0, FakeCells.BEDROCK);
+        }
+        return cells;
+    }
+
+    /**
+     * ツタは{@code replaceable}なので「置ける」判定は通るが、狙うと視線がツタに当たり、
+     * ブロックはツタのセルへ入ってしまう。案内した位置には置かれない。
+     */
+    @Test
+    void doesNotBridgeIntoVines() {
+        // 割れ目を1マスにして設置先を(2,60,0)の1つに絞る。ツタを足元より上に置くと、
+        // 橋の代わりにツタを伝って渡る経路（addClimb）が出て、何を測ったのか分からなくなる
+        FakeCells cells = vinedChasm();
+        cells.set(2, 60, 0, FakeCells.VINE);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(3, 61, 0));
+
+        assertFalse(result.complete(), "ツタのセルを足場にして渡ってはいけない");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "ツタのセルを設置先に選んではいけない: " + movements(result));
+    }
+
+    /** ツタの隣も同じ。1マス離れていても、置く先を狙う視線はツタを通る。 */
+    @Test
+    void doesNotBridgeNextToVines() {
+        FakeCells cells = vinedChasm();
+        cells.set(2, 59, 0, FakeCells.VINE);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(3, 61, 0));
+
+        assertFalse(result.complete(), "ツタに接する場所へ足場を置いて渡ってはいけない");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "ツタに隣接するセルを設置先に選んではいけない: " + movements(result));
+    }
+
+    /** ツタが無ければ従来どおり架かる。上の2件が「橋そのものを消した」だけでないことの確認。 */
+    @Test
+    void stillBridgesTheSameGapWithoutVines() {
+        CellSource cells = vinedChasm();
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(3, 61, 0));
+
+        assertTrue(result.complete(), "ツタが無ければ渡れる: " + movements(result));
+        assertTrue(result.steps().stream().anyMatch(PathStep::bridging), "" + movements(result));
+    }
+
+    /**
+     * 底の無い割れ目（ジ・エンドの島間）。{@code fillWith}を呼ばないので書かれていない座標は空気のまま
+     * ——探索範囲の下端まで空気が続き、その先は範囲外になる。{@code ChunkView}は範囲外も未ロードも同じ
+     * {@code ABSENT}で返すので、区別しなければ「下に何があるか読めない」と誤読される地形そのもの。
+     */
+    private static FakeCells bottomlessGap(int gapBlocks) {
+        // z方向は1列だけ。横へ回り込んで奈落を避ける経路が出ると、橋そのものを問えなくなる
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 28, 0, gapBlocks + 12, 93, 0))
+                .canPlaceBlocks(true);
+        for (int x = -1; x <= gapBlocks + 2; x++) {
+            if (x < 1 || x > gapBlocks) {
+                cells.set(x, 60, 0, FakeCells.BEDROCK);
+            }
+        }
+        return cells;
+    }
+
+    /**
+     * 奈落の上でも橋は架かる。読めるセルだけを辿って底に当たらなかったのは「分からない」ではなく
+     * 「本当に底が無い」と分かったということで、渡ってよいかの判断はコストと上限が受け持つ。
+     */
+    @Test
+    void bridgesOverABottomlessGap() {
+        CellSource cells = bottomlessGap(6);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(7, 61, 0));
+
+        assertTrue(result.complete(), "奈落の上にも橋は架けられる: " + movements(result));
+        assertEquals(6, result.steps().stream().filter(PathStep::bridging).count(),
+                "割れ目のマス数ぶんの足場を置いて渡る: " + movements(result));
+    }
+
+    /** 未ロードチャンクで走査が止まった列は「奈落」ではない。下が水かもしれない以上、置いてはいけない。 */
+    @Test
+    void doesNotBridgeWhenTheColumnBelowIsUnreadable() {
+        FakeCells cells = bottomlessGap(6);
+        for (int y = 28; y <= 59; y++) {
+            cells.set(1, y, 0, FakeCells.ABSENT);
+        }
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(7, 61, 0));
+
+        assertFalse(result.complete(), "下が読めない列へは足場を置けない");
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "読めない列を奈落と取り違えて橋を架けた: " + movements(result));
+    }
+
+    /**
+     * 横に架けた橋の上からは積み始めない。1マス幅の足場の上で跳んで足元に置く動作で、
+     * 奈落の上ではまず外す。
+     *
+     * <p>地形は「出発点の頭上を塞いだ足場 → 奈落 → 4マス高い目的地」。塔を立てられるのは
+     * 橋の上だけなので、そこを塞げば届かない。出発点で先に積んでから高い所を渡る抜け道は
+     * 天井で潰してある。
+     */
+    @Test
+    void doesNotStartAPillarFromABridge() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 28, 0, 20, 93, 0))
+                .canPlaceBlocks(true)
+                .set(0, 60, 0, FakeCells.BEDROCK)
+                .set(0, 63, 0, FakeCells.BEDROCK)
+                .set(6, 64, 0, FakeCells.BEDROCK);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(6, 65, 0));
+
+        assertFalse(result.complete(), "橋の上で塔を立てて登ってはいけない: " + movements(result));
+    }
+
+    /**
+     * 奈落の上では目標へ近づく向きにしか橋を伸ばさない。これが無いと、岸のあらゆるセルから
+     * 全方位へ上限いっぱいの橋が展開対象になり、既定の予算では広い割れ目を渡り切れない
+     * （実測: この地形で10万ノードを焼いて予算切れ → 約1.4万ノードで到達）。
+     */
+    @Test
+    void crossesAWideVoidGapWithinTheDefaultBudget() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-40, 28, -40, 120, 93, 40))
+                .canPlaceBlocks(true)
+                .maxBridgeRunBlocks(60).maxLavaBridgeRunBlocks(60).maxVoidBridgeRunBlocks(60);
+        for (int z = -4; z <= 4; z++) {
+            for (int x = -4; x <= 0; x++) {
+                cells.set(x, 60, z, FakeCells.BEDROCK);
+            }
+            for (int x = 61; x <= 66; x++) {
+                cells.set(x, 60, z, FakeCells.BEDROCK);
+            }
+        }
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(63, 61, 0));
+
+        assertTrue(result.complete(),
+                "60マスの奈落を既定の予算で渡り切れない（" + result.termination()
+                        + "、展開ノード " + result.expandedNodes() + "）");
+    }
+
+    /** 奈落の上だけを別の上限で切れる。溶岩側の上限と同じ考え方。 */
+    @Test
+    void refusesToBridgeOverAVoidBeyondTheVoidRun() {
+        CellSource cells = bottomlessGap(12).maxVoidBridgeRunBlocks(6);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(13, 61, 0));
+
+        assertFalse(result.complete(), "奈落側の上限を超える橋しか無いなら渡らない");
+    }
+
+    /** 奈落側の上限は奈落の上でだけ効く。底のある割れ目は今までどおりmaxBridgeRunBlocksが見る。 */
+    @Test
+    void theVoidRunCapLeavesBridgesOverFlooredGapsAlone() {
+        CellSource cells = chasm(6).jumpGapEnabled(false).canPlaceBlocks(true)
+                .maxBridgeRunBlocks(0).maxVoidBridgeRunBlocks(2);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(8, 61, 0));
+
+        assertTrue(result.complete(), "底のある割れ目は奈落側の上限に縛られない: " + movements(result));
+    }
+
+    /**
+     * 幅12の溶岩の水路。手前(x≦5)だけ低い天井が張り出していて、そこでは柱を立てられない。
+     *
+     * <p>天井が要るのは、上限を柱で迂回する経路を<b>1本に絞る</b>ため。頭上が全面的に開けていると、
+     * 「初手で柱を立ててから高い側を渡る」という同コストの経路が別に生まれ、そちらは連続長を
+     * 積んだまま到達する——{@code bridgeRun}はノードの同一性に入らないので、同コストなら
+     * どちらの連続長が残るかは展開順しだいになり、上限の抜け穴を問うテストにならない。
+     */
+    private static FakeCells lavaChannelWithLowCeiling(int width) {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 40, -8, width + 12, 90, 8))
+                .fillWith(FakeCells.BEDROCK)
+                .canPlaceBlocks(true);
+        for (int x = -1; x <= width + 1; x++) {
+            cells.set(x, 60, 0, x >= 1 && x <= width ? FakeCells.LAVA : FakeCells.BEDROCK);
+            // 天井は x≦5 で y=63。渡るのに要る2マス(y=61,62)は空いているが、柱を立てる余地は無い
+            int ceiling = x <= 5 ? 62 : 78;
+            for (int y = 61; y <= ceiling; y++) {
+                cells.set(x, y, 0, FakeCells.AIR);
+            }
+        }
+        return cells;
+    }
+
+    /**
+     * 柱を立てても橋の連続長は数え直されない。柱は足場を要求しない（自分が直前に置いたブロックの上に
+     * 立つ）ので、ここで0に戻していた頃は「上限まで架ける→1マス積む→また上限まで架ける」で
+     * 上限を破れた。
+     *
+     * <p>連続長が数え直されないことより、{@code bridgeRunCapBlocked}が立つことの方が実害が大きい。
+     * 柱で迂回できてしまうと上限が原因の詰みとして報告されず、{@code PathfindingExecutor}の
+     * 上限緩和（×2→×4→無制限）が一度も走らないまま階段状の経路が確定する。
+     */
+    @Test
+    void pillaringDoesNotResetTheBridgeRun() {
+        FakeCells cells = lavaChannelWithLowCeiling(12).maxBridgeRunBlocks(6);
+        AStarPathfinder pathfinder = new AStarPathfinder(cells);
+
+        PathResult result = pathfinder.search(new BlockPos(0, 61, 0), new BlockPos(13, 61, 0), NOT_CANCELLED);
+
+        assertFalse(result.complete(), "柱を挟んでも上限を超えて渡ってはいけない: " + movements(result));
+        assertTrue(result.steps().stream().filter(PathStep::bridging).count() <= 6,
+                "置いた足場の総数が上限を超えている＝柱で数え直されている: " + movements(result));
+        assertTrue(pathfinder.bridgeRunCapBlocked(),
+                "上限が原因の詰みとして報告されないと、上限を緩めた探し直しが走らない");
+    }
+
+    /**
+     * 底のある小さな割れ目を渡り切った先が、渡れない奈落で行き止まりになっている地形。
+     * 渡り終えた橋と、渡り切れない橋を1つの経路の中で区別できる。
+     */
+    private static FakeCells crossingThenDeadEnd() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 28, 0, 40, 93, 0))
+                .canPlaceBlocks(true)
+                .jumpGapEnabled(false)
+                .maxVoidBridgeRunBlocks(1);
+        for (int x = 0; x <= 1; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+        }
+        // x=2..3 は底のある割れ目。落ちて登り直すには深すぎるので、渡るなら橋しか無い
+        for (int x = 2; x <= 3; x++) {
+            cells.set(x, 50, 0, FakeCells.BEDROCK);
+        }
+        for (int x = 4; x <= 6; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+        }
+        // x>=7 は底の無い奈落。上限1では渡り切れない
+        return cells;
+    }
+
+    /**
+     * 打ち切られた経路から落とすのは<b>末尾の</b>設置区間だけ。渡り終えて向こう岸に立った橋は、
+     * その先で経路が途切れていても案内として正しい。切りすぎると、渡れる割れ目の手前で
+     * 毎回案内が止まることになる。
+     */
+    @Test
+    void keepsBridgesThatWereAlreadyCrossed() {
+        CellSource cells = crossingThenDeadEnd();
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(20, 61, 0));
+
+        assertFalse(result.complete(), "奈落の先へは届かない");
+        List<PathStep> steps = result.steps();
+        assertTrue(steps.stream().anyMatch(PathStep::bridging),
+                "渡り終えた橋まで消してはいけない: " + movements(result));
+        assertFalse(steps.get(steps.size() - 1).bridging(),
+                "渡り切れない橋の途中で経路を終わらせてはいけない: " + movements(result));
+    }
+
+    /**
+     * 打ち切られた経路は、自分で置く足場の上では終わらせない。ゴールへ届かなかった経路は
+     * 「そこまでは進める」という意味しか持たないが、末尾が橋の途中だと
+     * <b>ブロックを消費して渡り切れるかも分からない行き止まりに立たされる</b>ことになる。
+     * 渡る手段が橋しか無い場所では、案内できる経路が一本も残らないのが正しい。
+     */
+    @Test
+    void doesNotEndAPartialPathOnBlocksThePlayerHasToPlace() {
+        CellSource cells = bottomlessGap(12).maxVoidBridgeRunBlocks(6);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(13, 61, 0));
+
+        assertFalse(result.complete());
+        assertTrue(result.steps().stream().noneMatch(PathStep::bridging),
+                "渡り切れると証明できていない橋は案内に出さない: " + movements(result));
+    }
+
+    /**
      * 水面より高い岩盤の断崖に面した縦穴。水面(y=63)からは縁(y=67)へ登れないので、
      * 上に出る手段は「水中から積み上げる」しか無い。壁を水面より高くしてあるのが要点で、
      * 同じ高さだと泳ぎ上がって縁へ{@code Ascend}できてしまい、積むかどうかを問えない。

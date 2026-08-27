@@ -248,6 +248,11 @@ public final class ChunkView implements CellSource {
     }
 
     @Override
+    public int maxVoidBridgeRunBlocks() {
+        return options.maxVoidBridgeRunBlocks();
+    }
+
+    @Override
     public int maxSubmergedTicks() {
         return options.maxSubmergedTicks();
     }
