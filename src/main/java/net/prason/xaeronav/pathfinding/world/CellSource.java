@@ -65,6 +65,19 @@ public interface CellSource {
     }
 
     /**
+     * そのうち<b>底の無い空虚</b>（ジ・エンドの奈落、探索範囲より深い大空洞）の上に架けてよい長さ。
+     * 0なら{@link #maxBridgeRunBlocks}だけが効く。
+     *
+     * <p>溶岩と分けずに一括りにしないのは、地形として出会う頻度がまるで違うから——ジ・エンドでは
+     * ほぼ全ての橋がこれに当たるので、溶岩と同じ感覚で締めると島間の移動が丸ごと消える。
+     * 外したときの結末（即死）が同じなので、重み（{@code ActionCosts#VOID_BRIDGE_PENALTY_TICKS}）の方は
+     * 溶岩と同値にしてある。
+     */
+    default int maxVoidBridgeRunBlocks() {
+        return maxBridgeRunBlocks();
+    }
+
+    /**
      * 頭を水に浸けたまま何tickまで続けてよいか。0なら無制限。
      *
      * <p>{@link #maxBridgeRunBlocks}と同じく<b>移動の生成そのもの</b>で切る。溺れる危険を重い

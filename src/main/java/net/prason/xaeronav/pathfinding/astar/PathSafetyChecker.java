@@ -93,12 +93,18 @@ public final class PathSafetyChecker {
 
     private static PathRisk assessRisk(CellSource view, PathStep step) {
         if (step.bridging()) {
-            // 置いた足場は渡っている間ずっと身体の真下にある。下が空虚なのは設置区間では前提なので見ない。
-            // 隣接だけでなく、開けた空洞の遥か下が溶岩の場合も警告する
-            // （lavaFarBelow、AStarPathfinder#addBridgeの同種の見落としと同じ理由）
-            boolean risky = hasAdjacent(view, step.placedBlockPos(), CellData::lava)
-                    || lavaFarBelow(view, step.placedBlockPos());
-            return risky ? PathRisk.LAVA_ADJACENT : PathRisk.NONE;
+            // 置いた足場は渡っている間ずっと身体の真下にある。1マスの溝の上を渡るだけなら警告は要らないが、
+            // 溶岩の上と底の無い空虚の上では、足場を1つ外した結末が死になる。
+            // 隣接だけでなく、開けた空洞の遥か下が溶岩の場合も見る
+            // （AStarPathfinder#addBridgeが同じ判定でペナルティと上限を決めているのと対になる）
+            if (hasAdjacent(view, step.placedBlockPos(), CellData::lava)) {
+                return PathRisk.LAVA_ADJACENT;
+            }
+            return switch (footingUnder(view, step.placedBlockPos())) {
+                case LAVA -> PathRisk.LAVA_ADJACENT;
+                case VOID -> PathRisk.VOID_BELOW;
+                case GROUND -> PathRisk.NONE;
+            };
         }
         if (CellData.sneakRequired(view.cell(step.pos().getX(), step.pos().getY() - 1, step.pos().getZ()))) {
             // 足元がマグマブロック。通行可にした以上、スニークが要ることを伝えないと案内として不完全
@@ -166,24 +172,41 @@ public final class PathSafetyChecker {
         return false;
     }
 
+    /** 置いた足場を外したときに落ちる先。 */
+    private enum Footing {
+        /** 遠くても構わず溶岩が見通せる。 */
+        LAVA,
+        /** 読めるセルだけを辿って何にも当たらなかった＝底が無い。 */
+        VOID,
+        /** 溶岩でも空虚でもない、落ちても助かりうる床。読めなかった場合もここへ倒す。 */
+        GROUND
+    }
+
     /**
-     * この座標の真下、遠く離れていても構わず溶岩まで見通せるか。空気が続く間だけ下へ辿り、
-     * 溶岩に当たれば{@code true}、溶岩以外の何か（本当の床）に当たれば{@code false}。
+     * この座標の真下に何があるか。空気が続く間だけ下へ辿る。
+     *
+     * <p>判定は{@code AStarPathfinder#addBridge}が上限とペナルティを決めるのに使う分類と揃えてある。
+     * ここが食い違うと、探索が架けた橋に警告色が付かない（あるいは付きすぎる）。
+     * 未ロードチャンクで走査が止まった場合だけは{@link Footing#GROUND}へ倒す——探索側はその橋を
+     * そもそも作らないので、ここへ来るのは「経路を作った後にチャンクが外れた」場合だけで、
+     * 分からないことを危険として描くと経路全体が警告色で埋まる。
      */
-    private static boolean lavaFarBelow(CellSource view, BlockPos pos) {
+    private static Footing footingUnder(CellSource view, BlockPos pos) {
         for (int depth = 1; depth <= BRIDGE_LAVA_SCAN_DEPTH; depth++) {
-            long cell = view.cell(pos.getX(), pos.getY() - depth, pos.getZ());
-            if (!CellData.present(cell)) {
-                return false;
-            }
+            int y = pos.getY() - depth;
+            long cell = view.cell(pos.getX(), y, pos.getZ());
             if (CellData.lava(cell)) {
-                return true;
+                return Footing.LAVA;
             }
-            if (!CellData.passableEmpty(cell)) {
-                return false;
+            if (CellData.present(cell)) {
+                if (!CellData.passableEmpty(cell)) {
+                    return Footing.GROUND;
+                }
+                continue;
             }
+            return view.isInBounds(pos.getX(), y, pos.getZ()) ? Footing.GROUND : Footing.VOID;
         }
-        return false;
+        return Footing.VOID;
     }
 
     private static boolean isVoidBelow(CellSource view, BlockPos pos) {

@@ -35,6 +35,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue detailHorizonBlocks;
     private final ModConfigSpec.IntValue maxBridgeRunBlocks;
     private final ModConfigSpec.IntValue maxLavaBridgeRunBlocks;
+    private final ModConfigSpec.IntValue maxVoidBridgeRunBlocks;
     private final ModConfigSpec.IntValue maxSubmergedTicks;
     private final ModConfigSpec.IntValue searchHorizontalMargin;
     private final ModConfigSpec.IntValue searchVerticalMargin;
@@ -136,6 +137,19 @@ public final class XaeroNavConfig {
                         "既定はmaxBridgeRunBlocksと同じ30で、下げるとネザーの溶岩の海を渡る距離が縮む",
                         "（渡れる道が無くなれば層1が溶岩を避ける大回りのルートを選び直す）")
                 .defineInRange("maxLavaBridgeRunBlocks", 30, 0, 256);
+
+        maxVoidBridgeRunBlocks = builder
+                .comment("そのうち底の無い空虚（ジ・エンドの奈落、探索範囲より深い大空洞）の上に架ける橋を、",
+                        "何マスまで許すか（0で無制限）",
+                        "溶岩と分けて持つのは、地形として出会う頻度がまるで違うから——ジ・エンドでは",
+                        "ほぼ全ての橋がこれに当たるので、ここを締めると島間の移動が丸ごと消える",
+                        "橋の連続長そのものはmaxBridgeRunBlocksと共通なので、実際に効くのは小さい方",
+                        "既定はmaxBridgeRunBlocksと同じ30",
+                        "上限で道が無くなった場合は段階的に緩めて探し直す仕組みがあるが、それが働くのは",
+                        "「範囲内に道が一本も無い」と証明できたときだけで、エンドの島間では先に展開ノード数の",
+                        "上限に当たるため当てにできない。長い橋を架けさせたいなら、",
+                        "こことmaxBridgeRunBlocksを直接上げること")
+                .defineInRange("maxVoidBridgeRunBlocks", 30, 0, 256);
 
         maxSubmergedTicks = builder
                 .comment("頭を水に浸けたまま何tickまで進む経路を許すか（0で無制限）",
@@ -318,6 +332,10 @@ public final class XaeroNavConfig {
         return maxLavaBridgeRunBlocks.get();
     }
 
+    public int maxVoidBridgeRunBlocks() {
+        return maxVoidBridgeRunBlocks.get();
+    }
+
     public int maxSubmergedTicks() {
         return maxSubmergedTicks.get();
     }
@@ -449,7 +467,8 @@ public final class XaeroNavConfig {
      */
     public MovementOptions movementOptions() {
         return new MovementOptions(diggingEnabled(), bridgingEnabled(), jumpGapEnabled(), lavaBridgingEnabled(),
-                maxBridgeRunBlocks(), maxLavaBridgeRunBlocks(), maxSubmergedTicks(), fallDamageToleranceEnabled());
+                maxBridgeRunBlocks(), maxLavaBridgeRunBlocks(), maxVoidBridgeRunBlocks(), maxSubmergedTicks(),
+                fallDamageToleranceEnabled());
     }
 
     /** 歩行の探索の打ち切り条件。時間の上限だけは設定に出していない。 */

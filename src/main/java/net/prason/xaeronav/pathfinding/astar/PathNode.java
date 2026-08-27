@@ -36,8 +36,14 @@ final class PathNode {
     MoveKind kind;
 
     /**
-     * ここまで連続した{@link MoveKind#BRIDGE}のブロック数。橋以外の移動を1つでも挟めば0に戻る
-     * （足場を1マスでも踏めば数え直し）。{@link AStarPathfinder#addBridge}が上限判定に使う。
+     * ここまで連続して、自分で置いた足場の上を進んだブロック数（{@link MoveKind#BRIDGE}と
+     * {@link MoveKind#PILLAR}）。{@link AStarPathfinder#addBridge}が上限判定に使う。
+     *
+     * <p>0に戻るのは<b>地形として実在する床に立ったとき</b>。Traverse・Ascend・Descend・Fall・Jumpは
+     * どれも到着先の足元が地形データ上{@code standable}であることを要求するので、これらを挟めば
+     * 自然に0へ戻る。Pillarだけは足場を要求しない（自分が直前に置いたブロックの上に立つため）ので、
+     * 数え直さずに引き継ぐ——ここで0に戻していた頃は、橋を上限まで架けてから1マス積むだけで
+     * 上限を破れた。
      *
      * <p><b>このノードの同一性には含まれない</b>（キーは座標のみ）。同じセルへ短い橋で来た経路と
      * 長い橋で来た経路は同じノードに集約され、先に最安で確定した方の連続長が残る。辺コスト自体は

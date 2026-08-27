@@ -68,8 +68,20 @@ public final class AStarPathfinder {
      */
     private static final int COLUMN_SCAN_DEPTH = 128;
 
-    /** {@link #firstNonAirBelow}が走査範囲内で何も見つけられなかったことを表す。 */
+    /**
+     * {@link #firstNonAirBelow}が、読めるセルだけを辿った末に何にも当たらなかったことを表す。
+     * 走査した範囲は全て空気だったと分かっている＝<b>底が無い</b>（ジ・エンドの奈落、
+     * 探索範囲の下端より深い大空洞）。落ちれば助からない。
+     */
     private static final int NOTHING_BELOW = Integer.MIN_VALUE;
+
+    /**
+     * {@link #firstNonAirBelow}が未ロードチャンクに当たって走査を打ち切ったことを表す。
+     * {@link #NOTHING_BELOW}と分けるのが要点——{@code ChunkView}は探索範囲外も未ロードも同じ
+     * {@code ABSENT}を返すので、区別せずに「読めなかったら諦める」としていた頃は、
+     * <b>奈落の上に橋の辺が一本も生成されなかった</b>（ジ・エンドの島間で経路が岸で切れる正体）。
+     */
+    private static final int UNREADABLE_BELOW = Integer.MIN_VALUE + 1;
 
     /**
      * 飛び越えられる隙間の最大幅（着地点は隙間の1マス先）。疾走ジャンプは滞空約12.5tickの間に
@@ -129,8 +141,20 @@ public final class AStarPathfinder {
      */
     private final int maxLavaBridgeRun;
 
-    /** この探索が{@link #maxBridgeRun}・{@link #maxLavaBridgeRun}を理由に橋の移動を1つでも捨てたか。 */
+    /**
+     * 底の無い空虚の上で効く橋の長さの上限（ブロック）。0なら無制限。
+     * {@link #maxLavaBridgeRun}と同じく{@link #maxBridgeRun}を織り込み済み。
+     */
+    private final int maxVoidBridgeRun;
+
+    /**
+     * この探索が{@link #maxBridgeRun}・{@link #maxLavaBridgeRun}・{@link #maxVoidBridgeRun}を
+     * 理由に橋の移動を1つでも捨てたか。
+     */
     private boolean bridgeRunCapBlocked;
+
+    /** {@link #trimUnfinishedPlacements}が末尾から落とした設置ステップの数。診断用。 */
+    private int trimmedPlacements;
 
     /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
     private final int maxSubmergedTicks;
@@ -212,6 +236,7 @@ public final class AStarPathfinder {
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, RunCaps caps) {
         this.maxBridgeRun = caps.maxBridgeRunBlocks();
         this.maxLavaBridgeRun = caps.effectiveLavaBridgeRun();
+        this.maxVoidBridgeRun = caps.effectiveVoidBridgeRun();
         this.maxSubmergedTicks = caps.maxSubmergedTicks();
         this.view = view;
         this.minDescentPerBlock = view.minDescentTicksPerBlock();
@@ -239,6 +264,17 @@ public final class AStarPathfinder {
      */
     public boolean submergedRunCapBlocked() {
         return submergedRunCapBlocked;
+    }
+
+    /**
+     * {@link #trimUnfinishedPlacements}が経路の末尾から落とした設置ステップの数。
+     *
+     * <p>診断のためだけにある。切り落とした後の経路を見ると「橋を一本も架けなかった」と
+     * 「橋を架けたが渡り切れなかった」が同じ<b>設置0</b>に見えてしまい、原因が正反対なのに
+     * 区別が付かない。
+     */
+    public int trimmedPlacements() {
+        return trimmedPlacements;
     }
 
     /**
@@ -396,7 +432,31 @@ public final class AStarPathfinder {
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
         }
         Collections.reverse(steps);
+        if (termination != PathResult.Termination.REACHED_GOAL) {
+            trimUnfinishedPlacements(steps);
+        }
         return new PathResult(steps, termination, expanded, nodes.size() + boatNodes.size());
+    }
+
+    /**
+     * 打ち切られた経路の末尾から、自分で置いた足場に乗っているステップを落とす。
+     *
+     * <p>ゴールへ届かなかった経路は「そこまでは進める」という意味しか持たないが、末尾が橋の途中だと
+     * 意味が変わる——<b>ブロックを消費して、渡り切れるかも分からない行き止まりに立たされる</b>。
+     * 岸で終わらせておけば、続きは新しいチャンクが読まれた後の継ぎ足しが引き受ける。
+     * 「渡り切れると証明できた橋しか案内しない」がこれで成り立つ。
+     *
+     * <p>提示側ではなく探索の出口で切るのが要点。ここで切れば、線の描画・末端への到達判定・
+     * 継ぎ足しの起点・区間をまたぐ連続長の引き継ぎが<b>全部同じ経路を見る</b>。
+     * 描画だけ切ると、案内の矢印が線の無い方向を指す。
+     */
+    private void trimUnfinishedPlacements(List<PathStep> steps) {
+        int end = steps.size();
+        while (end > 0 && steps.get(end - 1).bridging()) {
+            end--;
+        }
+        trimmedPlacements = steps.size() - end;
+        steps.subList(end, steps.size()).clear();
     }
 
     /**
@@ -516,13 +576,24 @@ public final class AStarPathfinder {
     /**
      * {@code topY}から下へ、空気ではない最初のセルのYを返す。水・地面・梯子のどれで止まったかは
      * 呼び出し側がそのセルを見て判断する（{@link CellSource}がキャッシュしているので引き直しは安い）。
+     *
+     * <p>何にも当たらなかった場合は{@link #NOTHING_BELOW}（読めるセルだけを辿った＝本当に底が無い）と
+     * {@link #UNREADABLE_BELOW}（未ロードチャンクで走査が止まった＝下は分からない）を区別して返す。
+     * {@code ChunkView}はどちらも{@code ABSENT}で表すので、ここで探索範囲との位置関係から判別する。
      */
     private int firstNonAirBelow(int x, int topY, int z) {
         for (int i = 0; i < COLUMN_SCAN_DEPTH; i++) {
             int y = topY - i;
-            if (!CellData.passableEmpty(view.cell(x, y, z))) {
+            long cell = view.cell(x, y, z);
+            if (CellData.passableEmpty(cell)) {
+                continue;
+            }
+            if (CellData.present(cell)) {
                 return y;
             }
+            // 空気でも実在するセルでもない＝読めなかった。範囲内なら未ロードチャンク、
+            // 範囲外なら「ここまで空気しか無かった」と分かっている
+            return view.isInBounds(x, y, z) ? UNREADABLE_BELOW : NOTHING_BELOW;
         }
         return NOTHING_BELOW;
     }
@@ -853,8 +924,9 @@ public final class AStarPathfinder {
                 return;
             }
             // 下が溶岩の隙間は跳ばない。跳躍は外せば落ちるという前提でコストを積んであるが、
-            // 溶岩ではその「外したとき」が死なので、コストの多寡で釣り合う話ではなくなる
-            if (lavaBelow(gapX, y, gapZ)) {
+            // 溶岩ではその「外したとき」が死なので、コストの多寡で釣り合う話ではなくなる。
+            // 下が読めない（未ロード）隙間も同じ扱いにする——溶岩でないと言い切れない
+            if (lavaOrUnknownBelow(gapX, y, gapZ)) {
                 return;
             }
             int x = from.x + (gap + 1) * dx;
@@ -892,16 +964,31 @@ public final class AStarPathfinder {
         return Math.min(1.0, speedFactor);
     }
 
-    /** 跳び損ねたときに落ちる先が溶岩か。足元から{@link #JUMP_LAVA_SCAN_DEPTH}マス下までを見る。 */
-    private boolean lavaBelow(int x, int y, int z) {
+    /**
+     * 跳び損ねたときに落ちる先が溶岩か、それとも見通せないか。足元から
+     * {@link #JUMP_LAVA_SCAN_DEPTH}マス下までを見る。
+     *
+     * <p>奈落（読めるセルだけを辿って底に当たらない）は{@code false}を返す——落ちれば死ぬのは
+     * 溶岩と同じだが、そちらは{@code PathSafetyChecker#assessJumpRisk}が{@link PathRisk#VOID_BELOW}で
+     * 警告する担当になっている。ここで一律に禁止すると、ジ・エンドでは全ての隙間が奈落の上なので
+     * 跳ぶ移動が丸ごと消える。
+     */
+    private boolean lavaOrUnknownBelow(int x, int y, int z) {
         for (int depth = 1; depth <= JUMP_LAVA_SCAN_DEPTH; depth++) {
-            long cell = view.cell(x, y - depth, z);
+            int cellY = y - depth;
+            long cell = view.cell(x, cellY, z);
             if (CellData.lava(cell)) {
                 return true;
             }
             if (CellData.standable(cell)) {
                 // 溶岩より先に床がある。ここへ落ちても溶岩には触れない
                 return false;
+            }
+            if (!CellData.present(cell)) {
+                // 読めなかった。範囲内なら未ロードチャンクで、その下が溶岩かどうか本当に分からない
+                // ——外したときの結末が読めない以上、跳べとは言えない。範囲外なら「ここまで空気しか
+                // 無かった」と分かっているので奈落として扱う（上の注記）
+                return view.isInBounds(x, cellY, z);
             }
         }
         return false;
@@ -1019,8 +1106,8 @@ public final class AStarPathfinder {
      * 落下を候補に加える（{@link CellSource#maxFallDamagePoints}／{@link CellSource#canMlgWaterBucket}）。
      */
     private void addFall(PathNode from, int dx, int dz, int obstacleY) {
-        if (obstacleY == NOTHING_BELOW) {
-            // 底が見えない＝落ちても着地しない
+        if (obstacleY == NOTHING_BELOW || obstacleY == UNREADABLE_BELOW) {
+            // 底が無い（奈落）か、下に何があるか読めない。どちらも着地点を約束できない
             return;
         }
         int x = from.x + dx;
@@ -1101,22 +1188,57 @@ public final class AStarPathfinder {
         if (!overLava && (CellData.standable(floorCell) || !CellData.replaceable(floorCell))) {
             return;
         }
+        // ツタ・梯子の中と、その隣には置かない。掴まれるものは当たり判定こそ薄いが視線は遮るので、
+        // 置く先を狙うとそちらに当たる——普通のツタはreplaceableなのでブロックはツタのセルへ入り、
+        // 梯子・しだれツタはreplaceableではないのでその隣のセルへ飛ぶ。どちらにしても
+        // 案内した位置には置かれない（上のBlockPlaceContext#getClickedPosの注記が、1マス隣で起きる形）
+        if (climbableNear(x, y - 1, z)) {
+            return;
+        }
         // 床が溶岩なら、置くブロックがその溶岩を置き換える。何がそれを支えているかは関係ない
         boolean lavaFarBelow = false;
-        if (!overLava && obstacleY != NOTHING_BELOW) {
-            long obstacle = view.cell(x, obstacleY, z);
-            // 読めなかったセル（未ロード・探索範囲外）で走査が止まっただけの場所は、その下に何が
-            // あるか分からない。水面の上に足場を敷けと言い出すのはこの取り違えから起きる
-            if (!CellData.present(obstacle) || CellData.water(obstacle)) {
+        boolean voidBelow = false;
+        if (!overLava) {
+            if (obstacleY == UNREADABLE_BELOW) {
+                // 未ロードチャンクで走査が止まった。下に何があるか本当に分からないので置かない
+                // ——水面の上に足場を敷けと言い出すのはこの取り違えから起きる
                 return;
             }
-            // 足元・隣接には溶岩が無くても、遥か下（ネザーの開けた空洞の底など）が溶岩なら
-            // 設置を外したときの結末は変わらない。hasAdjacentLavaは足元1マス下しか見ないので、
-            // ここを見ないと「空中で溶岩の上を長々と橋渡しする」経路が無傷の橋と同じ扱いになる
-            lavaFarBelow = CellData.lava(obstacle);
+            if (obstacleY == NOTHING_BELOW) {
+                // 読めるセルだけを辿って何にも当たらなかった＝底が無い。外せば助からないので、
+                // 溶岩と同じ扱いにする
+                voidBelow = true;
+            } else {
+                long obstacle = view.cell(x, obstacleY, z);
+                if (CellData.water(obstacle)) {
+                    return;
+                }
+                // 足元・隣接には溶岩が無くても、遥か下（ネザーの開けた空洞の底など）が溶岩なら
+                // 設置を外したときの結末は変わらない。hasAdjacentLavaは足元1マス下しか見ないので、
+                // ここを見ないと「空中で溶岩の上を長々と橋渡しする」経路が無傷の橋と同じ扱いになる
+                lavaFarBelow = CellData.lava(obstacle);
+            }
         }
         // 水に接する場所へは置かない。流れ込んで足場ごと押し流される
         if (hasAdjacentWater(x, y - 1, z)) {
+            return;
+        }
+        // 底の無い空虚の上では、目標へ近づく向きにしか橋を伸ばさない。
+        //
+        // 橋は地形ではなくプレイヤーが作る構造物で、奈落の上には迂回すべき地形がそもそも無い。
+        // 浮遊島や柱が邪魔なら「どの岸から出るか」で避けることになり、その選択は本物の地面の上で
+        // 起きるのでこの制限を受けない。逆に許すと、岸のあらゆるセルから全方位へ上限いっぱいの橋が
+        // 展開対象になり、探索空間が線から面へ膨らむ。
+        //
+        // 合成の群島（島4つ・間は奈落）で、島1つぶんの区間を測った実測: 10万ノードを焼いて予算切れ
+        // → 64978ノードで到達。測る単位は区間1本にすること——全行程で測ると、どのみち予算が
+        // 足りずにどの条件でも失敗するので、効いているかどうかが見えない。
+        // カーディナル移動はL1距離を必ず±1変えるので、ここで落ちるのは遠ざかる向きだけになる。
+        //
+        // 既知の穴: 奈落の上に浮いた障害物が真横への迂回を強いる地形では経路を失う。踏んだら、
+        // 連続長が短いうちだけ全方位を許す、といった形で緩めること
+        if (voidBelow && Math.abs(x - goalX) + Math.abs(z - goalZ)
+                >= Math.abs(from.x - goalX) + Math.abs(from.z - goalZ)) {
             return;
         }
         boolean lavaNearby = overLava || lavaFarBelow || hasAdjacentLava(x, y - 1, z);
@@ -1128,9 +1250,15 @@ public final class AStarPathfinder {
         // 展開ノード数を焼き切ったうえで結局その先に進めない（ActionCosts#LAVA_BRIDGE_PENALTY_TICKS
         // に記録された実測そのもの）。辺を作らなければ、探索は最初から迂回路だけを見る。
         //
-        // 溶岩の上だけは別（より短い）上限で切る。空洞なら足場を外しても落ちるだけだが、
-        // 溶岩の上では即死するので、同じ長さの橋でも許してよい範囲が違う
-        int cap = lavaNearby ? maxLavaBridgeRun : maxBridgeRun;
+        // 溶岩と奈落の上だけは別（より短い）上限で切る。底のある空洞なら足場を外しても落ちるだけだが、
+        // この2つでは死ぬので、同じ長さの橋でも許してよい範囲が違う。両方に当たる橋は厳しい方で切る
+        int cap = maxBridgeRun;
+        if (lavaNearby) {
+            cap = RunCaps.stricter(cap, maxLavaBridgeRun);
+        }
+        if (voidBelow) {
+            cap = RunCaps.stricter(cap, maxVoidBridgeRun);
+        }
         int bridgeRun = from.bridgeRun + 1;
         if (cap > 0 && bridgeRun > cap) {
             bridgeRunCapBlocked = true;
@@ -1140,8 +1268,13 @@ public final class AStarPathfinder {
         if (Double.isInfinite(bodyCost)) {
             return;
         }
-        double cost = ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+        // 進む1マスぶんだけ踏み切り地点の倍率で割る。置いたブロックの上は等速なので、遅いのは
+        // ソウルサンド等の上から踏み出す分だけ。設置の手間（PLACE_BLOCK_OVERHEAD_TICKS）は
+        // 立っているブロックと無関係なので割らない
+        double cost = ActionCosts.SPRINT_ONE_BLOCK / takeoffSpeedFactor(from.x, from.y, from.z)
+                + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
+                + (voidBelow ? ActionCosts.VOID_BRIDGE_PENALTY_TICKS : 0.0)
                 + submerged(from, bodyCost, x, y + 1, z);
         relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
     }
@@ -1163,6 +1296,17 @@ public final class AStarPathfinder {
         if (!view.canPlaceBlocks()) {
             return;
         }
+        // 横に架けた橋の上からは積み始めない。1マス幅の足場の上で跳んで足元に置く動作で、
+        // 奈落や溶岩の上ではまず外す——案内として出してよい手ではない。
+        //
+        // 条件に「直前も柱」を入れるのが要点。柱自身も連続長を伸ばすので、{@code bridgeRun > 0}
+        // だけで切ると断崖を登る塔が1マスで止まる。
+        //
+        // 理由は安全性だけで、探索の効率には効かない（合成の群島で有無を測って差がゼロだった）。
+        // 奈落の上の展開を抑えているのは{@link #addBridge}の方向の絞り込み
+        if (from.bridgeRun > 0 && from.kind != MoveKind.PILLAR) {
+            return;
+        }
         long standing = view.cell(from.x, from.y, from.z);
         // 置く先は自分がいるセルそのもの。梯子・ツタに掴まっている間は onGround() が false で
         // jumpFromGround() が呼ばれず（LivingEntity#aiStep）、掴まったまま接地していても
@@ -1180,7 +1324,13 @@ public final class AStarPathfinder {
         double cost = ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
                 + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + submerged(from, clearanceCost, from.x, from.y + 2, from.z);
-        relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR);
+        // 積んだブロックの上は自分が置いた足場であって地形ではないので、橋の連続を断たない。
+        // 0に戻していた頃は「橋を上限まで架ける→1マス積む→また上限まで架ける」が合法だった。
+        // 実際に発動するかは展開順しだいで（bridgeRunはノードの同一性に入らないので、柱の上の
+        // ノードへ別経路が同コストで届けばそちらの連続長が残る）、そのぶん質が悪い——同じ地形でも
+        // 上限が効いたり効かなかったりし、効かなかった回は bridgeRunCapBlocked が立たないので
+        // PathfindingExecutorの上限緩和も走らないまま階段状の経路が確定する
+        relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR, from.bridgeRun + 1);
     }
 
     /**
@@ -1212,6 +1362,18 @@ public final class AStarPathfinder {
         return hasAdjacent(x, y, z, CellData::lava);
     }
 
+    /**
+     * ブロックを置くセルの中か周りに、掴まれるもの（ツタ・しだれツタ・梯子）があるか。
+     *
+     * <p>水・溶岩の隣接判定と違って<b>真上も見る</b>。真上は足場を置いた後に自分が立つセルで、
+     * そこにツタが垂れていれば、置く先を狙う視線はまずそれに当たる。
+     */
+    private boolean climbableNear(int x, int y, int z) {
+        return CellData.climbable(view.cell(x, y, z))
+                || CellData.climbable(view.cell(x, y + 1, z))
+                || hasAdjacent(x, y, z, CellData::climbable);
+    }
+
     private boolean hasAdjacent(int x, int y, int z, LongPredicate test) {
         return test.test(view.cell(x, y - 1, z))
                 || test.test(view.cell(x + 1, y, z)) || test.test(view.cell(x - 1, y, z))
@@ -1228,8 +1390,8 @@ public final class AStarPathfinder {
     }
 
     /**
-     * {@code bridgeRun}を明示的に渡す版。{@link #addBridge}だけが非0を渡す——
-     * それ以外の移動は橋の連続を断つので0になる。
+     * {@code bridgeRun}を明示的に渡す版。非0を渡すのは自分で置いた足場の上に着く移動
+     * （{@link #addBridge}・{@link #addPillar}）だけで、それ以外は実在する床に着くので0になる。
      */
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
         relax(from, x, y, z, edgeCost, kind, bridgeRun, false);
