@@ -1459,6 +1459,43 @@ class AStarPathfinderTest {
     }
 
     /**
+     * <b>奈落・溶岩の上では、掘らないと通れない場所へ橋を架けない。</b>
+     *
+     * <p>1手の中に「床を置く」と「身体のセルを掘る」が同居すると、案内は<b>順序を表現できない</b>。
+     * 実機（the_end、2026-08-27）でユーザーが踏んだのがこれで、症状は2つに見えていた——
+     * 「掘るはずのブロックの横にブロックを置けと言われる」（置く枠が掘る枠の真下に出る）と
+     * 「そのまま掘ったら奈落にダイブする」（見えている掘る枠を先に掘ると、足元が奈落の上の空気になる）。
+     *
+     * <p>正しい順序は「先に床を置く→後で掘る」だが、掘る枠が見えている以上そちらを先にやるのが自然で、
+     * 外したときに死ぬ。空中では掘れないので{@link #addJumpGap}や斜め移動が
+     * {@code clearWithoutDigging}を要求しているのと同じ規律を、橋にも掛ける。
+     *
+     * <p>底のある空洞では掛けない。掘って落ちても1マス下の床に着くだけで、結末がまるで違う。
+     */
+    @Test
+    void doesNotBridgeIntoACellThatNeedsDiggingOverVoid() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 20, 0, 12, 90, 0))
+                .canPlaceBlocks(true);
+        cells.set(-1, 60, 0, FakeCells.BEDROCK).set(0, 60, 0, FakeCells.BEDROCK);
+        for (int x = 4; x <= 8; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+        }
+        // 奈落の上に張り出した岩。跨いで越える回避路は天井で消してあるので、掘り抜く以外に手が無い
+        cells.set(2, 61, 0, FakeCells.STONE).set(2, 62, 0, FakeCells.STONE);
+        for (int x = -1; x <= 8; x++) {
+            cells.set(x, 63, 0, FakeCells.BEDROCK);
+        }
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(5, 61, 0));
+
+        for (PathStep step : result.steps()) {
+            assertTrue(step.placedBlockPos() == null || step.digCells().isEmpty(),
+                    "1手で置くと掘るが同居している（順序を表現できないので奈落へ落ちる）: "
+                            + step.placedBlockPos() + " / " + step.digCells());
+        }
+    }
+
+    /**
      * 奈落の上でも橋は架かる。読めるセルだけを辿って底に当たらなかったのは「分からない」ではなく
      * 「本当に底が無い」と分かったということで、渡ってよいかの判断はコストと上限が受け持つ。
      */
