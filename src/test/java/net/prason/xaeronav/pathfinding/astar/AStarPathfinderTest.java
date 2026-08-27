@@ -1430,6 +1430,35 @@ class AStarPathfinderTest {
     }
 
     /**
+     * <b>柱にも連続長の上限を掛ける。</b>{@code addPillar}は{@code bridgeRun}を増やすのに上限を
+     * 検査していなかったので、塔が探索範囲の天井まで伸び放題だった。
+     *
+     * <p>これが実機（the_end、2026-08-27）で効いていた: 島の立てるセルすべてから約150段の塔が
+     * 展開対象になり、<b>51万セル</b>を焼いて{@code NODE_BUDGET}で終わっていた。
+     * <b>本当の害はノード数ではなく、そのせいで{@code EXHAUSTED}に到達できないこと</b>——
+     * 橋の上限を緩める梯子（{@code PathfindingExecutor}）は「範囲内に道が無いと証明できた」ときにしか
+     * 走らないので、予算切れで終わる限り<b>一度も発動しない</b>。エンドで橋が上限30に張り付いたまま
+     * 渡り切れなかったのはこれ。
+     */
+    @Test
+    void pillarsRespectTheRunCap() {
+        // 1マスの足場だけがある空中。塔を伸ばす以外にできることが無いので、上限がそのまま高さになる
+        FakeCells cells = FakeCells.empty(new SearchBounds(-4, 20, -4, 4, 200, 4))
+                .canPlaceBlocks(true)
+                .maxBridgeRunBlocks(8)
+                .set(0, 60, 0, FakeCells.BEDROCK);
+
+        AStarPathfinder pathfinder = new AStarPathfinder(cells);
+        PathResult result = pathfinder.search(new BlockPos(0, 61, 0), new BlockPos(0, 190, 0), NOT_CANCELLED);
+
+        assertFalse(result.complete(), "上限8で129マスの塔が建ってはいけない");
+        assertTrue(pathfinder.bridgeRunCapBlocked(), "上限で捨てたことを報告しないと緩和の梯子が走らない");
+        assertEquals(PathResult.Termination.EXHAUSTED, result.termination(),
+                "上限が効いていれば探索は尽きる。予算切れで終わると詰み検知も緩和も動かない: "
+                        + result.expandedNodes() + "ノード");
+    }
+
+    /**
      * 奈落の上でも橋は架かる。読めるセルだけを辿って底に当たらなかったのは「分からない」ではなく
      * 「本当に底が無い」と分かったということで、渡ってよいかの判断はコストと上限が受け持つ。
      */

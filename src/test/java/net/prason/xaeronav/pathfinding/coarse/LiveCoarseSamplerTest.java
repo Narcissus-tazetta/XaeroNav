@@ -259,6 +259,27 @@ class LiveCoarseSamplerTest {
     }
 
     /**
+     * <b>ジ・エンドの奈落そのもの。</b>床が1つも無い列では{@code MOTION_BLOCKING}が空なので、
+     * {@code ChunkView#openSkyY}は<b>ワールド最低Y+1</b>を返す——つまり探索帯の<b>下端より下</b>。
+     *
+     * <p>走査の上端をそこから取ると`top < bottom`で<b>ループ本体が一度も実行されない</b>。
+     * 実機ログ（the_end、2026-08-27）で`既知セル=51/154`にしかならなかったのがこれで、
+     * 奈落の判定がエンドで一度も発火していなかった。
+     */
+    @Test
+    void detectsVoidWhenTheHeightmapIsBelowTheSearchBand() {
+        // プレイヤーはY=57、探索帯はY±32。奈落の列はMOTION_BLOCKINGが空なのでopenSkyY=1になる
+        SearchBounds bounds = new SearchBounds(0, 25, 0, 15, 89, 15);
+        FakeCells cells = FakeCells.empty(bounds).fillWith(FakeCells.AIR).openSkyYOverride(1);
+
+        CoarseMap map = LiveCoarseSampler.sample(cells, bounds);
+
+        assertEquals(1, map.floorCount(0, 0),
+                "エンドの奈落が未知のままだと、層1が最安の通り道として突っ切る");
+        assertEquals(CoarseMap.VOID, map.kindAtFloor(0, 0, 0));
+    }
+
+    /**
      * <b>床0には3通りの意味がある。</b>空気しか無かった（奈落）・上から下まで固体だった（岩の内部）・
      * 未ロードで読めなかった（分からない）。奈落だけが{@link CoarseMap#VOID}で、他の2つは未知のまま。
      *
