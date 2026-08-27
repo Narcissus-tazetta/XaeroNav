@@ -631,6 +631,30 @@ class CoarseRouterTest {
     }
 
     /**
+     * <b>奈落のwaypointがY=0に落ちないこと。</b>{@link CoarseMap#VOID}は高さを持たないので、
+     * {@code toBlockPos}のフォールバック（直前の既知の高さ）が効かないと0になる。
+     *
+     * <p>ネザーで同じ形の「Y=0への誤誘導」を踏んだ前例がある——詳細探索がワールド最下層へ
+     * 経路を引こうとしてノード上限を焼き切った。奈落の上の足場は<b>出発した島の高さ</b>に置くので、
+     * そこを引き継ぐのが正しい。
+     */
+    @Test
+    void voidWaypointsInheritTheHeightOfTheIslandTheyLeftFrom() {
+        CoarseMapBuilder builder = archipelago();
+        island(builder, 0, 0, 64);
+        island(builder, 10, 0, 64);
+
+        CoarseRouter.Route route = CoarseRouter.findRoute(builder.build(), atChunk(1, 1), atChunk(11, 1),
+                false, CoarseRouter.BridgePolicy.BRIDGE);
+
+        assertTrue(route.reachedGoal());
+        for (BlockPos waypoint : route.waypoints()) {
+            assertTrue(waypoint.getY() > 32,
+                    "奈落のwaypointが低すぎる（Y=0への誤誘導の再発）: " + waypoint);
+        }
+    }
+
+    /**
      * 奈落と未訪問は別物。データが無いだけのセルは従来どおり通れる——未探索を通行不能にすると
      * 迂回路ごと消えて詰む。
      */

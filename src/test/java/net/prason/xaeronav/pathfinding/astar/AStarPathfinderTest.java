@@ -34,6 +34,21 @@ class AStarPathfinderTest {
         return result.steps().stream().map(PathStep::movement).toList();
     }
 
+    /**
+     * 経路中で1手にいちばん大きく下がった段数。{@link ActionCosts#SAFE_FALL_BLOCKS}を超えていれば
+     * その落下でダメージを受けている——{@code PathStep}は{@code MoveKind}を持たない
+     * （{@code MovementType}まで畳まれている）ので、種類ではなく<b>案内が実際に何マス落とすか</b>で見る。
+     */
+    private static int biggestDrop(BlockPos start, PathResult result) {
+        int biggest = 0;
+        BlockPos previous = start;
+        for (PathStep step : result.steps()) {
+            biggest = Math.max(biggest, previous.getY() - step.pos().getY());
+            previous = step.pos();
+        }
+        return biggest;
+    }
+
     @Test
     void walksStraightAcrossFlatGround() {
         CellSource cells = FakeCells.of(0, 60, 0, """
@@ -1345,6 +1360,73 @@ class AStarPathfinderTest {
             }
         }
         return cells;
+    }
+
+    /**
+     * ジ・エンドの島渡りそのもの。出発の島 → 奈落{@code gapBlocks}マス → {@code dropBlocks}だけ
+     * 低い到着の島。橋は水平にしか架けられないので、到着の島へは<b>落ちる</b>しかない。
+     */
+    private static FakeCells islandsAcrossVoid(int gapBlocks, int dropBlocks) {
+        int landingY = 60 - dropBlocks;
+        // 下端は着地の島より十分下に取る。ここが着地の島と同じだと、奈落の走査が範囲外で止まって
+        // NOTHING_BELOWではなくなり、何を測っているのか分からなくなる
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, landingY - 40, 0, gapBlocks + 12, 93, 0))
+                .canPlaceBlocks(true);
+        for (int x = -1; x <= 0; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+        }
+        for (int x = gapBlocks + 1; x <= gapBlocks + 4; x++) {
+            cells.set(x, landingY, 0, FakeCells.BEDROCK);
+        }
+        return cells;
+    }
+
+    /**
+     * <b>ユーザーが実際に困っていた形の通し検証。</b>「エリトラを持たない人が、奈落を挟んだ
+     * 低い島へ徒歩で渡れるか」。
+     *
+     * <p>下向きの橋はサバイバルでは作れない（虚空側にクリックする面が無い）ので、渡る手順は
+     * 「水平に橋を架けて奈落を越え、縁から落ちて着地する」しかない。落下ダメージの許容量が
+     * 足りないうちは<b>経路そのものが存在しない</b>——これが実機で hop2 が全条件で失敗していた
+     * 構造的な理由で、詰み時に許容量を緩める梯子はここを開けるために入れた。
+     */
+    @Test
+    void walksAcrossVoidAndDropsOntoALowerIsland() {
+        int drop = 8;
+        FakeCells terrain = islandsAcrossVoid(6, drop);
+        BlockPos start = new BlockPos(0, 61, 0);
+        BlockPos goal = new BlockPos(8, 61 - drop, 0);
+
+        AStarPathfinder strict = new AStarPathfinder(islandsAcrossVoid(6, drop).maxFallDamagePoints(0));
+        PathResult blocked = strict.search(start, goal, NOT_CANCELLED);
+        assertFalse(blocked.complete(), "許容0で8マス落ちる経路が出てはいけない: " + movements(blocked));
+        assertTrue(strict.fallDamageCapBlocked(), "緩める価値があることを報告しないと梯子が動かない");
+
+        // 詰み時の緩和が渡すのと同じ形で許容量を開ける
+        PathResult opened = new AStarPathfinder(terrain, SearchLimits.DEFAULT, null,
+                new Tolerances(RunCaps.of(terrain), drop - ActionCosts.SAFE_FALL_BLOCKS))
+                .search(start, goal, NOT_CANCELLED);
+
+        assertTrue(opened.complete(), "許容量を開ければ渡れるはず: " + movements(opened));
+        assertTrue(opened.steps().stream().anyMatch(PathStep::bridging),
+                "奈落は橋で越える: " + movements(opened));
+        assertEquals(drop, biggestDrop(start, opened),
+                "低い島へは1手で落ちて降りる（痛い落下が経路に乗っている）: " + movements(opened));
+    }
+
+    /**
+     * 同じ高さの島なら落下ダメージは要らない。<b>層1が回り込みで狙わせる先がこれ</b>——
+     * 「遠回りして同じYの島へ」が成立するのは、着いた先が既定の設定のまま渡れるから。
+     */
+    @Test
+    void reachesASameHeightIslandWithoutAnyFallDamage() {
+        FakeCells cells = islandsAcrossVoid(6, 0).maxFallDamagePoints(0);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(8, 61, 0));
+
+        assertTrue(result.complete(), "同じ高さの島へは既定の設定で渡れる: " + movements(result));
+        assertTrue(biggestDrop(new BlockPos(0, 61, 0), result) <= ActionCosts.SAFE_FALL_BLOCKS,
+                "同じ高さなのに痛い落下が混ざっている: " + movements(result));
     }
 
     /**
