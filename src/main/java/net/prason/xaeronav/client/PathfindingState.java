@@ -817,7 +817,7 @@ public final class PathfindingState {
         // そのたびに違う経路が出てきて線が落ち着かない（歩いているだけで案内が変わる）
         if (PathProgress.INSTANCE.distance() > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
             if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
-                    && !splicePath(mc.level, mc.player, shown)) {
+                    && !splicePath(mc.level, mc.player, shown, 0)) {
                 // 合流できない経路だけ、全部引き直す
                 recalculate();
             }
@@ -855,19 +855,41 @@ public final class PathfindingState {
         if (ticksSinceValidation >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
             // プレイヤーが動かなくてもワールドは変わりうる。経路上のセルだけを定期的に見る
             ticksSinceValidation = 0;
-            // この定期検証が「地形が変わった」の第一の入口——経路全体（まだ歩いていない先も
-            // 含む）を見るので、ユーザーが経路上のどこかにブロックを置いただけでも即座に
-            // ここで引っかかる。理由を出さないと「置いたら経路が消えた」の説明が付かない
+            // この定期検証が「地形が変わった」の第一の入口——まだ歩いていない先も見るので、
+            // ユーザーが経路上のどこかにブロックを置いただけでも即座にここで引っかかる。
+            // 理由を出さないと「置いたら経路が消えた」の説明が付かない
             // （実際にユーザーからその報告が出て、この行で裏が取れた）
-            String validationFailure = PathValidator.firstFailure(mc.level, result);
-            if (validationFailure != null) {
-                // 歩いていた経路が世界の変化で使えなくなった。引き直しても案内が急に変わる理由が
-                // 分からないままなので、変わったこと自体を知らせる
-                LOGGER.info("XaeroNav: 経路上のセルが変化したため引き直します ({})", validationFailure);
-                rerouteNoticeTicks = REROUTE_NOTICE_TICKS;
-                recalculate();
+            //
+            // 見るのは<b>いま居るステップから先</b>だけ。もう歩き終えた区間の変化はこれから通る道に
+            // 関係が無いうえ、そこから走査すると背後の変化で止まって先の変化を見落とす
+            PathValidator.Failure failure = PathValidator.firstFailureFrom(mc.level, result,
+                    PathProgress.INSTANCE.indexFor(result));
+            if (failure != null) {
+                handleBlockedPath(mc.level, mc.player, shown, failure);
             }
         }
+    }
+
+    /**
+     * 経路上のセルが世界の変化で成立しなくなった。<b>塞がった箇所の前後だけ</b>を作り直せるなら
+     * そうして、できないときだけ全部引き直す。
+     *
+     * <p>橋を渡るために自分でブロックを置くのは意図した操作で、経路の線上にも普通に置く。それを
+     * 全引き直しの理由にすると、280ステップの経路が一手ごとに丸ごと作り直される——引き直した先が
+     * 同じ経路になる保証は無いので（{@link #pathWorthKeeping}参照）、置くたびに案内が別物になる。
+     */
+    private void handleBlockedPath(Level level, Player player, DisplayedPath shown, PathValidator.Failure failure) {
+        if (splicePath(level, player, shown, failure.stepIndex() + 1)) {
+            // 迂回はHUDで知らせない。合流点から先はそのまま残るので「歩いていた道が突然消えた」
+            // ことにはならず、橋を架けながら置くたびに警告が出続けるだけになる
+            LOGGER.info("XaeroNav: 経路上のセルが変化したため塞がった箇所を迂回します ({})", failure.reason());
+            return;
+        }
+        // 迂回できずに全部引き直す。案内が急に変わる理由が分からないままなので、変わったこと自体を
+        // 知らせる
+        LOGGER.info("XaeroNav: 経路上のセルが変化したため引き直します ({})", failure.reason());
+        rerouteNoticeTicks = REROUTE_NOTICE_TICKS;
+        recalculate();
     }
 
     /**
@@ -1660,12 +1682,15 @@ public final class PathfindingState {
         String dropped = null;
         // 「地形が変わった」は内訳まで出す。どのステップの何が不成立になったのかが分からないと、
         // 渡り切った直後に完走ルートが手放されるような症状の原因を追えない
-        String validationFailure = null;
+        PathValidator.Failure validationFailure = null;
         if (offPath > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
             dropped = "逸脱";
         } else if (reachedPathEnd(player, shown)) {
             dropped = "終端に到着";
-        } else if ((validationFailure = PathValidator.firstFailure(level, result)) != null) {
+        } else if ((validationFailure = PathValidator.firstFailureFrom(level, result,
+                PathProgress.INSTANCE.indexFor(result))) != null) {
+            // もう歩き終えた区間の変化では手放さない。渡ってきた橋を後ろから壊しても、
+            // これから通る道が使えることの証明は失われない
             dropped = "地形が変わった";
         }
         if (dropped != null) {
@@ -1673,7 +1698,7 @@ public final class PathfindingState {
                             + " (理由={}, {}ステップ, 経路までの距離={}, 対応づけ={}, 現在地={}, 経路の先頭={}{})",
                     dropped, result.steps().size(), Math.round(offPath), tracked,
                     player.blockPosition().toShortString(), result.steps().get(0).pos().toShortString(),
-                    validationFailure == null ? "" : ", " + validationFailure);
+                    validationFailure == null ? "" : ", " + validationFailure.reason());
             return null;
         }
         return shown;
@@ -1693,31 +1718,48 @@ public final class PathfindingState {
 
     /** この位置に最も近いステップの添字。 */
     private static int nearestStepIndex(List<PathStep> steps, Vec3 position) {
-        return nearestStepIndex(steps, position, false);
-    }
-
-    /**
-     * この位置に最も近いステップの添字。{@code joinableOnly}なら、<b>いま実際に立てるステップ</b>
-     * だけを見る（無ければ{@code -1}）。
-     *
-     * <p>橋のステップは「これから置くブロックの上」なので、その足元はまだ空気（奈落・溶岩）。
-     * そこを合流先にすると{@code StanceFinder}が立てる場所へ寄せ直し、合流区間は経路と別の
-     * セルで終わって繋がらない。合流できるのは実在する床の上だけ。
-     */
-    private static int nearestStepIndex(List<PathStep> steps, Vec3 position, boolean joinableOnly) {
-        int best = -1;
+        int best = 0;
         double bestDistance = Double.MAX_VALUE;
         for (int i = 0; i < steps.size(); i++) {
-            if (joinableOnly && steps.get(i).bridging()) {
-                continue;
-            }
             double distance = distanceTo(position, steps.get(i).pos());
             if (distance < bestDistance) {
                 bestDistance = distance;
                 best = i;
             }
         }
-        return joinableOnly ? best : Math.max(best, 0);
+        return best;
+    }
+
+    /**
+     * この位置に最も近い、<b>いま実際に立てる</b>ステップの添字（無ければ{@code -1}）。
+     * {@code minIndex}より手前は見ない。
+     *
+     * <p>橋のステップは「これから置くブロックの上」なので、その足元はまだ空気（奈落・溶岩）。
+     * そこを合流先にすると{@code StanceFinder}が立てる場所へ寄せ直し、合流区間は経路と別の
+     * セルで終わって繋がらない。合流できるのは実在する床の上だけ。
+     *
+     * <p>世界の変化でいま塞がっているステップも同じ理由で外す。塞がった箇所を迂回するときは
+     * 連続してブロックが置かれていることがあり、その塊を抜けた最初のステップへ合流したい。
+     */
+    private static int joinableStepIndex(Level level, List<PathStep> steps, Vec3 position, int minIndex) {
+        int best = -1;
+        double bestDistance = Double.MAX_VALUE;
+        for (int i = Math.max(0, minIndex); i < steps.size(); i++) {
+            PathStep step = steps.get(i);
+            if (step.bridging()) {
+                continue;
+            }
+            double distance = distanceTo(position, step.pos());
+            if (distance >= bestDistance) {
+                continue;
+            }
+            if (PathValidator.stepFailure(level, step, i) != null) {
+                continue;
+            }
+            bestDistance = distance;
+            best = i;
+        }
+        return best;
     }
 
     /**
@@ -1733,8 +1775,11 @@ public final class PathfindingState {
      * <p>合流点は<b>最も近いステップ</b>にして、その手前は捨てる。歩いて先へ進んでいた場合も
      * これで正しく前へ詰む（通り過ぎた区間が残らない）。合流に失敗したときは
      * {@link #SPLICE_RETRY_MOVE_BLOCKS}ぶん歩くまで再挑戦せず、呼び出し側の引き直しに任せる。
+     *
+     * @param minJoinIndex 合流点として認める最小の添字。塞がった箇所を迂回するときは、そこより
+     *                     先へ合流しないと同じ場所へ戻ってしまうので、その次を渡す
      */
-    private boolean splicePath(Level level, Player player, DisplayedPath shown) {
+    private boolean splicePath(Level level, Player player, DisplayedPath shown, int minJoinIndex) {
         if (shown.mode() == PathMode.TO_SURFACE) {
             return false;
         }
@@ -1751,7 +1796,7 @@ public final class PathfindingState {
                         && blocked.distSqr(playerAt) < SPLICE_RETRY_MOVE_BLOCKS * SPLICE_RETRY_MOVE_BLOCKS)) {
             return false;
         }
-        int joinIndex = nearestStepIndex(result.steps(), player.position(), true);
+        int joinIndex = joinableStepIndex(level, result.steps(), player.position(), minJoinIndex);
         if (joinIndex < 0) {
             return false;
         }
@@ -1759,11 +1804,12 @@ public final class PathfindingState {
         if (distanceTo(player.position(), joinPos) > SPLICE_MAX_JOIN_BLOCKS) {
             return false;
         }
-        // ここで無効と分かって黙ってfalseを返すと、呼び出し側はrecalculate()（全部引き直し）へ
-        // 落ちるだけで、なぜ合流を諦めたのかがどこにも残らない
-        String validationFailure = PathValidator.firstFailure(level, result);
-        if (validationFailure != null) {
-            LOGGER.info("XaeroNav: 経路上のセルが変化していたため合流を諦めました ({})", validationFailure);
+        // 見るのは合流点から先だけ。手前は捨てる区間なので、そこの変化を理由に諦めると、
+        // 迂回すれば繋がる経路まで呼び出し側の全引き直しへ落ちる。
+        // ここで無効と分かって黙ってfalseを返すと、なぜ合流を諦めたのかがどこにも残らない
+        PathValidator.Failure failure = PathValidator.firstFailureFrom(level, result, joinIndex);
+        if (failure != null) {
+            LOGGER.info("XaeroNav: 経路上のセルが変化していたため合流を諦めました ({})", failure.reason());
             return false;
         }
 
