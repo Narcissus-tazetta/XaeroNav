@@ -57,6 +57,18 @@ final class PathProgress {
         distance = Math.sqrt(distanceSq(steps.get(best).pos(), position));
     }
 
+    /**
+     * この{@code result}に対して測った値を持っているか。
+     *
+     * <p>{@link #distance()}は「直近に{@link #update}へ渡された経路までの距離」でしかない。
+     * 経路が差し替わった直後や、{@link #update}が呼ばれない状況（到着後など）では、
+     * <b>別の経路に対して測った距離</b>が残っている。それを逸脱の判断に使うと、いま出ている
+     * 経路とは無関係な理由で経路を捨てることになる。
+     */
+    boolean tracking(PathResult result) {
+        return result != null && result == source;
+    }
+
     /** {@code result}に対応づけ済みのステップ。違う経路なら先頭。 */
     int indexFor(PathResult result) {
         return result == source ? index : 0;

@@ -126,8 +126,10 @@ public final class XaeroNavConfig {
                         "迂回路だけを見る——重いコストで抑え込む形と違い、展開ノード数を一切使わない",
                         "（連続長は陸地を1マスでも踏めば数え直しになる）",
                         "範囲内に迂回路が無く経路が一本も引けなかった場合に限り、上限を外して探し直す",
-                        "（詰むよりは長い橋の方がマシ、という優先順）")
-                .defineInRange("maxBridgeRunBlocks", 30, 0, 256);
+                        "（詰むよりは長い橋の方がマシ、という優先順）",
+                        "既定96は、ジ・エンドの島間の実測（保存データから測った奈落の幅47〜81ブロック）が",
+                        "収まる値。溶岩の上はmaxLavaBridgeRunBlocksが別に30で抑えるので影響しない")
+                .defineInRange("maxBridgeRunBlocks", 96, 0, 256);
 
         maxLavaBridgeRunBlocks = builder
                 .comment("そのうち溶岩の上に架ける橋を、何マスまで許すか（0で無制限）",
@@ -144,12 +146,13 @@ public final class XaeroNavConfig {
                         "溶岩と分けて持つのは、地形として出会う頻度がまるで違うから——ジ・エンドでは",
                         "ほぼ全ての橋がこれに当たるので、ここを締めると島間の移動が丸ごと消える",
                         "橋の連続長そのものはmaxBridgeRunBlocksと共通なので、実際に効くのは小さい方",
-                        "既定はmaxBridgeRunBlocksと同じ30",
                         "上限で道が無くなった場合は段階的に緩めて探し直す仕組みがあるが、それが働くのは",
                         "「範囲内に道が一本も無い」と証明できたときだけで、エンドの島間では先に展開ノード数の",
-                        "上限に当たるため当てにできない。長い橋を架けさせたいなら、",
-                        "こことmaxBridgeRunBlocksを直接上げること")
-                .defineInRange("maxVoidBridgeRunBlocks", 30, 0, 256);
+                        "上限に当たるため当てにできない。だからここは最初から実測に足りる値にしておく",
+                        "既定96の根拠: 保存データ(DIM1)から測ったジ・エンドの島間の奈落は47〜81ブロック。",
+                        "30でも緩和の梯子が開けば渡れる経路自体は見つかるが、最初の探索が丸ごと無駄になり",
+                        "同じ経路を出すのに倍以上の時間が掛かる（実測3.2秒→7.0秒。RealEndTerrainTest）")
+                .defineInRange("maxVoidBridgeRunBlocks", 96, 0, 256);
 
         maxSubmergedTicks = builder
                 .comment("頭を水に浸けたまま何tickまで進む経路を許すか（0で無制限）",

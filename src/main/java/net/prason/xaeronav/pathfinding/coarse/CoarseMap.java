@@ -168,6 +168,33 @@ public final class CoarseMap {
         return bestFloor;
     }
 
+    /**
+     * 種類ごとのセル数を数えた文字列（診断用）。1セルに複数の床があるときは最初の床で代表させる。
+     *
+     * <p>実機（ジ・エンド、2026-08-28）で必要になった: 奈落を挟んだ経路選択が試行ごとに揺れるのに、
+     * ログには{@code knownCells}（床が1枚でもあるセルの数）しか出ておらず、<b>奈落が奈落として
+     * 見えているのか、そもそもデータが無いのか</b>を切り分けられなかった。{@code NO_DATA}は
+     * {@code UNKNOWN_MULTIPLIER}(1.6倍)＝ほぼ最安で通れてしまうので、奈落が{@code NO_DATA}に
+     * 倒れていれば「奈落を突っ切る線が安く見える」の説明がそれだけで付く。
+     */
+    public String kindBreakdown() {
+        int[] counts = new int[VOID + 1];
+        int empty = 0;
+        for (int index = 0; index < chunksX * chunksZ; index++) {
+            if (floorCount[index] == 0) {
+                empty++;
+                continue;
+            }
+            byte cellKind = kind[index * MAX_FLOORS];
+            if (cellKind >= 0 && cellKind < counts.length) {
+                counts[cellKind]++;
+            }
+        }
+        return "陸=" + counts[LAND] + ", 奈落=" + counts[VOID] + ", 水=" + counts[WATER]
+                + ", 溶岩=" + (counts[LAVA] + counts[LAVA_MIXED])
+                + ", データ無し=" + (counts[NO_DATA] + empty);
+    }
+
     private int cellIndex(int chunkX, int chunkZ) {
         return (chunkZ - minChunkZ) * chunksX + (chunkX - minChunkX);
     }

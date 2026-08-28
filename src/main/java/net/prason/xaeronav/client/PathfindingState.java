@@ -163,6 +163,53 @@ public final class PathfindingState {
     private static final double STUCK_RETRY_MOVE_BLOCKS = 16.0;
 
     /**
+     * 通常探索が予算切れした地点から、これだけ離れるまでは通常探索を省いて粗い経由地チェーンから
+     * 始める（ブロック）。{@link #plainSearchHopeless}参照。
+     */
+    private static final double PLAIN_RETRY_MOVE_BLOCKS = 32.0;
+
+    /**
+     * 通常の予算で解けなかった場所で、予算を何倍にして粘るか。
+     *
+     * <p><b>実測で決めた値。</b>ジ・エンドの島渡り（実機の保存データを{@code RealEndTerrainTest}へ
+     * 取り込んで測定）では、105ステップ・最長42ブロックの橋を含む正しい経路を出すのに
+     * <b>532,724ノード</b>必要だった。既定の100,000では6ステップの切れ端しか出ない——
+     * 「奈落を渡る経路が見つからない」の正体はこれで、上限でも地図でもなく単純に予算不足だった。
+     * 400,000でも足りず600,000で解けたので、余裕を見て6倍にしてある。
+     *
+     * <p>時間も同じ倍率で伸ばす。実機の展開速度は毎秒7〜10万ノードなので、532,724ノードには
+     * 5〜8秒かかる——2秒のままではノード予算だけ増やしても時間で先に切れる。
+     *
+     * <p>掛かるのは{@link #plainSearchHopeless}が真の場所だけ。通常の地形では一度も発動しない
+     * （＝普段の応答性は変わらない）。
+     */
+    private static final int DEEP_SEARCH_BUDGET_FACTOR = 6;
+
+    /**
+     * 深い予算での探索に許す最長時間（ミリ秒）。倍率だけで決めると、{@code maxExpandedNodes}を
+     * 大きくしている環境で1回の探索が分単位になりうる——その間ずっと案内が古いままになる。
+     * 15秒は「渡れないよりはマシ」と「待たされている感じ」の折り合いで、実測（53万ノードに
+     * 実機換算5〜8秒）に対して余裕を持たせた値。
+     */
+    private static final long DEEP_SEARCH_MAX_MILLIS = 15_000;
+
+    /**
+     * 経路へ合流し直せる最大の距離（ブロック）。これより遠いなら、その経路はもう自分の経路では
+     * ないので全部引き直す。{@link #splicePath}参照。
+     */
+    private static final double SPLICE_MAX_JOIN_BLOCKS = 64.0;
+
+    /**
+     * 合流区間の展開ノード数の上限。合流先は{@link #SPLICE_MAX_JOIN_BLOCKS}以内の1点なので、
+     * 全体を引き直す探索と同じ予算を与える意味が無い（与えると、合流に失敗したときの待ち時間が
+     * 引き直しと同じになり、安く済ませるという目的自体が消える）。
+     */
+    private static final int SPLICE_MAX_EXPANDED_NODES = 30_000;
+
+    /** 合流に失敗した地点から、これだけ歩けばもう一度試す（ブロック）。 */
+    private static final double SPLICE_RETRY_MOVE_BLOCKS = 8.0;
+
+    /**
      * 地上優先ナビ（{@link #shouldClimbToSurface}）に入る深さの下限（ブロック）。
      * 地上のすぐ下は、洞窟の入口も崖もたいてい目と鼻の先にあるので、中継区間を挟むより
      * そのまま目的地を目指した方が短い。数マスのために案内を2段階にする価値はない。
@@ -296,8 +343,23 @@ public final class PathfindingState {
      */
     private volatile double bestApproachBlocks = Double.MAX_VALUE;
 
+    /**
+     * 直前の通常探索（粗い経由地チェーンではない側）が展開ノード数の上限に当たった地点。
+     * {@link #plainSearchHopeless}参照。
+     */
+    private volatile BlockPos plainBudgetExhaustedAt;
+
+    /** {@link #splicePath}が合流に失敗したときのプレイヤー位置。{@link #SPLICE_RETRY_MOVE_BLOCKS}で失効。 */
+    private volatile BlockPos spliceBlockedFrom;
+
+    /** 予算を積んだ探索を次tickで投げ直すか。{@link #pendingCoarseGuideRetry}の一段手前。 */
+    private volatile boolean pendingDeepRetry;
+
     /** {@link #bestApproachBlocks}を縮められないまま終わった探索の連続回数。 */
     private volatile int stalledSearches;
+
+    /** 直近で「前進しなかった」と数えた探索の始点。{@link #noteSearchOutcome}参照。 */
+    private volatile BlockPos lastStalledAt;
 
     /** 目的地へ行けないと判断した理由。判断していない・解消したなら{@code null}。 */
     private volatile StuckReason stuckReason;
@@ -405,10 +467,14 @@ public final class PathfindingState {
         this.pendingRefinedRouteReady = false;
         this.pendingWideRetry = false;
         this.pendingCoarseGuideRetry = false;
+        this.pendingDeepRetry = false;
         this.lastAimedWaypoint = null;
         this.passedWaypoints = 0;
         this.bestApproachBlocks = Double.MAX_VALUE;
+        this.plainBudgetExhaustedAt = null;
+        this.spliceBlockedFrom = null;
         this.stalledSearches = 0;
+        this.lastStalledAt = null;
         this.stuckReason = null;
         this.pendingStuckNotice = null;
         this.extendBlockedAt = null;
@@ -669,6 +735,13 @@ public final class PathfindingState {
             }
             return;
         }
+        // 経路とモードは一組で差し替わるので、1tickの判断は同じスナップショットの上で行う
+        DisplayedPath shown = displayed;
+        // 対応づけの更新は、この下のどの早期returnよりも先に置く。地図を開いている間・滑空中は
+        // 更新されないままだったので、その間に経路が差し替わると「別の経路に対して測った距離」が
+        // 残り続ける——逸脱の判定・案内・描画がまとめてその値を読む。地図を開いたまま経路が
+        // 出来上がるのは一番ありがちな操作（下のコメント参照）で、そこが一番当たりやすい
+        PathProgress.INSTANCE.update(shown == null ? null : shown.result(), mc.player.position());
         // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
         // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
         if (mc.screen != null) {
@@ -704,8 +777,6 @@ public final class PathfindingState {
             flight.tick(mc.level, mc.player, currentGoal);
             return;
         }
-        // 経路とモードは一組で差し替わるので、1tickの判断は同じスナップショットの上で行う
-        DisplayedPath shown = displayed;
         if (shown != null && shown.mode() == PathMode.WAYPOINT) {
             passedWaypoints = Math.max(passedWaypoints, shown.waypointIndex());
         }
@@ -718,7 +789,6 @@ public final class PathfindingState {
             return;
         }
         PathResult result = shown == null ? null : shown.result();
-        PathProgress.INSTANCE.update(result, mc.player.position());
         if (checkArrival(mc.player, currentGoal, shown)) {
             return;
         }
@@ -746,7 +816,9 @@ public final class PathfindingState {
         // 経路の帯からはみ出したときだけ引き直す。1〜2マス横にずれた程度で作り直すと、
         // そのたびに違う経路が出てきて線が落ち着かない（歩いているだけで案内が変わる）
         if (PathProgress.INSTANCE.distance() > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
-            if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS) {
+            if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
+                    && !splicePath(mc.level, mc.player, shown)) {
+                // 合流できない経路だけ、全部引き直す
                 recalculate();
             }
             return;
@@ -783,9 +855,15 @@ public final class PathfindingState {
         if (ticksSinceValidation >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
             // プレイヤーが動かなくてもワールドは変わりうる。経路上のセルだけを定期的に見る
             ticksSinceValidation = 0;
-            if (!PathValidator.stillValid(mc.level, result)) {
+            // この定期検証が「地形が変わった」の第一の入口——経路全体（まだ歩いていない先も
+            // 含む）を見るので、ユーザーが経路上のどこかにブロックを置いただけでも即座に
+            // ここで引っかかる。理由を出さないと「置いたら経路が消えた」の説明が付かない
+            // （実際にユーザーからその報告が出て、この行で裏が取れた）
+            String validationFailure = PathValidator.firstFailure(mc.level, result);
+            if (validationFailure != null) {
                 // 歩いていた経路が世界の変化で使えなくなった。引き直しても案内が急に変わる理由が
                 // 分からないままなので、変わったこと自体を知らせる
+                LOGGER.info("XaeroNav: 経路上のセルが変化したため引き直します ({})", validationFailure);
                 rerouteNoticeTicks = REROUTE_NOTICE_TICKS;
                 recalculate();
             }
@@ -813,6 +891,15 @@ public final class PathfindingState {
             // 広い範囲での探索は目的地ごとに一度だけで、失敗しても二度目のpendingWideRetryは立たない）
             pendingWideRetry = false;
             recalculate(Escalation.WIDE);
+            return true;
+        }
+        if (pendingDeepRetry) {
+            // 展開ノード数の上限に当たって未到達だった。まずは予算を積んで投げ直す——実測では
+            // 区間分割より単発探索に予算を与える方が確実だった（DEEP_SEARCH_BUDGET_FACTOR参照）。
+            // 予約として持つのが要点で、これが無いと深い探索は他のトリガー（逸脱・末端への接近）が
+            // たまたま引かれるまで走らない
+            pendingDeepRetry = false;
+            recalculate(Escalation.DEEP);
             return true;
         }
         if (pendingCoarseGuideRetry) {
@@ -921,6 +1008,23 @@ public final class PathfindingState {
      * 探索して失敗するので、間隔を空けないと同じ計算を数秒おきに繰り返すだけになる。
      */
     /**
+     * この地点からの通常探索は予算切れが確定しているか。確定しているなら、通常探索を省いて
+     * 最初から粗い経由地チェーンで解く。
+     *
+     * <p>実機（エンドの島渡り）では通常探索が<b>1回も成功せず</b>、毎周期「30万ノードを焼いて
+     * 失敗する通常探索 → 粗い経由地チェーン」を繰り返していた。捨てると分かっている探索に
+     * 1〜1.5秒を払う間、案内は古いままで、その間にプレイヤーは経路から離れていく。
+     *
+     * <p>{@link #PLAIN_RETRY_MOVE_BLOCKS}ぶん歩けば失効する——同じ場所からの引き直しは同じ結果に
+     * なるが、地形が変われば通常探索で解けるようになる（{@link #retryTruncatedNow}と同じ考え方）。
+     */
+    private boolean plainSearchHopeless(BlockPos start) {
+        BlockPos exhausted = plainBudgetExhaustedAt;
+        return exhausted != null
+                && exhausted.distSqr(start) < PLAIN_RETRY_MOVE_BLOCKS * PLAIN_RETRY_MOVE_BLOCKS;
+    }
+
+    /**
      * 打ち切られた経路を引き直してよい頃合いか。
      *
      * <p><b>同じ場所から引き直しても同じ結果になる</b>。読み込み済みチャンクも地形も変わっていない
@@ -957,22 +1061,48 @@ public final class PathfindingState {
      *
      * <p>近さの測り方にプレイヤー自身の位置も入れる。部分経路を辿って歩いて前進するのも正常な
      * 進み方なので、その間に投げた探索が何回失敗していようと詰みではない。
+     *
+     * <p><b>連続として数えるのは、ほぼ同じ場所から投げた探索だけ</b>（{@link #STUCK_RETRY_MOVE_BLOCKS}）。
+     * 詰みの根拠は「同じ実験を繰り返しても結果が変わらない」ことなので、始点が動いていれば
+     * 別の実験——読み込み済みチャンクも層1の地図も変わり、実際に結果が変わりうる。実機
+     * （ジ・エンドの崖ぎわ、06:36）では、プレイヤーが崖に沿って26ブロック行き来する間の失敗が
+     * 連続として数えられ「行けません」が出たが、その16秒後に橋49本で渡り切っている。
      */
     private void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result) {
         BlockPos currentGoal = goal;
         if (currentGoal == null) {
             return;
         }
+        DisplayedPath shown = displayed;
+        if (shown != null && shown.mode() != PathMode.TO_SURFACE && shown.result().complete()
+                && !shown.result().steps().isEmpty()) {
+            // 完走した経路が出ている＝ここから先へ実際に歩ける。中間目標へ向かう探索がその先で
+            // 何回失敗しようと、歩ける経路がある間は詰みではない。実機（22:42）では、110ステップ・
+            // 橋47本の経路を表示したまま「目的地へ行けません」が出ていた
+            stalledSearches = 0;
+            stuckReason = null;
+            return;
+        }
         double approach = Math.min(horizontalDistance(start, currentGoal),
                 horizontalDistance(planEnd, currentGoal));
-        boolean progressed = result.complete() || approach <= bestApproachBlocks - STUCK_PROGRESS_BLOCKS;
+        // 高水位がSTUCK_PROGRESS_BLOCKSを切ったら、そこから更にその幅ぶん近づいた探索は
+        // 原理的に出せない（距離は0未満にならない）。一度でも目的地のそばまで届いた目的地では
+        // 以後どんな探索も前進と認められず、未到達がSTUCK_SEARCH_STREAK回続くだけで
+        // 「行けません」になる——改善しえない値を歯止めに使うと永久に外れない
+        boolean improvable = bestApproachBlocks >= STUCK_PROGRESS_BLOCKS;
+        boolean progressed = result.complete() || !improvable
+                || approach <= bestApproachBlocks - STUCK_PROGRESS_BLOCKS;
         bestApproachBlocks = Math.min(bestApproachBlocks, approach);
         if (progressed) {
             stalledSearches = 0;
             stuckReason = null;
             return;
         }
-        stalledSearches++;
+        BlockPos previouslyStalledAt = lastStalledAt;
+        boolean sameSpot = previouslyStalledAt != null
+                && previouslyStalledAt.distSqr(start) < STUCK_RETRY_MOVE_BLOCKS * STUCK_RETRY_MOVE_BLOCKS;
+        stalledSearches = sameSpot ? stalledSearches + 1 : 1;
+        lastStalledAt = start;
         if (stalledSearches < STUCK_SEARCH_STREAK || stuckReason != null) {
             return;
         }
@@ -1220,7 +1350,12 @@ public final class PathfindingState {
         NONE,
         /** 箱を描画距離いっぱいまで広げる。壁や湖を大きく迂回する経路が範囲外に落ちていた場合。 */
         WIDE,
-        /** 箱は広げず、粗い経由地チェーンで区間を分割する。展開ノード数の上限に当たっていた場合。 */
+        /**
+         * 探索の作り方は変えず、予算だけを積む。展開ノード数の上限に当たっていた場合の<b>最初の</b>手。
+         * {@link #DEEP_SEARCH_BUDGET_FACTOR}参照。
+         */
+        DEEP,
+        /** 箱は広げず、粗い経由地チェーンで区間を分割する。深い予算でも届かなかった場合。 */
         COARSE_GUIDED
     }
 
@@ -1246,6 +1381,9 @@ public final class PathfindingState {
         int groundLevel = XaeroNavConfig.INSTANCE.groundLevelY();
         boolean climbing = shouldClimbToSurface(level, start, currentGoal, groundLevel);
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        // 判定はメインスレッドでしかできない（ワールドの参照・経路への対応づけ）。結果が返る頃には
+        // 別の判断材料になってしまうので、投げる時点の答えを写し取ってワーカーへ渡す
+        DisplayedPath worthKeeping = pathWorthKeeping(level, player);
 
         // 地上優先ナビが最優先（逆にすると地中で長距離の中間目標へ掘り進んでしまう）。
         // それ以外は、目的地が描画距離の外にあるときだけ長距離ルートの中間目標を挟む
@@ -1292,9 +1430,29 @@ public final class PathfindingState {
             wideSearch = true;
         } else if ((forced == Escalation.COARSE_GUIDED || sameRetryTarget(target, coarseGuideNeededTarget))
                 && horizontalDistance(start, target) <= renderRadius) {
-            // 前回、この探索ゴールで展開ノード数の上限に当たって未到達だった。範囲を広げても
-            // 同じ上限に当たるだけなので箱は広げず、粗い経由地チェーンで区間を分割する
-            // （層3の局所障害対策）
+            // 粗い経由地チェーンで区間を分割する（層3の局所障害対策）。
+            //
+            // <b>箱も広げる。</b>以前は「範囲を広げても同じ上限に当たるだけ」として広げていなかったが、
+            // それは単一の障害物（湖・壁）を大きく迂回する経路が範囲外に落ちていた別の事例の話——
+            // そちらは道が1本しか無いので、箱を広げても最終的に同じ長さの迂回を同じ上限で
+            // 探すだけになる。今回はそれとは違う形の失敗だった: 実機（ジ・エンドの崖ぎわ、
+            // 2026-08-28）で、既定の水平マージン(64)の箱には迂回できる飛び石の島が入らず、
+            // 層1の粗い地図（LiveCoarseSampler、`view`と同じ箱しか見えない）が奈落を直進する
+            // 解けないルートしか出せなかった。箱がわずかに広い試行（既知セル182/168）だけ
+            // その飛び石が見え、中間目標が2個→3個に増えて一発で成功した（51,000+17,000ノード、
+            // 直進ルートは毎回300,000ノードで失敗）。
+            //
+            // 広げるコストはほぼ無い——`ChunkView.capture`は`getChunkNow`で<b>既に読み込み済みの
+            // チャンクを拾うだけ</b>で新規ロードを強制しない。飛び石が範囲外に落ちていただけなら、
+            // 広げれば追加のチャンク読み込みを待たずに即座に見える。
+            //
+            // <b>renderRadiusいっぱいまで広げてよい。</b>最初にそうしたところ実機で1区間の探索が
+            // 0.7〜0.9秒から1.4〜1.6秒に伸びる副作用が出たが、原因は
+            // `PathfindingExecutor#legCoarseMap`（区間ごとのコストガイドが、区間分割の計画に
+            // 使う広い箱をそのまま使い回していたこと——ガイドのDijkstraは箱の面積に比例した
+            // 状態数を持ち、区間の数だけ払うので広げた箱の負担が倍加していた）で解消済み。
+            // ガイドは区間専用の狭い箱で組み直すので、ここを広げても区間ごとの負担は増えない
+            horizontalMargin = renderRadius;
             coarseGuided = true;
         }
         SearchBounds bounds = SearchBounds.around(level, start, target,
@@ -1303,6 +1461,16 @@ public final class PathfindingState {
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
 
         SearchLimits limits = XaeroNavConfig.INSTANCE.searchLimits();
+        boolean deepBudget = !climbing && (forced == Escalation.DEEP || plainSearchHopeless(start));
+        if (deepBudget) {
+            // ここは通常の予算では解けないと分かっている。<b>区間分割へ逃がすのではなく予算を積む。</b>
+            // 実測（RealEndTerrainTest、実機の保存データ）では、区間分割は同じ地形で倍のノードを
+            // 使ったうえに遅く、素直に予算を与えた単発探索の方が確実だった
+            // （直接600,000で到達532,724ノード / 区間分割は800,000必要で628,593ノード）
+            limits = new SearchLimits(limits.maxExpandedNodes() * DEEP_SEARCH_BUDGET_FACTOR,
+                    Math.min(DEEP_SEARCH_MAX_MILLIS, limits.timeLimitMillis() * DEEP_SEARCH_BUDGET_FACTOR),
+                    limits.heuristicWeight());
+        }
         long myGeneration = generation.incrementAndGet();
         computing = true;
         PathMode finalMode = mode;
@@ -1310,6 +1478,7 @@ public final class PathfindingState {
         int finalWaypointIndex = waypointIndex;
         boolean finalWideSearch = wideSearch;
         boolean finalCoarseGuided = coarseGuided;
+        boolean finalDeepBudget = deepBudget;
         // 次元はメインスレッドで確定させる。whenCompleteはワーカースレッドで走るうえ、
         // そこではプレイヤーが既に別次元へ移動している可能性がある
         ResourceKey<Level> searchDimension = level.dimension();
@@ -1339,6 +1508,7 @@ public final class PathfindingState {
             // 探索が1つ終わった時点で、直前の探索が残した再挑戦の予約は用済み。以降で必要なら立て直す
             pendingWideRetry = false;
             pendingCoarseGuideRetry = false;
+            pendingDeepRetry = false;
             if (!result.complete() && LOGGER.isDebugEnabled()) {
                 // 経路が目的地まで届かなかった理由は、探索の打ち切りか本当に道が無いかのどちらか。
                 // 展開ノード数を出しておかないと、maxExpandedNodesを上げ下げした効果を確かめる
@@ -1392,6 +1562,12 @@ public final class PathfindingState {
                 // 先に効いた探索が「予算切れではない」＝範囲が狭いと誤判定され、粗い経由地チェーンの
                 // 代わりに無意味な箱の拡大が選ばれていた（しかもdetailReachも更新されなかった）
                 boolean budgetExhausted = !finalCoarseGuided && result.budgetExhausted();
+                if (!finalCoarseGuided) {
+                    // 通常探索がここで予算切れしたかどうかは、次の再計算で「通常探索を省いてよいか」を
+                    // 決める材料になる（plainSearchHopeless）。粗い経由地チェーンの結果では書き換えない
+                    // ——あちらの成否は通常探索の見込みについて何も言っていない
+                    plainBudgetExhaustedAt = budgetExhausted ? start : null;
+                }
                 // 距離上限は再挑戦の予約フラグより先に書くこと。クライアントスレッドは
                 // pendingCoarseGuideRetryを見た次の瞬間にrecalculateへ入り、そこでdetailReachを読んで
                 // 目標を選び直す。順序が逆だと、絞ったはずの上限が間に合わず、届かないと分かった
@@ -1407,14 +1583,21 @@ public final class PathfindingState {
                 boolean retryTargetInBox = horizontalDistance(start, finalTarget) <= renderRadius;
                 boolean needsWideRetry = !result.complete() && !budgetExhausted && !finalCoarseGuided
                         && retryTargetInBox;
+                // 区間分割へ逃がすのは<b>深い予算でも足りなかった</b>ときだけ。順序が要点で、
+                // 予算不足に対する最初の答えは「予算を積む」——実測（RealEndTerrainTest）では
+                // 同じ地形で区間分割の方が倍のノードを使ったうえに遅く、単発探索に予算を与える方が
+                // 確実だった。深い予算を挟まずここへ来ると、区間分割も同じ予算不足で失敗する
+                boolean needsDeepRetry = !result.complete() && budgetExhausted && !finalCoarseGuided
+                        && !finalDeepBudget && retryTargetInBox;
                 boolean needsCoarseGuideRetry = !result.complete() && budgetExhausted && !finalCoarseGuided
-                        && retryTargetInBox;
+                        && finalDeepBudget && retryTargetInBox;
                 // 成功した・広げても無駄だったときは通常マージンに戻す。pendingWideRetryはこの書き込みの
                 // 後に立てること（クライアントスレッドはpendingWideRetryを見てからwideSearchNeededTargetを読む）
                 wideSearchNeededTarget = needsWideRetry ? finalTarget : null;
                 pendingWideRetry = needsWideRetry && !finalWideSearch;
                 coarseGuideNeededTarget = needsCoarseGuideRetry ? finalTarget : null;
                 pendingCoarseGuideRetry = needsCoarseGuideRetry;
+                pendingDeepRetry = needsDeepRetry;
                 if (needsCoarseGuideRetry && LOGGER.isDebugEnabled()) {
                     // 予約を立てただけの行はdebugに留める。実際に何が起きたかは1秒後の
                     // 「粗い経由地チェーンで再挑戦しました」が目標ごと記録している——予算切れが
@@ -1425,12 +1608,231 @@ public final class PathfindingState {
                 // 再挑戦の予約が残っている間はまだ手を尽くしていない。詰みの判定は、この探索に
                 // 対してできることを全部やり終えてからにする（さもないと、エスカレーションで
                 // 解決するはずの状況を先に詰みと決めつけてその再挑戦ごと止めてしまう）
-                if (!pendingWideRetry && !pendingCoarseGuideRetry) {
+                if (!pendingWideRetry && !pendingCoarseGuideRetry && !pendingDeepRetry) {
                     noteSearchOutcome(start, endOf(result, start), result);
                 }
             }
+            if (!result.complete() && worthKeeping != null && displayed == worthKeeping) {
+                // 完走した経路は「ここからそこまで実際に歩ける」という証明で、未到達の結果は
+                // その証明を持たない。証明を持たないもので上書きしない（pathWorthKeeping参照）
+                LOGGER.info("XaeroNav: 完走した経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {})",
+                        worthKeeping.result().steps().size(), result.steps().size(), result.termination());
+                return;
+            }
+            // 新しい経路に対する合流可否は測り直しになる。前の経路で失敗した記録は持ち越さない
+            spliceBlockedFrom = null;
             displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
         });
+    }
+
+    /**
+     * いま出ている経路を、この再計算の結果が<b>未到達だったときに</b>残してよいか。残すなら経路、
+     * 残せないなら{@code null}。
+     *
+     * <p>完走した経路は「ここからそこまで実際に歩ける」という証明で、未到達の経路はその証明を
+     * 持たない。証明を持たない結果で証明を捨てると取り返しがつかない——詳細探索のゴールは
+     * 再計算のたびに少し揺れる（{@link #resolveWaypointOnSurface}・プレイヤー位置からの補間）ので、
+     * 同じ経路をもう一度引き当てられる保証はどこにもない。実機（エンドの島渡り）では完走した
+     * 128ステップ・橋21本の経路が3秒後に未到達の93ステップへ置き換わり、以後78→39→15と
+     * 単調に劣化した。しかも{@code trimUnfinishedPlacements}が未到達の経路から末尾の設置を
+     * 落とすので、置き換わった先は橋が1本も無い切り株になる。
+     *
+     * <p>残せるのは証明がいまも通用するときだけ。足元がまだ経路の帯の中にあること（逸脱したなら
+     * その経路はもう自分の経路ではない）、まだ終端に着いていないこと（着いているなら必要なのは
+     * 次の区間で、残しても案内は止まったまま）、世界の側も変わっていないこと。中継区間
+     * （{@code TO_SURFACE}）はゴールの意味が違うので対象外。
+     */
+    private DisplayedPath pathWorthKeeping(Level level, Player player) {
+        DisplayedPath shown = displayed;
+        if (shown == null || shown.mode() == PathMode.TO_SURFACE) {
+            return null;
+        }
+        PathResult result = shown.result();
+        if (!result.complete() || result.steps().isEmpty()) {
+            return null;
+        }
+        // 完走した経路を手放す判断は、この経路が二度と引き当てられない可能性を伴う。手放した
+        // 理由が残っていないと、案内が悪くなったときに「どのトリガーが壊したのか」を実機ログから
+        // 特定できない（再計算そのものの理由はどこにも出ていない）。頻度は完走した経路を
+        // 持っている間の再計算だけなので、debugゲート無しでも並ばない
+        boolean tracked = PathProgress.INSTANCE.tracking(result);
+        double offPath = tracked ? PathProgress.INSTANCE.distance() : distanceToPath(result, player.position());
+        String dropped = null;
+        // 「地形が変わった」は内訳まで出す。どのステップの何が不成立になったのかが分からないと、
+        // 渡り切った直後に完走ルートが手放されるような症状の原因を追えない
+        String validationFailure = null;
+        if (offPath > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
+            dropped = "逸脱";
+        } else if (reachedPathEnd(player, shown)) {
+            dropped = "終端に到着";
+        } else if ((validationFailure = PathValidator.firstFailure(level, result)) != null) {
+            dropped = "地形が変わった";
+        }
+        if (dropped != null) {
+            LOGGER.info("XaeroNav: 完走した経路を手放しました"
+                            + " (理由={}, {}ステップ, 経路までの距離={}, 対応づけ={}, 現在地={}, 経路の先頭={}{})",
+                    dropped, result.steps().size(), Math.round(offPath), tracked,
+                    player.blockPosition().toShortString(), result.steps().get(0).pos().toShortString(),
+                    validationFailure == null ? "" : ", " + validationFailure);
+            return null;
+        }
+        return shown;
+    }
+
+    /**
+     * この経路までの最短距離（ブロック）。{@link PathProgress}が<b>この経路に対して</b>測った値を
+     * 持っていないときの代わりに使う。
+     *
+     * <p>{@link PathProgress}が窓で探すのに対してこちらは全ステップを見る。窓は「経路のどこを
+     * 歩いているか」を追うためのもので、対応づけを持っていない経路には最初から適用できない。
+     */
+    private static double distanceToPath(PathResult result, Vec3 position) {
+        List<PathStep> steps = result.steps();
+        return distanceTo(position, steps.get(nearestStepIndex(steps, position)).pos());
+    }
+
+    /** この位置に最も近いステップの添字。 */
+    private static int nearestStepIndex(List<PathStep> steps, Vec3 position) {
+        return nearestStepIndex(steps, position, false);
+    }
+
+    /**
+     * この位置に最も近いステップの添字。{@code joinableOnly}なら、<b>いま実際に立てるステップ</b>
+     * だけを見る（無ければ{@code -1}）。
+     *
+     * <p>橋のステップは「これから置くブロックの上」なので、その足元はまだ空気（奈落・溶岩）。
+     * そこを合流先にすると{@code StanceFinder}が立てる場所へ寄せ直し、合流区間は経路と別の
+     * セルで終わって繋がらない。合流できるのは実在する床の上だけ。
+     */
+    private static int nearestStepIndex(List<PathStep> steps, Vec3 position, boolean joinableOnly) {
+        int best = -1;
+        double bestDistance = Double.MAX_VALUE;
+        for (int i = 0; i < steps.size(); i++) {
+            if (joinableOnly && steps.get(i).bridging()) {
+                continue;
+            }
+            double distance = distanceTo(position, steps.get(i).pos());
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = i;
+            }
+        }
+        return joinableOnly ? best : Math.max(best, 0);
+    }
+
+    /**
+     * 経路の帯から外れた。<b>経路そのものが生きているなら、全部引き直さずに、いまの位置から
+     * その経路へ合流する区間だけを探す。</b>投げたなら{@code true}（結果は非同期で反映される）。
+     *
+     * <p>引き直しはこの経路を捨てることを意味する。詳細探索のゴールは再計算のたびに揺れるので、
+     * 同じ経路をもう一度引き当てられる保証は無い——実機（エンドの島渡り）では、橋47本を含む
+     * 110ステップの完走ルートが逸脱のたびに捨てられ、次の探索は30万ノードを焼いて未到達に
+     * 終わっていた。合流区間は{@link #SPLICE_MAX_JOIN_BLOCKS}以内の1点が相手なので桁違いに安く、
+     * 成功すれば高い経路（橋・掘削）をそのまま持ち越せる。
+     *
+     * <p>合流点は<b>最も近いステップ</b>にして、その手前は捨てる。歩いて先へ進んでいた場合も
+     * これで正しく前へ詰む（通り過ぎた区間が残らない）。合流に失敗したときは
+     * {@link #SPLICE_RETRY_MOVE_BLOCKS}ぶん歩くまで再挑戦せず、呼び出し側の引き直しに任せる。
+     */
+    private boolean splicePath(Level level, Player player, DisplayedPath shown) {
+        if (shown.mode() == PathMode.TO_SURFACE) {
+            return false;
+        }
+        PathResult result = shown.result();
+        if (!result.complete() || result.steps().isEmpty()) {
+            // 未到達の経路は「その先へ行ける」という保証を持たない。合流しても得るものが無い
+            return false;
+        }
+        BlockPos currentGoal = this.goal;
+        BlockPos playerAt = player.blockPosition();
+        BlockPos blocked = spliceBlockedFrom;
+        if (currentGoal == null
+                || (blocked != null
+                        && blocked.distSqr(playerAt) < SPLICE_RETRY_MOVE_BLOCKS * SPLICE_RETRY_MOVE_BLOCKS)) {
+            return false;
+        }
+        int joinIndex = nearestStepIndex(result.steps(), player.position(), true);
+        if (joinIndex < 0) {
+            return false;
+        }
+        BlockPos joinPos = result.steps().get(joinIndex).pos();
+        if (distanceTo(player.position(), joinPos) > SPLICE_MAX_JOIN_BLOCKS) {
+            return false;
+        }
+        // ここで無効と分かって黙ってfalseを返すと、呼び出し側はrecalculate()（全部引き直し）へ
+        // 落ちるだけで、なぜ合流を諦めたのかがどこにも残らない
+        String validationFailure = PathValidator.firstFailure(level, result);
+        if (validationFailure != null) {
+            LOGGER.info("XaeroNav: 経路上のセルが変化していたため合流を諦めました ({})", validationFailure);
+            return false;
+        }
+
+        int renderRadius = Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
+        SearchBounds bounds = SearchBounds.around(level, playerAt, joinPos,
+                XaeroNavConfig.INSTANCE.searchHorizontalMargin(), verticalSearchMargin(level, false),
+                renderRadius);
+        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
+        SearchLimits full = XaeroNavConfig.INSTANCE.searchLimits();
+        SearchLimits limits = new SearchLimits(Math.min(full.maxExpandedNodes(), SPLICE_MAX_EXPANDED_NODES),
+                full.timeLimitMillis(), full.heuristicWeight());
+
+        long myGeneration = generation.incrementAndGet();
+        computing = true;
+        // 合流点は実際に歩けるセル（この経路が通っている）なので、半径を与えずぴったり狙う。
+        // 半径で緩めると別のセルに着いてしまい、そこから先の区間が繋がらない
+        executor.submit(view, playerAt, joinPos, limits, XaeroNavConfig.INSTANCE.costToGoGuideEnabled(), 0)
+                .whenComplete((splice, error) -> {
+            if (generation.get() != myGeneration) {
+                return;
+            }
+            computing = false;
+            if (error != null) {
+                if (!(error instanceof CancellationException)) {
+                    LOGGER.error("XaeroNav: 経路への合流に失敗しました", error);
+                }
+                return;
+            }
+            if (displayed != shown || !currentGoal.equals(goal)) {
+                return;
+            }
+            if (!splice.complete() || splice.steps().isEmpty()) {
+                spliceBlockedFrom = playerAt;
+                LOGGER.info("XaeroNav: 経路へ合流できませんでした ({}, 合流点={}, 展開ノード数={})",
+                        splice.termination(), joinPos.toShortString(), splice.expandedNodes());
+                return;
+            }
+            spliceBlockedFrom = null;
+            displayed = spliced(shown, splice, joinIndex);
+            LOGGER.info("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
+                    splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
+        });
+        return true;
+    }
+
+    /**
+     * 合流区間と、合流点から先の既存の経路を1本に繋ぐ。合流点より手前の区間は捨てる。
+     *
+     * <p>打ち切り理由は<b>元の経路のもの</b>を引き継ぐ。合流区間は合流点へ届いた（そうでなければ
+     * 繋がない）ので、この経路が狙った先まで届くかどうかを決めているのは元の経路の側。
+     */
+    private static DisplayedPath spliced(DisplayedPath shown, PathResult splice, int joinIndex) {
+        List<PathStep> steps = shown.result().steps();
+        List<PathStep> merged = new ArrayList<>(splice.steps());
+        merged.addAll(steps.subList(joinIndex + 1, steps.size()));
+        // 合流点より手前が消えたぶんだけ、区間の境目の添字がずれる
+        int shift = splice.steps().size() - (joinIndex + 1);
+        List<PathSegment> segments = new ArrayList<>();
+        for (PathSegment segment : shown.segments()) {
+            if (segment.endStep() > joinIndex) {
+                segments.add(new PathSegment(segment.endStep() + shift, segment.waypointIndex()));
+            }
+        }
+        if (segments.isEmpty()) {
+            segments.add(new PathSegment(merged.size() - 1, shown.waypointIndex()));
+        }
+        PathResult combined = new PathResult(List.copyOf(merged), shown.result().termination(),
+                splice.expandedNodes(), splice.distinctNodes());
+        return new DisplayedPath(combined, shown.mode(), shown.waypointIndex(), List.copyOf(segments));
     }
 
     /**
@@ -1527,17 +1929,21 @@ public final class PathfindingState {
                 blockExtend(from, playerAt);
                 return;
             }
-            // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
-            // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
-            displayed = append(current, result, newWaypointIndex, reachesGoal);
             if (!result.complete()
                     && horizontalDistance(from, tail.get(tail.size() - 1).pos()) < MIN_EXTEND_PROGRESS_BLOCKS) {
                 // 予算切れの末端からは伸ばしてよいが、ほとんど前へ出ていないならそれ以上は無駄。
                 // selectFallbackは「始点から5ブロック以上離れた最良点」を返すので、行き止まりの
                 // 袋小路でも毎回わずかに進んだ経路が返る——歯止めが無いと数ブロックずつ這い続ける
+                //
+                // 繋がずに捨てる。completeは末尾の区間のものなので、這うだけの尻尾を繋ぐと
+                // 完走していた経路まで未到達扱いになり、「打ち切られた末端に近づいたら引き直す」に
+                // 落ちて経路全体が作り直される。数ブロックの得のために証明済みの経路を失う
                 blockExtend(from, playerAt);
                 return;
             }
+            // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
+            // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
+            displayed = append(current, result, newWaypointIndex, reachesGoal);
             extendBlockedAt = null;
             extendBlockedFrom = null;
         });
@@ -1779,7 +2185,17 @@ public final class PathfindingState {
         // （lastAimedWaypoint）。継ぎ足し（始点＝経路の末端）は末端の区間が向かっている添字を
         // 下限にする——両者で同じフィールドを共有すると、末端が数区間先まで進んだあとの歯止めが
         // プレイヤー基準の選定を遠い添字へ固定してしまい、今いる場所に合った点を選び直せなくなる
-        BlockPos aimedBefore = playerAnchored ? lastAimedWaypoint : null;
+        //
+        // <b>ただし歯止めを掛けるのは前へ進めている間だけ。</b>行き詰まっているなら、後ろへ
+        // 回り込む遠回りこそが答えでありうる——奈落を渡れる幅の狭い場所が背後にある地形
+        // （ジ・エンドの島）では、いま向いている点より手前の中間目標を選び直せないと解が消える。
+        // lastAimedWaypointはclear()まで単調にしか進まないので、一度掴むとその手前は二度と
+        // 選べない: 改善しえない値を歯止めに使うと永久に外れない、というnoteSearchOutcomeで
+        // 踏んだのと同じ形（[[xaeronav-architecture]]の「ラッチ」の項）。
+        // 詰みかけているときだけ外すので、通常の前進中に「前進する目標と背後の目標が交互に出る」
+        // 振動（この歯止めを入れた理由そのもの）は起きない
+        boolean strandedHere = stalledSearches > 0;
+        BlockPos aimedBefore = playerAnchored && !strandedHere ? lastAimedWaypoint : null;
         for (int i = 0; i < waypoints.size(); i++) {
             BlockPos waypoint = waypoints.get(i);
             if (waypoint.equals(aimedBefore)) {

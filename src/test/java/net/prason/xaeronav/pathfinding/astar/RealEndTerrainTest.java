@@ -1,0 +1,145 @@
+package net.prason.xaeronav.pathfinding.astar;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.GZIPInputStream;
+
+import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.world.FakeCells;
+import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import org.junit.jupiter.api.Test;
+
+/**
+ * <b>実機のワールド保存データそのもの</b>で探索を再現する。
+ *
+ * <p>ジ・エンドの島渡りが「ルートが全然見つからない」まま4回の推測を外したので、
+ * {@code run/saves/test/DIM1/region/r.2.2.mca}をパースして固体ブロックの列を書き出したものを
+ * 読み込む（{@code src/test/resources/end_terrain_columns.txt}）。実機ログに出ていた始点・
+ * 中間目標をそのまま使うので、<b>実機で失敗している探索と同じ問題</b>を手元で回せる。
+ *
+ * <p>エンドストーンは掘れるので{@link FakeCells#STONE}で表す。ここで測りたいのは
+ * 「この地形でその予算・上限なら解けるのか」であって、ブロックの種類の再現度ではない。
+ */
+class RealEndTerrainTest {
+
+    /** 実機ログ(08:24)の失敗した探索の始点。 */
+    private static final BlockPos START = new BlockPos(1233, 57, 1142);
+    /** 同じログの区間1の目標（直行ルート）。 */
+    private static final BlockPos DIRECT_GOAL = new BlockPos(1288, 57, 1080);
+    /** 成功した回が経由した東の飛び石。 */
+    private static final BlockPos STEPPING_STONE = new BlockPos(1288, 63, 1144);
+
+    private static FakeCells terrain(int maxBridgeRun) throws IOException {
+        try (InputStream in = RealEndTerrainTest.class.getResourceAsStream("/end_terrain_columns.txt.gz")) {
+            assertNotNull(in, "地形データが見つからない");
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(new GZIPInputStream(in), StandardCharsets.UTF_8));
+            String[] header = reader.readLine().trim().split(" ");
+            SearchBounds bounds = new SearchBounds(
+                    Integer.parseInt(header[0]), Integer.parseInt(header[1]), Integer.parseInt(header[2]),
+                    Integer.parseInt(header[3]), Integer.parseInt(header[4]), Integer.parseInt(header[5]));
+            // 実機の条件に合わせる。落下ダメージの許容は体力満タンの1/3＝6ポイント
+            // （FakeCellsの既定0は「一切落ちない」で、低い島へ降りる経路が全部消える）
+            FakeCells cells = FakeCells.empty(bounds)
+                    .canPlaceBlocks(true)
+                    .maxBridgeRunBlocks(maxBridgeRun)
+                    .maxFallDamagePoints(6);
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isEmpty()) {
+                    continue;
+                }
+                String[] parts = line.split(" ");
+                int x = Integer.parseInt(parts[0]);
+                int z = Integer.parseInt(parts[1]);
+                for (int i = 2; i < parts.length; i++) {
+                    int comma = parts[i].indexOf(',');
+                    int from = Integer.parseInt(parts[i].substring(0, comma));
+                    int to = Integer.parseInt(parts[i].substring(comma + 1));
+                    for (int y = from; y <= to; y++) {
+                        cells.set(x, y, z, FakeCells.STONE);
+                    }
+                }
+            }
+            return cells;
+        }
+    }
+
+    /**
+     * <b>これが直っていることの本体。</b>実機の既定予算(100,000ノード)ではこの地形の奈落を
+     * 渡る経路は出ず、6倍(600,000)なら出る——{@code PathfindingState#DEEP_SEARCH_BUDGET_FACTOR}が
+     * その6倍で、通常の予算で解けなかった場所にだけ掛かる。
+     */
+    @Test
+    void crossesTheVoidOnlyWithTheDeepBudget() throws IOException {
+        PathResult normal = search(START, DIRECT_GOAL, 96, 100_000, 30_000);
+        assertFalse(normal.complete(),
+                "既定の予算では渡れない（この前提が崩れたら深い予算は不要になっている）: " + normal.termination());
+
+        PathResult deep = search(START, DIRECT_GOAL, 96, 100_000 * 6, 30_000);
+        assertTrue(deep.complete(), "6倍の予算なら渡れるはず: " + deep.termination());
+        assertTrue(longestBridgeRun(deep) > 30,
+                "上限30を超える橋が要る地形（だから上限も上げてある）: " + longestBridgeRun(deep));
+    }
+
+    /**
+     * <b>効いているのは橋の上限ではなく予算だ</b>ということの固定。
+     *
+     * <p>上限を30(旧既定)にしても96にしても無制限にしても、必要な展開ノード数は51〜53万で
+     * ほとんど変わらない（上限で詰んだら緩和の梯子が開けるため）。上限をいじって直そうとすると
+     * ここで空振りする——実際にこのセッションで一度その回り道をした。
+     */
+    /**
+     * <b>橋の上限を96にしてある理由。</b>上限30でも（緩和の梯子が開くので）同じ経路自体は
+     * 見つかるが、最初の探索が丸ごと無駄になるぶん倍以上の時間が掛かる。実機は測定環境より
+     * 2〜3倍遅く、深い予算の枠（{@code DEEP_SEARCH_MAX_MILLIS}=15秒）に収まらなくなる。
+     *
+     * <p>ノード数で見ると上限30の方がむしろ少ない（514,460 vs 532,724）ので、
+     * <b>展開ノード数だけを見て「上限は関係ない」と判断しないこと</b>——見るべきは所要時間。
+     */
+    @Test
+    void aTightBridgeCapWastesTheFirstSearch() throws IOException {
+        long tightMillis = timeOf(30);
+        long looseMillis = timeOf(96);
+
+        assertTrue(looseMillis * 2 <= tightMillis,
+                "上限96は上限30の半分以下の時間で解けるはず: " + looseMillis + "ms vs " + tightMillis + "ms");
+    }
+
+    private static long timeOf(int cap) throws IOException {
+        long began = System.currentTimeMillis();
+        PathResult result = search(START, DIRECT_GOAL, cap, 600_000, 30_000);
+        long elapsed = System.currentTimeMillis() - began;
+        assertTrue(result.complete(), "上限" + cap + "でも経路自体は見つかる: " + result.termination());
+        return elapsed;
+    }
+
+    private static PathResult search(BlockPos start, BlockPos goal, int cap, int nodes, long millis)
+            throws IOException {
+        FakeCells cells = terrain(cap);
+        SearchLimits limits = new SearchLimits(nodes, millis, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
+        try {
+            return new net.prason.xaeronav.pathfinding.async.PathfindingExecutor()
+                    .submit(cells, start, goal, limits, true, 0).get();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static int longestBridgeRun(PathResult result) {
+        int longest = 0;
+        int run = 0;
+        for (PathStep step : result.steps()) {
+            run = step.bridging() ? run + 1 : 0;
+            longest = Math.max(longest, run);
+        }
+        return longest;
+    }
+}
