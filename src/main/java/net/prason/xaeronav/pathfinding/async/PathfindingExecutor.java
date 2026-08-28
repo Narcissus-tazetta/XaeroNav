@@ -47,13 +47,6 @@ public final class PathfindingExecutor {
     });
 
     /**
-     * {@link #submitCoarseGuided}の区間ごとの探索時間上限（ミリ秒）。層2の廊下
-     * （{@code CorridorLegSolver.LEG_TIME_LIMIT_MILLIS=300}）より長めにしてある——こちらは
-     * 掘削込みのフル解像度探索でノード単価が重いため。実機での調整が前提の初期値。
-     */
-    private static final long COARSE_GUIDED_LEG_TIME_LIMIT_MILLIS = 800;
-
-    /**
      * 粗い経由地チェーンの中間の経由地を、ゴールとして許す半径（ブロック）。
      *
      * <p>経由地は1セル＝1チャンク(16ブロック)の代表点なので、実際の通り道はその中心から
@@ -61,6 +54,21 @@ public final class PathfindingExecutor {
      * 半径はセルの半幅に合わせる。
      */
     private static final int COARSE_LEG_GOAL_RADIUS_BLOCKS = 8;
+
+    /**
+     * 区間ごとのコストガイドを組む地図の水平マージン（ブロック）。区間の始点・終点を含めば十分——
+     * ガイドは幾何学的なHeuristicとのmaxを取って使うだけの補助（{@link CostToGo}のdocを参照）で、
+     * 遠くまで見通す必要は無い。
+     *
+     * <p><b>この値を大きくしない。</b>{@link CoarseRouter#costToGo}は箱の面積に比例した配列を
+     * 毎回新規確保してDijkstraを回す（{@code chunksX*chunksZ*MAX_FLOORS}状態）。区間分割全体の
+     * 経路計画（{@link CoarseRouter#findRoute}、1回だけ）に使う広い箱をそのままここへ流用すると、
+     * 区間の数だけ広い箱ぶんのDijkstraを払うことになる。実機（ジ・エンドの崖ぎわ、2026-08-28）で
+     * 箱を4倍(64→256)に広げたところ、1区間の探索が0.7〜0.9秒から0.95〜1.15秒に伸び、
+     * `renderRadius`いっぱいまで広げると1.4〜1.6秒まで伸びた——チェーン全体の2秒予算を
+     * 区間1つで食い潰し、上限緩和の段が動く時間が無くなった。
+     */
+    private static final int COARSE_LEG_GUIDE_MARGIN_BLOCKS = 64;
 
     /**
      * 上限で詰んだときに緩める倍率。最後は{@link RunCaps#NONE}（無制限）で締める。
@@ -203,8 +211,13 @@ public final class PathfindingExecutor {
         // 粗い地図が空のまま「経路あり」になるのが最悪の失敗（全セルNO_DATAは通行可能なので、
         // 溶岩を無視した直線が引けてしまう）。知られたセル数を出しておかないと、
         // 「区間分割が下手」なのか「そもそも地形が見えていない」のかを切り分けられない
-        LOGGER.info("XaeroNav: 粗い経由地チェーンの地図 (既知セル={}/{}, 中間目標={}個, 溶岩={})",
-                coarseMap.knownCells(), coarseMap.totalCells(), route.waypoints().size(), bridgePolicy);
+        // 種類の内訳（kindBreakdown）を併記する。既知セル数だけでは「奈落が奈落として見えて
+        // いるのか、そもそもデータが無いのか」を切り分けられない——NO_DATAはUNKNOWN_MULTIPLIER
+        // (1.6倍)でほぼ最安なので、奈落がそちらへ倒れていれば奈落を突っ切る線が安く見える理由になる。
+        // 実際にこの内訳で「奈落は正しく検出されている」を確認し、原因の候補を1つ潰した
+        LOGGER.info("XaeroNav: 粗い経由地チェーンの地図 (既知セル={}/{}, {}, 中間目標={}個, 溶岩={})",
+                coarseMap.knownCells(), coarseMap.totalCells(), coarseMap.kindBreakdown(),
+                route.waypoints().size(), bridgePolicy);
         if (route.waypoints().isEmpty()) {
             // 粗い側でも道が見つからない（孤立した地形等）。直接探索と同じ結果に留める
             CostToGo directCostToGo = costToGoGuideEnabled
@@ -221,11 +234,9 @@ public final class PathfindingExecutor {
         // 割ると、届くはずの区間が手前で切れるだけになる（実機で30000÷3区間=10000となり山岳地形の
         // 1区間目すら届かなかった）。
         //
-        // 代わりにチェーン全体を、単一探索1回分と同じ時間で縛る。区間ごとの上限しか無いと
-        // 区間数×COARSE_GUIDED_LEG_TIME_LIMIT_MILLISまで伸びてしまい、これの代替手段であるはずの
-        // チェーンだけが青天井になる
-        SearchLimits legLimits = new SearchLimits(limits.maxExpandedNodes(), COARSE_GUIDED_LEG_TIME_LIMIT_MILLIS,
-                limits.heuristicWeight());
+        // 代わりにチェーン全体を、単一探索1回分と同じ時間で縛る。区間ごとに固定の上限を置くと
+        // 区間数ぶんまで伸びてしまい、これの代替手段であるはずのチェーンだけが青天井になる。
+        // その中で各区間が残り時間を山分けする（下のlegShare）
         long chainDeadline = System.currentTimeMillis() + limits.timeLimitMillis();
 
         List<PathStep> steps = new ArrayList<>();
@@ -242,23 +253,53 @@ public final class PathfindingExecutor {
                 termination = PathResult.Termination.TIME_LIMIT;
                 break;
             }
-            SearchLimits thisLegLimits = remainingMillis >= COARSE_GUIDED_LEG_TIME_LIMIT_MILLIS
-                    ? legLimits
-                    : new SearchLimits(legLimits.maxExpandedNodes(), remainingMillis, legLimits.heuristicWeight());
+            // 区間の持ち時間は<b>残りを山分けする</b>。1つの区間がチェーンの予算を使い切ると、
+            // 後続の区間が一度も試されない——実機（ジ・エンド、2026-08-28）では区間1が2秒中
+            // 1.4〜1.6秒を使って失敗し、区間2・3が時間切れで潰れるのが失敗時の定型だった。
+            // 一方で実際に成功した回は「区間2が100,000ノードで失敗 → 区間3を試したら27,340ノードで
+            // 到達」という形で、<b>後続を必ず試せること自体が成功率を決めている</b>
+            // （届かなかった経由地の次を同じ地点から狙う、という下のフォールバックが本体）。
+            //
+            // 固定の上限（区間ごと何ms）は使わない。呼び出し側の予算が変われば1区間に割ける時間も
+            // 変わるべきで、固定値だと予算を増やしても区間が使えないまま余る。使い切らなかった
+            // ぶんは次の区間へ自然に回る（remainingMillisが減らないため）
+            int legsLeft = rawLegGoals.size() - i;
+            long legShare = Math.max(1, remainingMillis / legsLeft);
+            // 持ち時間の半分は上限緩和のために残す。最初の探索が全部使うと緩和が動けず、
+            // 奈落越えに必要な「橋の上限を緩めた探索」へ一度も到達しない
+            long legDeadline = System.currentTimeMillis() + legShare;
+            SearchLimits thisLegLimits = new SearchLimits(limits.maxExpandedNodes(),
+                    Math.max(1, legShare / 2), limits.heuristicWeight());
             BlockPos legGoal = StanceFinder.resolveGoal(view, rawLegGoals.get(i));
             BlockPos currentLegStart = legStart;
             // 中間の経由地はチャンク平均から作った代表点でしかない。座標ぴったりへ寄せる意味が
             // 無いどころか、そのための遠回りが生まれる。最後の区間だけは呼び出し側の指定に従う
             boolean lastLegGoal = i == rawLegGoals.size() - 1;
             int legRadius = lastLegGoal ? goalRadius : COARSE_LEG_GOAL_RADIUS_BLOCKS;
-            // 区間ごとのゴールに向けたガイド。同じcoarseMapを使い回すので逆向きDijkstraだけを
-            // ゴールの数だけ繰り返す（地図の読み取りは1回で済んでいる）
+            // 区間ごとのゴールに向けたガイド。区間分割の計画（route）には広い箱のcoarseMapが
+            // 要るが、ガイドの計算はその区間の始点・終点周りだけで足りる——広い箱をそのまま
+            // 使い回すとDijkstraの状態数が箱の面積に比例して膨らみ、区間の数だけ払うことになる
+            // （COARSE_LEG_GUIDE_MARGIN_BLOCKS参照）。区間専用の狭い地図を別に組み直す
             CostToGo legCostToGo = costToGoGuideEnabled
-                    ? CoarseRouter.costToGo(coarseMap, legGoal, false, bridgePolicy) : null;
+                    ? CoarseRouter.costToGo(legCoarseMap(view, currentLegStart, legGoal, bounds, cancelled),
+                            legGoal, false, bridgePolicy)
+                    : null;
             // 区間の境目で橋の連続長が0に戻らないよう、直前までの末尾の連続長を引き継ぐ
             int carriedBridgeRun = trailingBridgeRun(steps);
-            PathResult legResult = search(view, thisLegLimits, cancelled, legCostToGo,
+            long legBegan = System.currentTimeMillis();
+            PathResult legResult = search(view, thisLegLimits, legDeadline, cancelled, legCostToGo,
                     (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c, carriedBridgeRun, legRadius));
+            // 区間ごとに出す。チェーン全体の合算だけでは「どの区間で詰まったか」「始点から
+            // 動けていないのか、最後の区間だけ届かないのか」が切り分けられない——実機の
+            // 「展開30万・ステップ数2」がどちらなのかを、合算値からは判断できなかった。
+            // チェーンが走るのは通常探索が失敗した後だけとはいえ、1回で区間数ぶんの行が出るので
+            // debugに留める（下の集計行はINFOのまま残る）
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("XaeroNav: 区間{}/{} {} → {} (到達={}, {}, 展開ノード数={}, ステップ数={}, {}ms)",
+                        i + 1, rawLegGoals.size(), currentLegStart.toShortString(), legGoal.toShortString(),
+                        legResult.complete(), legResult.termination(), legResult.expandedNodes(),
+                        legResult.steps().size(), System.currentTimeMillis() - legBegan);
+            }
             totalExpanded += legResult.expandedNodes();
             totalDistinct += legResult.distinctNodes();
             boolean lastLeg = i == rawLegGoals.size() - 1;
@@ -289,6 +330,23 @@ public final class PathfindingExecutor {
                 totalExpanded, totalDistinct);
     }
 
+    /**
+     * 区間専用の狭いコース地図を組む。{@link #COARSE_LEG_GUIDE_MARGIN_BLOCKS}参照。
+     *
+     * <p>チャンクの読み取り自体は{@code view}（区間分割全体で共有する広いChunkView）を使い回す
+     * ので追加の読み込みは発生しない——{@link LiveCoarseSampler#sample}に渡す{@code bounds}を
+     * 狭くするだけで、走査する列の数そのものを絞る。
+     */
+    private static CoarseMap legCoarseMap(CellSource view, BlockPos legStart, BlockPos legGoal,
+                                           SearchBounds outer, BooleanSupplier cancelled) {
+        int minX = Math.max(outer.minX(), Math.min(legStart.getX(), legGoal.getX()) - COARSE_LEG_GUIDE_MARGIN_BLOCKS);
+        int maxX = Math.min(outer.maxX(), Math.max(legStart.getX(), legGoal.getX()) + COARSE_LEG_GUIDE_MARGIN_BLOCKS);
+        int minZ = Math.max(outer.minZ(), Math.min(legStart.getZ(), legGoal.getZ()) - COARSE_LEG_GUIDE_MARGIN_BLOCKS);
+        int maxZ = Math.min(outer.maxZ(), Math.max(legStart.getZ(), legGoal.getZ()) + COARSE_LEG_GUIDE_MARGIN_BLOCKS);
+        SearchBounds legBounds = new SearchBounds(minX, outer.minY(), minZ, maxX, outer.maxY(), maxZ);
+        return LiveCoarseSampler.sample(view, legBounds, legStart.getY(), cancelled);
+    }
+
     /** 経路の末尾で連続している橋のブロック数。 */
     private static int trailingBridgeRun(List<PathStep> steps) {
         int run = 0;
@@ -304,24 +362,50 @@ public final class PathfindingExecutor {
 
     private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled,
                                      CostToGo costToGo, SearchCall run) {
-        // 段階的な緩和も含めて、この呼び出し全体を limits の時間上限1回ぶんで縛るための期限。
-        // 段階ごとに期限を取り直すと総時間が段数ぶん膨らみ、呼び出し側が立てた予算
-        // （solveCoarseGuided の chainDeadline など）が意味を失う
-        long deadline = System.currentTimeMillis() + limits.timeLimitMillis();
+        return search(view, limits, System.currentTimeMillis() + limits.timeLimitMillis(), cancelled, costToGo, run);
+    }
+
+    /**
+     * 上限緩和の段に使ってよい期限（絶対時刻）を明示する版。
+     *
+     * <p>緩和には<b>必ず出番を残す</b>。最初の探索と同じ期限を渡すと、最初の探索がそれを使い切った
+     * 時点で緩和が動けない——実機（ジ・エンドの島渡り）で走る探索は全部{@link #solveCoarseGuided}の
+     * 区間探索なので、緩和は事実上一度も動けていなかった（探索の総時間だけが伸びて結果は変わらず）。
+     * 呼び出し側は最初の探索へ持ち時間の半分だけを渡し、この期限には全体を渡すことで
+     * 「最初の探索の取り分が余れば緩和がそのぶん長く走る」形にしてある。
+     */
+    private static PathResult search(CellSource view, SearchLimits limits, long looseningDeadline,
+                                     BooleanSupplier cancelled, CostToGo costToGo, SearchCall run) {
         AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
         PathResult result = run.search(pathfinder, cancelled);
-        if (result.termination() == PathResult.Termination.EXHAUSTED
-                && (pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()
-                        || pathfinder.fallDamageCapBlocked())) {
-            // 範囲内のオープンセットが尽きた＝道が一本も無い。橋の長さや潜水の長さの上限で移動を
-            // 捨てているので、それが原因かもしれない。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、
-            // という優先順で上限を段階的に緩めて試す。片方だけ緩めても、もう片方で詰んでいれば同じ
-            // 結果をもう一度払うだけになるので両方まとめて緩める。
-            // 予算切れ（NODE_BUDGET/TIME_LIMIT）では試さない——そちらは上限とは無関係に資源が
-            // 足りていないだけで、同じ探索をもう一度払うだけになる
+        boolean capBlocked = pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()
+                || pathfinder.fallDamageCapBlocked();
+        if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED && capBlocked) {
+            // 上限のせいで捨てた移動がある。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、という
+            // 優先順で上限を段階的に緩めて試す。片方だけ緩めても、もう片方で詰んでいれば同じ結果を
+            // もう一度払うだけになるので両方まとめて緩める。
+            //
+            // <b>予算切れ（NODE_BUDGET/TIME_LIMIT）でも緩める。</b>以前はEXHAUSTED限定だったが、
+            // それだと「探索範囲の中の到達可能セルを全部舐め切れる」ほど狭い地形でしか緩和が
+            // 発動しない。実機（ジ・エンドの崖ぎわ）で踏んだのはその裏返しで、島が大きいと
+            // 到達可能セルだけで予算を使い切り、45マスの奈落を上限30のまま渡ろうとして
+            // <b>一度も緩まないまま失敗し続けた</b>（合成地形: 島半径60まではEXHAUSTED＝緩和あり、
+            // 半径80でNODE_BUDGET＝緩和なし）。同じ島の途中まで橋を架けた地点からだと到達可能
+            // セルが減ってEXHAUSTEDに届くので、「崖ぎわからだけ経路が出ない」という形で表れる。
+            //
+            // 資源不足を理由に同じ探索を払い直すわけではない——{@code capBlocked}は「上限が実際に
+            // 移動を捨てた」という探索自身の報告で、緩めた探索は別の探索になる。総時間は
+            // looseningDeadlineが縛るので、緩和の段は残り時間ぶんしか走らない
             for (Tolerances tolerances : loosenedTolerances(view)) {
-                long remainingMillis = deadline - System.currentTimeMillis();
+                long remainingMillis = looseningDeadline - System.currentTimeMillis();
                 if (remainingMillis <= 0) {
+                    // 上限は疑われた（capBlocked）が、緩和を1回も試す前に持ち時間が尽きた。
+                    // 上限ではなく予算の問題だという手がかりなので残す——ただし予算が厳しい地形では
+                    // 毎回出るのでdebugに留める（実機の既定ではdebugは出ない）
+                    if (LOGGER.isDebugEnabled()) {
+                        LOGGER.debug("XaeroNav: 上限を疑ったが緩和の時間が残っていなかった ({})",
+                                result.termination());
+                    }
                     break;
                 }
                 SearchLimits stageLimits = new SearchLimits(limits.maxExpandedNodes(), remainingMillis,
