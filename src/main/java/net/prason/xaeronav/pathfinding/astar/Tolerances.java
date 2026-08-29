@@ -16,10 +16,18 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
  * @param maxFallDamagePoints 落下ダメージを何点(0.5ハート単位)まで許容してよいか。0なら安全高さを
  *                            超える落下を一切提示しない。<b>無制限は表現しない</b>——上限を外すと
  *                            即死する落下が案内に出るので、緩める側が体力から上限を決める
+ * @param allowRiskyJumps 底の無い空虚の上・外したら死ぬ落差の上の跳躍を許すか。既定では避け、
+ *                        <b>経路が一本も引けなかったときだけ</b>緩める側が開ける——ユーザーの意図は
+ *                        「回り込めるならそちらを通れ」であって「絶対に跳ぶな」ではない
+ *                        （C字の島の両端を跳ぶより外周を歩く方が安全、島と島の間なら跳ぶしかない）。
+ *                        {@code fallDamageToleranceEnabled}が詰み回避でも開かないのとは<b>意図的に違う</b>：
+ *                        あちらは「痛い思いをしたくない」という好みで、断られた以上は代案が要らない。
+ *                        こちらの代案は「経路が出ない」しかなく、跳ぶ区間には
+ *                        {@code PathRisk.VOID_BELOW}で必ず警告色が付く
  */
-public record Tolerances(RunCaps caps, int maxFallDamagePoints) {
+public record Tolerances(RunCaps caps, int maxFallDamagePoints, boolean allowRiskyJumps) {
 
     public static Tolerances of(CellSource view) {
-        return new Tolerances(RunCaps.of(view), view.maxFallDamagePoints());
+        return new Tolerances(RunCaps.of(view), view.maxFallDamagePoints(), !view.avoidRiskyJumps());
     }
 }

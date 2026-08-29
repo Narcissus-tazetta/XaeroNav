@@ -105,6 +105,24 @@ public interface CellSource {
     int maxFallDamagePoints();
 
     /**
+     * 跳躍を外して落ちたときに死ぬ落差（ブロック）。これ以上の落差の上は「外したら取り返しがつかない」。
+     * {@link #maxFallDamagePoints()}と同じく、探索を組み立てる時点のプレイヤーの体力から決まる。
+     *
+     * <p>あちらと役割が違う。{@code maxFallDamagePoints}は「<b>意図して</b>降りてよい高さ」で、
+     * 痛くても着地は約束されている。こちらは「跳んで<b>外した</b>ときにどうなるか」で、
+     * 経路としては着地する前提の跳躍にしか関わらない。
+     */
+    int fatalFallBlocks();
+
+    /**
+     * 底の無い空虚の上や、外したら死ぬ落差の上での跳躍を避けるか。
+     *
+     * <p>避ける設定でも、経路が一本も引けなかったときだけ緩和の梯子（{@code PathfindingExecutor}）が
+     * 開ける——ユーザーの意図は「回り込めるならそちらを通れ」であって「絶対に跳ぶな」ではない。
+     */
+    boolean avoidRiskyJumps();
+
+    /**
      * この探索で生成されうる下降移動のうち、1ブロックあたり最も安いもの（tick）。
      * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}の下降成分の下限に使う。
      *

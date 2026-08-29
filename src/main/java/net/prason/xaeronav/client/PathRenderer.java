@@ -329,6 +329,10 @@ public final class PathRenderer {
         // （横にずれているときに自分から線が生えるように見えてしまう）
         int matched = PathProgress.INSTANCE.indexFor(result);
         int first = geometry.firstSegmentFrom(matched);
+        // 掘る・置く枠も線と同じ進捗で切る。同じmatchedを使うのが要点で、別々に求めると
+        // 線と枠がずれる（掘る枠だけ背後に残る、など）
+        PathGeometry.Range nextDig = geometry.nextDig(matched);
+        PathGeometry.Range nextPlace = geometry.nextPlace(matched);
 
         VertexConsumer occludedQuads = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
         for (int i = first; i < segments; i++) {
@@ -338,26 +342,26 @@ public final class PathRenderer {
             drawSegment(occludedQuads, pose, geometry, i, OCCLUDED_TUBE_ALPHA, i == first ? matched : -1);
         }
         for (int i = 0; i < highlights; i++) {
-            if (!highlightVisible(geometry, i, camera, cullRadiusSq)) {
+            if (!highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
                 continue;
             }
             drawHighlightBox(occludedQuads, pose, geometry, i,
-                    isNextDig(geometry, i) ? NEXT_DIG_OCCLUDED_ALPHA : OCCLUDED_HIGHLIGHT_ALPHA);
+                    nextDig.contains(i) ? NEXT_DIG_OCCLUDED_ALPHA : OCCLUDED_HIGHLIGHT_ALPHA);
         }
         bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
 
         // 次に掘る場所と次に置く場所だけは枠も壁越しに出す。全部の枠を通すと掘り進む先・架け進む先の
         // 線が重なって読めなくなる。置く方をここに入れるのは、溶岩に架ける橋の設置先が定義上いつも
         // 不透明な流体の中にあり、深度テストの掛かった枠線では一切見えないため
-        if (geometry.nextDigTo > geometry.nextDigFrom || geometry.nextPlaceTo > geometry.nextPlaceFrom) {
+        if (!nextDig.isEmpty() || !nextPlace.isEmpty()) {
             VertexConsumer occludedLines = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_LINES);
-            for (int i = geometry.nextDigFrom; i < geometry.nextDigTo; i++) {
-                if (highlightVisible(geometry, i, camera, cullRadiusSq)) {
+            for (int i = nextDig.from(); i < nextDig.to(); i++) {
+                if (highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
                     drawHighlightOutline(occludedLines, pose, geometry, i);
                 }
             }
-            for (int i = geometry.nextPlaceFrom; i < geometry.nextPlaceTo; i++) {
-                if (highlightVisible(geometry, i, camera, cullRadiusSq)) {
+            for (int i = nextPlace.from(); i < nextPlace.to(); i++) {
+                if (highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
                     drawHighlightOutline(occludedLines, pose, geometry, i);
                 }
             }
@@ -373,19 +377,19 @@ public final class PathRenderer {
         }
         int visibleHighlights = 0;
         for (int i = 0; i < highlights; i++) {
-            if (!highlightVisible(geometry, i, camera, cullRadiusSq)) {
+            if (!highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
                 continue;
             }
             visibleHighlights++;
             drawHighlightBox(quadBuffer, pose, geometry, i,
-                    isNextDig(geometry, i) ? NEXT_DIG_FILL_ALPHA : HIGHLIGHT_FILL_ALPHA);
+                    nextDig.contains(i) ? NEXT_DIG_FILL_ALPHA : HIGHLIGHT_FILL_ALPHA);
         }
         bufferSource.endBatch(RenderType.debugQuads());
 
         if (visibleHighlights > 0) {
             VertexConsumer lineBuffer = bufferSource.getBuffer(RenderType.lines());
             for (int i = 0; i < highlights; i++) {
-                if (!highlightVisible(geometry, i, camera, cullRadiusSq)) {
+                if (!highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
                     continue;
                 }
                 drawHighlightOutline(lineBuffer, pose, geometry, i);
@@ -436,17 +440,24 @@ public final class PathRenderer {
                 geometry.highlightColor[index * 3 + 2]);
     }
 
-    private boolean isNextDig(PathGeometry geometry, int index) {
-        return index >= geometry.nextDigFrom && index < geometry.nextDigTo;
-    }
-
     private boolean segmentVisible(PathGeometry geometry, int index, Vec3 camera, double cullRadiusSq) {
         return distanceSqToSegment(camera,
                 geometry.pointX[index], geometry.pointY[index], geometry.pointZ[index],
                 geometry.pointX[index + 1], geometry.pointY[index + 1], geometry.pointZ[index + 1]) <= cullRadiusSq;
     }
 
-    private boolean highlightVisible(PathGeometry geometry, int index, Vec3 camera, double cullRadiusSq) {
+    /**
+     * @param matched いま居るステップ。これより手前のハイライトは描かない——線と同じ切り詰めで、
+     *                <b>これが無いと通り過ぎた枠が経路の引き直しまで残る</b>。設置予定地の枠は
+     *                {@link #placementPending}が「実際に置かれた」と見たときにしか消えないので、
+     *                置かずに脇を通り過ぎるとセルが{@code replaceable}のまま残り続ける
+     *                （ユーザー報告「通り過ぎた後でも青い枠が残る」の正体）
+     */
+    private boolean highlightVisible(PathGeometry geometry, int index, int matched, Vec3 camera,
+                                     double cullRadiusSq) {
+        if (geometry.highlightStep[index] < matched) {
+            return false;
+        }
         double dx = geometry.highlightX[index] + 0.5 - camera.x;
         double dy = geometry.highlightY[index] + 0.5 - camera.y;
         double dz = geometry.highlightZ[index] + 0.5 - camera.z;

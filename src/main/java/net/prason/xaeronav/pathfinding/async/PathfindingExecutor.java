@@ -379,7 +379,7 @@ public final class PathfindingExecutor {
         AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
         PathResult result = run.search(pathfinder, cancelled);
         boolean capBlocked = pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()
-                || pathfinder.fallDamageCapBlocked();
+                || pathfinder.fallDamageCapBlocked() || pathfinder.riskyJumpBlocked();
         if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED && capBlocked) {
             // 上限のせいで捨てた移動がある。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、という
             // 優先順で上限を段階的に緩めて試す。片方だけ緩めても、もう片方で詰んでいれば同じ結果を
@@ -429,19 +429,24 @@ public final class PathfindingExecutor {
      * 緩める順に並べた許容量。{@link RunCaps}側は{@link #RUN_CAP_LOOSEN_MULTIPLIERS}倍したものの後に
      * 無制限、落下ダメージ側は全段で{@link #loosenedFallDamagePoints}の1段だけ。
      *
-     * <p>2つを同じ梯子に載せるのは、片方だけ緩めてももう片方で詰んでいれば同じ探索をもう一度
-     * 払うだけになるから。<b>落下ダメージを1段目から開けるのが要点</b>——直前に失敗した探索が
-     * 既定の許容量そのもので走っているので、1段目に同じ値を置くと、落下だけが原因だったときに
+     * <p>まとめて1本の梯子に載せるのは、片方だけ緩めてももう片方で詰んでいれば同じ探索をもう一度
+     * 払うだけになるから。<b>落下ダメージと危険な跳躍を1段目から開けるのが要点</b>——直前に失敗した
+     * 探索が既定の許容量そのもので走っているので、1段目に同じ値を置くと、そちらだけが原因だったときに
      * 何も変えない探索を1回まるごと捨てることになる。
+     *
+     * <p>危険な跳躍（奈落・致死落差の上）を全段で許すのは、ここへ来ている時点で<b>回り込む道が
+     * 一本も見つからなかった</b>ことが確定しているため。ユーザーの意図は「同じ島の中なら外周を
+     * 回れ、島と島の間なら跳べ」で、その使い分けは「他に道があるか」そのもの——梯子の発動条件と
+     * 一致する。跳ぶことになった区間には{@code PathRisk.VOID_BELOW}で警告色が付く。
      */
     private static List<Tolerances> loosenedTolerances(CellSource view) {
         RunCaps base = RunCaps.of(view);
         int fallPoints = loosenedFallDamagePoints(view);
         List<Tolerances> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 1);
         for (int multiplier : RUN_CAP_LOOSEN_MULTIPLIERS) {
-            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints));
+            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints, true));
         }
-        stages.add(new Tolerances(RunCaps.NONE, fallPoints));
+        stages.add(new Tolerances(RunCaps.NONE, fallPoints, true));
         return stages;
     }
 

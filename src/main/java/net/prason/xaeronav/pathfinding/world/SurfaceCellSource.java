@@ -109,6 +109,23 @@ public final class SurfaceCellSource implements CellSource {
         return 0;
     }
 
+    /**
+     * 層2の結果は<b>実際に歩く経路ではなく中間目標の座標</b>にしかならない（{@code CorridorLegSolver}）。
+     * 跳躍の危険を判断するのは層3の仕事なので、ここでは従来どおり跳ばせて経路の形だけを取る。
+     * 層2の2.5D格子は地表しか持たず「下に何があるか」を答えられないので、ここで避けさせると
+     * 判断材料の無いまま跳躍が丸ごと消え、廊下の精緻化が広く失敗する。
+     */
+    @Override
+    public boolean avoidRiskyJumps() {
+        return false;
+    }
+
+    /** {@link #avoidRiskyJumps()}がfalseなので参照されない。 */
+    @Override
+    public int fatalFallBlocks() {
+        return Integer.MAX_VALUE;
+    }
+
     /** 層2は次元も水の有無も知らないので、どこでも安全な終端速度の下限に留める。 */
     @Override
     public double minDescentTicksPerBlock() {

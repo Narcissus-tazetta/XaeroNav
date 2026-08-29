@@ -67,6 +67,7 @@ public final class ChunkView implements CellSource {
     private final MovementOptions options;
     private final boolean canPlaceBlocks;
     private final int maxFallDamagePoints;
+    private final int fatalFallBlocks;
     private final boolean canMlgWaterBucket;
     private final boolean boatAvailable;
     private final boolean ridingBoat;
@@ -97,7 +98,7 @@ public final class ChunkView implements CellSource {
 
     private ChunkView(Long2ObjectMap<LevelChunk> chunks, int totalChunksInBounds, SearchBounds bounds,
                       ItemStack[] hotbar, int[] hotbarEfficiency, MovementOptions options, boolean canPlaceBlocks,
-                      int maxFallDamagePoints,
+                      int maxFallDamagePoints, int fatalFallBlocks,
                       boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
                       boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection) {
@@ -110,6 +111,7 @@ public final class ChunkView implements CellSource {
         this.options = options;
         this.canPlaceBlocks = canPlaceBlocks;
         this.maxFallDamagePoints = maxFallDamagePoints;
+        this.fatalFallBlocks = fatalFallBlocks;
         this.canMlgWaterBucket = canMlgWaterBucket;
         this.boatAvailable = boatAvailable;
         this.ridingBoat = ridingBoat;
@@ -173,6 +175,11 @@ public final class ChunkView implements CellSource {
 
         int maxFallDamagePoints = options.fallDamageToleranceEnabled()
                 ? (int) (player.getHealth() / FALL_DAMAGE_HEALTH_FRACTION) : 0;
+        // バニラの落下ダメージは ceil(落下距離 - SAFE_FALL_BLOCKS) 点（0.5ハート単位）で、
+        // それが体力以上なら死ぬ。落差は整数マスなので ceil は体力側に掛ければ足りる。
+        // 落下ダメージの許容設定とは無関係に求める——あちらは「意図して降りてよい高さ」、
+        // こちらは「跳んで外したときに死ぬか」で、跳躍は設定に関わらず生成されるため
+        int fatalFallBlocks = ActionCosts.SAFE_FALL_BLOCKS + (int) Math.ceil(player.getHealth());
         // ultraWarmな次元（ネザー）は水を置いても即座に蒸発するので、着地寸前に水バケツを置く
         // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
         boolean canMlgWaterBucket = options.fallDamageToleranceEnabled() && !level.dimensionType().ultraWarm()
@@ -190,7 +197,7 @@ public final class ChunkView implements CellSource {
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
                 options.bridgingEnabled() && canPlaceBlocks,
-                maxFallDamagePoints, canMlgWaterBucket, boatAvailable, ridingBoat,
+                maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
                 deepFallPossible, minDescentTicksPerBlock, level.getMinBuildHeight(),
                 level.getMaxBuildHeight(), level.getMinSection());
     }
@@ -212,7 +219,7 @@ public final class ChunkView implements CellSource {
      */
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency,
-                options.withoutDigging(), canPlaceBlocks, maxFallDamagePoints, canMlgWaterBucket,
+                options.withoutDigging(), canPlaceBlocks, maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket,
                 boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock, minBuildHeight,
                 maxBuildHeight, minSection);
     }
@@ -281,6 +288,16 @@ public final class ChunkView implements CellSource {
     @Override
     public int maxFallDamagePoints() {
         return maxFallDamagePoints;
+    }
+
+    @Override
+    public int fatalFallBlocks() {
+        return fatalFallBlocks;
+    }
+
+    @Override
+    public boolean avoidRiskyJumps() {
+        return options.avoidRiskyJumps();
     }
 
     @Override

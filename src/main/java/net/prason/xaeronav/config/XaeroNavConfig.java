@@ -32,6 +32,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue deepLookAheadEnabled;
     private final ModConfigSpec.BooleanValue costToGoGuideEnabled;
     private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
+    private final ModConfigSpec.BooleanValue avoidRiskyJumps;
     private final ModConfigSpec.IntValue detailHorizonBlocks;
     private final ModConfigSpec.IntValue maxBridgeRunBlocks;
     private final ModConfigSpec.IntValue maxLavaBridgeRunBlocks;
@@ -46,6 +47,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue maxExpandedNodes;
     private final ModConfigSpec.DoubleValue heuristicWeight;
     private final ModConfigSpec.BooleanValue flightRoutingEnabled;
+    private final ModConfigSpec.IntValue elytraFlyingMinGroundClearanceBlocks;
     private final ModConfigSpec.IntValue flightCellBlocks;
     private final ModConfigSpec.DoubleValue flightDeviationThresholdBlocks;
     private final ModConfigSpec.IntValue flightRecalcIntervalTicks;
@@ -85,6 +87,19 @@ public final class XaeroNavConfig {
                         "falseにすると、跳べば渡れる隙間でも迂回かブロック設置(bridgingEnabled)で越える経路になる",
                         "着地を外すと落ちるので、跳躍に自信が無い場合や落ちると危険な地形ではオフにする")
                 .define("jumpGapEnabled", true);
+
+        avoidRiskyJumps = builder
+                .comment("底の無い空虚（ジ・エンドの奈落）の上と、外したら今の体力で死ぬ落差の上での",
+                        "跳躍を避けるか。隙間の下が溶岩の場合はこの設定に関わらず常に跳ばない",
+                        "trueでも「絶対に跳ばない」ではない——回り込める道が一本も無いと分かったときだけ、",
+                        "詰み回避として跳躍を解禁する。同じ島の中なら外周を回る方が安全だが、",
+                        "島と島の間では跳ぶしかない、という使い分けをこれ一つで表す",
+                        "跳ぶことになった区間には警告色が付く",
+                        "fallDamageToleranceEnabledとは意図的に扱いが違う。あちらはoffなら詰み回避でも",
+                        "開けない（痛い落下を望まないという好みで、断られた以上は代案が要らない）が、",
+                        "こちらの代案は「経路が出ない」しかない",
+                        "falseにすると従来どおり、奈落や高所の隙間も普通に跳ぶ経路が出る")
+                .define("avoidRiskyJumps", true);
 
         fallDamageToleranceEnabled = builder
                 .comment("落下ダメージを受ける降下を経路に含めることを許可するか",
@@ -219,6 +234,19 @@ public final class XaeroNavConfig {
                         "falseにすると目的地への直線（点線）だけになる（以前の挙動）",
                         "スペクテイターはブロックをすり抜けるので、この設定に関わらず常に直線")
                 .define("flightRoutingEnabled", true);
+
+        elytraFlyingMinGroundClearanceBlocks = builder
+                .comment("エリトラの滑空を「飛んでいる」とみなす、足元から地面までの最小の高さ（ブロック）",
+                        "エリトラを装備したまま連続ジャンプしていると1tickだけ滑空判定が立つことがあり、",
+                        "その瞬間に地上の経路を捨てて空中の経路へ切り替わる——着地した次のtickで元へ戻るので、",
+                        "跳ねるたびに経路が丸ごと作り直される。ここに高さを課すと、跳ねている間は地上のまま保たれる",
+                        "崖から飛び出した場合は足元の高さが即座に開くので、本当の滑空はそのまま検出される",
+                        "いったん飛行とみなした後はこの半分まで下がるのを許す（境界で往復すると、",
+                        "そのたびに経路が作り直されるため）",
+                        "0にすると高さを見ない（従来の挙動＝滑空判定が立った瞬間に切り替える）",
+                        "クリエイティブ・スペクテイターの飛行はこの設定に関わらず即座に飛行とみなす",
+                        "（本当に立てないので猶予を置く意味が無い）")
+                .defineInRange("elytraFlyingMinGroundClearanceBlocks", 4, 0, 32);
 
         flightCellBlocks = builder
                 .comment("空中経路を解く格子の一辺（ブロック）。含むブロックが全て空のセルだけを通る",
@@ -379,6 +407,14 @@ public final class XaeroNavConfig {
         return fallDamageToleranceEnabled.get();
     }
 
+    public boolean avoidRiskyJumps() {
+        return avoidRiskyJumps.get();
+    }
+
+    public void setAvoidRiskyJumps(boolean value) {
+        avoidRiskyJumps.set(value);
+    }
+
     public void setFallDamageToleranceEnabled(boolean value) {
         fallDamageToleranceEnabled.set(value);
     }
@@ -421,6 +457,10 @@ public final class XaeroNavConfig {
 
     public void setFlightRoutingEnabled(boolean value) {
         flightRoutingEnabled.set(value);
+    }
+
+    public int elytraFlyingMinGroundClearanceBlocks() {
+        return elytraFlyingMinGroundClearanceBlocks.get();
     }
 
     public int flightCellBlocks() {
@@ -471,7 +511,7 @@ public final class XaeroNavConfig {
     public MovementOptions movementOptions() {
         return new MovementOptions(diggingEnabled(), bridgingEnabled(), jumpGapEnabled(), lavaBridgingEnabled(),
                 maxBridgeRunBlocks(), maxLavaBridgeRunBlocks(), maxVoidBridgeRunBlocks(), maxSubmergedTicks(),
-                fallDamageToleranceEnabled());
+                fallDamageToleranceEnabled(), avoidRiskyJumps());
     }
 
     /** 歩行の探索の打ち切り条件。時間の上限だけは設定に出していない。 */

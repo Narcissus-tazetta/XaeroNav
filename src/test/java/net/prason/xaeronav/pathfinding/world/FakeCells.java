@@ -75,6 +75,10 @@ public final class FakeCells implements CellSource {
     private double minDescentTicksPerBlock = ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
+    /** 設定の既定値に合わせてtrue（＝奈落・致死落差の上は跳ばない）。 */
+    private boolean avoidRiskyJumps = true;
+    /** 体力満タン(20)相当。実機で最も普通の状態に合わせる。 */
+    private int fatalFallBlocks = ActionCosts.SAFE_FALL_BLOCKS + 20;
     private boolean canMlgWaterBucket;
     /** 既定はfalse。ボートを持たせたいテストだけが明示的に立てる。 */
     private boolean boatAvailable;
@@ -186,6 +190,16 @@ public final class FakeCells implements CellSource {
 
     public FakeCells lavaBridgingEnabled(boolean value) {
         this.lavaBridgingEnabled = value;
+        return this;
+    }
+
+    public FakeCells avoidRiskyJumps(boolean value) {
+        this.avoidRiskyJumps = value;
+        return this;
+    }
+
+    public FakeCells fatalFallBlocks(int value) {
+        this.fatalFallBlocks = value;
         return this;
     }
 
@@ -314,6 +328,16 @@ public final class FakeCells implements CellSource {
     @Override
     public int maxFallDamagePoints() {
         return maxFallDamagePoints;
+    }
+
+    @Override
+    public boolean avoidRiskyJumps() {
+        return avoidRiskyJumps;
+    }
+
+    @Override
+    public int fatalFallBlocks() {
+        return fatalFallBlocks;
     }
 
     @Override
