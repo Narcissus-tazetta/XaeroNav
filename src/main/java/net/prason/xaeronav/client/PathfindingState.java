@@ -325,6 +325,9 @@ public final class PathfindingState {
     private volatile boolean flying;
     // 目的地の近くまで来て歩行の案内へ引き継いだか。境界での往復を防ぐヒステリシスに使う
     private volatile boolean landingApproachActive;
+
+    /** エリトラの滑空を飛行とみなしているか。抜けるときの閾値を下げるためのヒステリシス。 */
+    private volatile boolean elytraGliding;
     /**
      * 通過済みとみなす中間目標の数。地図の点線をどこから描くかにだけ使う。
      *
@@ -402,7 +405,7 @@ public final class PathfindingState {
         this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
         // 滑空中に指定された目的地は、着地するまで経路を引かない（引いても表示せず捨てるだけになる）
-        this.flying = airborne(player);
+        this.flying = airborne(level, player);
         GoalWaypoint.sync(this.goal);
         if (this.flying) {
             flight.recalculate(this.goal);
@@ -483,6 +486,7 @@ public final class PathfindingState {
         this.flying = false;
         this.flight.reset();
         this.landingApproachActive = false;
+        this.elytraGliding = false;
         this.arrivedTicks = 0;
     }
 
@@ -752,7 +756,7 @@ public final class PathfindingState {
             pendingEscalation(mc.player);
             return;
         }
-        boolean nowFlying = airborne(mc.player) && !landingApproach(mc.level, mc.player, currentGoal);
+        boolean nowFlying = airborne(mc.level, mc.player) && !landingApproach(mc.level, mc.player, currentGoal);
         if (nowFlying != flying) {
             flying = nowFlying;
             if (nowFlying) {
@@ -1299,6 +1303,14 @@ public final class PathfindingState {
 
     /** 真下に立てる場所があるか（{@code StanceFinder}と同じ判定・同じ深さ）。 */
     private static boolean groundBelow(Level level, Player player) {
+        return groundClearance(level, player) <= LANDING_GROUND_SEARCH_BLOCKS;
+    }
+
+    /**
+     * 足元から真下の地面までの高さ（ブロック）。{@link #LANDING_GROUND_SEARCH_BLOCKS}以内に
+     * 地面が無ければその値より大きい数を返す。
+     */
+    private static int groundClearance(Level level, Player player) {
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         int x = player.blockPosition().getX();
         int z = player.blockPosition().getZ();
@@ -1306,13 +1318,13 @@ public final class PathfindingState {
         for (int dy = 0; dy <= LANDING_GROUND_SEARCH_BLOCKS; dy++) {
             cursor.set(x, y - dy, z);
             if (cursor.getY() < level.getMinBuildHeight()) {
-                return false;
+                break;
             }
             if (CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
-                return true;
+                return dy;
             }
         }
-        return false;
+        return LANDING_GROUND_SEARCH_BLOCKS + 1;
     }
 
     /**
@@ -1327,10 +1339,33 @@ public final class PathfindingState {
      * <p>{@code getAbilities().flying}はクライアント自身が持つ状態で、二段ジャンプの切り替えも
      * 着地時の自動解除も同じtickのうちに{@code LocalPlayer#aiStep}が書く。スペクテイターは
      * {@code GameType#updatePlayerAbilities}と{@code MultiPlayerGameMode#isAlwaysFlying}が
-     * 常にtrueへ固定するので、これ一つで飛行モード全部を捉えられる。
+     * 常にtrueへ固定するので、これ一つで飛行モード全部を捉えられる。<b>こちらには高さを課さない</b>
+     * ——本当に立てないので、猶予を置くと足元に床の無い始点で探索を投げ続けることになる。
+     *
+     * <p>エリトラ（{@code isFallFlying}）だけは足元の高さを見る。装備したまま連続ジャンプしていると
+     * 1tickだけ滑空判定が立ち、その瞬間に地上の経路を捨てて空中へ切り替わる——着地した次のtickで
+     * 戻るので、跳ねるたびに経路が丸ごと作り直されていた。切り替えの代償が大きい
+     * （{@code generation}を進めて走っている探索ごと捨てる）ので、判定そのものを鈍くするのが正しい。
      */
-    private static boolean airborne(Player player) {
-        return player.isFallFlying() || player.getAbilities().flying;
+    private boolean airborne(Level level, Player player) {
+        if (player.getAbilities().flying) {
+            elytraGliding = false;
+            return true;
+        }
+        if (!player.isFallFlying()) {
+            elytraGliding = false;
+            return false;
+        }
+        int required = XaeroNavConfig.INSTANCE.elytraFlyingMinGroundClearanceBlocks();
+        if (required <= 0) {
+            elytraGliding = true;
+            return true;
+        }
+        // 入りと抜けで閾値を変える。同じ高さで判定すると、境界の上を滑空している間ずっと
+        // 飛行と歩行を往復し、そのたびに経路が作り直される（landingApproachと同じ形）
+        int clearance = groundClearance(level, player);
+        elytraGliding = clearance >= (elytraGliding ? Math.max(1, required / 2) : required);
+        return elytraGliding;
     }
 
     /**

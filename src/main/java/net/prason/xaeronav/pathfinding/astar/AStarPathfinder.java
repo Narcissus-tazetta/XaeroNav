@@ -168,6 +168,15 @@ public final class AStarPathfinder {
      */
     private boolean fallDamageCapBlocked;
 
+    /** 奈落・致死落差の上での跳躍を避けるか。{@link Tolerances#allowRiskyJumps()}の裏返し。 */
+    private final boolean avoidRiskyJumps;
+
+    /**
+     * この探索が{@link #avoidRiskyJumps}を理由に跳躍を1つでも捨てたか。捨てていなければ、
+     * 許して探し直しても結果は変わらない（{@code bridgeRunCapBlocked}と同じ役割）。
+     */
+    private boolean riskyJumpBlocked;
+
     /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
     private final int maxSubmergedTicks;
 
@@ -251,6 +260,7 @@ public final class AStarPathfinder {
         this.maxLavaBridgeRun = caps.effectiveLavaBridgeRun();
         this.maxVoidBridgeRun = caps.effectiveVoidBridgeRun();
         this.maxSubmergedTicks = caps.maxSubmergedTicks();
+        this.avoidRiskyJumps = !tolerances.allowRiskyJumps();
         this.maxFallDamagePoints = tolerances.maxFallDamagePoints();
         this.view = view;
         // 落下ダメージの許容量を緩めたら下降の下限も一緒に緩める。許せる落差が伸びるほど
@@ -281,6 +291,14 @@ public final class AStarPathfinder {
      */
     public boolean submergedRunCapBlocked() {
         return submergedRunCapBlocked;
+    }
+
+    /**
+     * この探索が「外したら死ぬ跳躍」を避けたことで移動を捨てたか。捨てていない場合、
+     * 許して探し直しても結果は変わらない。
+     */
+    public boolean riskyJumpBlocked() {
+        return riskyJumpBlocked;
     }
 
     /**
@@ -946,6 +964,12 @@ public final class AStarPathfinder {
             if (lavaOrUnknownBelow(gapX, y, gapZ)) {
                 return;
             }
+            if (avoidRiskyJumps && fatalMiss(gapX, y, gapZ)) {
+                // 外したら死ぬ隙間。溶岩と違って「その隙間の上を跳ぶ手そのものを永久に消す」のではなく、
+                // 回り込む道が一本も無いと分かったときだけ緩和の梯子が開ける（riskyJumpBlocked）
+                riskyJumpBlocked = true;
+                return;
+            }
             int x = from.x + (gap + 1) * dx;
             int z = from.z + (gap + 1) * dz;
             if (!CellData.standable(view.cell(x, y - 1, z))) {
@@ -958,6 +982,31 @@ public final class AStarPathfinder {
             relax(from, x, y, z, ActionCosts.jumpAcrossGap(gap), MoveKind.JUMP);
             return;
         }
+    }
+
+    /**
+     * この隙間へ落ちたら死ぬか。底が無い（奈落）か、床までの落差が
+     * {@link CellSource#fatalFallBlocks()}以上のとき。
+     *
+     * <p>落差の測り方は{@link #addFall}と揃えてある——あちらが「意図して降りる」高さを見るのに対し、
+     * こちらは同じ落差を「跳んで外したとき」として見る。溶岩と未ロードは呼び出し側が先に弾いている。
+     */
+    private boolean fatalMiss(int x, int y, int z) {
+        int obstacleY = firstNonAirBelow(x, y - 1, z);
+        if (obstacleY == NOTHING_BELOW) {
+            return true;
+        }
+        if (obstacleY == UNREADABLE_BELOW) {
+            // 呼び出し側のlavaOrUnknownBelowが既に弾いている。ここへは来ない想定だが、
+            // 「読めない＝危険ではない」と倒さないよう明示しておく
+            return true;
+        }
+        long obstacle = view.cell(x, obstacleY, z);
+        if (CellData.water(obstacle)) {
+            // 着水はバニラが落下距離をリセットするので、どれだけ落ちても死なない
+            return false;
+        }
+        return y - obstacleY - 1 >= view.fatalFallBlocks();
     }
 
     /** 踏み切り地点が減速ブロックの上か（バニラの{@code Entity#getBlockSpeedFactor}と同じ探し方）。 */

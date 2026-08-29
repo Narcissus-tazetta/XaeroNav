@@ -1228,7 +1228,7 @@ class AStarPathfinderTest {
     void tolerancesOverrideTheViewsFallAllowance() {
         FakeCells cells = ledgeBelow(8).maxFallDamagePoints(0);
         AStarPathfinder loosened = new AStarPathfinder(cells, SearchLimits.DEFAULT, null,
-                new Tolerances(RunCaps.of(cells), 8));
+                new Tolerances(RunCaps.of(cells), 8, true));
 
         assertTrue(loosened.search(new BlockPos(0, 61, 0), new BlockPos(6, 53, 0), NOT_CANCELLED).complete(),
                 "許容量を上書きしても落下が生成されないなら、緩和の梯子は空回りする");
@@ -1404,7 +1404,7 @@ class AStarPathfinderTest {
 
         // 詰み時の緩和が渡すのと同じ形で許容量を開ける
         PathResult opened = new AStarPathfinder(terrain, SearchLimits.DEFAULT, null,
-                new Tolerances(RunCaps.of(terrain), drop - ActionCosts.SAFE_FALL_BLOCKS))
+                new Tolerances(RunCaps.of(terrain), drop - ActionCosts.SAFE_FALL_BLOCKS, true))
                 .search(start, goal, NOT_CANCELLED);
 
         assertTrue(opened.complete(), "許容量を開ければ渡れるはず: " + movements(opened));

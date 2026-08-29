@@ -77,26 +77,21 @@ final class PathGeometry {
      */
     final boolean[] highlightPlacement;
     /**
-     * 「次に掘る場所」にあたるハイライトの添字範囲 {@code [nextDigFrom, nextDigTo)}。経路の先頭側から
-     * 最初に掘削を含む区間を指す（経路はプレイヤーの現在地から作り直されるので、これが手前の掘削地点になる）。
+     * ハイライトごとの元の{@link PathStep}の添字（昇順）。通り過ぎたハイライトを描かないために要る。
+     *
+     * <p>線の方は{@link #segmentEndStep}で切り詰めているのに、ハイライトには対応する情報が無く
+     * <b>枠だけが経路の引き直しまで残っていた</b>。設置予定地は「実際に置かれた」ときにしか枠が
+     * 消えない（{@code PathRenderer#placementPending}）ので、置かずに脇を通り過ぎた設置予定地は
+     * セルが{@code replaceable}のまま＝背後に青い枠が残り続ける。
      */
-    final int nextDigFrom;
-    final int nextDigTo;
-    /**
-     * 「次に置く場所」にあたるハイライトの添字範囲 {@code [nextPlaceFrom, nextPlaceTo)}。
-     * {@link #nextDigFrom}と同じ扱いで、ここだけは枠線も壁越しに出す——溶岩に架ける橋の設置先は
-     * 定義上いつも不透明な流体の中にあり、深度テストの掛かった枠線は一切見えないため。
-     */
-    final int nextPlaceFrom;
-    final int nextPlaceTo;
+    final int[] highlightStep;
     /** この区間から先は打ち切られた末端。手前から順に薄くしていく。到達済みの経路では区間数と同じ。 */
     final int fadeFromSegment;
 
     private PathGeometry(PathResult source, double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
                          int[] segmentEndStep, double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
-                         boolean[] highlightPlacement, int nextDigFrom, int nextDigTo,
-                         int nextPlaceFrom, int nextPlaceTo, int fadeFromSegment) {
+                         boolean[] highlightPlacement, int[] highlightStep, int fadeFromSegment) {
         this.source = source;
         this.pointX = pointX;
         this.pointY = pointY;
@@ -111,11 +106,56 @@ final class PathGeometry {
         this.highlightZ = highlightZ;
         this.highlightColor = highlightColor;
         this.highlightPlacement = highlightPlacement;
-        this.nextDigFrom = nextDigFrom;
-        this.nextDigTo = nextDigTo;
-        this.nextPlaceFrom = nextPlaceFrom;
-        this.nextPlaceTo = nextPlaceTo;
+        this.highlightStep = highlightStep;
         this.fadeFromSegment = fadeFromSegment;
+    }
+
+    /** ハイライトの添字範囲 {@code [from, to)}。{@link #from} と {@link #to} が等しければ空。 */
+    record Range(int from, int to) {
+        boolean contains(int index) {
+            return index >= from && index < to;
+        }
+
+        boolean isEmpty() {
+            return from >= to;
+        }
+    }
+
+    /**
+     * {@code fromStep}以降で最初に掘るステップの、掘削セルのハイライト範囲。
+     *
+     * <p>「次に掘る場所」は<b>いま居るステップから先</b>で探す。経路の先頭から決め打ちにすると、
+     * 掘る場所を通り過ぎた後もそこを指し続ける——この枠は壁越しにも描かれるので、背後の地面の中に
+     * 枠が浮いたまま残る。
+     */
+    Range nextDig(int fromStep) {
+        return nextRange(fromStep, false);
+    }
+
+    /**
+     * {@code fromStep}以降で最初に置くステップのハイライト範囲。
+     *
+     * <p>{@link #nextDig}と同じ扱いで、ここだけは枠線も壁越しに出す——溶岩に架ける橋の設置先は
+     * 定義上いつも不透明な流体の中にあり、深度テストの掛かった枠線は一切見えないため。
+     */
+    Range nextPlace(int fromStep) {
+        return nextRange(fromStep, true);
+    }
+
+    /** 同じステップに属する連続したハイライトが1つの範囲になる（1手で複数セルを掘ることがある）。 */
+    private Range nextRange(int fromStep, boolean placement) {
+        for (int i = 0; i < highlightStep.length; i++) {
+            if (highlightStep[i] < fromStep || highlightPlacement[i] != placement) {
+                continue;
+            }
+            int to = i + 1;
+            while (to < highlightStep.length && highlightStep[to] == highlightStep[i]
+                    && highlightPlacement[to] == placement) {
+                to++;
+            }
+            return new Range(i, to);
+        }
+        return new Range(0, 0);
     }
 
     int segmentCount() {
@@ -231,28 +271,20 @@ final class PathGeometry {
         List<BlockPos> highlightCells = new ArrayList<>();
         List<float[]> highlightColors = new ArrayList<>();
         List<Boolean> highlightPlacements = new ArrayList<>();
-        int nextDigFrom = 0;
-        int nextDigTo = 0;
-        int nextPlaceFrom = 0;
-        int nextPlaceTo = 0;
-        for (PathStep step : steps) {
-            if (nextDigTo == 0 && step.digging()) {
-                nextDigFrom = highlightCells.size();
-                nextDigTo = nextDigFrom + step.digCells().size();
-            }
+        List<Integer> highlightSteps = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            PathStep step = steps.get(i);
             for (BlockPos cell : step.digCells()) {
                 highlightCells.add(cell);
                 highlightColors.add(PathColors.DIGGING);
                 highlightPlacements.add(false);
+                highlightSteps.add(i);
             }
             if (step.bridging()) {
-                if (nextPlaceTo == 0) {
-                    nextPlaceFrom = highlightCells.size();
-                    nextPlaceTo = nextPlaceFrom + 1;
-                }
                 highlightCells.add(step.placedBlockPos());
                 highlightColors.add(PathColors.BRIDGE);
                 highlightPlacements.add(true);
+                highlightSteps.add(i);
             }
         }
 
@@ -262,6 +294,7 @@ final class PathGeometry {
         int[] hz = new int[highlights];
         float[] hColor = new float[highlights * 3];
         boolean[] hPlacement = new boolean[highlights];
+        int[] hStep = new int[highlights];
         for (int i = 0; i < highlights; i++) {
             BlockPos cell = highlightCells.get(i);
             hx[i] = cell.getX();
@@ -272,13 +305,13 @@ final class PathGeometry {
             hColor[i * 3 + 1] = color[1];
             hColor[i * 3 + 2] = color[2];
             hPlacement[i] = highlightPlacements.get(i);
+            hStep[i] = highlightSteps.get(i);
         }
 
         return new PathGeometry(result,
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), rawX, rawY, rawZ,
-                hx, hy, hz, hColor, hPlacement, nextDigFrom, nextDigTo, nextPlaceFrom, nextPlaceTo,
-                Math.min(fadeFromSegment, segments));
+                hx, hy, hz, hColor, hPlacement, hStep, Math.min(fadeFromSegment, segments));
     }
 
     /**
