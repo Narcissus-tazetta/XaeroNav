@@ -402,7 +402,7 @@ public final class PathfindingExecutor {
         PathResult result = run.search(pathfinder, cancelled);
         boolean capBlocked = pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()
                 || pathfinder.fallDamageCapBlocked() || pathfinder.riskyJumpBlocked()
-                || pathfinder.placedBudgetBlocked();
+                || pathfinder.placedBudgetBlocked() || pathfinder.placementBlockedByEmptyInventory();
         if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED && capBlocked) {
             // 上限のせいで捨てた移動がある。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、という
             // 優先順で上限を段階的に緩めて試す。上限と落下ダメージはまとめて緩める——片方だけ緩めても、
@@ -423,14 +423,15 @@ public final class PathfindingExecutor {
             // 跳躍を捨てたのが最初の探索とは限らない——上限を緩めて初めて届いた場所に、
             // 跳ぶしかない隙間があることがあるので、1群目の報告も見る
             boolean budgetBlocked = pathfinder.placedBudgetBlocked();
+            boolean emptyInventoryBlocked = pathfinder.placementBlockedByEmptyInventory();
             Loosening capsOnly = runStages(view, limits, looseningDeadline, cancelled, costToGo, run,
-                    capStages(view, !view.avoidRiskyJumps(), budgetBlocked));
+                    capStages(view, !view.avoidRiskyJumps(), budgetBlocked, emptyInventoryBlocked));
             if (capsOnly.result() != null) {
                 result = capsOnly.result();
             } else if (view.avoidRiskyJumps()
                     && (pathfinder.riskyJumpBlocked() || capsOnly.riskyJumpBlocked())) {
                 Loosening withJumps = runStages(view, limits, looseningDeadline, cancelled, costToGo, run,
-                        capStages(view, true, budgetBlocked));
+                        capStages(view, true, budgetBlocked, emptyInventoryBlocked));
                 if (withJumps.result() != null) {
                     result = withJumps.result();
                 }
@@ -578,18 +579,25 @@ public final class PathfindingExecutor {
      * @param budgetBlocked 最初の探索が予算を理由に設置を捨てたか。立っていれば予算を外した段を
      *                      先頭に積む——予算が原因なら、他の上限をいくら緩めても同じ壁に当たる
      */
-    private static List<Tolerances> capStages(CellSource view, boolean allowRiskyJumps, boolean budgetBlocked) {
+    private static List<Tolerances> capStages(CellSource view, boolean allowRiskyJumps, boolean budgetBlocked,
+                                               boolean emptyInventoryBlocked) {
         RunCaps base = RunCaps.of(view);
         int fallPoints = loosenedFallDamagePoints(view);
         int budget = view.placedBlockBudget();
-        List<Tolerances> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 2);
+        List<Tolerances> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 3);
         if (budgetBlocked && budget > 0) {
-            stages.add(new Tolerances(base, fallPoints, allowRiskyJumps, 0));
+            stages.add(new Tolerances(base, fallPoints, allowRiskyJumps, 0, false));
+        }
+        // 置けるブロックを1つも持っていないせいで設置を捨てた場合も、上限を緩める前にここを開ける。
+        // 他の上限をいくら緩めても「橋そのものが生成されない」という壁は動かない
+        if (emptyInventoryBlocked) {
+            stages.add(new Tolerances(base, fallPoints, allowRiskyJumps, 0, true));
         }
         for (int multiplier : RUN_CAP_LOOSEN_MULTIPLIERS) {
-            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints, allowRiskyJumps, budget));
+            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints, allowRiskyJumps, budget,
+                    emptyInventoryBlocked));
         }
-        stages.add(new Tolerances(RunCaps.NONE, fallPoints, allowRiskyJumps, 0));
+        stages.add(new Tolerances(RunCaps.NONE, fallPoints, allowRiskyJumps, 0, emptyInventoryBlocked));
         return stages;
     }
 

@@ -75,6 +75,8 @@ public final class FakeCells implements CellSource {
     private double minDescentTicksPerBlock = ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
     /** 既定0＝無制限。持ち物のブロック数を効かせたいテストだけが明示的に設定する。 */
     private int placedBlockBudget;
+    /** nullなら{@code canPlaceBlocks}に従う。「設定は許すが持っていない」を作るときだけ設定する。 */
+    private Boolean bridgingAllowedBySettings;
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
     /** 設定の既定値に合わせてtrue（＝奈落・致死落差の上は跳ばない）。 */
@@ -284,6 +286,20 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean canPlaceBlocks() {
         return canPlaceBlocks;
+    }
+
+    @Override
+    public boolean bridgingAllowedBySettings() {
+        return bridgingAllowedBySettings == null ? canPlaceBlocks : bridgingAllowedBySettings;
+    }
+
+    /**
+     * 「設定では許しているが、置けるブロックを持っていない」を表すためのもの。
+     * {@code canPlaceBlocks(false)}と組み合わせて使う（既定は{@code canPlaceBlocks}に従う）。
+     */
+    public FakeCells bridgingAllowedBySettings(boolean value) {
+        this.bridgingAllowedBySettings = value;
+        return this;
     }
 
     @Override

@@ -164,6 +164,12 @@ public final class AStarPathfinder {
     /** この探索が{@link #placedBudget}を理由に設置の移動を1つでも捨てたか。 */
     private boolean placedBudgetBlocked;
 
+    /** 持ち物にブロックが無くても設置の移動を作ってよいか。{@link Tolerances#placeWithoutBlocks()}。 */
+    private final boolean placeWithoutBlocks;
+
+    /** この探索が「置けるブロックを持っていない」を理由に設置の移動を1つでも捨てたか。 */
+    private boolean placementBlockedByEmptyInventory;
+
     /** {@link #trimUnfinishedPlacements}が末尾から落とした設置ステップの数。診断用。 */
     private int trimmedPlacements;
 
@@ -304,6 +310,7 @@ public final class AStarPathfinder {
         this.maxVoidBridgeRun = caps.effectiveVoidBridgeRun();
         this.maxSubmergedTicks = caps.maxSubmergedTicks();
         this.placedBudget = tolerances.placedBlockBudget();
+        this.placeWithoutBlocks = tolerances.placeWithoutBlocks();
         this.avoidRiskyJumps = !tolerances.allowRiskyJumps();
         this.maxFallDamagePoints = tolerances.maxFallDamagePoints();
         this.view = view;
@@ -335,6 +342,14 @@ public final class AStarPathfinder {
      */
     public boolean placedBudgetBlocked() {
         return placedBudgetBlocked;
+    }
+
+    /**
+     * この探索が「置けるブロックを持っていない」を理由に設置の移動を捨てたか。捨てていない場合、
+     * 持たない前提を開いて探し直しても結果は変わらない。
+     */
+    public boolean placementBlockedByEmptyInventory() {
+        return placementBlockedByEmptyInventory;
     }
 
     /**
@@ -1355,7 +1370,7 @@ public final class AStarPathfinder {
     }
 
     private void addBridge(PathNode from, int dx, int dz, int obstacleY) {
-        if (!view.canPlaceBlocks()) {
+        if (!canPlace()) {
             return;
         }
         int x = from.x + dx;
@@ -1513,7 +1528,7 @@ public final class AStarPathfinder {
      * 通行可能性は確認済み。{@link #addAscend}と同じく、天井が塞がっていても掘れるなら掘って上がる。
      */
     private void addPillar(PathNode from) {
-        if (!view.canPlaceBlocks()) {
+        if (!canPlace()) {
             return;
         }
         // 横に架けた橋の上からは積み始めない。1マス幅の足場の上で跳んで足元に置く動作で、
@@ -1610,6 +1625,26 @@ public final class AStarPathfinder {
         return CellData.climbable(view.cell(x, y, z))
                 || CellData.climbable(view.cell(x, y + 1, z))
                 || hasAdjacent(x, y, z, CellData::climbable);
+    }
+
+    /**
+     * 足場を置く移動を作ってよいか。持ち物にブロックが無くても、詰み回避で開けられていれば作る
+     * （{@link Tolerances#placeWithoutBlocks()}）——出さないとジ・エンドの島渡りのように
+     * 橋以外に道が無い地形で経路が原理的に出ず、しかも案内には何も現れない。
+     */
+    private boolean canPlace() {
+        if (view.canPlaceBlocks()) {
+            return true;
+        }
+        // 設定で断られている場合は開けない。開けてよいのは「持っていないだけ」のときだけ
+        if (!view.bridgingAllowedBySettings()) {
+            return false;
+        }
+        if (!placeWithoutBlocks) {
+            placementBlockedByEmptyInventory = true;
+            return false;
+        }
+        return true;
     }
 
     /**

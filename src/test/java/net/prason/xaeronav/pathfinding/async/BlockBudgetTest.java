@@ -123,4 +123,43 @@ class BlockBudgetTest {
         assertTrue(loosened.complete(), "緩和の梯子が開かなかった: " + loosened.termination());
         assertTrue(placements(loosened) > 2, "緩めたのに予算内のままの経路が出ている");
     }
+
+    /**
+     * <b>置けるブロックを1つも持っていなくても、他に道が無ければ橋を案内する。</b>
+     *
+     * <p>実機報告「エンドの島渡りだけできない」の正体。持ち物が空だと{@code canPlaceBlocks}が
+     * falseになり、橋が<b>1本も生成されない</b>——経路は島の上をうろつくだけで目的地へ届かず、
+     * しかも設置が0本なので不足の警告すら出ない（案内には何も現れない）。
+     *
+     * <p>出せば「ここに橋が要る」と分かり、集めに行くか引き返すか判断できる。
+     * 必要な枚数はHUDが伝える。
+     */
+    @Test
+    void offersABridgeWithNoBlocksWhenThereIsNoOtherWay() throws Exception {
+        FakeCells cells = ledgeWithGap(Integer.MAX_VALUE)
+                .canPlaceBlocks(false)
+                .bridgingAllowedBySettings(true);
+
+        PathResult result = new PathfindingExecutor()
+                .submit(cells, new BlockPos(0, 65, 0), new BlockPos(40, 65, 0), LIMITS, false).get();
+
+        assertTrue(result.complete(), "持っていなくても案内は出すはず: " + result.termination());
+        assertTrue(placements(result) > 0, "橋が1本も出ていない");
+    }
+
+    /**
+     * <b>対照。</b>設定で設置を切っている場合は開けない——「持っていない」と「断られている」は
+     * 区別する。ここが潰れると、設置を切ったプレイヤーにまで橋の案内が出る。
+     */
+    @Test
+    void refusesToBridgeWhenTheSettingForbidsIt() throws Exception {
+        FakeCells cells = ledgeWithGap(Integer.MAX_VALUE)
+                .canPlaceBlocks(false)
+                .bridgingAllowedBySettings(false);
+
+        PathResult result = new PathfindingExecutor()
+                .submit(cells, new BlockPos(0, 65, 0), new BlockPos(40, 65, 0), LIMITS, false).get();
+
+        assertEquals(0, placements(result), "設定で断られているのに橋を出した");
+    }
 }

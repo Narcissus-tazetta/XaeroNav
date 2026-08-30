@@ -127,11 +127,13 @@ public final class NavHud {
             }
             // 持ち物で足りない経路は、予算を外した緩和の梯子を通って出てくる（他に道が無い場合）。
             // 足りているうちは黙っている——設置を含む経路はエンドではほぼ全てなので、常に出すと
-            // 警告として意味を失う
-            int needed = placementsNeeded(result);
-            int available = ChunkView.countPlaceableBlocks(mc.player);
-            if (needed > available) {
-                add(Component.translatable("hud.xaeronav.blocks_short", needed, available), WARNING_COLOR);
+            // 警告として意味を失う。クリエイティブは持ち物が空でも置けるので数えない
+            if (!mc.player.getAbilities().instabuild) {
+                int needed = placementsNeeded(result);
+                int available = ChunkView.countPlaceableBlocks(mc.player);
+                if (needed > available) {
+                    add(Component.translatable("hud.xaeronav.blocks_short", needed, available), WARNING_COLOR);
+                }
             }
             Set<PathRisk> risks = risksAhead(result);
             if (risks.contains(PathRisk.DROWNING)) {

@@ -33,6 +33,21 @@ public interface CellSource {
     boolean canPlaceBlocks();
 
     /**
+     * <b>設定として</b>足場を置く移動を許しているか。持ち物の有無は見ない。
+     *
+     * <p>{@link #canPlaceBlocks()}と分けるのは、詰み回避で開けてよいかが正反対だから——
+     * 「ブロックを持っていない」は開けてよい（橋が要ると分かれば集めに行ける）が、
+     * <b>「設定で断られている」は開けてはいけない</b>。潰して1つにすると、設置を切っている
+     * プレイヤーにまで橋の案内が出る。
+     *
+     * <p>既定が{@link #canPlaceBlocks()}なのは、持ち物という概念を持たない実装
+     * （層2の{@code SurfaceCellSource}、テストの{@code FakeCells}）ではこの区別が無いから。
+     */
+    default boolean bridgingAllowedBySettings() {
+        return canPlaceBlocks();
+    }
+
+    /**
      * 経路全体で置いてよい足場の総数。0なら無制限（{@link #maxBridgeRunBlocks}と同じ規約）。
      *
      * <p>{@link #maxBridgeRunBlocks}が<b>連続長</b>なのに対しこちらは<b>累積</b>。連続長だけでは
