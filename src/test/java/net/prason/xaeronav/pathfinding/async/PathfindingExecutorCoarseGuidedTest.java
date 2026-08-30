@@ -86,9 +86,14 @@ class PathfindingExecutorCoarseGuidedTest {
     void costToGoGuideLetsADirectSearchSucceedOnTheSameBudgetThatDefeatedItWithoutTheGuide() throws Exception {
         BlockPos start = new BlockPos(0, 64, 0);
         BlockPos goal = new BlockPos(200, 64, 0);
-        // 素の直接探索は7840ノード要る（幾何学的な直線距離は壁の存在を知らず、z&lt;64側へ
+        // 素の直接探索は7932ノード要る（幾何学的な直線距離は壁の存在を知らず、z<64側へ
         // 突っ込んでから引き返す展開をする）。層1は壁をNO_DATAではなく起伏として大まかに
-        // 捉え、迂回側を早くから示すのでガイド併用は6927ノードで届く
+        // 捉え、迂回側を早くから示すのでガイド併用は6921ノードで届く。
+        //
+        // 予算は両者の間に置く必要があるので、探索の展開順を変える修正を入れたら測り直すこと。
+        // {@code AStarPathfinder#LINE_TIE_BREAK_TICKS}（fを刻みに量子化して引き分けだけ解く）は
+        // ここをほとんど動かさない（無効時 7840/6927）——fに直接加算する実装だと 9013/8474 まで
+        // 膨らみ、この予算では両方失敗していた
         SearchLimits limits = new SearchLimits(7_200, 30_000, 1.5);
 
         PathResult unguided = new PathfindingExecutor().submit(wallCells(), start, goal, limits, false)

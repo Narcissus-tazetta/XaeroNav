@@ -72,9 +72,22 @@ public final class CoarseMap {
     private final short[] minHeight;
     private final short[] maxHeight;
     private final int knownCells;
+    /**
+     * セルごとの陸塊ID（{@code LAND}でないセルは{@link #NO_ISLAND}）。長さ{@code chunksX*chunksZ}。
+     * 8近傍で繋がった{@code LAND}セルの塊に同じIDが入る。
+     */
+    private final int[] islandId;
+    /** 陸塊IDごとのセル数。{@code islandSize[islandId[cell]]}で引く。 */
+    private final int[] islandSize;
+
+    /** {@link #islandId}で「陸ではない」ことを表す値。 */
+    public static final int NO_ISLAND = -1;
 
     CoarseMap(int minChunkX, int minChunkZ, int chunksX, int chunksZ, byte[] floorCount,
-              byte[] kind, short[] height, short[] minHeight, short[] maxHeight, int knownCells) {
+              byte[] kind, short[] height, short[] minHeight, short[] maxHeight, int knownCells,
+              int[] islandId, int[] islandSize) {
+        this.islandId = islandId;
+        this.islandSize = islandSize;
         this.minChunkX = minChunkX;
         this.minChunkZ = minChunkZ;
         this.chunksX = chunksX;
@@ -193,6 +206,32 @@ public final class CoarseMap {
         return "陸=" + counts[LAND] + ", 奈落=" + counts[VOID] + ", 水=" + counts[WATER]
                 + ", 溶岩=" + (counts[LAVA] + counts[LAVA_MIXED])
                 + ", データ無し=" + (counts[NO_DATA] + empty);
+    }
+
+    /**
+     * このセルが属する陸塊のID。陸でなければ{@link #NO_ISLAND}。
+     *
+     * <p>「渡った先が同じ島か、別の島か」を区別するために要る——{@link CoarseRouter}は
+     * <b>別の陸塊へ移った瞬間だけ</b>島の大きさを値段に反映する。セルごとに課すと、
+     * 小さい島を横切るあいだ何度も課金されてしまう。
+     */
+    public int islandIdAt(int chunkX, int chunkZ) {
+        if (!containsChunk(chunkX, chunkZ)) {
+            return NO_ISLAND;
+        }
+        return islandId[cellIndex(chunkX, chunkZ)];
+    }
+
+    /**
+     * このセルが属する陸塊のセル数（1セル＝1チャンク＝16×16ブロック）。陸でなければ0。
+     *
+     * <p>ジ・エンドで「島と島を渡るのはなるべく避けたい。大きい島を渡りながら行きたい」という
+     * 要求に応えるための材料。層1はチャンク解像度なので、これが「島の大きさ」として使える
+     * 唯一の情報になる。
+     */
+    public int islandSizeAt(int chunkX, int chunkZ) {
+        int id = islandIdAt(chunkX, chunkZ);
+        return id == NO_ISLAND ? 0 : islandSize[id];
     }
 
     private int cellIndex(int chunkX, int chunkZ) {

@@ -679,6 +679,62 @@ class CoarseRouterTest {
         assertFalse(builder.build().containsChunk(999, 999));
     }
 
+    /** 指定の大きさの正方形の島を置く。 */
+    private static void squareIsland(CoarseMapBuilder builder, int minChunkX, int minChunkZ, int size) {
+        for (int x = minChunkX; x < minChunkX + size; x++) {
+            for (int z = minChunkZ; z < minChunkZ + size; z++) {
+                builder.replaceCell(x, z, CoarseMap.LAND, 64);
+            }
+        }
+    }
+
+    /**
+     * 出発島と目的島の間に「直線上の小さい飛び石」と「少し南の大きい島」がある地形。
+     * {@code southSize}を変えるだけで、南の島の大きさ以外は同じ地形になる。
+     */
+    private static CoarseMap twoBranches(int southSize) {
+        CoarseMapBuilder builder = archipelago();
+        squareIsland(builder, 0, -1, 3);
+        squareIsland(builder, 14, -1, 3);
+        // 直線上にある1セルだけの飛び石。幾何学的にはこちらが近い
+        builder.replaceCell(8, 0, CoarseMap.LAND, 64);
+        // 少し南（4セル）の島。sizeで大きさを変える
+        squareIsland(builder, 7, 3, southSize);
+        return builder.build();
+    }
+
+    private static int maxWaypointZ(CoarseRouter.Route route) {
+        return route.waypoints().stream().mapToInt(BlockPos::getZ).max().orElse(Integer.MIN_VALUE);
+    }
+
+    /**
+     * <b>ジ・エンドで「大きい島を渡りながら」行きたい</b>というユーザー要望（2026-08-30）。
+     * 直線上の1セルの岩より、少し南の3×3の島を経由する方を選ぶ。
+     */
+    @Test
+    void prefersALargeIslandOverATinySteppingStoneOnTheDirectLine() {
+        CoarseRouter.Route route = CoarseRouter.findRoute(twoBranches(3), atChunk(1, 0), atChunk(15, 0),
+                false, CoarseRouter.BridgePolicy.BRIDGE);
+
+        assertTrue(route.reachedGoal());
+        assertTrue(maxWaypointZ(route) >= 3 * 16,
+                "直線上の1セルの岩を踏んだ（大きい島へ回っていない）: " + route.waypoints());
+    }
+
+    /**
+     * <b>対照。</b>南の島も1セルに縮めると、遠回りする理由が消えて直線上の岩を踏む。
+     * これが無いと「そもそも常に南へ回るだけ」の地形と区別が付かない。
+     */
+    @Test
+    void takesTheDirectSteppingStoneWhenTheSouthernIslandIsJustAsTiny() {
+        CoarseRouter.Route route = CoarseRouter.findRoute(twoBranches(1), atChunk(1, 0), atChunk(15, 0),
+                false, CoarseRouter.BridgePolicy.BRIDGE);
+
+        assertTrue(route.reachedGoal());
+        assertTrue(maxWaypointZ(route) < 3 * 16,
+                "南も同じ大きさなのに遠回りした＝島の大きさ以外の理由で曲がっている: " + route.waypoints());
+    }
+
     private static BlockPos last(CoarseRouter.Route route) {
         List<BlockPos> waypoints = route.waypoints();
         return waypoints.get(waypoints.size() - 1);
