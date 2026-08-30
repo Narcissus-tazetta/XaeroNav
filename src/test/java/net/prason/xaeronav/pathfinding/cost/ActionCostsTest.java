@@ -141,4 +141,38 @@ class ActionCostsTest {
             }
         }
     }
+
+    /**
+     * 足場を外したときの危険料は、落差に対して単調に増えて致死落差で頭打ちになること。
+     * <b>両端が従来の二値と一致する</b>ことが、この傾斜を入れても既存の振る舞いが動かない根拠。
+     */
+    @Test
+    void dropRiskGrowsWithTheDropAndStopsAtTheFatalOne() {
+        int fatal = 23;
+        assertEquals(0.0, ActionCosts.dropRiskPenalty(0, fatal));
+        assertEquals(0.0, ActionCosts.dropRiskPenalty(ActionCosts.SAFE_FALL_BLOCKS, fatal),
+                "安全に降りられる高さに危険料は付かない");
+        assertEquals(ActionCosts.VOID_BRIDGE_PENALTY_TICKS, ActionCosts.dropRiskPenalty(fatal, fatal),
+                "致死落差では奈落と同額");
+        assertEquals(ActionCosts.VOID_BRIDGE_PENALTY_TICKS,
+                ActionCosts.dropRiskPenalty(fatal + 100, fatal), "頭打ちを超えて増えない");
+
+        double previous = -1;
+        for (int drop = 0; drop <= fatal + 5; drop++) {
+            double penalty = ActionCosts.dropRiskPenalty(drop, fatal);
+            assertTrue(penalty >= previous - 1e-12,
+                    "落差" + drop + "マスで危険料が下がった: " + previous + " -> " + penalty);
+            assertTrue(penalty <= ActionCosts.VOID_BRIDGE_PENALTY_TICKS + 1e-12);
+            previous = penalty;
+        }
+    }
+
+    /**
+     * 掘削の手間は設置より軽いこと。「掘るのと積むのが同じくらいの手数に見える場面では掘る方を
+     * 選ばせたい」という{@link ActionCosts#PLACE_BLOCK_OVERHEAD_TICKS}の意図がこの順序。
+     */
+    @Test
+    void diggingOverheadStaysLighterThanPlacing() {
+        assertTrue(ActionCosts.DIG_OVERHEAD_TICKS < ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS);
+    }
 }

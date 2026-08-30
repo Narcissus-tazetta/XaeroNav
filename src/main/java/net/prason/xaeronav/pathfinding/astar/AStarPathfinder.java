@@ -1021,6 +1021,8 @@ public final class AStarPathfinder {
             return;
         }
 
+        // 跳び越す隙間の下がどれだけ深いか。{@link #addBridge}と同じ値段表で危険料を積む
+        double dropRisk = 0.0;
         for (int gap = 1; gap <= MAX_JUMP_GAP_BLOCKS; gap++) {
             int gapX = from.x + gap * dx;
             int gapZ = from.z + gap * dz;
@@ -1035,12 +1037,14 @@ public final class AStarPathfinder {
             if (lavaOrUnknownBelow(gapX, y, gapZ)) {
                 return;
             }
-            if (avoidRiskyJumps && fatalMiss(gapX, y, gapZ)) {
+            int gapDrop = missDrop(gapX, y, gapZ);
+            if (avoidRiskyJumps && gapDrop >= view.fatalFallBlocks()) {
                 // 外したら死ぬ隙間。溶岩と違って「その隙間の上を跳ぶ手そのものを永久に消す」のではなく、
                 // 回り込む道が一本も無いと分かったときだけ緩和の梯子が開ける（riskyJumpBlocked）
                 riskyJumpBlocked = true;
                 return;
             }
+            dropRisk += ActionCosts.dropRiskPenalty(gapDrop, view.fatalFallBlocks());
             int x = from.x + (gap + 1) * dx;
             int z = from.z + (gap + 1) * dz;
             if (!CellData.standable(view.cell(x, y - 1, z))) {
@@ -1050,34 +1054,32 @@ public final class AStarPathfinder {
             if (!clearWithoutDigging(x, y, z)) {
                 return;
             }
-            relax(from, x, y, z, ActionCosts.jumpAcrossGap(gap), MoveKind.JUMP);
+            relax(from, x, y, z, ActionCosts.jumpAcrossGap(gap) + dropRisk, MoveKind.JUMP);
             return;
         }
     }
 
     /**
-     * この隙間へ落ちたら死ぬか。底が無い（奈落）か、床までの落差が
-     * {@link CellSource#fatalFallBlocks()}以上のとき。
+     * この隙間を跳び損ねたら何マス落ちるか。底が無い（奈落）なら
+     * {@link CellSource#fatalFallBlocks()}を返す。
      *
-     * <p>落差の測り方は{@link #addFall}と揃えてある——あちらが「意図して降りる」高さを見るのに対し、
-     * こちらは同じ落差を「跳んで外したとき」として見る。溶岩と未ロードは呼び出し側が先に弾いている。
+     * <p>落差の測り方は{@link #addFall}・{@link #addBridge}と揃えてある——あちらが「意図して降りる」
+     * 高さを見るのに対し、こちらは同じ落差を「跳んで外したとき」として見る。溶岩と未ロードは
+     * 呼び出し側（{@code lavaOrUnknownBelow}）が先に弾いている。
      */
-    private boolean fatalMiss(int x, int y, int z) {
+    private int missDrop(int x, int y, int z) {
         int obstacleY = firstNonAirBelow(x, y - 1, z);
-        if (obstacleY == NOTHING_BELOW) {
-            return true;
-        }
-        if (obstacleY == UNREADABLE_BELOW) {
-            // 呼び出し側のlavaOrUnknownBelowが既に弾いている。ここへは来ない想定だが、
+        if (obstacleY == NOTHING_BELOW || obstacleY == UNREADABLE_BELOW) {
+            // 未ロードは呼び出し側が既に弾いている。ここへは来ない想定だが、
             // 「読めない＝危険ではない」と倒さないよう明示しておく
-            return true;
+            return view.fatalFallBlocks();
         }
         long obstacle = view.cell(x, obstacleY, z);
         if (CellData.water(obstacle)) {
             // 着水はバニラが落下距離をリセットするので、どれだけ落ちても死なない
-            return false;
+            return 0;
         }
-        return y - obstacleY - 1 >= view.fatalFallBlocks();
+        return y - obstacleY - 1;
     }
 
     /** 踏み切り地点が減速ブロックの上か（バニラの{@code Entity#getBlockSpeedFactor}と同じ探し方）。 */
@@ -1353,6 +1355,8 @@ public final class AStarPathfinder {
         boolean voidBelow = false;
         // 床は在るが、そこまでの落差が致死。奈落と同じく「外せば死ぬ」橋
         boolean fatalDropBelow = false;
+        // 足場を外したときに落ちる高さ。値段は{@link ActionCosts#dropRiskPenalty}で連続に決める
+        int dropBelow = 0;
         if (!overLava) {
             if (obstacleY == UNREADABLE_BELOW) {
                 // 未ロードチャンクで走査が止まった。下に何があるか本当に分からないので置かない
@@ -1363,6 +1367,7 @@ public final class AStarPathfinder {
                 // 読めるセルだけを辿って何にも当たらなかった＝底が無い。外せば助からないので、
                 // 溶岩と同じ扱いにする
                 voidBelow = true;
+                dropBelow = view.fatalFallBlocks();
             } else {
                 long obstacle = view.cell(x, obstacleY, z);
                 if (CellData.water(obstacle)) {
@@ -1375,8 +1380,9 @@ public final class AStarPathfinder {
                 // 床は在る。だが<b>何マス下か</b>を見ないと、外したときの結末が分からない。
                 // 落差が致死なら結末は奈落と同じ（死ぬ）なので、値段も規律もそちらへ揃える——
                 // ユーザー報告「下にブロックあるからいいとか思ってそう」がこれ。
-                // 落差の測り方は{@link #fatalMiss}と同じ（水は上で弾いてある）
-                fatalDropBelow = !lavaFarBelow && y - obstacleY - 1 >= view.fatalFallBlocks();
+                // 落差の測り方は{@link #missDrop}と同じ（水は上で弾いてある）
+                dropBelow = y - obstacleY - 1;
+                fatalDropBelow = !lavaFarBelow && dropBelow >= view.fatalFallBlocks();
             }
         }
         // 水に接する場所へは置かない。流れ込んで足場ごと押し流される
@@ -1453,7 +1459,9 @@ public final class AStarPathfinder {
         double cost = ActionCosts.SPRINT_ONE_BLOCK / takeoffSpeedFactor(from.x, from.y, from.z)
                 + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
-                + (voidBelow || fatalDropBelow ? ActionCosts.VOID_BRIDGE_PENALTY_TICKS : 0.0)
+                // 遥か下が溶岩なら落差は測らない。外したときの結末は既に溶岩の割増が表しているので、
+                // 深さで二重に取ると測っていないネザーの橋の値段まで動く
+                + (lavaFarBelow ? 0.0 : ActionCosts.dropRiskPenalty(dropBelow, view.fatalFallBlocks()))
                 + submerged(from, bodyCost, x, y + 1, z);
         relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
     }

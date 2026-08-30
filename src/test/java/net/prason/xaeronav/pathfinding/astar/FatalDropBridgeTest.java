@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test;
  * </table>
  *
  * <p>落ちれば死ぬという結末は奈落と同じなのに、値段だけが「底のある1マスの窪み」と同じだった。
- * その23で跳躍（{@code addJumpGap}）には{@code fatalMiss}で致死落差を入れたが、橋には入れ忘れていた。
+ * その23で跳躍（{@code addJumpGap}）には致死落差を入れたが、橋には入れ忘れていた。
  */
 class FatalDropBridgeTest {
 

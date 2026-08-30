@@ -162,7 +162,25 @@ public final class ActionCosts {
      */
     public static final double FALL_ASYMPTOTIC_MIN_PER_BLOCK = 1.0 / 3.92;
 
-    public static final double DIG_OVERHEAD_TICKS = 2.0;
+    /**
+     * ブロックを1つ壊すときの、破壊時間そのもの以外の手間。立ち止まって向き直り、狙いを付け、
+     * 壊し終えてから走り出し直すまで。
+     *
+     * <p><b>値は「1マスの出っ張りを、掘るか跨ぐか」の釣り合いで決めてある。</b>跨ぐのは
+     * {@link #ASCEND_ONE_BLOCK}+{@link #DESCEND_ONE_BLOCK}＝13.95tick。掘って通るのは
+     * 破壊時間＋この値＋{@link #SPRINT_ONE_BLOCK}なので、土(1.88)・草(2.25)をシャベルで掘る場合に
+     * 8.0でちょうど釣り合う（石(5.63)なら跨ぐ方が安い、という順序も同時に付く）。
+     *
+     * <p>以前は2.0＝0.1秒で、これは<b>人間には物理的に不可能な速さ</b>だった。結果として道具を
+     * 持っていると1マス掘るのが徒歩1.1マス相当になり、2マス以上の迂回が要る地形では常に掘る方が
+     * 勝っていた——「平地を歩いているだけなのに地面を壊せと言われる」というユーザー報告そのもの。
+     *
+     * <p>{@link #PLACE_BLOCK_OVERHEAD_TICKS}(16.0)より軽いままにしてあるのは意図的で、
+     * あちらの「掘るのと積むのが同じ手数に見えるなら掘る方を選ばせたい」という順序は保つ。
+     * 置く方が重いのは、狙う先が<b>特定のブロックの特定の面</b>で、しかも空洞へ後ろ向きに
+     * 下がりながらやることになるため。
+     */
+    public static final double DIG_OVERHEAD_TICKS = 8.0;
 
     /**
      * 水底に足を着けたまま、頭が水に浸かった状態で掘る遅さ。{@code Player#getDigSpeed}は
@@ -284,6 +302,35 @@ public final class ActionCosts {
      * 選ばせる場面。
      */
     public static final double VOID_BRIDGE_PENALTY_TICKS = LAVA_BRIDGE_PENALTY_TICKS;
+
+    /**
+     * 足場を外したときに落ちる高さに応じた危険料（tick）。橋を1マス架けるのと、隙間を1マス跳び越すのが
+     * 共有する。落差{@code dropBlocks}は「足を置く高さの1つ下から床までの空きマス数」で、
+     * 底が無いなら{@code fatalFallBlocks}以上を渡す。
+     *
+     * <p><b>二値ではなく傾斜にするのが要点。</b>以前は「致死落差以上なら{@link #VOID_BRIDGE_PENALTY_TICKS}、
+     * さもなくば0」だったので、深さ3マスの窪みと深さ16マスの峡谷が同じ値段だった——実機ジ・エンド
+     * (2481,-488)で、11〜16マス下に床のある谷を7マス連続で橋渡しし、そのまま奈落へ繋げる経路が出ていた。
+     * 落ちたときの結末は落差に対して連続なので、値段も連続にする。
+     *
+     * <p>両端は従来どおりに固定してある——{@link #SAFE_FALL_BLOCKS}以下は0（1マスの窪みを埋めるのは安い）、
+     * 致死落差以上は{@link #VOID_BRIDGE_PENALTY_TICKS}（奈落と同額）。<b>変わるのはその間だけ</b>なので、
+     * 「浅い窪みは埋める」「奈落は高い」というどちらの既存の振る舞いも動かない。
+     *
+     * <p>通行可否（{@code maxVoidBridgeRunBlocks}の上限・掘削の禁止）は従来どおり<b>致死かどうかの二値</b>で
+     * 決める。傾斜にするのは値段だけ——実現可能性まで連続にすると、どこから先が「渡り切れる橋」なのかを
+     * 探索が判定できなくなる。
+     */
+    public static double dropRiskPenalty(int dropBlocks, int fatalFallBlocks) {
+        if (dropBlocks <= SAFE_FALL_BLOCKS) {
+            return 0.0;
+        }
+        if (dropBlocks >= fatalFallBlocks) {
+            return VOID_BRIDGE_PENALTY_TICKS;
+        }
+        return VOID_BRIDGE_PENALTY_TICKS * (dropBlocks - SAFE_FALL_BLOCKS)
+                / (double) (fatalFallBlocks - SAFE_FALL_BLOCKS);
+    }
 
     /**
      * 落差が{@code maxDrop}マスで頭打ちのとき、下降1ブロックあたりの最小コスト（tick）。
