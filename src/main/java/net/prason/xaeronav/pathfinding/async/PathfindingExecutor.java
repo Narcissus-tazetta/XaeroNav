@@ -401,7 +401,8 @@ public final class PathfindingExecutor {
         AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
         PathResult result = run.search(pathfinder, cancelled);
         boolean capBlocked = pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()
-                || pathfinder.fallDamageCapBlocked() || pathfinder.riskyJumpBlocked();
+                || pathfinder.fallDamageCapBlocked() || pathfinder.riskyJumpBlocked()
+                || pathfinder.placedBudgetBlocked();
         if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED && capBlocked) {
             // 上限のせいで捨てた移動がある。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、という
             // 優先順で上限を段階的に緩めて試す。上限と落下ダメージはまとめて緩める——片方だけ緩めても、
@@ -559,15 +560,20 @@ public final class PathfindingExecutor {
      * <p>跳ぶことになった区間には{@code PathRisk.VOID_BELOW}で警告色が付き、
      * {@code ActionCosts#dropRiskPenalty}が隙間の深さぶんの危険料を積む——<b>開けたあとも、
      * 短い回り道があるならそちらが勝つ</b>。
+     *
+     * <p><b>持ち物のブロックの予算は最後の段まで保つ。</b>倍率で緩めても意味が無い（枚数は地形の
+     * 都合で増えない）ので、外すなら一度に外す。ここまで来た経路は「手持ちでは足りないが、
+     * それ以外に道が無い」ものなので、{@code PathfindingState}が不足を案内に出す。
      */
     private static List<Tolerances> capStages(CellSource view, boolean allowRiskyJumps) {
         RunCaps base = RunCaps.of(view);
         int fallPoints = loosenedFallDamagePoints(view);
+        int budget = view.placedBlockBudget();
         List<Tolerances> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 1);
         for (int multiplier : RUN_CAP_LOOSEN_MULTIPLIERS) {
-            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints, allowRiskyJumps));
+            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints, allowRiskyJumps, budget));
         }
-        stages.add(new Tolerances(RunCaps.NONE, fallPoints, allowRiskyJumps));
+        stages.add(new Tolerances(RunCaps.NONE, fallPoints, allowRiskyJumps, 0));
         return stages;
     }
 

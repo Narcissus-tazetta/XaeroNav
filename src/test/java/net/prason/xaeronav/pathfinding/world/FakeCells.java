@@ -73,6 +73,8 @@ public final class FakeCells implements CellSource {
     /** 既定は0（無制限）。潜水の上限を問うテストだけが明示的に設定する。 */
     private int maxSubmergedTicks;
     private double minDescentTicksPerBlock = ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK;
+    /** 既定0＝無制限。持ち物のブロック数を効かせたいテストだけが明示的に設定する。 */
+    private int placedBlockBudget;
     /** 設定の既定値に合わせて0（＝痛い落下は提示しない）。 */
     private int maxFallDamagePoints;
     /** 設定の既定値に合わせてtrue（＝奈落・致死落差の上は跳ばない）。 */
@@ -282,6 +284,17 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean canPlaceBlocks() {
         return canPlaceBlocks;
+    }
+
+    @Override
+    public int placedBlockBudget() {
+        return placedBlockBudget;
+    }
+
+    /** 経路全体で置ける足場の枚数。既定0＝無制限（持ち物を見ない従来の挙動）。 */
+    public FakeCells placedBlockBudget(int value) {
+        this.placedBlockBudget = value;
+        return this;
     }
 
     @Override

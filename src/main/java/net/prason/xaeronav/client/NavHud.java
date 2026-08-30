@@ -46,6 +46,7 @@ public final class NavHud {
     // 全ステップの走査を経路1本につき1度で済ませる
     private final PathCache<Set<PathRisk>> risksAhead = new PathCache<>();
     private final PathCache<Boolean> usesBoat = new PathCache<>();
+    private final PathCache<Integer> placements = new PathCache<>();
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
@@ -124,6 +125,14 @@ public final class NavHud {
             if (usesBoat(result) && !ChunkView.ridingBoat(mc.player)) {
                 add(Component.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
             }
+            // 持ち物で足りない経路は、予算を外した緩和の梯子を通って出てくる（他に道が無い場合）。
+            // 足りているうちは黙っている——設置を含む経路はエンドではほぼ全てなので、常に出すと
+            // 警告として意味を失う
+            int needed = placementsNeeded(result);
+            int available = ChunkView.countPlaceableBlocks(mc.player);
+            if (needed > available) {
+                add(Component.translatable("hud.xaeronav.blocks_short", needed, available), WARNING_COLOR);
+            }
             Set<PathRisk> risks = risksAhead(result);
             if (risks.contains(PathRisk.DROWNING)) {
                 // 線の色だけでは「息が続かない」ことまでは伝わらない。潜る前に分かる必要がある
@@ -171,6 +180,11 @@ public final class NavHud {
         return risksAhead.get(result, path -> path.steps().stream()
                 .map(PathStep::risk)
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(PathRisk.class))));
+    }
+
+    /** この経路を辿るのに置くことになる足場の数。所持数と違い経路が変わるまで動かない。 */
+    private int placementsNeeded(PathResult result) {
+        return placements.get(result, path -> (int) path.steps().stream().filter(PathStep::bridging).count());
     }
 
     private boolean usesBoat(PathResult result) {

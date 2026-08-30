@@ -55,6 +55,22 @@ final class PathNode {
     int bridgeRun;
 
     /**
+     * ここまでの経路で置いた足場の総数（{@link MoveKind#BRIDGE}と{@link MoveKind#PILLAR}）。
+     * {@link AStarPathfinder#addBridge}が持ち物の予算との比較に使う。
+     *
+     * <p><b>{@link #bridgeRun}と違い、床に立っても0に戻らない。</b>あちらは「1本の橋が何マス
+     * 続いているか」で外したときの危険を測るのに対し、こちらは消費した資源の累積——渡り切って
+     * 地面に降りてもブロックは戻ってこない。
+     *
+     * <p>{@link #bridgeRun}と同じく<b>このノードの同一性には含まれない</b>（キーは座標のみ）。
+     * 同じセルへ設置の少ない経路と多い経路で来た場合、先に最安で確定した方の値が残る近似になる。
+     * 辺コストはこの値に依存しない（予算を超えた橋を作らないだけ）ので経路のコストは歪まない。
+     * 取りこぼした結果「範囲内に道が無い」になった場合は
+     * {@link AStarPathfinder#placedBudgetBlocked()}を見て予算を外して探し直す。
+     */
+    int placedTotal;
+
+    /**
      * ここまで頭が水に浸かったまま経過したtick数。水面に顔を出すか陸に上がれば0に戻る。
      * {@link AStarPathfinder#relax}が上限判定に使う。
      *

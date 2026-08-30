@@ -153,6 +153,17 @@ public final class AStarPathfinder {
      */
     private boolean bridgeRunCapBlocked;
 
+    /**
+     * 経路全体で置いてよい足場の総数。0なら無制限。{@link Tolerances#placedBlockBudget()}。
+     *
+     * <p>{@link #maxBridgeRun}が連続長なのに対しこちらは累積——短い橋を何度も架ける経路は
+     * 連続長では止まらないが、持ち物は同じだけ減る。
+     */
+    private final int placedBudget;
+
+    /** この探索が{@link #placedBudget}を理由に設置の移動を1つでも捨てたか。 */
+    private boolean placedBudgetBlocked;
+
     /** {@link #trimUnfinishedPlacements}が末尾から落とした設置ステップの数。診断用。 */
     private int trimmedPlacements;
 
@@ -292,6 +303,7 @@ public final class AStarPathfinder {
         this.maxLavaBridgeRun = caps.effectiveLavaBridgeRun();
         this.maxVoidBridgeRun = caps.effectiveVoidBridgeRun();
         this.maxSubmergedTicks = caps.maxSubmergedTicks();
+        this.placedBudget = tolerances.placedBlockBudget();
         this.avoidRiskyJumps = !tolerances.allowRiskyJumps();
         this.maxFallDamagePoints = tolerances.maxFallDamagePoints();
         this.view = view;
@@ -315,6 +327,14 @@ public final class AStarPathfinder {
      */
     public boolean bridgeRunCapBlocked() {
         return bridgeRunCapBlocked;
+    }
+
+    /**
+     * この探索が、持ち物のブロック数の予算を理由に設置の移動を捨てたか。捨てていない場合、
+     * 予算を外して探し直しても結果は変わらない。
+     */
+    public boolean placedBudgetBlocked() {
+        return placedBudgetBlocked;
     }
 
     /**
@@ -1456,6 +1476,12 @@ public final class AStarPathfinder {
             bridgeRunCapBlocked = true;
             return;
         }
+        // 持ち物の枚数で経路全体の設置数を切る。連続長（上の cap）は「1本の橋が何マス続いてよいか」
+        // なので、短い橋を何度も架ける経路は素通りする——途中で尽きると、そこから先の案内は
+        // 実行できない
+        if (placedBudgetExceeded(from)) {
+            return;
+        }
         double bodyCost = standingBodyCost(x, y, z, null);
         if (Double.isInfinite(bodyCost)) {
             return;
@@ -1514,6 +1540,9 @@ public final class AStarPathfinder {
         int pillarRun = from.bridgeRun + 1;
         if (maxBridgeRun > 0 && pillarRun > maxBridgeRun) {
             bridgeRunCapBlocked = true;
+            return;
+        }
+        if (placedBudgetExceeded(from)) {
             return;
         }
         long standing = view.cell(from.x, from.y, from.z);
@@ -1583,6 +1612,18 @@ public final class AStarPathfinder {
                 || hasAdjacent(x, y, z, CellData::climbable);
     }
 
+    /**
+     * {@code from}からもう1つ足場を置くと持ち物の予算を超えるか。超えるなら
+     * {@link #placedBudgetBlocked}を立てて、予算を外した探し直しが要ることを呼び出し側へ伝える。
+     */
+    private boolean placedBudgetExceeded(PathNode from) {
+        if (placedBudget <= 0 || from.placedTotal + 1 <= placedBudget) {
+            return false;
+        }
+        placedBudgetBlocked = true;
+        return true;
+    }
+
     private boolean hasAdjacent(int x, int y, int z, LongPredicate test) {
         return test.test(view.cell(x, y - 1, z))
                 || test.test(view.cell(x + 1, y, z)) || test.test(view.cell(x - 1, y, z))
@@ -1640,6 +1681,8 @@ public final class AStarPathfinder {
                 tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal, neighbor.x, neighbor.z);
         neighbor.kind = kind;
         neighbor.bridgeRun = bridgeRun;
+        // 置いた枚数は種類から導ける（引数を増やすと呼び出し全てに0を書き足すことになる）
+        neighbor.placedTotal = from.placedTotal + (kind == MoveKind.BRIDGE || kind == MoveKind.PILLAR ? 1 : 0);
         neighbor.submergedTicks = submergedTicks;
         if (neighbor.isOpen()) {
             open.update(neighbor);

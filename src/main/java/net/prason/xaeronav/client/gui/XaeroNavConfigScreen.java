@@ -36,6 +36,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 cfg.bridgingEnabled(), cfg::setBridgingEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.lava_bridging_enabled",
                 cfg.lavaBridgingEnabled(), cfg::setLavaBridgingEnabled));
+        this.list.addBig(boolOption("gui.xaeronav.config.block_budget_enabled",
+                cfg.blockBudgetEnabled(), cfg::setBlockBudgetEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.jump_gap_enabled",
                 cfg.jumpGapEnabled(), cfg::setJumpGapEnabled));
         this.list.addBig(boolOption("gui.xaeronav.config.fall_damage_tolerance_enabled",

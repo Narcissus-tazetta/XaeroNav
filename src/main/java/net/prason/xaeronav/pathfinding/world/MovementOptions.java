@@ -13,22 +13,25 @@ package net.prason.xaeronav.pathfinding.world;
  *                               ジ・エンドではほぼ全ての橋がこれに当たるため
  * @param avoidRiskyJumps 底の無い空虚の上・外したら死ぬ落差の上での跳躍を避けるか。避ける設定でも、
  *                        経路が一本も引けなかったときだけ緩和の梯子が開ける
+ * @param blockBudgetEnabled 持ち物のブロック数を経路の設置数の上限にするか。offなら数を見ない
+ * @param blockBudgetReserve 予算から差し引いて手元に残す枚数。使い切る経路を避けたいときに増やす
  */
 public record MovementOptions(boolean diggingEnabled, boolean bridgingEnabled, boolean jumpGapEnabled,
                                boolean lavaBridgingEnabled, int maxBridgeRunBlocks, int maxLavaBridgeRunBlocks,
                                int maxVoidBridgeRunBlocks, int maxSubmergedTicks,
-                               boolean fallDamageToleranceEnabled, boolean avoidRiskyJumps) {
+                               boolean fallDamageToleranceEnabled, boolean avoidRiskyJumps,
+                               boolean blockBudgetEnabled, int blockBudgetReserve) {
 
     /**
      * 掘る・置く・跳ぶ・危ない落下のどれも許さない。地形を「いま手を加えずに通れるか」だけで
      * 見たいとき（目的地や中継地点の足場探し）に使う。
      */
     public static final MovementOptions NONE =
-            new MovementOptions(false, false, false, false, 0, 0, 0, 0, false, true);
+            new MovementOptions(false, false, false, false, 0, 0, 0, 0, false, true, false, 0);
 
     public MovementOptions withoutDigging() {
         return new MovementOptions(false, bridgingEnabled, jumpGapEnabled, lavaBridgingEnabled,
                 maxBridgeRunBlocks, maxLavaBridgeRunBlocks, maxVoidBridgeRunBlocks, maxSubmergedTicks,
-                fallDamageToleranceEnabled, avoidRiskyJumps);
+                fallDamageToleranceEnabled, avoidRiskyJumps, blockBudgetEnabled, blockBudgetReserve);
     }
 }

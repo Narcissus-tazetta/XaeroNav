@@ -24,10 +24,17 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
  *                        あちらは「痛い思いをしたくない」という好みで、断られた以上は代案が要らない。
  *                        こちらの代案は「経路が出ない」しかなく、跳ぶ区間には
  *                        {@code PathRisk.VOID_BELOW}で必ず警告色が付く
+ * @param placedBlockBudget 経路全体で置いてよい足場の総数。0なら無制限。<b>{@link RunCaps}へ入れずに
+ *                        ここへ置くのは、あちらが「何マス続けてよいか」＝連続長の器だから</b>——
+ *                        累積の予算を{@code RUN_CAP_LOOSEN_MULTIPLIERS}の倍率で緩めても意味が無い
+ *                        （持ち物の枚数は地形の都合で増えない）。緩めるなら外す一択なので、
+ *                        梯子の最後の段でだけ0にする
  */
-public record Tolerances(RunCaps caps, int maxFallDamagePoints, boolean allowRiskyJumps) {
+public record Tolerances(RunCaps caps, int maxFallDamagePoints, boolean allowRiskyJumps,
+                          int placedBlockBudget) {
 
     public static Tolerances of(CellSource view) {
-        return new Tolerances(RunCaps.of(view), view.maxFallDamagePoints(), !view.avoidRiskyJumps());
+        return new Tolerances(RunCaps.of(view), view.maxFallDamagePoints(), !view.avoidRiskyJumps(),
+                view.placedBlockBudget());
     }
 }
