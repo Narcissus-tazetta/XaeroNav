@@ -90,14 +90,18 @@ class HeuristicTest {
     /**
      * 締めた下降の下限が、実際に生成されうる下降移動のどれよりも高くなってはいけない。
      * ネザー・落下ダメージ許容offなら落ちられるのは安全高さ(3マス)までなので、下限は
-     * {@code fallCost(3)/3}。これは1マス降り(9.321)・梯子(6.667)・遊泳(9.091)のどれも下回る。
+     * {@code fallCost(3)/3}。これは1マス落下(9.321)・梯子(6.667)・遊泳(9.091)のどれも下回る。
+     *
+     * <p>比べる相手が{@code DESCEND_ONE_BLOCK}ではなく{@code fallCost(1)}なのは、ここが
+     * <b>水平変位0</b>の見積もりだから。{@code Descend}は隣のマスへ降りる移動なので真下には使えず、
+     * 真下へ1マス降りる手は落下・梯子・潜降しかない。
      */
     @Test
     void aTightenedDescentBoundStaysUnderEveryRealDescent() {
         double tightened = ActionCosts.fallCost(ActionCosts.SAFE_FALL_BLOCKS) / ActionCosts.SAFE_FALL_BLOCKS;
         double estimate = Heuristic.estimate(0, 64, 0, 0, 63, 0, tightened);
 
-        assertTrue(estimate <= ActionCosts.DESCEND_ONE_BLOCK + 1e-9, "1マス降りより高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.fallCost(1) + 1e-9, "1マス落下より高く見積もってはいけない");
         assertTrue(estimate <= ActionCosts.LADDER_DOWN_ONE_BLOCK + 1e-9, "梯子より高く見積もってはいけない");
         assertTrue(estimate <= ActionCosts.WALK_ONE_IN_WATER + 1e-9, "遊泳より高く見積もってはいけない");
         for (int drop = 2; drop <= ActionCosts.SAFE_FALL_BLOCKS; drop++) {

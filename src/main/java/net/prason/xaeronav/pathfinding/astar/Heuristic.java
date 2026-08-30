@@ -89,12 +89,20 @@ public final class Heuristic {
         int cardinalAscends = Math.min(up - diagonalAscends, cardinalSteps);
         int pureAscends = up - diagonalAscends - cardinalAscends;
 
+        // 下降も同じ水平の枠へ相乗りする。`up`と`down`は排他なので枠を奪い合わない。
+        // 相乗りできた分は追加コストが0——{@code Descend}/{@code DiagonalDescend}は走り抜ける限り
+        // 平地と同じ速さなので、値段が水平移動そのものだから（{@code ActionCosts#DESCEND_ONE_BLOCK}）。
+        // 単純加算していた頃は、ネザー相当の下限(4.392)で斜め下降1手の見積もりが9.432＝
+        // 実コスト9.321を上回って非許容になっていた。
+        int ridableDescends = Math.min(down, diagonalSteps + cardinalSteps);
+        int pureDescends = down - ridableDescends;
+
         double horizontalAndAscend = diagonalAscends * MIN_DIAGONAL_ASCEND
                 + (diagonalSteps - diagonalAscends) * diagonalStep
                 + cardinalAscends * ActionCosts.ASCEND_ONE_BLOCK
                 + (cardinalSteps - cardinalAscends) * straight
                 + pureAscends * MIN_PURE_ASCEND;
-        double descend = down * minDescentTicksPerBlock;
+        double descend = pureDescends * minDescentTicksPerBlock;
         return horizontalAndAscend + descend;
     }
 }
