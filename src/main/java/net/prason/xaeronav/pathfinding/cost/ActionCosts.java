@@ -104,7 +104,25 @@ public final class ActionCosts {
      */
     public static final double JUMP_REACH_PENALTY = 4.0;
 
-    public static final double DESCEND_ONE_BLOCK = fallCost(1);
+    /**
+     * 隣のマスへ1マス降りる。<b>落下の時間は計上しない。</b>縁を踏み出した後も水平速度は空中の
+     * 疾走の定常値(0.2889 blocks/tick)で保たれ、地上の疾走(0.2863)を<b>上回る</b>ので、走り続ける限り
+     * 平地と同じ速さで進む——{@code LivingEntity#travel}の非流体分岐をそのまま回した実測で、
+     * 1マスずつ64マス下って3.45 tick/マス（平地は3.48）、着地までの落下距離も最大2.69マスで無傷。
+     *
+     * <p>以前は{@link #fallCost(int)}(1)＝9.321で、<b>疾走2.6マス相当</b>だった。深さ12の谷を
+     * 越えるのに平坦な迂回20マス分の値段が付いていた計算になる。式はBaritoneの{@code MovementDescend}
+     * と同じだが、<b>あちらは1手ずつ実行するボットで実際に減速する</b>。こちらは人間に
+     * 「そのまま走って降りろ」と指示するだけなので、減速しない側が正しい。
+     *
+     * <p>{@link #SPRINT_ONE_BLOCK}を<b>下回らせてはいけない</b>——
+     * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}が水平の下限に疾走を置いているので、
+     * 割ると非許容になる。実測がわずかに速いぶんは切り捨てて疾走ちょうどに置く。
+     *
+     * <p>意図して大きく落ちる{@code Fall}は従来どおり{@link #fallCost(int)}で、あちらは
+     * 落下時間そのものが律速なので変わらない。
+     */
+    public static final double DESCEND_ONE_BLOCK = SPRINT_ONE_BLOCK;
 
     /**
      * 落下ダメージを受けずに降りられる高さ。バニラは{@code ceil((落下距離 - SAFE_FALL_DISTANCE) × 倍率)}を
@@ -152,9 +170,15 @@ public final class ActionCosts {
     public static final double DIAGONAL_ASCEND_ONE_BLOCK =
             Math.max(ASCEND_ONE_BLOCK, WALK_ONE_BLOCK * DIAGONAL_DISTANCE);
 
-    /** 斜め1マスで1段降りるコスト（tick）。{@link #DIAGONAL_ASCEND_ONE_BLOCK}と同じ考え方。 */
+    /**
+     * 斜め1マスで1段降りるコスト（tick）。
+     *
+     * <p>水平側に{@link #SPRINT_ONE_BLOCK}を使うのが{@link #DIAGONAL_ASCEND_ONE_BLOCK}との違いで、
+     * これは非対称で正しい。<b>昇りは段差ごとに跳ぶので疾走を維持できない</b>のに対し、
+     * <b>降りは走り抜けられる</b>（{@link #DESCEND_ONE_BLOCK}の実測）。
+     */
     public static final double DIAGONAL_DESCEND_ONE_BLOCK =
-            Math.max(DESCEND_ONE_BLOCK, WALK_ONE_BLOCK * DIAGONAL_DISTANCE);
+            Math.max(DESCEND_ONE_BLOCK, SPRINT_ONE_BLOCK * DIAGONAL_DISTANCE);
 
     /**
      * 大きく落下する場合、tick/マスはterminal velocity(3.92 blocks/tick)に漸近しこれを下回らない。
@@ -381,9 +405,12 @@ public final class ActionCosts {
         return Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK / speedFactor);
     }
 
-    /** {@link #ascendOneBlock}の1段降り版。 */
+    /**
+     * {@link #ascendOneBlock}の1段降り版。{@link #DESCEND_ONE_BLOCK}のとおり落下の時間は
+     * 計上せず、水平移動そのもの（{@code AStarPathfinder#stepCost}と同じ形）にする。
+     */
     public static double descendOneBlock(double speedFactor) {
-        return fallCost(1, speedFactor);
+        return SPRINT_ONE_BLOCK / speedFactor;
     }
 
     /** {@link #ascendOneBlock}の斜め版。 */
@@ -393,7 +420,7 @@ public final class ActionCosts {
 
     /** {@link #descendOneBlock}の斜め版。 */
     public static double diagonalDescendOneBlock(double speedFactor) {
-        return Math.max(descendOneBlock(speedFactor), WALK_ONE_BLOCK * DIAGONAL_DISTANCE / speedFactor);
+        return Math.max(descendOneBlock(speedFactor), SPRINT_ONE_BLOCK * DIAGONAL_DISTANCE / speedFactor);
     }
 
     /** {@code gapBlocks}マスの隙間を飛び越えるコスト。着地点は{@code gapBlocks + 1}マス先になる。 */

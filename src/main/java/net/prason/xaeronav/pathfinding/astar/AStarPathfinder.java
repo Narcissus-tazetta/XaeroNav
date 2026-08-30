@@ -966,8 +966,15 @@ public final class AStarPathfinder {
         if (!clearWithoutDigging(x, y, z) || !clearWithoutDigging(x, y + 1, z)) {
             return;
         }
-        relax(from, x, y, z, ActionCosts.diagonalDescendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z)),
-                MoveKind.DIAGONAL_DESCEND);
+        // 身体が水中にある斜め下降は泳いで進むので、疾走を前提にした値段では速すぎる——
+        // 泳ぎの斜め(7.857)より安くなり、水中で上下にジグザグして進む経路が出る。
+        // 水面へ踏み込む側は上のstandable要求で既に除いてあるので、ここで見るのは
+        // 「もう水の中にいる」場合だけ
+        boolean swimming = CellData.water(view.cell(from.x, from.y, from.z)) || CellData.water(view.cell(x, y, z));
+        double cost = swimming
+                ? ActionCosts.SWIM_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE
+                : ActionCosts.diagonalDescendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z));
+        relax(from, x, y, z, cost, swimming ? MoveKind.SWIM_DESCEND : MoveKind.DIAGONAL_DESCEND);
     }
 
     /**
