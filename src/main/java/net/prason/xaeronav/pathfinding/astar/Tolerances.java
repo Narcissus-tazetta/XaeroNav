@@ -29,12 +29,18 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
  *                        累積の予算を{@code RUN_CAP_LOOSEN_MULTIPLIERS}の倍率で緩めても意味が無い
  *                        （持ち物の枚数は地形の都合で増えない）。緩めるなら外す一択なので、
  *                        梯子の最後の段でだけ0にする
+ * @param placeWithoutBlocks 足場に使えるブロックを1つも持っていなくても設置の移動を作ってよいか。
+ *                        <b>詰み回避の最後の手段</b>——ジ・エンドの島渡りのように橋以外に道が無い
+ *                        地形では、持っていないというだけで経路が<b>原理的に</b>出なくなる。案内に
+ *                        何も出ないので「島渡りだけできない」としか見えない。出せば「ここに橋が要る」
+ *                        と分かり、掘って集めるなり引き返すなり判断できる。{@code maxSubmergedTicks}を
+ *                        外して息の続かない潜水を見せるのと同じ扱いで、HUDが必要な枚数を伝える
  */
 public record Tolerances(RunCaps caps, int maxFallDamagePoints, boolean allowRiskyJumps,
-                          int placedBlockBudget) {
+                          int placedBlockBudget, boolean placeWithoutBlocks) {
 
     public static Tolerances of(CellSource view) {
         return new Tolerances(RunCaps.of(view), view.maxFallDamagePoints(), !view.avoidRiskyJumps(),
-                view.placedBlockBudget());
+                view.placedBlockBudget(), false);
     }
 }

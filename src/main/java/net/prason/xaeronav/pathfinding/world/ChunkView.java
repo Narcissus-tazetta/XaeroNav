@@ -205,13 +205,19 @@ public final class ChunkView implements CellSource {
         // 制限が丸ごと外れて逆に緩くなる。1個だけ使える状態に倒しておけば、足りない経路は緩和の
         // 梯子（予算を外す段）が受ける。canPlaceBlocksの方に予備を織り込まないのも同じ理由で、
         // 詰むくらいなら予備を使ってよい
-        int placedBlockBudget = options.blockBudgetEnabled() && !player.getAbilities().instabuild
+        boolean creative = player.getAbilities().instabuild;
+        int placedBlockBudget = options.blockBudgetEnabled() && !creative
                 ? Math.max(1, placeableBlocks - options.blockBudgetReserve())
                 : 0;
+        // クリエイティブは持ち物が空でも置ける（インベントリから好きなブロックを取れる）。
+        // 手持ちだけを見ていた頃は、ブロックを持たずにジ・エンドへ来ると橋が1本も生成されず、
+        // 島渡りの経路が原理的に出なかった——しかも案内には何も出ないので、
+        // 「島渡りだけできない」としか見えない
+        boolean canPlaceBlocks = options.bridgingEnabled() && (placeableBlocks > 0 || creative);
 
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
-                options.bridgingEnabled() && placeableBlocks > 0, placedBlockBudget,
+                canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
                 deepFallPossible, minDescentTicksPerBlock, level.getMinBuildHeight(),
                 level.getMaxBuildHeight(), level.getMinSection());
@@ -288,6 +294,11 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean canPlaceBlocks() {
         return canPlaceBlocks;
+    }
+
+    @Override
+    public boolean bridgingAllowedBySettings() {
+        return options.bridgingEnabled();
     }
 
     @Override
