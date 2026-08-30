@@ -143,6 +143,29 @@ public final class CoarseRouter {
     private static final double LAYER_TRANSITION_PENALTY = 2.0;
 
     /**
+     * これだけのセル数があれば「大きい島」とみなす（3×3チャンク＝48×48ブロック）。
+     * これ以上の陸塊へ渡るときは割増を取らない。
+     */
+    private static final int LARGE_ISLAND_CELLS = 9;
+
+    /**
+     * 1セル（16×16ブロック）だけの陸塊へ渡るときの割増。ユーザー要望
+     * 「ジ・エンドでは島と島を渡ることをなるべく避けたい。<b>大きい島を渡りながらのルート</b>にしたい」
+     * に応えるためのもの。
+     *
+     * <p><b>「渡る回数」そのものには課さない。</b>短い飛び石を選ぶのは層3の橋の上限
+     * （{@code maxVoidBridgeRunBlocks}）という<b>実現可能性</b>の要請で、
+     * {@code CoarseRouterTest#prefersSteppingStoneIslandsOverTheShortestVoidCrossing}が
+     * 固定しているとおり正しい挙動——そこを潰すと渡れない長さの奈落を選ぶようになる。
+     * 課すのは「どの島を踏むか」だけで、小さい島より大きい島を選ばせる。
+     *
+     * <p>徒歩4チャンク（64ブロック）相当。これだけ遠回りしてでも大きい島を経由する価値がある、
+     * という重み。奈落1セル（{@link #VOID_BRIDGE_MULTIPLIER}≒10倍＝徒歩160ブロック相当）よりは
+     * 十分軽いので、<b>大きい島へ渡るために余計な奈落を1セル増やす</b>ような選択にはならない。
+     */
+    private static final double SMALL_ISLAND_PENALTY = STRAIGHT_COST * 4.0;
+
+    /**
      * 中間目標を置く水平間隔（セル＝チャンク）。
      *
      * <p><b>詳細探索が一度に狙う距離（{@code detailHorizonBlocks}、既定96）より必ず短く保つこと。</b>
@@ -569,7 +592,27 @@ public final class CoarseRouter {
         if (fromHeight != CoarseMap.UNKNOWN_HEIGHT && toHeight != CoarseMap.UNKNOWN_HEIGHT) {
             heightPenalty = Math.abs(toHeight - fromHeight) * HEIGHT_COST_PER_BLOCK;
         }
-        return base * multiplier + heightPenalty + cliffPenalty(map, toX, toZ, toFloor);
+        return base * multiplier + heightPenalty + cliffPenalty(map, toX, toZ, toFloor)
+                + smallIslandPenalty(map, fromX, fromZ, toX, toZ);
+    }
+
+    /**
+     * 別の陸塊へ移るときだけ、その島の小ささに応じて課す割増。
+     *
+     * <p><b>島に入る一歩でだけ課金する</b>のが要点。セルごとに課すと、小さい島を横切るあいだ
+     * 何度も払うことになり「小さい島は通り抜けるのも高い」という別の歪みが出る。
+     * 知りたいのは「どの島へ降りるか」だけなので、陸塊IDが変わる辺で1回だけ見る。
+     */
+    private static double smallIslandPenalty(CoarseMap map, int fromX, int fromZ, int toX, int toZ) {
+        int toIsland = map.islandIdAt(toX, toZ);
+        if (toIsland == CoarseMap.NO_ISLAND || toIsland == map.islandIdAt(fromX, fromZ)) {
+            return 0.0;
+        }
+        int size = map.islandSizeAt(toX, toZ);
+        if (size >= LARGE_ISLAND_CELLS) {
+            return 0.0;
+        }
+        return SMALL_ISLAND_PENALTY * (LARGE_ISLAND_CELLS - size) / (double) (LARGE_ISLAND_CELLS - 1);
     }
 
     /**

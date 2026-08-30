@@ -45,6 +45,52 @@ class FlatGroundDiagonalReproTest {
         }
     }
 
+    /**
+     * <b>「無駄なルート（遠回り）が多い。近距離だと起きない」の正体がこれかを測る。</b>
+     *
+     * <p>L字は<b>コスト最適のまま</b>起きる（斜めとカーディナルの順序が違うだけ）。見た目の
+     * ずれの大きさは{@code min(dx,dz)}に比例するので、<b>距離が伸びるほど派手になり、
+     * 近距離では目立たない</b>——ユーザーの「近距離だと起きない」と一致するかを確認する。
+     */
+    @Test
+    void deviationGrowsWithDistance_whichIsWhyShortRoutesLookFine() {
+        int floorY = 63;
+        System.out.println("=== 直線からの最大ずれ vs 距離（完全な平地・既定の重み1.5） ===");
+        System.out.printf("%-10s %-10s %-12s %s%n", "dx", "dz", "maxDeviation", "形");
+        for (int scale : new int[] {8, 16, 32, 64, 128, 192}) {
+            int dx = scale;
+            int dz = scale / 2;
+            BlockPos start = new BlockPos(0, floorY + 1, 0);
+            BlockPos goal = new BlockPos(dx, floorY + 1, dz);
+            FakeCells cells = flatFloor(-8, -8, dx + 16, dz + 16, floorY);
+            SearchLimits limits = new SearchLimits(500_000, 20_000,
+                    AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
+            PathResult result = new AStarPathfinder(cells, limits).search(start, goal, NEVER);
+            List<BlockPos> pts = new java.util.ArrayList<>();
+            pts.add(start);
+            for (PathStep st : result.steps()) {
+                pts.add(st.pos());
+            }
+            System.out.printf("%-10d %-10d %-12.1f %s%n", dx, dz,
+                    maxDeviation(pts, start, goal), shapeOf(start, result));
+        }
+    }
+
+    /** 移動の種類を1文字ずつ並べた形（{@code \}=斜め、{@code -}=X方向、{@code |}=Z方向）。 */
+    private static String shapeOf(BlockPos start, PathResult result) {
+        StringBuilder shape = new StringBuilder();
+        int px = start.getX();
+        int pz = start.getZ();
+        for (PathStep step : result.steps()) {
+            int dx = Integer.signum(step.pos().getX() - px);
+            int dz = Integer.signum(step.pos().getZ() - pz);
+            px = step.pos().getX();
+            pz = step.pos().getZ();
+            shape.append(dx != 0 && dz != 0 ? '\\' : (dx != 0 ? '-' : '|'));
+        }
+        return shape.length() > 70 ? shape.substring(0, 70) + "…" : shape.toString();
+    }
+
     static void report(String label, BlockPos start, BlockPos goal, PathResult result) {
         report(label, start, goal, result, null);
     }

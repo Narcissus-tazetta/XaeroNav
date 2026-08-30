@@ -233,6 +233,38 @@ public final class AStarPathfinder {
     private boolean surfaceGoal;
     private int surfaceY;
 
+    /**
+     * 取り出し順序を「引き分けのときだけ」ずらすための刻み幅（tick）。
+     *
+     * <p>平地でナビの線がL字・階段になるのは、平坦で開けた地形では octile の{@link Heuristic}が
+     * <b>厳密</b>なので経路上で{@code g + h}が一定になり、
+     * {@code f = g + weight*h = 一定 + (weight-1)*h} ＝ <b>hを最も速く減らす手が常に勝つ</b>ため。
+     * 斜め1手はhを{@code DIAGONAL}(5.040)減らし、直進は{@code STRAIGHT}(3.564)しか減らさないので、
+     * 探索は「斜めを全部消化してから直進」へ倒れる。差は{@code (1.5-1)*(5.040-3.564)=0.738 tick/手}。
+     *
+     * <p><b>fに直線からのずれを加算してはいけない</b>（2026-08-30に実機で踏んだ）。加算すると
+     * 「線へ引き戻す力」が経路全体に効き続け、直線が地形で塞がれるたびに<b>出ては戻るを繰り返す
+     * 長方形の階段</b>になる。実機エンドの区間で曲がり回数が4→21に増えていた。
+     *
+     * <p>代わりにfを{@code LINE_TIE_BREAK_TICKS}刻みに<b>量子化</b>し、同じ刻みに入った
+     * ノード同士だけをずれの小さい順に取り出す。刻み(2.0)は上の0.738より大きいので平地の偏りは
+     * 消え、地形を迂回する本物のコスト差（1手＝3.564以上）は刻みを跨ぐので<b>まったく干渉しない</b>。
+     */
+    private static final double LINE_TIE_BREAK_TICKS = 2.0;
+
+    /** 引き分け内での並べ替え幅。刻みを跨がないよう{@link #LINE_TIE_BREAK_TICKS}より必ず小さく保つ。 */
+    private static final double LINE_TIE_BREAK_FRACTION = 0.9;
+
+    /** ずれがこの値のとき、並べ替え幅のちょうど半分になる（飽和の効き始め、ブロック）。 */
+    private static final double LINE_TIE_BREAK_HALF_BLOCKS = 8.0;
+
+    /** 始点→ゴールの直線（XZ平面）。{@link #orderingCost}が使う。長さ0なら無効。 */
+    private int lineStartX;
+    private int lineStartZ;
+    private double lineDirX;
+    private double lineDirZ;
+    private boolean lineTieBreak;
+
     public AStarPathfinder(CellSource view) {
         this(view, SearchLimits.DEFAULT);
     }
@@ -369,7 +401,45 @@ public final class AStarPathfinder {
         return runSearch(start, cancelled);
     }
 
+    /**
+     * 取り出し順序を決める値。{@code f}を{@link #LINE_TIE_BREAK_TICKS}刻みに量子化し、
+     * 同じ刻みの中だけ「始点→ゴールの直線に近い順」に並べる。
+     *
+     * <p>加算ではなく量子化なのが要点。刻みを跨ぐコスト差（＝地形を迂回する本物の理由）には
+     * 一切触れず、刻みの中の引き分けだけを解く。
+     */
+    private double orderingCost(double totalCost, int x, int z) {
+        if (!lineTieBreak || LINE_TIE_BREAK_FRACTION <= 0.0) {
+            return totalCost;
+        }
+        double dx = x - lineStartX;
+        double dz = z - lineStartZ;
+        // 方向ベクトルは単位長なので、外積の絶対値がそのまま垂線の長さ
+        double deviation = Math.abs(dx * lineDirZ - dz * lineDirX);
+        double tie = LINE_TIE_BREAK_FRACTION * LINE_TIE_BREAK_TICKS
+                * (deviation / (deviation + LINE_TIE_BREAK_HALF_BLOCKS));
+        return Math.floor(totalCost / LINE_TIE_BREAK_TICKS) * LINE_TIE_BREAK_TICKS + tie;
+    }
+
+    /**
+     * 始点→ゴールの直線を用意する（{@link #LINE_TIE_BREAK_TICKS}用）。
+     * ゴールが面（{@link #searchToSurface}）のときと、始点とゴールが同じ列のときは無効にする。
+     */
+    private void prepareDeviationLine(BlockPos start) {
+        lineStartX = start.getX();
+        lineStartZ = start.getZ();
+        double dx = goalX - start.getX();
+        double dz = goalZ - start.getZ();
+        double length = Math.sqrt(dx * dx + dz * dz);
+        lineTieBreak = !surfaceGoal && length > 0.0;
+        if (lineTieBreak) {
+            lineDirX = dx / length;
+            lineDirZ = dz / length;
+        }
+    }
+
     private PathResult runSearch(BlockPos start, BooleanSupplier cancelled) {
+        prepareDeviationLine(start);
         // 既にボートに乗っているなら、乗っている状態から始める。乗り込む1手のコストをもう一度
         // 計上すると、残りの水面が短い場面で「降りて泳いだ方が安い」という案内になる。
         // 水面のセルであることも確かめるのは、乗ったまま陸に乗り上げている場合を除くため
@@ -378,7 +448,8 @@ public final class AStarPathfinder {
         PathNode startNode = node(start.getX(), start.getY(), start.getZ(), startBoating);
         startNode.bridgeRun = startBridgeRun;
         startNode.cost = 0.0;
-        startNode.combinedCost = heuristicWeight * startNode.estimatedCostToGoal;
+        startNode.combinedCost = orderingCost(heuristicWeight * startNode.estimatedCostToGoal,
+                startNode.x, startNode.z);
         open.insert(startNode);
         Arrays.fill(bestSoFar, startNode);
         Arrays.fill(bestHeuristic, startNode.estimatedCostToGoal);
@@ -1280,6 +1351,8 @@ public final class AStarPathfinder {
         // 床が溶岩なら、置くブロックがその溶岩を置き換える。何がそれを支えているかは関係ない
         boolean lavaFarBelow = false;
         boolean voidBelow = false;
+        // 床は在るが、そこまでの落差が致死。奈落と同じく「外せば死ぬ」橋
+        boolean fatalDropBelow = false;
         if (!overLava) {
             if (obstacleY == UNREADABLE_BELOW) {
                 // 未ロードチャンクで走査が止まった。下に何があるか本当に分からないので置かない
@@ -1299,6 +1372,11 @@ public final class AStarPathfinder {
                 // 設置を外したときの結末は変わらない。hasAdjacentLavaは足元1マス下しか見ないので、
                 // ここを見ないと「空中で溶岩の上を長々と橋渡しする」経路が無傷の橋と同じ扱いになる
                 lavaFarBelow = CellData.lava(obstacle);
+                // 床は在る。だが<b>何マス下か</b>を見ないと、外したときの結末が分からない。
+                // 落差が致死なら結末は奈落と同じ（死ぬ）なので、値段も規律もそちらへ揃える——
+                // ユーザー報告「下にブロックあるからいいとか思ってそう」がこれ。
+                // 落差の測り方は{@link #fatalMiss}と同じ（水は上で弾いてある）
+                fatalDropBelow = !lavaFarBelow && y - obstacleY - 1 >= view.fatalFallBlocks();
             }
         }
         // 水に接する場所へは置かない。流れ込んで足場ごと押し流される
@@ -1338,7 +1416,12 @@ public final class AStarPathfinder {
         // 空中では掘れないので{@link #addJumpGap}や斜め移動が{@code clearWithoutDigging}を
         // 要求しているのと同じ規律。底のある空洞には掛けない——掘って落ちても1マス下の床に
         // 着くだけで、結末がまるで違う
-        if ((voidBelow || lavaNearby) && !clearWithoutDigging(x, y, z)) {
+        // 致死落差もここに含める。「底のある空洞には掛けない——掘って落ちても1マス下の床に
+        // 着くだけ」という上の理由づけは<b>浅い底にしか成り立たない</b>。43マス下の床は
+        // 底があるうちに入らない。ただし詰みを増やさないよう、跳躍と同じ緩和の梯子
+        // （{@code avoidRiskyJumps}）に載せる——奈落・溶岩は従来どおり無条件
+        if ((voidBelow || lavaNearby || (fatalDropBelow && avoidRiskyJumps))
+                && !clearWithoutDigging(x, y, z)) {
             return;
         }
         // 連続した橋の長さで打ち切る。ここで「重いコスト」ではなく「移動を作らない」を選ぶのが要点——
@@ -1352,7 +1435,7 @@ public final class AStarPathfinder {
         if (lavaNearby) {
             cap = RunCaps.stricter(cap, maxLavaBridgeRun);
         }
-        if (voidBelow) {
+        if (voidBelow || fatalDropBelow) {
             cap = RunCaps.stricter(cap, maxVoidBridgeRun);
         }
         int bridgeRun = from.bridgeRun + 1;
@@ -1370,7 +1453,7 @@ public final class AStarPathfinder {
         double cost = ActionCosts.SPRINT_ONE_BLOCK / takeoffSpeedFactor(from.x, from.y, from.z)
                 + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
-                + (voidBelow ? ActionCosts.VOID_BRIDGE_PENALTY_TICKS : 0.0)
+                + (voidBelow || fatalDropBelow ? ActionCosts.VOID_BRIDGE_PENALTY_TICKS : 0.0)
                 + submerged(from, bodyCost, x, y + 1, z);
         relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
     }
@@ -1538,7 +1621,8 @@ public final class AStarPathfinder {
 
         neighbor.previous = from;
         neighbor.cost = tentativeCost;
-        neighbor.combinedCost = tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal;
+        neighbor.combinedCost = orderingCost(
+                tentativeCost + heuristicWeight * neighbor.estimatedCostToGoal, neighbor.x, neighbor.z);
         neighbor.kind = kind;
         neighbor.bridgeRun = bridgeRun;
         neighbor.submergedTicks = submergedTicks;

@@ -160,7 +160,53 @@ public final class CoarseMapBuilder {
     }
 
     public CoarseMap build() {
+        int cells = chunksX * chunksZ;
+        int[] islandId = new int[cells];
+        Arrays.fill(islandId, CoarseMap.NO_ISLAND);
+        int[] sizes = new int[cells];
+        int nextId = 0;
+        int[] stack = new int[cells];
+        for (int seed = 0; seed < cells; seed++) {
+            if (islandId[seed] != CoarseMap.NO_ISLAND || !isLand(seed)) {
+                continue;
+            }
+            int id = nextId++;
+            int top = 0;
+            stack[top++] = seed;
+            islandId[seed] = id;
+            int size = 0;
+            while (top > 0) {
+                int cell = stack[--top];
+                size++;
+                int cx = cell % chunksX;
+                int cz = cell / chunksX;
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        int nx = cx + dx;
+                        int nz = cz + dz;
+                        if ((dx == 0 && dz == 0) || nx < 0 || nx >= chunksX || nz < 0 || nz >= chunksZ) {
+                            continue;
+                        }
+                        int neighbor = nz * chunksX + nx;
+                        if (islandId[neighbor] != CoarseMap.NO_ISLAND || !isLand(neighbor)) {
+                            continue;
+                        }
+                        islandId[neighbor] = id;
+                        stack[top++] = neighbor;
+                    }
+                }
+            }
+            sizes[id] = size;
+        }
         return new CoarseMap(minChunkX, minChunkZ, chunksX, chunksZ, floorCount, kind, height, minHeight, maxHeight,
-                knownCells);
+                knownCells, islandId, Arrays.copyOf(sizes, nextId));
+    }
+
+    /**
+     * このセルを陸塊の一部とみなすか。代表は<b>最初の床</b>——{@code CoarseMap#kindBreakdown}と
+     * 同じ規則で、天井のある次元で階層ごとに島を数え直さないための割り切り。
+     */
+    private boolean isLand(int cellIndex) {
+        return floorCount[cellIndex] > 0 && kind[cellIndex * CoarseMap.MAX_FLOORS] == CoarseMap.LAND;
     }
 }

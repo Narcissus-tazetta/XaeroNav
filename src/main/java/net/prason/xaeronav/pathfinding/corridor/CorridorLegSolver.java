@@ -94,7 +94,10 @@ public final class CorridorLegSolver {
                 grid.resolveNearestStandable(from.getX(), from.getZ(), ENDPOINT_FALLBACK_RADIUS_BLOCKS);
         BlockPos resolvedTo = grid.resolveNearestStandable(to.getX(), to.getZ(), ENDPOINT_FALLBACK_RADIUS_BLOCKS);
         if (resolvedFrom == null || resolvedTo == null) {
-            return new PreparedLeg(null, null, null, pendingRegions);
+            // 廊下は解けないが、片方だけ解けているならその答えは捨てない。呼び出し側は
+            // 区間を諦めるとき生のwaypoint（層1のチャンク中心）へ落ちるので、寄せた終点を
+            // 渡せるなら渡す——中心が奈落・溶岩でも、その1つは実際に立てる座標になる
+            return new PreparedLeg(null, resolvedFrom, resolvedTo, pendingRegions);
         }
 
         SearchBounds bounds = new SearchBounds(minBlockX, resolvedFrom.getY() - VERTICAL_MARGIN_BLOCKS, minBlockZ,
@@ -106,8 +109,11 @@ public final class CorridorLegSolver {
 
     /**
      * {@link #prepare}の結果。{@code view}は不変なのでワーカースレッドから探索してよい。
-     * {@code view}が{@code null}なら地表データが無かったことを表し、{@code from}/{@code to}も
-     * 意味を持たない。
+     *
+     * <p>{@code view}が{@code null}なら区間を層2では解けなかったことを表す。この場合でも
+     * {@code from}/{@code to}は<b>片方だけ解決できていれば埋まる</b>——呼び出し側が区間を
+     * 諦めて生のwaypointへ落ちるとき、寄せた座標があるならそちらを使えるようにするため。
+     * どちらも解決できなければ両方{@code null}。
      */
     public record PreparedLeg(CellSource view, BlockPos from, BlockPos to, int pendingRegions) {
     }

@@ -5,6 +5,10 @@ public enum PathRisk {
     NONE,
     LAVA_ADJACENT,
     WATER_INFLOW,
+    /**
+     * 足を踏み外したら死ぬ区間。<b>底が無い（奈落）場合だけでなく、床は在るが落差が致死の場合も
+     * 含む</b>——警告の基準は「下に何かあるか」ではなく「外したときに死ぬか」。
+     */
     VOID_BELOW,
     /** 息継ぎできないまま潜り続ける区間。空気が尽きて溺れる（{@code PathSafetyChecker#drowningRuns}）。 */
     DROWNING,

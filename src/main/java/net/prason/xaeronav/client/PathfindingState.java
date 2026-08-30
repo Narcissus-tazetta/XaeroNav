@@ -1,7 +1,9 @@
 package net.prason.xaeronav.client;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,6 +22,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
+import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
@@ -33,6 +36,7 @@ import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 
@@ -196,8 +200,16 @@ public final class PathfindingState {
     /**
      * 経路へ合流し直せる最大の距離（ブロック）。これより遠いなら、その経路はもう自分の経路では
      * ないので全部引き直す。{@link #splicePath}参照。
+     *
+     * <p><b>実測に基づいて64から広げた。</b>実機ログ（2026-08-30、666ステップの経路を維持しながら
+     * 20回合流）で、合流区間が実際に使った展開ノード数は<b>2〜116</b>——{@link #SPLICE_MAX_EXPANDED_NODES}
+     * (30,000)に対して2〜3桁の余裕があった。一方でユーザー報告は「たまに全部引き直される」で、
+     * 64ブロックの壁がその主因（線の先の方にブロックを置くと、合流点が64より遠くなって引き直しに落ちる）。
+     *
+     * <p>実効値は{@code renderRadius}でも切る（{@link #joinDistanceLimit}）——読み込み済みチャンクの
+     * 外にある合流点は{@link SearchBounds}の外なので、いくら許しても原理的に到達しない。
      */
-    private static final double SPLICE_MAX_JOIN_BLOCKS = 64.0;
+    private static final double SPLICE_MAX_JOIN_BLOCKS = 192.0;
 
     /**
      * 合流区間の展開ノード数の上限。合流先は{@link #SPLICE_MAX_JOIN_BLOCKS}以内の1点なので、
@@ -208,6 +220,12 @@ public final class PathfindingState {
 
     /** 合流に失敗した地点から、これだけ歩けばもう一度試す（ブロック）。 */
     private static final double SPLICE_RETRY_MOVE_BLOCKS = 8.0;
+
+    /**
+     * 経路が始点→目標の直線からこれだけ外れていたら、内訳をログに出す（{@link #noteSuspiciousShape}）。
+     * 大きく迂回すること自体は正常なので、閾値は「普段は黙っている」程度に高く取る。
+     */
+    private static final double SUSPICIOUS_DEVIATION_BLOCKS = 24.0;
 
     /**
      * 地上優先ナビ（{@link #shouldClimbToSurface}）に入る深さの下限（ブロック）。
@@ -354,6 +372,15 @@ public final class PathfindingState {
 
     /** {@link #splicePath}が合流に失敗したときのプレイヤー位置。{@link #SPLICE_RETRY_MOVE_BLOCKS}で失効。 */
     private volatile BlockPos spliceBlockedFrom;
+
+    /** 直近に報告した合流拒否の理由。同じ理由を毎tick出さないための重複除去。 */
+    private String lastSpliceRefusal;
+
+    /**
+     * 直近に「立てない」と報告した探索目標。同じ目標を毎回ログに出さないための重複除去
+     * （{@link #noteTargetStandability}）。
+     */
+    private BlockPos lastUnstandableTarget;
 
     /** 予算を積んだ探索を次tickで投げ直すか。{@link #pendingCoarseGuideRetry}の一段手前。 */
     private volatile boolean pendingDeepRetry;
@@ -1516,6 +1543,9 @@ public final class PathfindingState {
                 horizontalMargin, verticalSearchMargin(level, wideSearch),
                 renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
+        if (!climbing) {
+            noteTargetStandability(view, target, mode, waypointIndex);
+        }
 
         SearchLimits limits = XaeroNavConfig.INSTANCE.searchLimits();
         boolean deepBudget = !climbing && (forced == Escalation.DEEP || plainSearchHopeless(start));
@@ -1678,6 +1708,7 @@ public final class PathfindingState {
             }
             // 新しい経路に対する合流可否は測り直しになる。前の経路で失敗した記録は持ち越さない
             spliceBlockedFrom = null;
+            noteSuspiciousShape(start, finalTarget, result);
             displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
         });
     }
@@ -1831,12 +1862,19 @@ public final class PathfindingState {
                         && blocked.distSqr(playerAt) < SPLICE_RETRY_MOVE_BLOCKS * SPLICE_RETRY_MOVE_BLOCKS)) {
             return false;
         }
+        int renderRadius = Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
         int joinIndex = joinableStepIndex(level, result.steps(), player.position(), minJoinIndex);
         if (joinIndex < 0) {
+            // 黙って引き直しへ落ちると、なぜ局所修正できなかったのかがどこにも残らない。
+            // 「合流できる素のステップが1つも無い」＝経路が丸ごと橋か、全部塞がっている
+            noteSpliceRefused("合流できるステップが無い", result.steps().size(), minJoinIndex, -1);
             return false;
         }
         BlockPos joinPos = result.steps().get(joinIndex).pos();
-        if (distanceTo(player.position(), joinPos) > SPLICE_MAX_JOIN_BLOCKS) {
+        double joinDistance = distanceTo(player.position(), joinPos);
+        if (joinDistance > joinDistanceLimit(renderRadius)) {
+            noteSpliceRefused("合流点が遠すぎる (" + Math.round(joinDistance) + "ブロック)",
+                    result.steps().size(), minJoinIndex, joinIndex);
             return false;
         }
         // 見るのは合流点から先だけ。手前は捨てる区間なので、そこの変化を理由に諦めると、
@@ -1848,7 +1886,6 @@ public final class PathfindingState {
             return false;
         }
 
-        int renderRadius = Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
         SearchBounds bounds = SearchBounds.around(level, playerAt, joinPos,
                 XaeroNavConfig.INSTANCE.searchHorizontalMargin(), verticalSearchMargin(level, false),
                 renderRadius);
@@ -1883,11 +1920,38 @@ public final class PathfindingState {
                 return;
             }
             spliceBlockedFrom = null;
+            lastSpliceRefusal = null;
             displayed = spliced(shown, splice, joinIndex);
             LOGGER.info("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
                     splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
         });
         return true;
+    }
+
+    /**
+     * 合流点として認める距離の上限。{@link #SPLICE_MAX_JOIN_BLOCKS}と読み込み済み範囲の小さい方。
+     *
+     * <p>{@code renderRadius}で切るのは、合流区間の探索範囲が{@code SearchBounds.around}で
+     * そこまでしか広がらないため——外の合流点を許しても未ロード＝進入不可のセルを舐めるだけで、
+     * 予算を捨てて結局引き直しに落ちる。
+     */
+    private static double joinDistanceLimit(int renderRadius) {
+        return Math.min(SPLICE_MAX_JOIN_BLOCKS, renderRadius);
+    }
+
+    /**
+     * 合流を諦めた理由を残す（診断）。ユーザー報告「局所修正はいいが、たまに全部引き直される」の
+     * 残りがどの分岐なのかは、ここが黙っている限り実機ログから分からない。
+     *
+     * <p>同じ理由を毎tick出さないよう、直前と違うときだけ出す。
+     */
+    private void noteSpliceRefused(String reason, int steps, int minJoinIndex, int joinIndex) {
+        if (reason.equals(lastSpliceRefusal)) {
+            return;
+        }
+        lastSpliceRefusal = reason;
+        LOGGER.info("XaeroNav: 経路への合流を諦めました ({}, 経路={}ステップ, 最小添字={}, 合流点添字={})",
+                reason, steps, minJoinIndex, joinIndex);
     }
 
     /**
@@ -2118,6 +2182,101 @@ public final class PathfindingState {
     }
 
     /**
+     * <b>層3へ渡す直前の目標に、実際に立てるかを記録する（診断）。</b>
+     *
+     * <p>「謎にわたらせる・遠回り」の容疑のうち、<b>どの上流経路が原因でも最後に必ずここへ現れる</b>
+     * 一点。立てない目標を渡すと、層3は{@code goalRadius}の円柱へ近づこうとして
+     * {@code addBridge}で奈落・溶岩・水のただ中へ橋を架ける（実機ジ・エンドの保存データでの
+     * A/Bで橋8本 vs 0本）。
+     *
+     * <p>オフラインでは層1が出す中間目標の97%以上が層2の寄せ（{@code CorridorLegSolver}の
+     * 半径8）で救われており、この事象は<b>層2が使えないときにしか起きないはず</b>——
+     * それがXaeroのリージョン読み込み状態に依存するため手元で測れない。実機で数えるための
+     * ログをここに置く。
+     *
+     * <p>判定は層3自身の{@link StanceFinder#resolveGoal}を使う（Y方向32ブロックの寄せ込みを
+     * 含む本番と同じ規則）。同じ目標を繰り返し報告しないよう、座標が変わったときだけ出す。
+     */
+    private void noteTargetStandability(ChunkView view, BlockPos target, PathMode mode, int waypointIndex) {
+        if (StanceFinder.resolveGoal(view, target) != null) {
+            lastUnstandableTarget = null;
+            return;
+        }
+        if (target.equals(lastUnstandableTarget)) {
+            return;
+        }
+        lastUnstandableTarget = target;
+        LOGGER.info("XaeroNav: 探索目標に立てません (目標={}, 種別={}, 中間目標#{}, 層2の精緻版={})",
+                target.toShortString(), mode, waypointIndex,
+                refinedRouteInUse() ? "使用中" : "無し");
+    }
+
+    /** いま{@link #currentRouteWaypoints}が層2の精緻版を返しているか（上のログの内訳用）。 */
+    private boolean refinedRouteInUse() {
+        CoarseRoute cached = coarseRoute;
+        RefinedRoute refined = refinedRoute;
+        return cached != null && refined != null && refined.source() == cached;
+    }
+
+    /**
+     * 経路が始点→目標の直線から大きく外れていたら、その内訳を残す（診断）。
+     *
+     * <p>ユーザー報告「地図の線が長方形にジグザグする」（2026-08-30、実機スクショ）の切り分け用。
+     * 見た目だけでは<b>どの手が並んでいるのか</b>が分からず、原因の候補が絞れなかった:
+     * 急斜面を降りるための折り返し（{@code DESCEND}が多い）なのか、橋（{@code BRIDGE}）なのか、
+     * 中間目標が飛んでいるのか。1行あれば区別が付く。
+     *
+     * <p>普段は黙っている——{@link #SUSPICIOUS_DEVIATION_BLOCKS}を超えたときだけ出す。
+     */
+    private void noteSuspiciousShape(BlockPos start, BlockPos target, PathResult result) {
+        List<PathStep> steps = result.steps();
+        if (steps.isEmpty()) {
+            return;
+        }
+        double gx = target.getX() - start.getX();
+        double gz = target.getZ() - start.getZ();
+        double length = Math.sqrt(gx * gx + gz * gz);
+        if (length < 1.0) {
+            return;
+        }
+        double deviation = 0.0;
+        int turns = 0;
+        int previousDx = 0;
+        int previousDz = 0;
+        int cursorX = start.getX();
+        int cursorZ = start.getZ();
+        Map<MovementType, Integer> kinds = new EnumMap<>(MovementType.class);
+        int bridges = 0;
+        int digs = 0;
+        for (PathStep step : steps) {
+            kinds.merge(step.movement(), 1, Integer::sum);
+            if (step.bridging()) {
+                bridges++;
+            }
+            if (step.digging()) {
+                digs++;
+            }
+            int dx = Integer.signum(step.pos().getX() - cursorX);
+            int dz = Integer.signum(step.pos().getZ() - cursorZ);
+            cursorX = step.pos().getX();
+            cursorZ = step.pos().getZ();
+            if ((dx != previousDx || dz != previousDz) && (dx != 0 || dz != 0)) {
+                turns++;
+            }
+            previousDx = dx;
+            previousDz = dz;
+            deviation = Math.max(deviation, Math.abs((step.pos().getX() - start.getX()) * gz
+                    - (step.pos().getZ() - start.getZ()) * gx) / length);
+        }
+        if (deviation < SUSPICIOUS_DEVIATION_BLOCKS) {
+            return;
+        }
+        LOGGER.info("XaeroNav: 経路が直線から大きく外れています "
+                        + "(ずれ={}ブロック, 目標まで{}ブロック, {}ステップ, 曲がり{}, 橋{}, 掘削{}, 内訳={})",
+                Math.round(deviation), Math.round(length), steps.size(), turns, bridges, digs, kinds);
+    }
+
+    /**
      * この探索がどこまで引けたかを記録に残す。かつてはこれを次回の目標距離の上限
      * （{@code detailReach}）へ反映していたが、その仕組みは廃止した——プレイヤー周辺の
      * 既踏地形で測った値を、経路の末端から未踏地形へ伸ばす探索の上限にも使っていたため、
@@ -2240,7 +2399,10 @@ public final class PathfindingState {
 
     private CompletableFuture<List<BlockPos>> solveLeg(CorridorLegSolver.PreparedLeg leg, BlockPos rawTarget) {
         if (leg.view() == null) {
-            return CompletableFuture.completedFuture(List.of(rawTarget));
+            // 層2で解けなかった区間。生のwaypointは層1のチャンク中心で、そこに立てる保証が無い
+            // （実機ジ・エンドのLANDセルの25%は中心に立てない）。層3はここへgoalRadiusで向かい
+            // 橋を架けてでも寄るので、prepareが終点だけでも寄せられていたならそちらを使う
+            return CompletableFuture.completedFuture(List.of(leg.to() != null ? leg.to() : rawTarget));
         }
         return corridorExecutor.submitRaw(leg.view(), leg.from(), leg.to(), CorridorLegSolver.SEARCH_LIMITS)
                 .thenApply(result -> result.steps().stream().map(PathStep::pos).toList());
@@ -2460,13 +2622,26 @@ public final class PathfindingState {
             return avoided;
         }
 
+        // <b>ALLOWを飛ばしてはいけない。</b>奈落は{@link CoarseRouter.BridgePolicy#ALLOW}で開き、
+        // 溶岩の海が開くのはその1段先の{@code BRIDGE}——という段差が
+        // {@code BridgePolicy}のjavadocと{@code CoarseRouterTest#voidOpensOneStepEarlierThanLava}に
+        // 書いてあるのに、ここはAVOIDから直接BRIDGEへ飛んでいた。ジ・エンドは島を渡るたびに
+        // 奈落でAVOIDが失敗するので<b>常にBRIDGE</b>で走っており、ネザーでも「奈落や溶岩混じりを
+        // 避けきれない」だけで溶岩の海を突っ切るルートまで一緒に開いていた
+        CoarseRouter.Route allowed = CoarseRouter.findRoute(map, start, goal, boatAvailable,
+                CoarseRouter.BridgePolicy.ALLOW);
+        if (allowed.reachedGoal()) {
+            LOGGER.info("XaeroNav: 奈落・溶岩混じりを避ける道が見つからないため、そこを通る長距離ルートに切り替えました");
+            return allowed;
+        }
+
         CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.BRIDGE);
         if (bridged.reachedGoal()) {
             LOGGER.info("XaeroNav: 溶岩を避ける道が見つからないため、橋を架けて渡る長距離ルートに切り替えました");
             return bridged;
         }
-        return furtherRoute(avoided, bridged);
+        return furtherRoute(furtherRoute(avoided, allowed), bridged);
     }
 
     /** 目的地まで届かなかったルート同士の比較。中間目標が多い方＝より遠くまで進めた方を採る。 */

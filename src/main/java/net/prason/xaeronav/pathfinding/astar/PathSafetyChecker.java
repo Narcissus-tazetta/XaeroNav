@@ -102,7 +102,8 @@ public final class PathSafetyChecker {
             }
             return switch (footingUnder(view, step.placedBlockPos())) {
                 case LAVA -> PathRisk.LAVA_ADJACENT;
-                case VOID -> PathRisk.VOID_BELOW;
+                // 致死落差は奈落と同じ扱い。床が在るかどうかではなく「外したら死ぬか」が警告の基準
+                case VOID, FATAL_DROP -> PathRisk.VOID_BELOW;
                 case GROUND -> PathRisk.NONE;
             };
         }
@@ -178,6 +179,11 @@ public final class PathSafetyChecker {
         LAVA,
         /** 読めるセルだけを辿って何にも当たらなかった＝底が無い。 */
         VOID,
+        /**
+         * 床は在るが、そこまでの落差が{@link CellSource#fatalFallBlocks()}以上＝外せば死ぬ。
+         * 「床が在るか」ではなく「外したときに死ぬか」が警告の基準なので、{@link #VOID}と同じ扱い。
+         */
+        FATAL_DROP,
         /** 溶岩でも空虚でもない、落ちても助かりうる床。読めなかった場合もここへ倒す。 */
         GROUND
     }
@@ -199,8 +205,13 @@ public final class PathSafetyChecker {
                 return Footing.LAVA;
             }
             if (CellData.present(cell)) {
-                if (!CellData.passableEmpty(cell)) {
+                if (CellData.water(cell)) {
+                    // 着水はバニラが落下距離をリセットするので、どれだけ落ちても死なない
                     return Footing.GROUND;
+                }
+                if (!CellData.passableEmpty(cell)) {
+                    // 床は在る。あとは<b>何マス下か</b>——致死落差なら足場を外した結末は奈落と同じ
+                    return depth >= view.fatalFallBlocks() ? Footing.FATAL_DROP : Footing.GROUND;
                 }
                 continue;
             }
