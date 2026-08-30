@@ -66,6 +66,7 @@ public final class ChunkView implements CellSource {
     private final int[] hotbarEfficiency;
     private final MovementOptions options;
     private final boolean canPlaceBlocks;
+    private final int placedBlockBudget;
     private final int maxFallDamagePoints;
     private final int fatalFallBlocks;
     private final boolean canMlgWaterBucket;
@@ -98,7 +99,7 @@ public final class ChunkView implements CellSource {
 
     private ChunkView(Long2ObjectMap<LevelChunk> chunks, int totalChunksInBounds, SearchBounds bounds,
                       ItemStack[] hotbar, int[] hotbarEfficiency, MovementOptions options, boolean canPlaceBlocks,
-                      int maxFallDamagePoints, int fatalFallBlocks,
+                      int placedBlockBudget, int maxFallDamagePoints, int fatalFallBlocks,
                       boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
                       boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection) {
@@ -110,6 +111,7 @@ public final class ChunkView implements CellSource {
         this.hotbarEfficiency = hotbarEfficiency;
         this.options = options;
         this.canPlaceBlocks = canPlaceBlocks;
+        this.placedBlockBudget = placedBlockBudget;
         this.maxFallDamagePoints = maxFallDamagePoints;
         this.fatalFallBlocks = fatalFallBlocks;
         this.canMlgWaterBucket = canMlgWaterBucket;
@@ -165,13 +167,16 @@ public final class ChunkView implements CellSource {
                 .getHolderOrThrow(Enchantments.EFFICIENCY);
         ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
         int[] hotbarEfficiency = new int[hotbar.length];
-        boolean canPlaceBlocks = false;
         for (int slot = 0; slot < hotbar.length; slot++) {
             ItemStack stack = player.getInventory().getItem(slot);
             hotbar[slot] = stack.copy();
             hotbarEfficiency[slot] = stack.getEnchantmentLevel(efficiency);
-            canPlaceBlocks |= isBuildingBlock(stack);
         }
+        // 置ける枚数は持ち物<b>全体</b>で数える。ホットバーだけを見ていた頃は、インベントリに
+        // 1スタック持っていても橋の案内が出ず、逆にホットバーの1個だけで64マスの橋が出ていた。
+        // 採掘の道具（hotbar）をホットバーに限るのとは要求が違う——道具は持ち替えないと使えないが、
+        // 足場は置く前にホットバーへ移せる
+        int placeableBlocks = countPlaceableBlocks(player);
 
         int maxFallDamagePoints = options.fallDamageToleranceEnabled()
                 ? (int) (player.getHealth() / FALL_DAMAGE_HEALTH_FRACTION) : 0;
@@ -194,12 +199,42 @@ public final class ChunkView implements CellSource {
         boolean deepFallPossible = !level.dimensionType().ultraWarm() || canMlgWaterBucket;
         double minDescentTicksPerBlock = descentBound(deepFallPossible, maxFallDamagePoints);
 
+        // クリエイティブは置いても減らないので予算を掛けない（0＝無制限）。設定でも切れる。
+        //
+        // 下限が1なのは0が「無制限」を意味するから——予備の設定が手持ちを上回っても、そこで0にすると
+        // 制限が丸ごと外れて逆に緩くなる。1個だけ使える状態に倒しておけば、足りない経路は緩和の
+        // 梯子（予算を外す段）が受ける。canPlaceBlocksの方に予備を織り込まないのも同じ理由で、
+        // 詰むくらいなら予備を使ってよい
+        int placedBlockBudget = options.blockBudgetEnabled() && !player.getAbilities().instabuild
+                ? Math.max(1, placeableBlocks - options.blockBudgetReserve())
+                : 0;
+
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
-                options.bridgingEnabled() && canPlaceBlocks,
+                options.bridgingEnabled() && placeableBlocks > 0, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
                 deepFallPossible, minDescentTicksPerBlock, level.getMinBuildHeight(),
                 level.getMaxBuildHeight(), level.getMinSection());
+    }
+
+    /**
+     * 持ち物にある足場に使えるブロックの総数。ホットバーに限らず<b>全スロット</b>を見る——
+     * 置く前にホットバーへ移せるので、あるのに数えないと予算が実態より厳しくなる。
+     *
+     * <p>HUDが不足を知らせるのにも使う。<b>探索時の値を覚えておくのではなく、その場で数え直す</b>
+     * ——経路は目的地をキーにキャッシュされるので、途中でブロックを使っても拾っても引き直されない
+     * （ボート・ロケットと同じ既知の罠）。
+     */
+    public static int countPlaceableBlocks(Player player) {
+        Inventory inventory = player.getInventory();
+        int total = 0;
+        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+            ItemStack stack = inventory.getItem(slot);
+            if (isBuildingBlock(stack)) {
+                total += stack.getCount();
+            }
+        }
+        return total;
     }
 
     public int loadedChunksInBounds() {
@@ -219,9 +254,9 @@ public final class ChunkView implements CellSource {
      */
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency,
-                options.withoutDigging(), canPlaceBlocks, maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket,
-                boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock, minBuildHeight,
-                maxBuildHeight, minSection);
+                options.withoutDigging(), canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
+                canMlgWaterBucket, boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock,
+                minBuildHeight, maxBuildHeight, minSection);
     }
 
     /**
@@ -253,6 +288,11 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean canPlaceBlocks() {
         return canPlaceBlocks;
+    }
+
+    @Override
+    public int placedBlockBudget() {
+        return placedBlockBudget;
     }
 
     @Override

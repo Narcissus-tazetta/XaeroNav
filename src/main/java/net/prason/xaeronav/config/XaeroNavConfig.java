@@ -28,6 +28,8 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.BooleanValue diggingEnabled;
     private final ModConfigSpec.BooleanValue bridgingEnabled;
     private final ModConfigSpec.BooleanValue jumpGapEnabled;
+    private final ModConfigSpec.BooleanValue blockBudgetEnabled;
+    private final ModConfigSpec.IntValue blockBudgetReserve;
     private final ModConfigSpec.BooleanValue lavaBridgingEnabled;
     private final ModConfigSpec.BooleanValue deepLookAheadEnabled;
     private final ModConfigSpec.BooleanValue costToGoGuideEnabled;
@@ -81,6 +83,23 @@ public final class XaeroNavConfig {
                         "遠回りでも溶岩を避けられるならそちらが選ばれる",
                         "falseなら、溶岩に阻まれた目的地へは経路が出ないまま詰む")
                 .define("lavaBridgingEnabled", true);
+
+        blockBudgetEnabled = builder
+                .comment("持ち物にあるブロックの数を、経路が置ける足場の総数の上限にするか",
+                        "橋の長さの上限(maxBridgeRunBlocks)は「1本が何マス続いてよいか」なので、",
+                        "短い橋を何度も架ける経路は止められない——途中で持ち物が尽きると、そこから先の",
+                        "案内は実行できず結局掘ることになる",
+                        "trueなら、持っている数で渡り切れる経路を優先する。数が足りる道が一本も",
+                        "無い場合だけ上限を外して探し直し、その経路には不足を知らせる表示が付く",
+                        "クリエイティブでは置いても減らないのでこの設定に関わらず数えない",
+                        "falseなら従来どおり数を見ない（1個でも持っていれば何マスでも橋を架ける）")
+                .define("blockBudgetEnabled", true);
+
+        blockBudgetReserve = builder
+                .comment("上の予算から差し引いて手元に残す枚数",
+                        "経路がぴったり使い切る設計だと、置き損ないや寄り道で1個でも減ると足りなくなる",
+                        "増やすほど余裕を持った経路になるが、そのぶん橋を架けられる場面が減る")
+                .defineInRange("blockBudgetReserve", 0, 0, 512);
 
         jumpGapEnabled = builder
                 .comment("隙間を飛び越える移動を経路に含めることを許可するか（最大3マスの隙間まで）",
@@ -511,7 +530,19 @@ public final class XaeroNavConfig {
     public MovementOptions movementOptions() {
         return new MovementOptions(diggingEnabled(), bridgingEnabled(), jumpGapEnabled(), lavaBridgingEnabled(),
                 maxBridgeRunBlocks(), maxLavaBridgeRunBlocks(), maxVoidBridgeRunBlocks(), maxSubmergedTicks(),
-                fallDamageToleranceEnabled(), avoidRiskyJumps());
+                fallDamageToleranceEnabled(), avoidRiskyJumps(), blockBudgetEnabled(), blockBudgetReserve());
+    }
+
+    public boolean blockBudgetEnabled() {
+        return blockBudgetEnabled.get();
+    }
+
+    public void setBlockBudgetEnabled(boolean value) {
+        blockBudgetEnabled.set(value);
+    }
+
+    public int blockBudgetReserve() {
+        return blockBudgetReserve.get();
     }
 
     /** 歩行の探索の打ち切り条件。時間の上限だけは設定に出していない。 */
