@@ -422,14 +422,15 @@ public final class PathfindingExecutor {
             // 危険な跳躍だけは別扱いで、上限を緩める段を全部試し切ってから開ける（{@link #capStages}）。
             // 跳躍を捨てたのが最初の探索とは限らない——上限を緩めて初めて届いた場所に、
             // 跳ぶしかない隙間があることがあるので、1群目の報告も見る
+            boolean budgetBlocked = pathfinder.placedBudgetBlocked();
             Loosening capsOnly = runStages(view, limits, looseningDeadline, cancelled, costToGo, run,
-                    capStages(view, !view.avoidRiskyJumps()));
+                    capStages(view, !view.avoidRiskyJumps(), budgetBlocked));
             if (capsOnly.result() != null) {
                 result = capsOnly.result();
             } else if (view.avoidRiskyJumps()
                     && (pathfinder.riskyJumpBlocked() || capsOnly.riskyJumpBlocked())) {
                 Loosening withJumps = runStages(view, limits, looseningDeadline, cancelled, costToGo, run,
-                        capStages(view, true));
+                        capStages(view, true, budgetBlocked));
                 if (withJumps.result() != null) {
                     result = withJumps.result();
                 }
@@ -561,15 +562,30 @@ public final class PathfindingExecutor {
      * {@code ActionCosts#dropRiskPenalty}が隙間の深さぶんの危険料を積む——<b>開けたあとも、
      * 短い回り道があるならそちらが勝つ</b>。
      *
-     * <p><b>持ち物のブロックの予算は最後の段まで保つ。</b>倍率で緩めても意味が無い（枚数は地形の
-     * 都合で増えない）ので、外すなら一度に外す。ここまで来た経路は「手持ちでは足りないが、
-     * それ以外に道が無い」ものなので、{@code PathfindingState}が不足を案内に出す。
+     * <p><b>持ち物のブロックの予算だけは、他の上限と違って真っ先に外す。</b>あちらは「その移動を
+     * 作らない」だけで探索の形は変わらないが、<b>予算は前線が進むほど全ての設置の枝を消していく</b>
+     * ——{@code PathNode.placedTotal}はノードの同一性に含まれない近似なので、集約されたセルに
+     * 残った累積が実際より多いと、そこから先の橋が理由なく消える。結果、予算内で解けない地形では
+     * 探索が橋以外の道を延々と探して予算を焼き切る。
+     *
+     * <p>実測（実機ジ・エンドの島渡り 1233,1142→1288,1080、橋が43本必要）:
+     * <b>予算42以上と8以下では到達するのに、16〜40では60万ノードを焼いて6ステップで終わる</b>。
+     * 少ない側で通るのは橋が即座に切られて探索が橋を諦めるから。中間の帯だけが壊れる。
+     *
+     * <p>倍率で緩めないのは枚数が地形の都合で増えないから。外すなら一度に外す。ここまで来た経路は
+     * 「手持ちでは足りないが、それ以外に道が無い」ものなので、HUDが不足を伝える。
+     *
+     * @param budgetBlocked 最初の探索が予算を理由に設置を捨てたか。立っていれば予算を外した段を
+     *                      先頭に積む——予算が原因なら、他の上限をいくら緩めても同じ壁に当たる
      */
-    private static List<Tolerances> capStages(CellSource view, boolean allowRiskyJumps) {
+    private static List<Tolerances> capStages(CellSource view, boolean allowRiskyJumps, boolean budgetBlocked) {
         RunCaps base = RunCaps.of(view);
         int fallPoints = loosenedFallDamagePoints(view);
         int budget = view.placedBlockBudget();
-        List<Tolerances> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 1);
+        List<Tolerances> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 2);
+        if (budgetBlocked && budget > 0) {
+            stages.add(new Tolerances(base, fallPoints, allowRiskyJumps, 0));
+        }
         for (int multiplier : RUN_CAP_LOOSEN_MULTIPLIERS) {
             stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints, allowRiskyJumps, budget));
         }

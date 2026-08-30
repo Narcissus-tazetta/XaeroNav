@@ -37,6 +37,11 @@ class RealEndTerrainTest {
     private static final BlockPos STEPPING_STONE = new BlockPos(1288, 63, 1144);
 
     private static FakeCells terrain(int maxBridgeRun) throws IOException {
+        return terrain(maxBridgeRun, 0);
+    }
+
+    /** {@code placedBlockBudget}は0で無制限（持ち物のブロック数を見ない従来の挙動）。 */
+    private static FakeCells terrain(int maxBridgeRun, int placedBlockBudget) throws IOException {
         try (InputStream in = RealEndTerrainTest.class.getResourceAsStream("/end_terrain_columns.txt.gz")) {
             assertNotNull(in, "地形データが見つからない");
             BufferedReader reader = new BufferedReader(
@@ -50,6 +55,7 @@ class RealEndTerrainTest {
             FakeCells cells = FakeCells.empty(bounds)
                     .canPlaceBlocks(true)
                     .maxBridgeRunBlocks(maxBridgeRun)
+                    .placedBlockBudget(placedBlockBudget)
                     .maxFallDamagePoints(6);
             String line;
             while ((line = reader.readLine()) != null) {
@@ -127,13 +133,40 @@ class RealEndTerrainTest {
 
     private static PathResult search(BlockPos start, BlockPos goal, int cap, int nodes, long millis)
             throws IOException {
-        FakeCells cells = terrain(cap);
+        return search(start, goal, cap, nodes, millis, 0);
+    }
+
+    private static PathResult search(BlockPos start, BlockPos goal, int cap, int nodes, long millis,
+                                      int placedBlockBudget) throws IOException {
+        FakeCells cells = terrain(cap, placedBlockBudget);
         SearchLimits limits = new SearchLimits(nodes, millis, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
         try {
             return new net.prason.xaeronav.pathfinding.async.PathfindingExecutor()
                     .submit(cells, start, goal, limits, true, 0).get();
         } catch (Exception e) {
             throw new IllegalStateException(e);
+        }
+    }
+
+    /**
+     * <b>持ち物のブロックが足りなくても島渡りは案内する。</b>
+     *
+     * <p>この地形は橋が43本要る。予算をそれ未満に絞ると、<b>中間の帯（16〜40）だけが
+     * 60万ノードを焼いて6ステップで終わっていた</b>——{@code PathNode.placedTotal}はノードの
+     * 同一性に含まれない近似なので、前線が進むほど設置の枝が理由なく消え、探索が橋以外の道を
+     * 探し続ける。少ない側（8以下）で通るのは橋が即座に切られて探索が橋を諦めるからで、
+     * <b>「少なくすれば安全」ではない</b>のがこの穴の質の悪いところ。
+     *
+     * <p>直したのは{@code PathfindingExecutor#capStages}——予算が原因のときは、他の上限より
+     * 先に予算を外す段を積む。実機ユーザー報告「エンドの島渡りだけできない」の正体。
+     */
+    @Test
+    void crossesTheIslandsEvenWhenBlocksRunShort() throws IOException {
+        for (int budget : new int[] {43, 40, 32, 16, 8}) {
+            PathResult result = search(START, DIRECT_GOAL, 96, 600_000, 30_000, budget);
+            assertTrue(result.complete(),
+                    "予算" + budget + "で島渡りが出なくなった: " + result.termination()
+                            + " steps=" + result.steps().size());
         }
     }
 
