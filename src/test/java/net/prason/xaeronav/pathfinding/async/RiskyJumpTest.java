@@ -100,6 +100,33 @@ class RiskyJumpTest {
     }
 
     /**
+     * <b>橋を架ければ渡れるなら、緩和の梯子は跳躍を開ける前にそちらを使い切る。</b>
+     *
+     * <p>地形は「奈落を挟んだ2つの足場」だが、今度はブロックを持っていて、奈落の橋の上限だけが
+     * 足りない（上限1に対して3マス要る）。素の探索は跳躍も橋も出せずに失敗し、
+     * {@code riskyJumpBlocked}と{@code bridgeRunCapBlocked}が<b>両方</b>立つ。
+     *
+     * <p>以前はこの状態で梯子の1段目が跳躍を無条件に開けていたので、上限を1段緩めれば橋で渡れる
+     * 場面でも<b>跳ぶ方が安いので跳んでいた</b>。実機ジ・エンドは橋が常用される地形なので、
+     * この経路でほぼ毎回跳躍が解禁され、回り込める島の内部の亀裂まで跳んでいた。
+     *
+     * <p>いまは上限だけを緩める段を全部試してから跳躍を開けるので、ここは橋で渡る。
+     */
+    @Test
+    void looseningTriesBridgingBeforeUnlockingRiskyJumps() throws Exception {
+        FakeCells cells = twoPlatforms(GAP, 0)
+                .canPlaceBlocks(true).maxBridgeRunBlocks(GAP).maxVoidBridgeRunBlocks(1);
+        BlockPos start = new BlockPos(4, FEET_Y, 4);
+        BlockPos goal = new BlockPos(8 + GAP, FEET_Y, 4);
+
+        PathResult result = new PathfindingExecutor().submit(cells, start, goal, LIMITS, true, 0).get();
+
+        assertTrue(result.complete(), "上限を緩めれば橋で渡れるはず: " + result.termination());
+        assertFalse(hasJump(result), "橋で渡れるなら奈落の上は跳ばない");
+        assertTrue(result.steps().stream().anyMatch(PathStep::bridging), "橋で渡っていること");
+    }
+
+    /**
      * 島と島の間。回り道が無く、置くブロックも持っていないので、跳ぶ以外に手が無い。
      * 緩和の梯子が開けて跳ぶこと（「絶対に跳ばない」ではなく「他に道が無いときだけ跳ぶ」）。
      */

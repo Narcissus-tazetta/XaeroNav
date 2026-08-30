@@ -103,14 +103,18 @@ class RealEndTerrainTest {
      *
      * <p>ノード数で見ると上限30の方がむしろ少ない（514,460 vs 532,724）ので、
      * <b>展開ノード数だけを見て「上限は関係ない」と判断しないこと</b>——見るべきは所要時間。
+     *
+     * <p><b>倍率は1.5にしてある。</b>壁時計の比を見るテストなので、閾値を実測値のすぐ上に置くと
+     * マシンの混み具合で落ちる——2.0だった頃の実測は1.88／1.94／2.00で、<b>半分の確率で落ちていた</b>
+     * （変更前のコードでも同じ）。1.5でも「最初の探索が丸ごと無駄になる」ことは十分示せる。
      */
     @Test
     void aTightBridgeCapWastesTheFirstSearch() throws IOException {
         long tightMillis = timeOf(30);
         long looseMillis = timeOf(96);
 
-        assertTrue(looseMillis * 2 <= tightMillis,
-                "上限96は上限30の半分以下の時間で解けるはず: " + looseMillis + "ms vs " + tightMillis + "ms");
+        assertTrue(looseMillis * 3 <= tightMillis * 2,
+                "上限96は上限30の2/3以下の時間で解けるはず: " + looseMillis + "ms vs " + tightMillis + "ms");
     }
 
     private static long timeOf(int cap) throws IOException {

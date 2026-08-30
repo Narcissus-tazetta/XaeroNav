@@ -16,6 +16,7 @@ import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.pathfinding.astar.PathRisk;
 import net.prason.xaeronav.pathfinding.astar.PathSafetyChecker;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.RunCaps;
@@ -77,6 +78,27 @@ public final class PathfindingExecutor {
      * 段階を踏むことで、実際に道を作るのに必要な最小限の長さで収まりやすくする。
      */
     private static final int[] RUN_CAP_LOOSEN_MULTIPLIERS = {2, 4};
+
+    /**
+     * {@link #refineIfCrossingVoid}が引き直しに使う重み。実機ジ・エンドの保存地形での実測から、
+     * <b>改善のほとんどが取れて展開ノードの増分が最小</b>の点を採った（経路コスト{@code -3.0%} /
+     * 展開{@code +40%}。1.15まで下げても{@code -5.0%} / {@code +46%}にしかならない）。
+     */
+    private static final double REFINE_HEURISTIC_WEIGHT = 1.25;
+
+    /**
+     * {@link #refineIfCrossingVoid}が引き直すのは、最初の探索が予算のこれだけしか使わなかったときに限る。
+     *
+     * <p><b>「余裕があったときだけ質を問い直す」の余裕をここで測る。</b>引き直しは最初の探索より
+     * 4割ほど多く展開するので、既に予算の大半を焼いている探索でもう一度払うと、数%の質のために
+     * 待ち時間が倍になる——実機ジ・エンドの<b>島から島への渡り</b>がまさにそれで、
+     * {@code RealEndTerrainTest}の地形は60万ノード中53万(89%)を使って到達する。しかもそこは
+     * 奈落を渡る以外に道が無いので、引き直しても同じ経路しか出ない。
+     *
+     * <p>一方で狙っている谷の横断は3万/60万＝5%、実機の既定予算(10万)に置き直しても30%で収まる。
+     * 半分に置けば両者を分けられる。
+     */
+    private static final double REFINE_MAX_FIRST_PASS_FRACTION = 0.5;
 
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
@@ -382,8 +404,8 @@ public final class PathfindingExecutor {
                 || pathfinder.fallDamageCapBlocked() || pathfinder.riskyJumpBlocked();
         if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED && capBlocked) {
             // 上限のせいで捨てた移動がある。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、という
-            // 優先順で上限を段階的に緩めて試す。片方だけ緩めても、もう片方で詰んでいれば同じ結果を
-            // もう一度払うだけになるので両方まとめて緩める。
+            // 優先順で上限を段階的に緩めて試す。上限と落下ダメージはまとめて緩める——片方だけ緩めても、
+            // もう片方で詰んでいれば同じ結果をもう一度払うだけになるから。
             //
             // <b>予算切れ（NODE_BUDGET/TIME_LIMIT）でも緩める。</b>以前はEXHAUSTED限定だったが、
             // それだと「探索範囲の中の到達可能セルを全部舐め切れる」ほど狭い地形でしか緩和が
@@ -396,57 +418,156 @@ public final class PathfindingExecutor {
             // 資源不足を理由に同じ探索を払い直すわけではない——{@code capBlocked}は「上限が実際に
             // 移動を捨てた」という探索自身の報告で、緩めた探索は別の探索になる。総時間は
             // looseningDeadlineが縛るので、緩和の段は残り時間ぶんしか走らない
-            for (Tolerances tolerances : loosenedTolerances(view)) {
-                long remainingMillis = looseningDeadline - System.currentTimeMillis();
-                if (remainingMillis <= 0) {
-                    // 上限は疑われた（capBlocked）が、緩和を1回も試す前に持ち時間が尽きた。
-                    // 上限ではなく予算の問題だという手がかりなので残す——ただし予算が厳しい地形では
-                    // 毎回出るのでdebugに留める（実機の既定ではdebugは出ない）
-                    if (LOGGER.isDebugEnabled()) {
-                        LOGGER.debug("XaeroNav: 上限を疑ったが緩和の時間が残っていなかった ({})",
-                                result.termination());
-                    }
-                    break;
-                }
-                SearchLimits stageLimits = new SearchLimits(limits.maxExpandedNodes(), remainingMillis,
-                        limits.heuristicWeight());
-                PathResult attempt =
-                        run.search(new AStarPathfinder(view, stageLimits, costToGo, tolerances), cancelled);
-                if (attempt.complete()) {
-                    result = attempt;
-                    break;
-                }
-                // EXHAUSTED以外（予算切れ・キャンセル）は、更に緩めても同じ壁に当たるだけ
-                if (attempt.termination() != PathResult.Termination.EXHAUSTED) {
-                    break;
+            // 危険な跳躍だけは別扱いで、上限を緩める段を全部試し切ってから開ける（{@link #capStages}）。
+            // 跳躍を捨てたのが最初の探索とは限らない——上限を緩めて初めて届いた場所に、
+            // 跳ぶしかない隙間があることがあるので、1群目の報告も見る
+            Loosening capsOnly = runStages(view, limits, looseningDeadline, cancelled, costToGo, run,
+                    capStages(view, !view.avoidRiskyJumps()));
+            if (capsOnly.result() != null) {
+                result = capsOnly.result();
+            } else if (view.avoidRiskyJumps()
+                    && (pathfinder.riskyJumpBlocked() || capsOnly.riskyJumpBlocked())) {
+                Loosening withJumps = runStages(view, limits, looseningDeadline, cancelled, costToGo, run,
+                        capStages(view, true));
+                if (withJumps.result() != null) {
+                    result = withJumps.result();
                 }
             }
+            // 緩和まで来た経路は「そもそも道が無い」側の話なので、質を問い直さない（下記）
+            return PathSafetyChecker.annotate(view, result);
         }
-        return PathSafetyChecker.annotate(view, result);
+        return refineIfCrossingVoid(view, limits, looseningDeadline, cancelled, costToGo, run,
+                PathSafetyChecker.annotate(view, result));
     }
 
     /**
-     * 緩める順に並べた許容量。{@link RunCaps}側は{@link #RUN_CAP_LOOSEN_MULTIPLIERS}倍したものの後に
-     * 無制限、落下ダメージ側は全段で{@link #loosenedFallDamagePoints}の1段だけ。
+     * <b>奈落を渡る経路が出たときだけ、重みを下げてもう一度だけ引き直す。</b>
      *
-     * <p>まとめて1本の梯子に載せるのは、片方だけ緩めてももう片方で詰んでいれば同じ探索をもう一度
-     * 払うだけになるから。<b>落下ダメージと危険な跳躍を1段目から開けるのが要点</b>——直前に失敗した
-     * 探索が既定の許容量そのもので走っているので、1段目に同じ値を置くと、そちらだけが原因だったときに
-     * 何も変えない探索を1回まるごと捨てることになる。
+     * <p>重み付きA*は{@code f = g + w·h}で取り出すので、<b>目的地から一度遠ざかる経路を系統的に嫌う</b>。
+     * 実機ジ・エンド(2481,-488)で踏んだのがまさにこれで、谷を挟んだ39ブロック東へ行くのに
+     * <b>15マスの橋（うち7マスは奈落の上）を架けて突っ切る</b>経路が出ていた。しかもコストモデルの側は
+     * 既に南から回り込む方を安いと言っている——重み1.5の経路が596.3tick、1.3では橋ゼロの522.2tick。
+     * 探索が貪欲なだけで、値段付けは間違っていなかった。
      *
-     * <p>危険な跳躍（奈落・致死落差の上）を全段で許すのは、ここへ来ている時点で<b>回り込む道が
-     * 一本も見つからなかった</b>ことが確定しているため。ユーザーの意図は「同じ島の中なら外周を
-     * 回れ、島と島の間なら跳べ」で、その使い分けは「他に道があるか」そのもの——梯子の発動条件と
-     * 一致する。跳ぶことになった区間には{@code PathRisk.VOID_BELOW}で警告色が付く。
+     * <p><b>重みを下げるのは全体ではなくここだけ</b>。実機の保存地形で測った平均は割に合わない——
+     * 経路コストの改善は{@code -1.9%}(1.35)〜{@code -5.0%}(1.15)しかないのに、展開ノードは
+     * {@code +17%}〜{@code +46%}増える（オーバーワールドでは{@code -0.7%}に対し{@code +5%}）。
+     * <b>損は平均ではなく一部の経路に集中している</b>ので、その一部だけを狙い撃つ。
+     *
+     * <p>引き金を「奈落・致死落差の上を通る」に置くのは、そこが<b>貪欲さを許してはいけない唯一の判断</b>
+     * だから。{@code VOID_BRIDGE_PENALTY_TICKS}は元々「他に道が無いときの最後の手段」という値段で、
+     * 回り込む道があるかどうかを確かめずに払ってよいものではない。橋の無い経路には引き金が掛からないので、
+     * 大半の探索は1回で終わる。
+     *
+     * <p>緩和の梯子を通った結果には掛けない——あちらは「上限を外さないと経路が一本も出ない」場所なので、
+     * 質を問い直す前提（別の道がある）が成り立たない。
      */
-    private static List<Tolerances> loosenedTolerances(CellSource view) {
+    private static PathResult refineIfCrossingVoid(CellSource view, SearchLimits limits,
+                                                   long deadline, BooleanSupplier cancelled,
+                                                   CostToGo costToGo, SearchCall run, PathResult result) {
+        if (!result.complete() || limits.heuristicWeight() <= REFINE_HEURISTIC_WEIGHT) {
+            return result;
+        }
+        if (result.expandedNodes() > limits.maxExpandedNodes() * REFINE_MAX_FIRST_PASS_FRACTION) {
+            return result;
+        }
+        if (result.steps().stream().noneMatch(step -> step.risk() == PathRisk.VOID_BELOW)) {
+            return result;
+        }
+        long remainingMillis = deadline - System.currentTimeMillis();
+        if (remainingMillis <= 0) {
+            return result;
+        }
+        SearchLimits refined = new SearchLimits(limits.maxExpandedNodes(), remainingMillis,
+                REFINE_HEURISTIC_WEIGHT);
+        PathResult attempt = PathSafetyChecker.annotate(view,
+                run.search(new AStarPathfinder(view, refined, costToGo), cancelled));
+        if (attempt.complete() && totalCost(attempt) < totalCost(result)) {
+            return attempt;
+        }
+        return result;
+    }
+
+    private static double totalCost(PathResult result) {
+        double total = 0;
+        for (PathStep step : result.steps()) {
+            total += step.cost();
+        }
+        return total;
+    }
+
+    /**
+     * 緩和の1群を順に試す。到達した段があればその結果を、無ければ{@code null}を{@link Loosening}で返す。
+     *
+     * <p>{@code riskyJumpBlocked}には、この群のどこかで「危険な跳躍を理由に手を捨てた」ことが
+     * 立つ。呼び出し側はそれを見て次の群（跳躍を開ける段）を作るか決める。
+     */
+    private static Loosening runStages(CellSource view, SearchLimits limits, long looseningDeadline,
+                                       BooleanSupplier cancelled, CostToGo costToGo, SearchCall run,
+                                       List<Tolerances> stages) {
+        boolean riskyJumpBlocked = false;
+        for (Tolerances tolerances : stages) {
+            long remainingMillis = looseningDeadline - System.currentTimeMillis();
+            if (remainingMillis <= 0) {
+                // 上限は疑われた（capBlocked）が、緩和を試し切る前に持ち時間が尽きた。上限ではなく
+                // 予算の問題だという手がかりなので残す——ただし予算が厳しい地形では毎回出るので
+                // debugに留める（実機の既定ではdebugは出ない）
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("XaeroNav: 上限を疑ったが緩和の時間が残っていなかった");
+                }
+                break;
+            }
+            SearchLimits stageLimits = new SearchLimits(limits.maxExpandedNodes(), remainingMillis,
+                    limits.heuristicWeight());
+            AStarPathfinder stage = new AStarPathfinder(view, stageLimits, costToGo, tolerances);
+            PathResult attempt = run.search(stage, cancelled);
+            if (attempt.complete()) {
+                return new Loosening(attempt, riskyJumpBlocked);
+            }
+            riskyJumpBlocked |= stage.riskyJumpBlocked();
+            // EXHAUSTED以外（予算切れ・キャンセル）は、更に緩めても同じ壁に当たるだけ
+            if (attempt.termination() != PathResult.Termination.EXHAUSTED) {
+                break;
+            }
+        }
+        return new Loosening(null, riskyJumpBlocked);
+    }
+
+    /**
+     * @param result           到達した経路。この群では到達しなかったなら{@code null}
+     * @param riskyJumpBlocked この群のどこかで危険な跳躍を理由に手を捨てたか
+     */
+    private record Loosening(PathResult result, boolean riskyJumpBlocked) {
+    }
+
+    /**
+     * 上限を緩める段（{@link #RUN_CAP_LOOSEN_MULTIPLIERS}倍したものの後に無制限）。落下ダメージは
+     * 全段で{@link #loosenedFallDamagePoints}の1段だけ。
+     *
+     * <p><b>落下ダメージを1段目から開けるのが要点</b>——直前に失敗した探索が既定の許容量そのもので
+     * 走っているので、1段目に同じ値を置くと、そちらだけが原因だったときに何も変えない探索を
+     * 1回まるごと捨てることになる。
+     *
+     * <p><b>危険な跳躍（奈落・致死落差の上）だけは、この群を全部試し切ってから開ける</b>
+     * （呼び出し側が{@code allowRiskyJumps=true}でもう一度この群を作る）。以前は1段目から無条件に
+     * 開けていたが、それだと<b>橋の上限で詰まっただけの探索でも、経路のどこであれ奈落を跳ぶ手が
+     * 合法になっていた</b>——実機ジ・エンドのように橋が常用される地形では毎回開くので、
+     * 回り込める島の内部の亀裂まで跳んでいた（ユーザー報告「エンド島内部で奈落を越えたジャンプ」）。
+     * ユーザーの意図は「同じ島の中なら外周を回れ、島と島の間なら跳べ」で、その使い分けは
+     * <b>「橋を架けてでも回れるか」まで含めた「他に道があるか」</b>。
+     *
+     * <p>跳ぶことになった区間には{@code PathRisk.VOID_BELOW}で警告色が付き、
+     * {@code ActionCosts#dropRiskPenalty}が隙間の深さぶんの危険料を積む——<b>開けたあとも、
+     * 短い回り道があるならそちらが勝つ</b>。
+     */
+    private static List<Tolerances> capStages(CellSource view, boolean allowRiskyJumps) {
         RunCaps base = RunCaps.of(view);
         int fallPoints = loosenedFallDamagePoints(view);
         List<Tolerances> stages = new ArrayList<>(RUN_CAP_LOOSEN_MULTIPLIERS.length + 1);
         for (int multiplier : RUN_CAP_LOOSEN_MULTIPLIERS) {
-            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints, true));
+            stages.add(new Tolerances(scaleCaps(base, multiplier), fallPoints, allowRiskyJumps));
         }
-        stages.add(new Tolerances(RunCaps.NONE, fallPoints, true));
+        stages.add(new Tolerances(RunCaps.NONE, fallPoints, allowRiskyJumps));
         return stages;
     }
 
