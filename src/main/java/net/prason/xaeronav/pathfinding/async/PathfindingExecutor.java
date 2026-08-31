@@ -3,8 +3,10 @@ package net.prason.xaeronav.pathfinding.async;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
@@ -45,6 +47,19 @@ public final class PathfindingExecutor {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "xaeronav-pathfinding");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    /**
+     * {@link #submitWithDeepFallback}が深い予算の探索だけに使う2本目のワーカー。
+     *
+     * <p>通常予算の探索は{@link #executor}上でそのまま進めつつ、こちらで深い予算の探索を
+     * 同時に進める。通常予算が届けば{@link AtomicBoolean}で打ち切るので、実際にCPUを
+     * 2コア分使い続けるのは「通常予算が結局失敗するとき」だけに限られる。
+     */
+    private final ExecutorService deepExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "xaeronav-pathfinding-deep");
         thread.setDaemon(true);
         return thread;
     });
@@ -209,6 +224,69 @@ public final class PathfindingExecutor {
                     // 寄せ直しなので、メインスレッドへ戻さずここで行う
                     pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
                             c, carried, goalRadius));
+        });
+    }
+
+    /**
+     * 通常予算と深い予算を<b>並列に</b>試す。通常予算が届けばそれを採用して深い方は打ち切り、
+     * 通常予算が予算切れ・時間切れで終わったときだけ深い方の結果を待つ。
+     *
+     * <p><b>直列（通常予算の失敗を確認 → 次tickで深い予算）だと2回分の時間が丸ごと足し算になる。</b>
+     * 実測（実機ユーザー報告の島渡り地形、{@code PlayerAreaEndReproTest}と同条件）:
+     *
+     * <pre>
+     * 通常予算(10万/2秒)のみ → NODE_BUDGET、1871ms
+     * 深い予算(60万/15秒)のみ → 到達、1876ms
+     * 直列の合計 ≈ 3747ms（tick境界の待ちを含めると実機ではさらに伸びる）
+     * </pre>
+     *
+     * <p>深い方は通常予算と同時に始めておけば、通常予算が失敗を確定する頃には
+     * <b>ほぼ同時に終わっている</b>——上の実測どおり2つの所要時間はほとんど差が無い。
+     * 通常予算がすぐ届く（大半のケース）なら深い方は即座に打ち切られるので、
+     * 増える負荷は「通常予算と同じだけの時間、もう1コア使う」だけに留まる。
+     *
+     * <p>費用対効果が悪いのは通常予算がそもそも一瞬で終わる近距離ナビだが、そこでは
+     * 深い方も同じくらい一瞬で打ち切られるので実害は小さい。逆に通常予算が最初から
+     * 時間切れ確定（{@code plainSearchHopeless}）と分かっている場合は、深い予算だけで
+     * 足りるので呼び出し側（{@code PathfindingState}）はこちらを使わず従来どおり
+     * {@link #submit}に深い{@link SearchLimits}を渡す。
+     */
+    public CompletableFuture<PathResult> submitWithDeepFallback(CellSource view, BlockPos start, BlockPos goal,
+                                                                  SearchLimits normalLimits, SearchLimits deepLimits,
+                                                                  boolean costToGoGuideEnabled, int goalRadius) {
+        return submit(cancelled -> {
+            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, start, goal, cancelled) : null;
+            BlockPos resolvedStart = StanceFinder.resolveStart(view, start);
+            BlockPos resolvedGoal = StanceFinder.resolveGoal(view, goal);
+
+            // 通常予算が先に届いたら、まだ走っている深い方をここで打ち切る。deepExecutor自体は
+            // 空けておかないと、次の呼び出しがこのジョブの後ろに並んで無駄に待たされる
+            AtomicBoolean normalWon = new AtomicBoolean(false);
+            BooleanSupplier deepCancelled = () -> cancelled.getAsBoolean() || normalWon.get();
+            CompletableFuture<PathResult> deepFuture = CompletableFuture.supplyAsync(() ->
+                    search(view, deepLimits, deepCancelled, costToGo, (pathfinder, c) ->
+                            pathfinder.search(resolvedStart, resolvedGoal, c, Carryover.NONE, goalRadius)),
+                    deepExecutor);
+
+            PathResult normal = search(view, normalLimits, cancelled, costToGo, (pathfinder, c) ->
+                    pathfinder.search(resolvedStart, resolvedGoal, c, Carryover.NONE, goalRadius));
+
+            if (normal.complete() || cancelled.getAsBoolean()) {
+                normalWon.set(true);
+                deepFuture.cancel(true);
+                return normal;
+            }
+            // 通常予算は予算切れ・時間切れで終わった。深い方は同時に始めているので、
+            // ここではもう終わっているか、残りわずかのはず
+            try {
+                PathResult deep = deepFuture.get();
+                return deep.complete() ? deep : normal;
+            } catch (ExecutionException | InterruptedException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                return normal;
+            }
         });
     }
 

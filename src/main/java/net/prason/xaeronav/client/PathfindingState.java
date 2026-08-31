@@ -185,8 +185,10 @@ public final class PathfindingState {
      * <p>時間も同じ倍率で伸ばす。実機の展開速度は毎秒7〜10万ノードなので、532,724ノードには
      * 5〜8秒かかる——2秒のままではノード予算だけ増やしても時間で先に切れる。
      *
-     * <p>掛かるのは{@link #plainSearchHopeless}が真の場所だけ。通常の地形では一度も発動しない
-     * （＝普段の応答性は変わらない）。
+     * <p>単発で深い予算<b>だけ</b>を使うのは{@link #plainSearchHopeless}が真の場所だけ。
+     * それ以外の通常の探索でも、深い予算は{@code PathfindingExecutor#submitWithDeepFallback}で
+     * 通常予算と<b>並列に</b>試される——通常予算がすぐ届く普段の地形では即座に打ち切られるので、
+     * 応答性への影響は「通常予算と同じ時間だけ、もう1コア使う」程度に留まる。
      */
     private static final int DEEP_SEARCH_BUDGET_FACTOR = 6;
 
@@ -1618,15 +1620,22 @@ public final class PathfindingState {
         }
 
         SearchLimits limits = XaeroNavConfig.INSTANCE.searchLimits();
-        boolean deepBudget = !climbing && (forced == Escalation.DEEP || plainSearchHopeless(start));
-        if (deepBudget) {
-            // ここは通常の予算では解けないと分かっている。<b>区間分割へ逃がすのではなく予算を積む。</b>
-            // 実測（RealEndTerrainTest、実機の保存データ）では、区間分割は同じ地形で倍のノードを
-            // 使ったうえに遅く、素直に予算を与えた単発探索の方が確実だった
-            // （直接600,000で到達532,724ノード / 区間分割は800,000必要で628,593ノード）
-            limits = new SearchLimits(limits.maxExpandedNodes() * DEEP_SEARCH_BUDGET_FACTOR,
-                    Math.min(DEEP_SEARCH_MAX_MILLIS, limits.timeLimitMillis() * DEEP_SEARCH_BUDGET_FACTOR),
-                    limits.heuristicWeight());
+        // ここは通常の予算では解けないと分かっている。<b>区間分割へ逃がすのではなく予算を積む。</b>
+        // 実測（RealEndTerrainTest、実機の保存データ）では、区間分割は同じ地形で倍のノードを
+        // 使ったうえに遅く、素直に予算を与えた単発探索の方が確実だった
+        // （直接600,000で到達532,724ノード / 区間分割は800,000必要で628,593ノード）
+        SearchLimits deepLimits = new SearchLimits(limits.maxExpandedNodes() * DEEP_SEARCH_BUDGET_FACTOR,
+                Math.min(DEEP_SEARCH_MAX_MILLIS, limits.timeLimitMillis() * DEEP_SEARCH_BUDGET_FACTOR),
+                limits.heuristicWeight());
+        boolean deepBudgetOnly = !climbing && (forced == Escalation.DEEP || plainSearchHopeless(start));
+        // 通常予算で足りるかどうかまだ分からない初回はここ。並列に深い予算も試しておく
+        // （PathfindingExecutor#submitWithDeepFallback参照）——直列であれば「通常予算が
+        // 予算切れと確定するまで待ってから次tickで深い予算を投げ直す」ため2回分の時間が
+        // 足し算になる（実測で3.7秒相当）。同時に始めておけば通常予算が確定する頃には
+        // 深い方もほぼ終わっている（実測でおよそ半分の1.9秒）
+        boolean deepBudgetInParallel = !climbing && !coarseGuided && !deepBudgetOnly;
+        if (deepBudgetOnly) {
+            limits = deepLimits;
         }
         long myGeneration = generation.incrementAndGet();
         computing = true;
@@ -1635,7 +1644,10 @@ public final class PathfindingState {
         int finalWaypointIndex = waypointIndex;
         boolean finalWideSearch = wideSearch;
         boolean finalCoarseGuided = coarseGuided;
-        boolean finalDeepBudget = deepBudget;
+        // 並列フォールバックを使う回も、結果が届かなければ深い予算まで試し終えたのと同じ意味になる
+        // （届かなかったのは深い方も含めて、であって通常予算だけの話ではない）。次のエスカレーション先
+        // （粗い経由地チェーンか、深い予算からのやり直しか）の判定はこれで揃う
+        boolean finalDeepBudget = deepBudgetOnly || deepBudgetInParallel;
         // 次元はメインスレッドで確定させる。whenCompleteはワーカースレッドで走るうえ、
         // そこではプレイヤーが既に別次元へ移動している可能性がある
         ResourceKey<Level> searchDimension = level.dimension();
@@ -1646,6 +1658,9 @@ public final class PathfindingState {
         } else if (coarseGuided) {
             future = executor.submitCoarseGuided(view, bounds, start, finalTarget, limits, costToGoGuideEnabled,
                     goalRadius);
+        } else if (deepBudgetInParallel) {
+            future = executor.submitWithDeepFallback(view, start, finalTarget, limits, deepLimits,
+                    costToGoGuideEnabled, goalRadius);
         } else {
             future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius);
         }
