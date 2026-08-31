@@ -127,6 +127,9 @@ public final class PathfindingExecutor {
      *
      * <p>一方で狙っている谷の横断は3万/60万＝5%、実機の既定予算(10万)に置き直しても30%で収まる。
      * 半分に置けば両者を分けられる。
+     *
+     * <p><b>割合を測る分母は{@link #firstPassLimits}が渡した予算</b>——最初の探索はフル予算では
+     * 走らないので、フル予算と比べると条件が常に成立して保護が消える。
      */
     private static final double REFINE_MAX_FIRST_PASS_FRACTION = 0.5;
 
@@ -560,7 +563,10 @@ public final class PathfindingExecutor {
         if (!result.complete() || limits.heuristicWeight() <= REFINE_HEURISTIC_WEIGHT) {
             return result;
         }
-        if (result.expandedNodes() > limits.maxExpandedNodes() * REFINE_MAX_FIRST_PASS_FRACTION) {
+        // 分母は<b>最初の探索が実際に渡された予算</b>（{@link #firstPassLimits}）。フル予算と
+        // 比べると、1段目の上限がそれより小さい以上この条件は常に通り、保護が丸ごと効かなくなる
+        if (result.expandedNodes()
+                > firstPassLimits(limits).maxExpandedNodes() * REFINE_MAX_FIRST_PASS_FRACTION) {
             return result;
         }
         if (result.steps().stream().noneMatch(step -> step.risk() == PathRisk.VOID_BELOW)) {
