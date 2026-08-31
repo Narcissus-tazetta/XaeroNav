@@ -184,8 +184,7 @@ public final class XaeroNavConfig {
                         "「範囲内に道が一本も無い」と証明できたときだけで、エンドの島間では先に展開ノード数の",
                         "上限に当たるため当てにできない。だからここは最初から実測に足りる値にしておく",
                         "既定96の根拠: 保存データ(DIM1)から測ったジ・エンドの島間の奈落は47〜81ブロック。",
-                        "30でも緩和の梯子が開けば渡れる経路自体は見つかるが、最初の探索が丸ごと無駄になり",
-                        "同じ経路を出すのに倍以上の時間が掛かる（実測3.2秒→7.0秒。RealEndTerrainTest）")
+                        "30でも緩和の梯子が開けば渡れる経路自体は見つかる（RealEndTerrainTest）")
                 .defineInRange("maxVoidBridgeRunBlocks", 96, 0, 256);
 
         maxSubmergedTicks = builder
