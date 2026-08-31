@@ -56,7 +56,8 @@ final class PathNode {
 
     /**
      * ここまでの経路で置いた足場の総数（{@link MoveKind#BRIDGE}と{@link MoveKind#PILLAR}）。
-     * {@link AStarPathfinder#addBridge}が持ち物の予算との比較に使う。
+     * {@link AStarPathfinder#addBridge}が持ち物の予算との比較に使う。始点は0とは限らない——
+     * 手前の区間が使うと決まっている枚数を{@link Carryover#placedBlocks()}で受け取る。
      *
      * <p><b>{@link #bridgeRun}と違い、床に立っても0に戻らない。</b>あちらは「1本の橋が何マス
      * 続いているか」で外したときの危険を測るのに対し、こちらは消費した資源の累積——渡り切って

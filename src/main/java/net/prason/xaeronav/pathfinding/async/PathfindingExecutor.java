@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
+import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathRisk;
@@ -25,6 +26,7 @@ import net.prason.xaeronav.pathfinding.astar.Tolerances;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
@@ -80,7 +82,7 @@ public final class PathfindingExecutor {
     private static final int[] RUN_CAP_LOOSEN_MULTIPLIERS = {2, 4};
 
     /**
-     * {@link #refineIfCrossingVoid}が引き直しに使う重み。実機ジ・エンドの保存地形での実測から、
+     * {@link #refineQuality}が引き直しに使う重み。実機ジ・エンドの保存地形での実測から、
      * <b>改善のほとんどが取れて展開ノードの増分が最小</b>の点を採った（経路コスト{@code -3.0%} /
      * 展開{@code +40%}。1.15まで下げても{@code -5.0%} / {@code +46%}にしかならない）。
      */
@@ -117,7 +119,7 @@ public final class PathfindingExecutor {
     }
 
     /**
-     * {@link #refineIfCrossingVoid}が引き直すのは、最初の探索が予算のこれだけしか使わなかったときに限る。
+     * {@link #refineQuality}が引き直すのは、最初の探索が予算のこれだけしか使わなかったときに限る。
      *
      * <p><b>「余裕があったときだけ質を問い直す」の余裕をここで測る。</b>引き直しは最初の探索より
      * 4割ほど多く展開するので、既に予算の大半を焼いている探索でもう一度払うと、数%の質のために
@@ -132,6 +134,35 @@ public final class PathfindingExecutor {
      * 走らないので、フル予算と比べると条件が常に成立して保護が消える。
      */
     private static final double REFINE_MAX_FIRST_PASS_FRACTION = 0.5;
+
+    /**
+     * 経路が持ち物のこの割合を超えて使うとき、{@link #refineQuality}が節約を試みる。
+     *
+     * <p>半分に置くのは、<b>足りないことより「使い切ること」を問題にしている</b>から——渡り切れても
+     * 手元が空になれば、その先の谷や柱で詰む。逆に1〜2割しか使わない経路にまで掛けると、
+     * 設置を含む経路が常態のジ・エンドでは毎回2度探索することになる。
+     */
+    private static final double THRIFT_TRIGGER_FRACTION = 0.5;
+
+    /**
+     * 節約の引き直しで、足場1つを置く手間を何倍にするか
+     * （{@code ActionCosts#PLACE_BLOCK_OVERHEAD_TICKS}＝16.0 tick）。
+     *
+     * <p><b>「1個節約するために何マス余計に歩いてよいか」がこの値の意味</b>。橋1マスの値段は
+     * 疾走3.564＋設置16.0で、倍にすれば設置ぶんが16.0増える＝<b>疾走4.5マス相当</b>。
+     * 3倍なら9マス相当で、それ以上は{@link #THRIFT_MAX_COST_INCREASE}の関門で弾かれるだけの
+     * 引き直しが増える。
+     */
+    private static final double THRIFT_PLACEMENT_COST_SCALE = 2.0;
+
+    /**
+     * 節約した経路を採るために、本来の値段での総コストの悪化をどこまで許すか。
+     *
+     * <p>0にしてはいけない——最初の経路は本来の値段でほぼ最適なので、設置を減らした経路は
+     * 定義上それより高くなる。<b>少しの時間でブロックを買っている</b>のがこの引き直しなので、
+     * 買値の上限をここで決める。1割は、実機の島渡り（500 tick前後の区間）でおよそ2.5秒。
+     */
+    private static final double THRIFT_MAX_COST_INCREASE = 0.10;
 
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
@@ -161,13 +192,23 @@ public final class PathfindingExecutor {
      */
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
                                                  boolean costToGoGuideEnabled, int goalRadius) {
+        return submit(view, start, goal, limits, costToGoGuideEnabled, goalRadius, Carryover.NONE);
+    }
+
+    /**
+     * 手前の区間から累積を引き継ぐ版（{@link Carryover}）。表示中の経路の末端から継ぎ足す探索と、
+     * 経路へ合流し直す探索が使う——どちらも<b>1本の経路の続き</b>を解いているので、橋の連続長も
+     * 持ち物の予算も、この経路が既に使うと決めているぶんを差し引いた状態から始めなければならない。
+     */
+    public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
+                                                 boolean costToGoGuideEnabled, int goalRadius, Carryover carried) {
         return submit(cancelled -> {
             CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, start, goal, cancelled) : null;
             return search(view, limits, cancelled, costToGo, (pathfinder, c) ->
                     // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
                     // 寄せ直しなので、メインスレッドへ戻さずここで行う
                     pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
-                            c, goalRadius));
+                            c, carried, goalRadius));
         });
     }
 
@@ -279,7 +320,7 @@ public final class PathfindingExecutor {
                     ? CoarseRouter.costToGo(coarseMap, goal, false, bridgePolicy) : null;
             return search(view, limits, cancelled, directCostToGo, (pathfinder, c) ->
                     pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
-                            c, 0, goalRadius));
+                            c, Carryover.NONE, goalRadius));
         }
 
         List<BlockPos> rawLegGoals = new ArrayList<>(route.waypoints());
@@ -339,11 +380,11 @@ public final class PathfindingExecutor {
                     ? CoarseRouter.costToGo(legCoarseMap(view, currentLegStart, legGoal, bounds, cancelled),
                             legGoal, false, bridgePolicy)
                     : null;
-            // 区間の境目で橋の連続長が0に戻らないよう、直前までの末尾の連続長を引き継ぐ
-            int carriedBridgeRun = trailingBridgeRun(steps);
+            // 区間の境目で累積が0に戻らないよう、直前までの分を引き継ぐ（橋の連続長・設置数）
+            Carryover carried = Carryover.after(steps);
             long legBegan = System.currentTimeMillis();
             PathResult legResult = search(view, thisLegLimits, legDeadline, cancelled, legCostToGo,
-                    (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c, carriedBridgeRun, legRadius));
+                    (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c, carried, legRadius));
             // 区間ごとに出す。チェーン全体の合算だけでは「どの区間で詰まったか」「始点から
             // 動けていないのか、最後の区間だけ届かないのか」が切り分けられない——実機の
             // 「展開30万・ステップ数2」がどちらなのかを、合算値からは判断できなかった。
@@ -400,15 +441,6 @@ public final class PathfindingExecutor {
         int maxZ = Math.min(outer.maxZ(), Math.max(legStart.getZ(), legGoal.getZ()) + COARSE_LEG_GUIDE_MARGIN_BLOCKS);
         SearchBounds legBounds = new SearchBounds(minX, outer.minY(), minZ, maxX, outer.maxY(), maxZ);
         return LiveCoarseSampler.sample(view, legBounds, legStart.getY(), cancelled);
-    }
-
-    /** 経路の末尾で連続している橋のブロック数。 */
-    private static int trailingBridgeRun(List<PathStep> steps) {
-        int run = 0;
-        for (int i = steps.size() - 1; i >= 0 && steps.get(i).bridging(); i--) {
-            run++;
-        }
-        return run;
     }
 
     private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled, SearchCall run) {
@@ -483,8 +515,8 @@ public final class PathfindingExecutor {
             // 緩和まで来た経路は「そもそも道が無い」側の話なので、質を問い直さない（下記）
             return PathSafetyChecker.annotate(view, result);
         }
-        return refineIfCrossingVoid(view, limits, looseningDeadline, cancelled, costToGo, run,
-                PathSafetyChecker.annotate(view, result));
+        return refineQuality(view, limits, looseningDeadline, cancelled, costToGo, run,
+                PathSafetyChecker.annotate(view, result), pathfinder.carriedPlacedBlocks());
     }
 
     /**
@@ -507,7 +539,7 @@ public final class PathfindingExecutor {
      * <p><b>cost-to-goガイドが無いとどの重みでも解けない</b>（全部60万で未到達）。
      * 島の縁へ導いているのはガイドの方で、重みはそれを信じる度合いを上げているだけ。
      *
-     * <p>質は確実に落ちる（{@code refineIfCrossingVoid}が重みを下げているのと正反対のことをする）が、
+     * <p>質は確実に落ちる（{@code refineQuality}が重みを下げているのと正反対のことをする）が、
      * ここへ来るのは<b>経路が1本も出ていない</b>ときだけ——遠回りな案内と案内なしの比較になる。
      * 上限の緩和を試し切った後に置くのも同じ理由で、まず「上限のせいで道が消えていないか」を
      * 確かめてから貪欲さに手を付ける。
@@ -536,7 +568,10 @@ public final class PathfindingExecutor {
     }
 
     /**
-     * <b>奈落を渡る経路が出たときだけ、重みを下げてもう一度だけ引き直す。</b>
+     * <b>余裕があるときだけ、経路の質を問い直してもう一度だけ引き直す。</b>引き金は2つあり、
+     * どちらか一方でも立てば<b>1回だけ</b>引き直す（両方立てば両方の調整を掛けた1回）。
+     *
+     * <h4>引き金1: 奈落を渡っている（重みを下げる）</h4>
      *
      * <p>重み付きA*は{@code f = g + w·h}で取り出すので、<b>目的地から一度遠ざかる経路を系統的に嫌う</b>。
      * 実機ジ・エンド(2481,-488)で踏んだのがまさにこれで、谷を挟んだ39ブロック東へ行くのに
@@ -554,13 +589,31 @@ public final class PathfindingExecutor {
      * 回り込む道があるかどうかを確かめずに払ってよいものではない。橋の無い経路には引き金が掛からないので、
      * 大半の探索は1回で終わる。
      *
+     * <h4>引き金2: 持ち物の大半を使い切る（設置の値段を上げる）</h4>
+     *
+     * <p>予算（{@link Tolerances#placedBlockBudget()}）は<b>実行できるか</b>の線引きでしかない。
+     * 手持ち40個で40個置く経路は「実行できる」が、少し回り込めば10個で済むならそちらの方がいい
+     * ——<b>置いた先で足りなくなるのは、その経路を歩き終えた後</b>だからだ（経路キャッシュのキーは
+     * 目的地だけなので、途中で減っても引き直されない）。
+     *
+     * <p>そこで{@link #THRIFT_TRIGGER_FRACTION}を超えて使う経路が出たときだけ、設置の手間を
+     * {@link #THRIFT_PLACEMENT_COST_SCALE}倍にして引き直す。<b>係数は探索開始時に決まる一律の値</b>
+     * ——残り枚数で値段を変えると、同じ辺の値段が到達経路によって変わってA*の前提が崩れる。
+     *
+     * <p>採るのは<b>設置が減って、本来の値段での総コストが{@link #THRIFT_MAX_COST_INCREASE}以内の
+     * 悪化に収まるとき</b>だけ。値段を割り増して解いた以上、そのままの総コストで比べると必ず
+     * 「改善した」ことになってしまうので、割増ぶんを差し引いてから比べる（{@link #trueCost}）。
+     *
+     * <h4>共通</h4>
+     *
      * <p>緩和の梯子を通った結果には掛けない——あちらは「上限を外さないと経路が一本も出ない」場所なので、
      * 質を問い直す前提（別の道がある）が成り立たない。
      */
-    private static PathResult refineIfCrossingVoid(CellSource view, SearchLimits limits,
-                                                   long deadline, BooleanSupplier cancelled,
-                                                   CostToGo costToGo, SearchCall run, PathResult result) {
-        if (!result.complete() || limits.heuristicWeight() <= REFINE_HEURISTIC_WEIGHT) {
+    private static PathResult refineQuality(CellSource view, SearchLimits limits,
+                                             long deadline, BooleanSupplier cancelled,
+                                             CostToGo costToGo, SearchCall run, PathResult result,
+                                             int carriedPlacements) {
+        if (!result.complete()) {
             return result;
         }
         // 分母は<b>最初の探索が実際に渡された予算</b>（{@link #firstPassLimits}）。フル予算と
@@ -569,21 +622,68 @@ public final class PathfindingExecutor {
                 > firstPassLimits(limits).maxExpandedNodes() * REFINE_MAX_FIRST_PASS_FRACTION) {
             return result;
         }
-        if (result.steps().stream().noneMatch(step -> step.risk() == PathRisk.VOID_BELOW)) {
+        // 引き金は独立に立つ。両方立てば、両方の調整を掛けた探索を1回だけ走らせる
+        boolean lowerWeight = limits.heuristicWeight() > REFINE_HEURISTIC_WEIGHT
+                && result.steps().stream().anyMatch(step -> step.risk() == PathRisk.VOID_BELOW);
+        boolean thrift = thrifty(view, result, carriedPlacements);
+        if (!lowerWeight && !thrift) {
             return result;
         }
         long remainingMillis = deadline - System.currentTimeMillis();
         if (remainingMillis <= 0) {
             return result;
         }
+        double scale = thrift ? THRIFT_PLACEMENT_COST_SCALE : 1.0;
         SearchLimits refined = new SearchLimits(limits.maxExpandedNodes(), remainingMillis,
-                REFINE_HEURISTIC_WEIGHT);
+                lowerWeight ? REFINE_HEURISTIC_WEIGHT : limits.heuristicWeight());
         PathResult attempt = PathSafetyChecker.annotate(view,
-                run.search(new AStarPathfinder(view, refined, costToGo), cancelled));
-        if (attempt.complete() && totalCost(attempt) < totalCost(result)) {
+                run.search(new AStarPathfinder(view, refined, costToGo, Tolerances.of(view), scale), cancelled));
+        if (!attempt.complete()) {
+            return result;
+        }
+        // 元の経路は割増していないので、その総コストがそのまま本来の値段
+        double before = totalCost(result);
+        double after = trueCost(attempt, scale);
+        // 「安くなった」か「同じくらいの値段で設置が減った」なら採る。後者を許すのが節約の本体で、
+        // 買値の上限が THRIFT_MAX_COST_INCREASE（節約を狙っていない引き直しでは0＝従来どおり）
+        boolean worthIt = after < before || placements(attempt) < placements(result);
+        if (worthIt && after <= before * (1.0 + (thrift ? THRIFT_MAX_COST_INCREASE : 0.0))) {
             return attempt;
         }
         return result;
+    }
+
+    /**
+     * この経路は持ち物の大半を使い切るか。予算が無い（クリエイティブ・設定offなど）なら
+     * <b>希少さという概念自体が無い</b>ので問わない。
+     *
+     * <p>数えるのは<b>手前の区間が使うと決めているぶんも含めた合計</b>。この探索が返した経路の
+     * 設置数だけで見ると、区間に割って解いたときは<b>いつも余裕があるように見える</b>——
+     * 予算そのものは全区間で共通（手持ちの枚数）なので、比べる相手も全区間の合計でなければ
+     * 意味が合わない。
+     */
+    private static boolean thrifty(CellSource view, PathResult result, int carriedPlacements) {
+        int budget = view.placedBlockBudget();
+        return budget > 0 && carriedPlacements + placements(result) > budget * THRIFT_TRIGGER_FRACTION;
+    }
+
+    private static int placements(PathResult result) {
+        return Carryover.placements(result.steps(), 0);
+    }
+
+    /**
+     * 割り増した設置の値段を元に戻した総コスト。<b>2つの経路を同じ値段で比べるためのもの</b>で、
+     * 割増したまま比べると「割増した方の探索が割増した目的関数で勝つ」だけの比較になる。
+     *
+     * <p>水中で置いた足場だけは差し引きが僅かに足りない（{@code relax}が
+     * {@code SUBMERGED_TRAVEL_PENALTY}を辺コスト全体に掛けるため）。<b>ずれる向きは安全側</b>
+     * ——引き直した経路の見積もりが実際より高くなるので、採用しすぎる方には倒れない。
+     *
+     * @param placementScale その経路を求めた探索が使っていた設置の値段の倍率。1.0なら素通し
+     */
+    private static double trueCost(PathResult result, double placementScale) {
+        return totalCost(result)
+                - (placementScale - 1.0) * ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS * placements(result);
     }
 
     private static double totalCost(PathResult result) {

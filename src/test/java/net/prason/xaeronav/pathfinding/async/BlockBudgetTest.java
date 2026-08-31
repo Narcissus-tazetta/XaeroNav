@@ -7,6 +7,7 @@ import java.util.function.BooleanSupplier;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
+import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
@@ -122,6 +123,31 @@ class BlockBudgetTest {
                 .submit(cells, new BlockPos(0, 65, 0), new BlockPos(40, 65, 0), LIMITS, false).get();
         assertTrue(loosened.complete(), "緩和の梯子が開かなかった: " + loosened.termination());
         assertTrue(placements(loosened) > 2, "緩めたのに予算内のままの経路が出ている");
+    }
+
+    /**
+     * <b>区間をまたいでも予算は引き継ぐ。</b>長距離ルートは区間ごとに探索を投げるので、
+     * 引き継がないと<b>区間の数だけ予算が満額に戻る</b>——手持ち6個でも、3区間に割れば
+     * 合計18個置く経路が組み上がってしまう。
+     *
+     * <p>対照（引き継ぎ無し）を並べるのが要点。片方だけでは「予算6では元から渡れない地形」を
+     * 見ているのか区別が付かない。
+     */
+    @Test
+    void carriesThePlacedBlocksAcrossSegments() {
+        FakeCells cells = ledgeWithGap(26).placedBlockBudget(6);
+        BlockPos start = new BlockPos(0, 65, 0);
+        BlockPos goal = new BlockPos(40, 65, 0);
+
+        PathResult fresh = new AStarPathfinder(cells, LIMITS).search(start, goal, NEVER, Carryover.NONE, 0);
+        assertEquals(GAP, placements(fresh), "予算6なら幅4の裂け目は渡れるはず");
+
+        // 手前の区間が3個使うと決まっている＝残りは3個で、幅4の裂け目には足りない
+        PathResult continued = new AStarPathfinder(cells, LIMITS)
+                .search(start, goal, NEVER, new Carryover(0, 3), 0);
+        assertTrue(continued.complete(), "回り込む道があるので着けるはず: " + continued.termination());
+        assertTrue(placements(continued) <= 3, "残りの予算を超えて設置している: " + placements(continued));
+        assertTrue(maxZ(continued) > 26, "回り込んでいない: maxZ=" + maxZ(continued));
     }
 
     /**

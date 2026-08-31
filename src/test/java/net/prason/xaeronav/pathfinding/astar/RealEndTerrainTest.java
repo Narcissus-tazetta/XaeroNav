@@ -125,11 +125,16 @@ class RealEndTerrainTest {
 
     private static PathResult search(BlockPos start, BlockPos goal, int cap, int nodes, long millis,
                                       int placedBlockBudget) throws IOException {
+        return search(start, goal, cap, nodes, millis, placedBlockBudget, Carryover.NONE);
+    }
+
+    private static PathResult search(BlockPos start, BlockPos goal, int cap, int nodes, long millis,
+                                      int placedBlockBudget, Carryover carried) throws IOException {
         FakeCells cells = terrain(cap, placedBlockBudget);
         SearchLimits limits = new SearchLimits(nodes, millis, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
         try {
             return new net.prason.xaeronav.pathfinding.async.PathfindingExecutor()
-                    .submit(cells, start, goal, limits, true, 0).get();
+                    .submit(cells, start, goal, limits, true, 0, carried).get();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -153,6 +158,26 @@ class RealEndTerrainTest {
             PathResult result = search(START, DIRECT_GOAL, 96, 600_000, 30_000, budget);
             assertTrue(result.complete(),
                     "予算" + budget + "で島渡りが出なくなった: " + result.termination()
+                            + " steps=" + result.steps().size());
+        }
+    }
+
+    /**
+     * <b>区間をまたいで予算を絞っても島渡りは案内する。</b>
+     *
+     * <p>手前の区間が使うぶんを引き継ぐようにした以上（{@link Carryover}）、上の
+     * 「中間の帯だけが壊れる」穴には<b>予算そのものを絞らなくても入りうる</b>——予算43でも、
+     * 手前が20使っていれば残りは23で帯のど真ん中に落ちる。緩和の梯子が予算を真っ先に外すのは
+     * 引き継ぎの有無に関わらず効かなければならない。
+     */
+    @Test
+    void crossesTheIslandsWhenEarlierSegmentsAlreadySpentTheBudget() throws IOException {
+        // 20は残り23＝壊れる帯のど真ん中、43は残り0＝最初の1本から設置が全部消える状態
+        for (int carried : new int[] {20, 43}) {
+            PathResult result = search(START, DIRECT_GOAL, 96, 600_000, 30_000, 43,
+                    new Carryover(0, carried));
+            assertTrue(result.complete(),
+                    "手前の区間が" + carried + "個使った状態で島渡りが出なくなった: " + result.termination()
                             + " steps=" + result.steps().size());
         }
     }
