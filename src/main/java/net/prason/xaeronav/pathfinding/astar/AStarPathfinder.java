@@ -164,6 +164,20 @@ public final class AStarPathfinder {
     /** この探索が{@link #placedBudget}を理由に設置の移動を1つでも捨てたか。 */
     private boolean placedBudgetBlocked;
 
+    /**
+     * 足場を1つ置く手間の値段（tick）。既定は{@link ActionCosts#PLACE_BLOCK_OVERHEAD_TICKS}そのもので、
+     * <b>持ち物が乏しいときだけ</b>呼び出し側が割り増した値を渡す（{@code PathfindingExecutor}の
+     * 節約の引き直し）。
+     *
+     * <p><b>探索の開始時に決まる一律の値であること。</b>残り枚数で値段を変えると、同じ辺の値段が
+     * 到達経路によって変わってA*の前提が崩れる（{@link PathNode#placedTotal}がノードの同一性に
+     * 入っていないので、なおさら意味を持たない）。
+     *
+     * <p>割り増す向きは安全側——実コストが上がるだけなので、{@link Heuristic}も
+     * {@link CostToGo}のガイドも下限であり続ける。
+     */
+    private final double placementCostTicks;
+
     /** 持ち物にブロックが無くても設置の移動を作ってよいか。{@link Tolerances#placeWithoutBlocks()}。 */
     private final boolean placeWithoutBlocks;
 
@@ -200,8 +214,8 @@ public final class AStarPathfinder {
     /** この探索が{@link #maxSubmergedTicks}を理由に移動を1つでも捨てたか。 */
     private boolean submergedRunCapBlocked;
 
-    /** 始点がすでに橋の途中である場合の、そこまでの連続長。 */
-    private int startBridgeRun;
+    /** 手前の区間から引き継ぐ累積（橋の連続長・設置数）。 */
+    private Carryover carried = Carryover.NONE;
 
     /** ゴールを領域として扱う半径（ブロック）。0なら座標の完全一致。 */
     /**
@@ -304,7 +318,24 @@ public final class AStarPathfinder {
      * マシ」という優先順）。
      */
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, Tolerances tolerances) {
+        this(view, limits, costToGo, tolerances, 1.0);
+    }
+
+    /**
+     * 足場を置く手間の値段に掛ける係数を明示するコンストラクタ。{@code 1.0}が既定
+     * （{@link ActionCosts#PLACE_BLOCK_OVERHEAD_TICKS}そのもの）。
+     *
+     * <p>持ち物が乏しいときに「置く手数を減らした経路」を探し直すためのもの
+     * （{@code PathfindingExecutor}の節約の引き直し）。<b>上限（{@link #placedBudget}）とは
+     * 役割が違う</b>——上限は実行可能かどうかの線引きで、こちらは実行できる範囲での好みを表す。
+     *
+     * @param placementCostScale {@link #placementCostTicks}に掛ける係数。1.0未満は渡さないこと
+     *                           （安くすると{@link CostToGo}のガイドが下限でなくなる）
+     */
+    public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, Tolerances tolerances,
+                            double placementCostScale) {
         RunCaps caps = tolerances.caps();
+        this.placementCostTicks = ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS * placementCostScale;
         this.maxBridgeRun = caps.maxBridgeRunBlocks();
         this.maxLavaBridgeRun = caps.effectiveLavaBridgeRun();
         this.maxVoidBridgeRun = caps.effectiveVoidBridgeRun();
@@ -342,6 +373,16 @@ public final class AStarPathfinder {
      */
     public boolean placedBudgetBlocked() {
         return placedBudgetBlocked;
+    }
+
+    /**
+     * 手前の区間から引き継いだ設置数（{@link Carryover#placedBlocks()}）。
+     *
+     * <p>呼び出し側が「この経路は持ち物のどれだけを使うのか」を出すのに要る——この探索が返す
+     * 経路の設置数だけでは、区間に割って解いたときに<b>いつも手持ちに余裕があるように見える</b>。
+     */
+    public int carriedPlacedBlocks() {
+        return carried.placedBlocks();
     }
 
     /**
@@ -384,7 +425,7 @@ public final class AStarPathfinder {
      * 暫定経路を返す。
      */
     public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled) {
-        return search(start, goal, cancelled, 0, 0);
+        return search(start, goal, cancelled, Carryover.NONE, 0);
     }
 
     /**
@@ -399,23 +440,22 @@ public final class AStarPathfinder {
      * その一般化にあたる。本来の目的地に対しては0を渡すこと（ユーザーが指した点は動かせない）。
      */
     public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled, int goalRadius) {
-        return search(start, goal, cancelled, 0, goalRadius);
+        return search(start, goal, cancelled, Carryover.NONE, goalRadius);
     }
 
     /**
-     * 始点がすでに橋の途中であることを伝えて探索する。
+     * 手前の区間から累積を引き継いで探索する（{@link Carryover}）。
      *
-     * <p>粗い経由地チェーンは区間ごとに別の探索器を作るので、そのままでは
-     * {@link PathNode#bridgeRun}が区間の境目で必ず0に戻る——溶岩の海を4区間に割れば、
-     * 上限30でも120マスの橋が通ってしまう。前の区間の末尾で連続していた橋の長さを引き継ぐ。
+     * <p>経路は区間ごとに別の探索器で解かれるので、引き継がないと<b>区間の数だけ上限が復活する</b>
+     * ——橋の連続長は境目で0に戻り、持ち物の予算は区間ごとに満額になる。
      */
-    public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled, int startBridgeRun,
+    public PathResult search(BlockPos start, BlockPos goal, BooleanSupplier cancelled, Carryover carried,
                               int goalRadius) {
         this.surfaceGoal = false;
         this.goalX = goal.getX();
         this.goalY = goal.getY();
         this.goalZ = goal.getZ();
-        this.startBridgeRun = startBridgeRun;
+        this.carried = carried;
         this.goalRadius = goalRadius;
         return runSearch(start, cancelled);
     }
@@ -481,7 +521,10 @@ public final class AStarPathfinder {
         boolean startBoating = view.ridingBoat()
                 && isBoatSurface(start.getX(), start.getY(), start.getZ());
         PathNode startNode = node(start.getX(), start.getY(), start.getZ(), startBoating);
-        startNode.bridgeRun = startBridgeRun;
+        startNode.bridgeRun = carried.bridgeRun();
+        // 手前の区間で使うと決まっている枚数を先に計上する。これが無いと、区間ごとに予算が
+        // 満額になって合計では手持ちの何倍も置く経路が出る
+        startNode.placedTotal = carried.placedBlocks();
         startNode.cost = 0.0;
         startNode.combinedCost = orderingCost(heuristicWeight * startNode.estimatedCostToGoal,
                 startNode.x, startNode.z);
@@ -1502,10 +1545,10 @@ public final class AStarPathfinder {
             return;
         }
         // 進む1マスぶんだけ踏み切り地点の倍率で割る。置いたブロックの上は等速なので、遅いのは
-        // ソウルサンド等の上から踏み出す分だけ。設置の手間（PLACE_BLOCK_OVERHEAD_TICKS）は
+        // ソウルサンド等の上から踏み出す分だけ。設置の手間（placementCostTicks）は
         // 立っているブロックと無関係なので割らない
         double cost = ActionCosts.SPRINT_ONE_BLOCK / takeoffSpeedFactor(from.x, from.y, from.z)
-                + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+                + placementCostTicks
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
                 // 遥か下が溶岩なら落差は測らない。外したときの結末は既に溶岩の割増が表しているので、
                 // 深さで二重に取ると測っていないネザーの橋の値段まで動く
@@ -1575,7 +1618,7 @@ public final class AStarPathfinder {
             return;
         }
         double cost = ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
-                + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+                + placementCostTicks
                 + submerged(from, clearanceCost, from.x, from.y + 2, from.z);
         // 積んだブロックの上は自分が置いた足場であって地形ではないので、橋の連続を断たない。
         // 0に戻していた頃は「橋を上限まで架ける→1マス積む→また上限まで架ける」が合法だった。

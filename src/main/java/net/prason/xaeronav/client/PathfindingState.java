@@ -22,6 +22,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
+import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
@@ -1898,7 +1899,11 @@ public final class PathfindingState {
         computing = true;
         // 合流点は実際に歩けるセル（この経路が通っている）なので、半径を与えずぴったり狙う。
         // 半径で緩めると別のセルに着いてしまい、そこから先の区間が繋がらない
-        executor.submit(view, playerAt, joinPos, limits, XaeroNavConfig.INSTANCE.costToGoGuideEnabled(), 0)
+        // 合流点から先はそのまま残るので、そこで置くと決まっているぶんは合流区間には使えない。
+        // 引き継がないと、合流のたびに予算が満額に戻って手持ちを超える経路が組み上がる
+        Carryover carried = new Carryover(0, Carryover.placements(result.steps(), joinIndex + 1));
+        executor.submit(view, playerAt, joinPos, limits, XaeroNavConfig.INSTANCE.costToGoGuideEnabled(), 0,
+                        carried)
                 .whenComplete((splice, error) -> {
             if (generation.get() != myGeneration) {
                 return;
@@ -2042,7 +2047,11 @@ public final class PathfindingState {
         boolean reachesGoal = target.equals(currentGoal);
         int newWaypointIndex = reachesGoal ? -1 : detail.waypointIndex();
         boolean costToGoGuideEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
-        executor.submit(view, from, target, limits, costToGoGuideEnabled, detail.goalRadius())
+        // 手前の経路がこれから使うぶんを差し引いた資源で続きを解く。数えるのは<b>いる場所から先</b>
+        // だけ——通り過ぎたぶんは既に置き終わっていて、手持ちの枚数からも減っている
+        Carryover carried = new Carryover(Carryover.trailingBridgeRun(steps),
+                Carryover.placements(steps, PathProgress.INSTANCE.indexFor(shown.result()) + 1));
+        executor.submit(view, from, target, limits, costToGoGuideEnabled, detail.goalRadius(), carried)
                 .whenComplete((result, error) -> {
             if (generation.get() != myGeneration) {
                 return;
