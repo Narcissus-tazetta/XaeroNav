@@ -15,6 +15,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
+import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathRisk;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
@@ -46,7 +47,6 @@ public final class NavHud {
     // 全ステップの走査を経路1本につき1度で済ませる
     private final PathCache<Set<PathRisk>> risksAhead = new PathCache<>();
     private final PathCache<Boolean> usesBoat = new PathCache<>();
-    private final PathCache<Integer> placements = new PathCache<>();
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
@@ -184,9 +184,19 @@ public final class NavHud {
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(PathRisk.class))));
     }
 
-    /** この経路を辿るのに置くことになる足場の数。所持数と違い経路が変わるまで動かない。 */
-    private int placementsNeeded(PathResult result) {
-        return placements.get(result, path -> (int) path.steps().stream().filter(PathStep::bridging).count());
+    /**
+     * ここから先で置くことになる足場の数。
+     *
+     * <p><b>経路全体ではなく残りを数える。</b>置いたブロックは持ち物から減るので、全体の数と
+     * 突き合わせると、案内どおりに橋を架けているだけで「足りない」と言い出す（40個持って40個の
+     * 経路を歩き、10個置いた時点で「40個必要／所持30個」）。探索が予算を引き継ぐときの
+     * 数え方（{@link Carryover#placements}）と同じものを共有する。
+     *
+     * <p>{@link PathCache}に載せられないのはそのため——値は経路だけでなく<b>いまどこにいるか</b>で
+     * 変わる。走査は経路1本ぶんで、毎フレーム走っている案内の組み立てと同じ桁に収まる。
+     */
+    private static int placementsNeeded(PathResult result) {
+        return Carryover.placements(result.steps(), PathProgress.INSTANCE.indexFor(result) + 1);
     }
 
     private boolean usesBoat(PathResult result) {
