@@ -30,7 +30,8 @@ jobs:
 
       # コンパイル + フォーマット確認(spotlessCheck) + テストをまとめて実行する。
       # spotlessCheckはjavaプラグインのcheckタスクに自動で組み込まれるため、
-      # ./gradlew build だけでこの3つがすべて走る。
+      # ./gradlew build だけでこの3つがすべて走る。実機地形の重いテスト(slowTest)も
+      # checkが依存しているので、手元の既定から外れていてもCIでは必ず通る。
       - run: ./gradlew build --console=plain
 
       # 失敗したときに、どのテストがなぜ落ちたかをログを掘らずに見られるようにする
@@ -39,7 +40,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: test-report
-          path: build/reports/tests/test
+          path: |
+            build/reports/tests/test
+            build/reports/tests/slowTest
           retention-days: 7
 
       # PRから実際のjarを落として動作確認できるようにする

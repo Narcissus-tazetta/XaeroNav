@@ -1,5 +1,6 @@
 package net.prason.xaeronav.pathfinding.async;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import net.minecraft.core.BlockPos;
@@ -9,6 +10,7 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Test;
  * それだと「舐め尽くせるほど狭い地形」でしか緩和が発動せず、広い地形では上限のせいで道が
  * 無いのに上限を緩めないまま失敗し続ける。
  */
+@Tag("slow")
 class PathfindingExecutorLooseningTest {
 
     /** 橋の連続長の上限（実機の既定値）。 */
@@ -36,6 +39,11 @@ class PathfindingExecutorLooseningTest {
     /**
      * 時間上限は実機（2秒）より緩く取る。ここで測りたいのは「緩和の段が走るか」であって
      * 実行速度ではなく、CIの速度差で結果が変わるテストにしたくない。
+     *
+     * <p><b>展開ノード数の上限は削らない。</b>速くしようと下げてみたが、
+     * {@link #crossesTheSameVoidThroughTheCoarseGuidedChain}は区間ごとに予算を割るので
+     * 190,000を切ると渡れなくなる（160,000で失敗）。崖から1.2倍しか離れていない値に座らせると、
+     * コストモデルを触るたびにここが落ちる。遅さは{@code @Tag("slow")}で引き受ける。
      */
     private static final SearchLimits LIMITS =
             new SearchLimits(300_000, 20_000, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
@@ -50,6 +58,12 @@ class PathfindingExecutorLooseningTest {
         FakeCells cells = twoIslands(LARGE_ISLAND_RADIUS);
         BlockPos start = new BlockPos(LARGE_ISLAND_RADIUS, 61, LARGE_ISLAND_RADIUS);
         BlockPos goal = new BlockPos(LARGE_ISLAND_RADIUS + VOID_GAP + 5, 61, LARGE_ISLAND_RADIUS);
+
+        // 対照。この島が予算切れで終わることがこのテストの前提そのもので、EXHAUSTEDへ倒れると
+        // 「舐め尽くせる地形」を検証するだけの空振りになる（島の大きさか予算が動いたとき）
+        PathResult bare = new PathfindingExecutor().submitRaw(cells, start, goal, LIMITS).get();
+        assertEquals(PathResult.Termination.NODE_BUDGET, bare.termination(),
+                "大きい島の探索が予算切れで終わっていない＝この地形が対照になっていない");
 
         PathResult result = new PathfindingExecutor().submit(cells, start, goal, LIMITS, true, 0).get();
 
@@ -84,6 +98,11 @@ class PathfindingExecutorLooseningTest {
         FakeCells cells = twoIslands(20);
         BlockPos start = new BlockPos(20, 61, 20);
         BlockPos goal = new BlockPos(20 + VOID_GAP + 5, 61, 20);
+
+        // 対照。上の大きい島と分かれるのはここ——両方NODE_BUDGETになったら差が消えている
+        PathResult bare = new PathfindingExecutor().submitRaw(cells, start, goal, LIMITS).get();
+        assertEquals(PathResult.Termination.EXHAUSTED, bare.termination(),
+                "小さい島の探索が舐め尽くしで終わっていない＝大小の対照が崩れている");
 
         PathResult result = new PathfindingExecutor().submit(cells, start, goal, LIMITS, true, 0).get();
 

@@ -774,8 +774,9 @@ public final class PathfindingExecutor {
      * @param budgetBlocked 最初の探索が予算を理由に設置を捨てたか。立っていれば予算を外した段を
      *                      先頭に積む——予算が原因なら、他の上限をいくら緩めても同じ壁に当たる
      */
-    private static List<Tolerances> capStages(CellSource view, boolean allowRiskyJumps, boolean budgetBlocked,
-                                               boolean emptyInventoryBlocked) {
+    // 段の順序そのものが直した中身なので、探索を回さずに直接確かめられるようにpackage-privateにしてある
+    static List<Tolerances> capStages(CellSource view, boolean allowRiskyJumps, boolean budgetBlocked,
+                                       boolean emptyInventoryBlocked) {
         RunCaps base = RunCaps.of(view);
         int fallPoints = loosenedFallDamagePoints(view);
         int budget = view.placedBlockBudget();

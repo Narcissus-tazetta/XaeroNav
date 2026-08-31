@@ -218,8 +218,17 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 ./gradlew build
 ```
 
-This also runs `spotlessCheck` (unused imports, trailing whitespace, final newline) and the test
-suite. Artifacts land in `build/libs/`.
+This also runs `spotlessCheck` (unused imports, trailing whitespace, final newline) and both test
+suites. Artifacts land in `build/libs/`.
+
+The suite is split by cost. `./gradlew test` runs everything except the searches over real saved
+world data, which take about a minute; those carry `@Tag("slow")` and run as `./gradlew slowTest`.
+`build` runs both, so CI covers the whole suite.
+
+```bash
+./gradlew test       # fast, a few seconds
+./gradlew slowTest   # real-terrain pathfinding searches
+```
 
 Running a dev client:
 
