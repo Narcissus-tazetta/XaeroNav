@@ -60,7 +60,10 @@ class PathfindingExecutorCoarseGuidedTest {
         SearchLimits limits = new SearchLimits(1_000, 30_000, 1.5);
 
         PathfindingExecutor executor = new PathfindingExecutor();
-        PathResult direct = executor.submit(cells, start, goal, limits, false).get(60, TimeUnit.SECONDS);
+        // 対照は<b>素の探索</b>（submitRaw）で取る。submitは詰み回避の再挑戦
+        // （上限の緩和・重みを上げる retryGreedier）を通すので、同じ予算でも実質もっと使える——
+        // 対照が届いてしまい「チェーンだから届いた」が言えなくなる
+        PathResult direct = executor.submitRaw(cells, start, goal, limits).get(60, TimeUnit.SECONDS);
         assertFalse(direct.complete(), "この予算では直接探索が届いてしまい、チェーンの利得を確かめられない");
 
         PathResult chain = executor.submitCoarseGuided(cells, bounds, start, goal, limits, false)
@@ -96,7 +99,8 @@ class PathfindingExecutorCoarseGuidedTest {
         // 膨らみ、この予算では両方失敗していた
         SearchLimits limits = new SearchLimits(7_200, 30_000, 1.5);
 
-        PathResult unguided = new PathfindingExecutor().submit(wallCells(), start, goal, limits, false)
+        // 対照は素の探索で取る（上の reachesTheGoalOnABudgetThatDefeatsASingleSearch と同じ理由）
+        PathResult unguided = new PathfindingExecutor().submitRaw(wallCells(), start, goal, limits)
                 .get(60, TimeUnit.SECONDS);
         assertFalse(unguided.complete(), "この予算ではガイド無しでも届いてしまい、比較にならない");
 

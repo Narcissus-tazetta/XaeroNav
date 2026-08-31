@@ -101,34 +101,21 @@ class RealEndTerrainTest {
      * <p>上限を30(旧既定)にしても96にしても無制限にしても、必要な展開ノード数は51〜53万で
      * ほとんど変わらない（上限で詰んだら緩和の梯子が開けるため）。上限をいじって直そうとすると
      * ここで空振りする——実際にこのセッションで一度その回り道をした。
-     */
-    /**
-     * <b>橋の上限を96にしてある理由。</b>上限30でも（緩和の梯子が開くので）同じ経路自体は
-     * 見つかるが、最初の探索が丸ごと無駄になるぶん倍以上の時間が掛かる。実機は測定環境より
-     * 2〜3倍遅く、深い予算の枠（{@code DEEP_SEARCH_MAX_MILLIS}=15秒）に収まらなくなる。
      *
-     * <p>ノード数で見ると上限30の方がむしろ少ない（514,460 vs 532,724）ので、
-     * <b>展開ノード数だけを見て「上限は関係ない」と判断しないこと</b>——見るべきは所要時間。
+     * <p><b>所要時間の比較はしない。</b>かつては「上限30だと最初の探索が丸ごと無駄になり倍以上
+     * 掛かる」を壁時計で固定していたが、{@code PathfindingExecutor#FIRST_PASS_PERCENT}で
+     * 最初の探索の取り分を絞ってからは差が消えた（実測 4129ms vs 4048ms）——届かない探索が
+     * 早く諦めるようになったので、上限がきついこと自体の損が小さい。壁時計の比はマシンの
+     * 混み具合でも揺れるので、ここでは「どちらでも解ける」だけを見る。
      *
-     * <p><b>倍率は1.5にしてある。</b>壁時計の比を見るテストなので、閾値を実測値のすぐ上に置くと
-     * マシンの混み具合で落ちる——2.0だった頃の実測は1.88／1.94／2.00で、<b>半分の確率で落ちていた</b>
-     * （変更前のコードでも同じ）。1.5でも「最初の探索が丸ごと無駄になる」ことは十分示せる。
+     * <p>既定を96にしてある根拠は所要時間ではなく<b>実測の奈落の幅</b>（保存データで47〜81ブロック）。
      */
     @Test
-    void aTightBridgeCapWastesTheFirstSearch() throws IOException {
-        long tightMillis = timeOf(30);
-        long looseMillis = timeOf(96);
-
-        assertTrue(looseMillis * 3 <= tightMillis * 2,
-                "上限96は上限30の2/3以下の時間で解けるはず: " + looseMillis + "ms vs " + tightMillis + "ms");
-    }
-
-    private static long timeOf(int cap) throws IOException {
-        long began = System.currentTimeMillis();
-        PathResult result = search(START, DIRECT_GOAL, cap, 600_000, 30_000);
-        long elapsed = System.currentTimeMillis() - began;
-        assertTrue(result.complete(), "上限" + cap + "でも経路自体は見つかる: " + result.termination());
-        return elapsed;
+    void bothBridgeCapsFindThePathThroughTheLooseningLadder() throws IOException {
+        assertTrue(search(START, DIRECT_GOAL, 30, 600_000, 30_000).complete(),
+                "上限30でも緩和の梯子が開いて解けるはず");
+        assertTrue(search(START, DIRECT_GOAL, 96, 600_000, 30_000).complete(),
+                "上限96で解けるはず");
     }
 
     private static PathResult search(BlockPos start, BlockPos goal, int cap, int nodes, long millis)

@@ -87,6 +87,36 @@ public final class PathfindingExecutor {
     private static final double REFINE_HEURISTIC_WEIGHT = 1.25;
 
     /**
+     * {@link #retryGreedier}が順に試す重み。実測で2.5から解け始めるので、そこを1段目に置く。
+     * 3.0は{@code XaeroNavConfig#heuristicWeight}の上限でもあり、これ以上は用意しない——
+     * 貪欲さを上げるほど経路は遠回りになるので、届く最小の重みで止めたい。
+     */
+    private static final double[] GREEDY_RETRY_WEIGHTS = {2.5, 3.0};
+
+    /**
+     * 最初の探索へ渡す予算・時間の割合（%）。
+     *
+     * <p><b>使い切られると緩和も{@link #retryGreedier}も動けない。</b>両者は
+     * {@code looseningDeadline}を最初の探索と共有しているので、1段目が枠いっぱいまで走ると
+     * 再挑戦に残り時間がゼロになる——実機のジ・エンド（深い探索でも12秒）でまさにそれが起きて、
+     * 「重みを上げれば解ける」と分かっていても一度も試されないままだった。
+     *
+     * <p><b>解ける地形では損をしない。</b>A*はゴールを取り出した時点で返るので、届く経路は
+     * 上限に関わらず同じ手数で見つかる（{@code XaeroNavConfig#maxExpandedNodes}の
+     * 「払うコストではなく届かなかったときの天井」と同じ理屈）。減るのは<b>届かない探索が
+     * 諦めるまでの時間</b>だけで、それはそのまま再挑戦の持ち時間になる。
+     */
+    private static final int FIRST_PASS_PERCENT = 40;
+
+    /** 最初の探索の取り分。残りは緩和と{@link #retryGreedier}のために空けておく。 */
+    private static SearchLimits firstPassLimits(SearchLimits limits) {
+        return new SearchLimits(
+                Math.max(1, limits.maxExpandedNodes() * FIRST_PASS_PERCENT / 100),
+                Math.max(1, limits.timeLimitMillis() * FIRST_PASS_PERCENT / 100),
+                limits.heuristicWeight());
+    }
+
+    /**
      * {@link #refineIfCrossingVoid}が引き直すのは、最初の探索が予算のこれだけしか使わなかったときに限る。
      *
      * <p><b>「余裕があったときだけ質を問い直す」の余裕をここで測る。</b>引き直しは最初の探索より
@@ -398,11 +428,22 @@ public final class PathfindingExecutor {
      */
     private static PathResult search(CellSource view, SearchLimits limits, long looseningDeadline,
                                      BooleanSupplier cancelled, CostToGo costToGo, SearchCall run) {
-        AStarPathfinder pathfinder = new AStarPathfinder(view, limits, costToGo);
+        AStarPathfinder pathfinder = new AStarPathfinder(view, firstPassLimits(limits), costToGo);
         PathResult result = run.search(pathfinder, cancelled);
         boolean capBlocked = pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()
                 || pathfinder.fallDamageCapBlocked() || pathfinder.riskyJumpBlocked()
                 || pathfinder.placedBudgetBlocked() || pathfinder.placementBlockedByEmptyInventory();
+        // 上限の緩和より先に貪欲さを上げる。<b>重みを上げる方が圧倒的に安い</b>——実機ジ・エンドの
+        // 島渡りで、緩和の段は毎回フル予算(60万ノード・7秒)を焼くのに対し、重み2.5は19.8万で解ける。
+        // 緩和を先に置くと、そこで持ち時間を使い切って再挑戦が一度も走らないまま終わる
+        // （実機相当の時間枠4.8秒で実測: 1段目24万＋緩和で使い切り、届かず）。
+        // 上限が本当に原因なら重みを上げても解けないので、その場合だけ下の緩和へ進む
+        if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED) {
+            PathResult greedier = retryGreedier(view, limits, looseningDeadline, cancelled, costToGo, run, result);
+            if (greedier.complete()) {
+                return PathSafetyChecker.annotate(view, greedier);
+            }
+        }
         if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED && capBlocked) {
             // 上限のせいで捨てた移動がある。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、という
             // 優先順で上限を段階的に緩めて試す。上限と落下ダメージはまとめて緩める——片方だけ緩めても、
@@ -441,6 +482,54 @@ public final class PathfindingExecutor {
         }
         return refineIfCrossingVoid(view, limits, looseningDeadline, cancelled, costToGo, run,
                 PathSafetyChecker.annotate(view, result));
+    }
+
+    /**
+     * <b>予算を焼き切って届かなかったら、探索の貪欲さを上げてもう一度試す。</b>
+     *
+     * <p>広い足場の上から長い奈落を渡る地形（ジ・エンドの島渡り）では、
+     * <b>島の上でヒューリスティックがほぼ一定になる</b>——どこにいてもゴールは奈落の向こうで、
+     * 残りの見積もりは「縁までの距離＋橋の値段」だから差が付きにくい。重み1.5の探索は
+     * そこで幅優先に近くなり、<b>橋に手を伸ばす前に島を舐め尽くして予算が尽きる</b>。
+     * 橋1マスは徒歩10マス相当なので、100マスの奈落を渡る経路に届くには
+     * 「徒歩1000マス分の陸地」を先に展開し終える必要がある。
+     *
+     * <p>実測（ユーザーが報告した地点、24339列の島の突端から北東99ブロックの島へ）:
+     *
+     * <pre>
+     * 重み1.5 → 60万ノードで未到達    重み2.5 → 19.8万で到達
+     * 重み2.0 → 60万ノードで未到達    重み3.0 → 10.7万で到達
+     * </pre>
+     *
+     * <p><b>cost-to-goガイドが無いとどの重みでも解けない</b>（全部60万で未到達）。
+     * 島の縁へ導いているのはガイドの方で、重みはそれを信じる度合いを上げているだけ。
+     *
+     * <p>質は確実に落ちる（{@code refineIfCrossingVoid}が重みを下げているのと正反対のことをする）が、
+     * ここへ来るのは<b>経路が1本も出ていない</b>ときだけ——遠回りな案内と案内なしの比較になる。
+     * 上限の緩和を試し切った後に置くのも同じ理由で、まず「上限のせいで道が消えていないか」を
+     * 確かめてから貪欲さに手を付ける。
+     */
+    private static PathResult retryGreedier(CellSource view, SearchLimits limits, long deadline,
+                                             BooleanSupplier cancelled, CostToGo costToGo, SearchCall run,
+                                             PathResult result) {
+        if (result.complete() || result.termination() == PathResult.Termination.CANCELLED) {
+            return result;
+        }
+        for (double weight : GREEDY_RETRY_WEIGHTS) {
+            if (weight <= limits.heuristicWeight()) {
+                continue;
+            }
+            long remainingMillis = deadline - System.currentTimeMillis();
+            if (remainingMillis <= 0) {
+                break;
+            }
+            SearchLimits greedy = new SearchLimits(limits.maxExpandedNodes(), remainingMillis, weight);
+            PathResult attempt = run.search(new AStarPathfinder(view, greedy, costToGo), cancelled);
+            if (attempt.complete()) {
+                return attempt;
+            }
+        }
+        return result;
     }
 
     /**
