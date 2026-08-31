@@ -163,6 +163,29 @@ testing {
     suites {
         named<JvmTestSuite>("test") {
             useJUnitJupiter("6.1.3")
+
+            // 実機の保存データで60万ノードの探索を回すテストは1本あたり8秒前後かかる。
+            // 手元で回し続ける既定の`test`からは外し、`slowTest`（`check`が依存）に任せる
+            targets.all {
+                testTask.configure {
+                    useJUnitPlatform { excludeTags("slow") }
+                }
+            }
         }
     }
 }
+
+/**
+ * `@Tag("slow")`の付いたテストだけを回す。実機ジ・エンドの地形で「規模が大きいときにだけ
+ * 現れる穴」を見張るもので、合成地形では構造的に再現できない。
+ */
+val slowTest by tasks.registering(Test::class) {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "実機のワールド保存データを使う重い経路探索テストを回す"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform { includeTags("slow") }
+}
+
+// `./gradlew build`（CI）は速い側と遅い側の両方を通す
+tasks.named("check") { dependsOn(slowTest) }

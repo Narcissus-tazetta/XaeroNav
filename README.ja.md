@@ -213,8 +213,17 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 ./gradlew build
 ```
 
-`spotlessCheck`（未使用 import・行末の空白・末尾の改行）とテストが一緒に走ります。
+`spotlessCheck`（未使用 import・行末の空白・末尾の改行）と両方のテストが一緒に走ります。
 成果物は `build/libs/`。
+
+テストは重さで分けてあります。`./gradlew test` は実機の保存データを使う探索以外の全部で数秒、
+その探索（1分ほどかかる）は `@Tag("slow")` を付けて `./gradlew slowTest` に分けてあります。
+`build` は両方を回すので、CI は全部を通ります。
+
+```bash
+./gradlew test       # 速い方。数秒
+./gradlew slowTest   # 実機地形の経路探索
+```
 
 開発用クライアントの起動:
 

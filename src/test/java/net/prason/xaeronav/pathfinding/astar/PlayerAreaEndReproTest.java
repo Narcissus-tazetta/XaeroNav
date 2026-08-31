@@ -1,21 +1,14 @@
 package net.prason.xaeronav.pathfinding.astar;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.zip.GZIPInputStream;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
-import net.prason.xaeronav.pathfinding.world.CellData;
-import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
-import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.pathfinding.world.TerrainFixture;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -46,6 +39,7 @@ import org.junit.jupiter.api.Test;
  *
  * <p>ここが落ちたら症状が再発している。
  */
+@Tag("slow")
 class PlayerAreaEndReproTest {
 
     /** 実機ログの現在地。24339列の島（x700-877 z1118-1350）の北の突端。 */
@@ -55,53 +49,15 @@ class PlayerAreaEndReproTest {
     private static final SearchLimits DEEP = new SearchLimits(600_000, 15_000, 1.5);
 
     private static FakeCells terrain() throws IOException {
-        try (InputStream in = PlayerAreaEndReproTest.class.getResourceAsStream("/end_player_area.txt.gz")) {
-            assertNotNull(in, "地形データが見つからない");
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(new GZIPInputStream(in), StandardCharsets.UTF_8));
-            String[] h = reader.readLine().trim().split(" ");
-            SearchBounds bounds = new SearchBounds(
-                    Integer.parseInt(h[0]), Integer.parseInt(h[1]), Integer.parseInt(h[2]),
-                    Integer.parseInt(h[3]), Integer.parseInt(h[4]), Integer.parseInt(h[5]));
-            // 実機の設定（run/config/xaeronav-client.toml）に合わせる。
-            // プレイヤーはクリエイティブなので置ける・持ち物の予算は無制限
-            FakeCells cells = FakeCells.empty(bounds)
-                    .canPlaceBlocks(true)
-                    .maxBridgeRunBlocks(96)
-                    .maxVoidBridgeRunBlocks(96)
-                    .maxLavaBridgeRunBlocks(30)
-                    .maxFallDamagePoints(0)
-                    .avoidRiskyJumps(true);
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.isEmpty()) {
-                    continue;
-                }
-                String[] p = line.split(" ");
-                int x = Integer.parseInt(p[0]);
-                int z = Integer.parseInt(p[1]);
-                for (int i = 2; i < p.length; i++) {
-                    int comma = p[i].indexOf(',');
-                    int from = Integer.parseInt(p[i].substring(0, comma));
-                    int to = Integer.parseInt(p[i].substring(comma + 1));
-                    for (int y = from; y <= to; y++) {
-                        cells.set(x, y, z, FakeCells.STONE);
-                    }
-                }
-            }
-            return cells;
-        }
-    }
-
-    private static int standableY(CellSource cells, SearchBounds b, int x, int z) {
-        for (int y = b.maxY() - 1; y > b.minY(); y--) {
-            if (CellData.standable(cells.cell(x, y - 1, z))
-                    && CellData.occupiableWithoutDigging(cells.cell(x, y, z))
-                    && CellData.occupiableWithoutDigging(cells.cell(x, y + 1, z))) {
-                return y;
-            }
-        }
-        return Integer.MIN_VALUE;
+        // 実機の設定（run/config/xaeronav-client.toml）に合わせる。
+        // プレイヤーはクリエイティブなので置ける・持ち物の予算は無制限
+        return TerrainFixture.load("/end_player_area.txt.gz", bounds -> FakeCells.empty(bounds)
+                .canPlaceBlocks(true)
+                .maxBridgeRunBlocks(96)
+                .maxVoidBridgeRunBlocks(96)
+                .maxLavaBridgeRunBlocks(30)
+                .maxFallDamagePoints(0)
+                .avoidRiskyJumps(true));
     }
 
     private static String describe(PathResult r) {
@@ -110,17 +66,26 @@ class PlayerAreaEndReproTest {
                 r.complete() ? "到達" : r.termination(), r.steps().size(), bridges, r.expandedNodes());
     }
 
-    /** 近隣3つの島へ、実機の深い探索と同じ条件で渡れること。 */
+    /** ユーザーが報告した島。ここへの経路は下の3本すべてが対象にする。 */
+    private static final BlockPos NEAREST_ISLAND = new BlockPos(839, 0, 1081);
+
+    private static BlockPos onGround(FakeCells terrain, BlockPos p) {
+        return TerrainFixture.onGround(terrain, terrain.bounds(), p);
+    }
+
+    /**
+     * 近隣の島へ、実機の深い探索と同じ条件で渡れること。
+     *
+     * <p>{@link #NEAREST_ISLAND}はここに含めない——下の実機相当の時間枠のテストが<b>より短い枠で
+     * 同じ探索</b>を回すので、こちらに置くと同じ経路を2回払うだけになる。
+     */
     @Test
     void crossesToTheNeighbouringIslands() throws Exception {
-        FakeCells reference = terrain();
-        SearchBounds b = reference.bounds();
+        FakeCells terrain = terrain();
         System.out.printf("%n=== 島渡り（始点=%s・実機の深い探索と同条件）===%n", PLAYER);
-        // 北東99 / 東130 / 北東163ブロック。どれも橋の上限96より長い奈落を挟む
-        for (int[] t : new int[][] {{839, 1081}, {899, 1151}, {912, 1072}}) {
-            int y = standableY(reference, b, t[0], t[1]);
-            assertTrue(y != Integer.MIN_VALUE, t[0] + "," + t[1] + " に立てる場所が無い＝地形データが違う");
-            BlockPos goal = new BlockPos(t[0], y, t[1]);
+        // 東130 / 北東163ブロック。どちらも橋の上限96より長い奈落を挟む
+        for (int[] t : new int[][] {{899, 1151}, {912, 1072}}) {
+            BlockPos goal = onGround(terrain, new BlockPos(t[0], 0, t[1]));
             double dist = Math.hypot(goal.getX() - PLAYER.getX(), goal.getZ() - PLAYER.getZ());
             PathResult r = new PathfindingExecutor().submit(terrain(), PLAYER, goal, DEEP, true, 0).get();
             System.out.printf("  %-12s 距離%-5.0f %s%n", goal.getX() + "," + goal.getZ(), dist, describe(r));
@@ -134,20 +99,23 @@ class PlayerAreaEndReproTest {
      * <b>実機の速度を織り込んでも届くこと。</b>実機は測定環境より2〜3倍遅い
      * （[[xaeronav-realdevice-debug-loop]]の実測）ので、深い探索の枠12秒は実効5秒程度に相当する。
      * ここが落ちるなら、オフラインで解けても実機では時間切れになる。
+     *
+     * <p>{@link #NEAREST_ISLAND}へ橋を架けて渡っていることもここで見る（上の島渡りより枠が
+     * 厳しいので、こちらが通れば深い枠でも通る）。
      */
     @Test
     void crossesWithinTheEffectiveRealDeviceTimeBudget() throws Exception {
-        FakeCells reference = terrain();
-        SearchBounds b = reference.bounds();
-        int y = standableY(reference, b, 839, 1081);
-        BlockPos goal = new BlockPos(839, y, 1081);
+        FakeCells terrain = terrain();
+        BlockPos goal = onGround(terrain, NEAREST_ISLAND);
         SearchLimits tight = new SearchLimits(600_000, 4_800, 1.5);
 
         long began = System.currentTimeMillis();
-        PathResult r = new PathfindingExecutor().submit(terrain(), PLAYER, goal, tight, true, 0).get();
+        PathResult r = new PathfindingExecutor().submit(terrain, PLAYER, goal, tight, true, 0).get();
         System.out.printf("%n=== 実機相当の時間枠(4.8秒) ===%n  %s (%dms)%n",
                 describe(r), System.currentTimeMillis() - began);
         assertTrue(r.complete(), "実機相当の時間では届かない: " + describe(r));
+        assertTrue(r.steps().stream().anyMatch(PathStep::bridging),
+                "橋を架けずに渡っている＝地形が対照になっていない: " + describe(r));
     }
 
     /**
@@ -156,12 +124,10 @@ class PlayerAreaEndReproTest {
      */
     @Test
     void theSameSearchFailsWithoutRaisingTheWeight() throws Exception {
-        FakeCells reference = terrain();
-        SearchBounds b = reference.bounds();
-        int y = standableY(reference, b, 839, 1081);
-        BlockPos goal = new BlockPos(839, y, 1081);
+        FakeCells terrain = terrain();
+        BlockPos goal = onGround(terrain, NEAREST_ISLAND);
 
-        PathResult bare = new PathfindingExecutor().submitRaw(terrain(), PLAYER, goal, DEEP).get();
+        PathResult bare = new PathfindingExecutor().submitRaw(terrain, PLAYER, goal, DEEP).get();
 
         System.out.printf("%n=== 対照（重み1.5のまま・再挑戦なし）===%n  %s%n", describe(bare));
         assertTrue(!bare.complete(),
