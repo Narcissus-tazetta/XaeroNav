@@ -628,10 +628,14 @@ public final class XaeroNavCommands {
      */
     private static void reportPlacementAvailability(CommandSourceStack source, ChunkView view) {
         if (view.canPlaceBlocks()) {
+            // 予算（経路全体で置ける総数）も併記する。上限3つは「1本が何マス続いてよいか」しか
+            // 言っておらず、橋が短く切り上げられている理由が持ち物の枚数だった回を、
+            // これが無いと地形の側の話と取り違える
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_placing_on",
                     XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
                     XaeroNavConfig.INSTANCE.maxLavaBridgeRunBlocks(),
-                    XaeroNavConfig.INSTANCE.maxVoidBridgeRunBlocks()), false);
+                    XaeroNavConfig.INSTANCE.maxVoidBridgeRunBlocks(),
+                    view.placedBlockBudget()), false);
         } else {
             source.sendSuccess(() -> Component.translatable("commands.xaeronav.probe_placing_off",
                     Component.translatable(XaeroNavConfig.INSTANCE.bridgingEnabled()
