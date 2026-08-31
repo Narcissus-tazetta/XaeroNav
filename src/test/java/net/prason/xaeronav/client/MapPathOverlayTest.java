@@ -98,7 +98,7 @@ class MapPathOverlayTest {
         List<BlockPos> waypoints = List.of(new BlockPos(100, Y, 0), new BlockPos(200, Y, 0));
         MapPathOverlay.Snapshot snapshot =
                 new MapPathOverlay.Snapshot(null, new BlockPos(200, Y, 0), true, false,
-                        player, waypoints, List.of(), 0, List.of());
+                        player, waypoints, List.of(), 0, List.of(), false);
 
         assertTrue(hasDotBetween(coarseDots(snapshot), 0, 100),
                 "最初の中間目標までの区間が描かれず、点線がプレイヤーから離れて浮いている");
@@ -111,7 +111,7 @@ class MapPathOverlayTest {
         List<BlockPos> waypoints = List.of(new BlockPos(150, Y, 0), new BlockPos(250, Y, 0));
         MapPathOverlay.Snapshot snapshot =
                 new MapPathOverlay.Snapshot(detail, new BlockPos(250, Y, 0), true, false,
-                        player, waypoints, List.of(), 0, List.of());
+                        player, waypoints, List.of(), 0, List.of(), false);
 
         assertTrue(hasDotBetween(coarseDots(snapshot), 50, 150),
                 "詳細経路の末端と最初の中間目標の間が繋がっていない");
@@ -131,7 +131,7 @@ class MapPathOverlayTest {
                 new BlockPos(300, Y, 0), new BlockPos(400, Y, 0), new BlockPos(500, Y, 0));
         MapPathOverlay.Snapshot snapshot =
                 new MapPathOverlay.Snapshot(detail, new BlockPos(500, Y, 0), true, false,
-                        player, waypoints, List.of(), 0, List.of());
+                        player, waypoints, List.of(), 0, List.of(), false);
 
         assertFalse(hasDotBetween(coarseDots(snapshot), 0, 340),
                 "経路の末端より後ろの中間目標まで点線が引き返し、黄色い点線が2本出ている");
@@ -144,7 +144,7 @@ class MapPathOverlayTest {
         List<BlockPos> waypoints = List.of(new BlockPos(100, Y, 0), new BlockPos(100, Y, 200));
         MapPathOverlay.Snapshot snapshot =
                 new MapPathOverlay.Snapshot(null, new BlockPos(100, Y, 200), true, false,
-                        player, waypoints, List.of(), 0, List.of());
+                        player, waypoints, List.of(), 0, List.of(), false);
 
         assertTrue(coarseDots(snapshot).stream().anyMatch(dot -> dot.getZ() > 20 && dot.getZ() < 180),
                 "後戻りを含むルートの先頭が読み飛ばされ、点線がルートから外れている");
@@ -158,7 +158,7 @@ class MapPathOverlayTest {
     void goalPinStandsOnTheDestinationWithoutTheDottedLine() {
         BlockPos goal = new BlockPos(400, Y, -200);
         MapPathOverlay.Snapshot snapshot = new MapPathOverlay.Snapshot(null, goal, false, true,
-                new BlockPos(0, Y, 0), List.of(), List.of(), 0, List.of());
+                new BlockPos(0, Y, 0), List.of(), List.of(), 0, List.of(), false);
 
         Set<BlockPos> blocks = markerBlocks(snapshot);
         assertTrue(blocks.contains(goal), "ピンの先端が目的地のブロックを指していない");
@@ -172,7 +172,7 @@ class MapPathOverlayTest {
     void goalMarkerIsAbsentWhenTurnedOff() {
         BlockPos goal = new BlockPos(400, Y, -200);
         MapPathOverlay.Snapshot snapshot = new MapPathOverlay.Snapshot(null, goal, true, false,
-                new BlockPos(0, Y, 0), List.of(), List.of(), 0, List.of());
+                new BlockPos(0, Y, 0), List.of(), List.of(), 0, List.of(), false);
 
         assertTrue(markerRects(snapshot).isEmpty(), "設定で切っているのに目的地の目印が描かれている");
     }
@@ -185,7 +185,7 @@ class MapPathOverlayTest {
     @Test
     void goalMarkerKeepsItsSizeOnScreenAsTheMapZoomsOut() {
         MapPathOverlay.Snapshot snapshot = new MapPathOverlay.Snapshot(null, new BlockPos(0, Y, 0), false, true,
-                new BlockPos(0, Y, 0), List.of(), List.of(), 0, List.of());
+                new BlockPos(0, Y, 0), List.of(), List.of(), 0, List.of(), false);
 
         int atOnePixelPerBlock = markerSpanBlocks(snapshot, 1.0);
         int zoomedOut = markerSpanBlocks(snapshot, 0.5);

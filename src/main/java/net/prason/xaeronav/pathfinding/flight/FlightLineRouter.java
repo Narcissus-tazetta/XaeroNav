@@ -46,8 +46,19 @@ public final class FlightLineRouter {
 
     private final CellSource view;
 
+    /**
+     * 水を障害物として扱わないか。潜水中の追尾線（{@code SwimNavState}）用——水没して進むときは
+     * 水は通り道であって避けるものではなく、避けたいのは海底の張り出しや洞窟の壁だけ。
+     */
+    private final boolean waterPassable;
+
     public FlightLineRouter(CellSource view) {
+        this(view, false);
+    }
+
+    public FlightLineRouter(CellSource view, boolean waterPassable) {
         this.view = view;
+        this.waterPassable = waterPassable;
     }
 
     /**
@@ -133,6 +144,9 @@ public final class FlightLineRouter {
      */
     private boolean isSolid(int x, int y, int z) {
         long cell = view.cell(x, y, z);
-        return CellData.present(cell) && !CellData.passableEmpty(cell);
+        if (!CellData.present(cell) || CellData.passableEmpty(cell)) {
+            return false;
+        }
+        return !(waterPassable && CellData.water(cell));
     }
 }

@@ -78,6 +78,11 @@ public final class NavHud {
                 // 交換するしかなく、線だけ見て「登れ」と分かっても間に合わないことがある
                 add(Component.translatable("hud.xaeronav.flight_climb", climb), WARNING_COLOR);
             }
+        } else if (PathfindingState.INSTANCE.submerged()) {
+            // 曲げ点線が空でも「経路なし」ではない——開けた水中では真っ直ぐ向かえばよいのが常態
+            add(Component.translatable("hud.xaeronav.swimming"), SECONDARY_COLOR);
+            add(Component.translatable("hud.xaeronav.direct_distance",
+                    straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
         } else if (result == null || result.steps().isEmpty()) {
             if (stuck != null) {
                 addUnreachable(stuck);

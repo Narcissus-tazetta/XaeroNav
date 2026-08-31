@@ -81,7 +81,7 @@ public final class MapPathOverlay {
      */
     public record Snapshot(PathResult ground, BlockPos goal, boolean straightLine, boolean goalMarker,
                             BlockPos playerPos, List<BlockPos> coarseWaypoints, List<Vec3> flightRoute,
-                            int flightRouteFrom, List<Vec3> flightDash) {
+                            int flightRouteFrom, List<Vec3> flightDash, boolean diving) {
 
         public boolean isEmpty() {
             return ground == null && goal == null && coarseWaypoints.isEmpty() && flightRoute.isEmpty();
@@ -95,7 +95,7 @@ public final class MapPathOverlay {
     public static Snapshot snapshot() {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
-            return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of());
+            return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of(), false);
         }
         return PathfindingState.INSTANCE.mapOverlaySnapshot(player.blockPosition());
     }
@@ -184,15 +184,17 @@ public final class MapPathOverlay {
                 fromX = snapshot.playerPos().getX();
                 fromZ = snapshot.playerPos().getZ();
             }
-            // 滑空中は長距離ルートの中間目標を辿る（無ければ曲がり点線、それも無ければ直線）
+            // 滑空中は長距離ルートの中間目標を辿る（無ければ曲がり点線、それも無ければ直線）。
+            // 水没中は水面に沿った追尾線を青で描く（白い点線と取り違えないよう）
+            float[] color = snapshot.diving() ? PathColors.SWIM : PathColors.STRAIGHT;
             for (Vec3 point : snapshot.flightDash()) {
                 int nextX = (int) Math.floor(point.x);
                 int nextZ = (int) Math.floor(point.z);
-                straightDots(sink, fromX, fromZ, nextX, nextZ);
+                straightDots(sink, fromX, fromZ, nextX, nextZ, color);
                 fromX = nextX;
                 fromZ = nextZ;
             }
-            straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ());
+            straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ(), color);
         }
 
         // 目印は最後。経路や点線と重なる位置に来るので、後から置いて上に乗せる
@@ -310,8 +312,11 @@ public final class MapPathOverlay {
     }
 
     private static void straightDots(QuadSink sink, int fromX, int fromZ, int toX, int toZ) {
+        straightDots(sink, fromX, fromZ, toX, toZ, PathColors.STRAIGHT);
+    }
+
+    private static void straightDots(QuadSink sink, int fromX, int fromZ, int toX, int toZ, float[] color) {
         StraightDots.forEach(fromX, fromZ, toX, toZ,
-                (x, z) -> sink.dot(x, z,
-                        PathColors.STRAIGHT[0], PathColors.STRAIGHT[1], PathColors.STRAIGHT[2]));
+                (x, z) -> sink.dot(x, z, color[0], color[1], color[2]));
     }
 }
