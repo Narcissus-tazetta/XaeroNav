@@ -172,6 +172,7 @@ Other markings:
 | `maxExpandedNodes` | `100000` | Cap on nodes expanded per search; higher reaches farther accurately but costs more CPU/memory |
 | `heuristicWeight` | `1.5` | How much the search favors getting close to the goal; `1.0` guarantees the shortest path but can fail to reach destinations where real cost (digging, swimming) outruns the estimate |
 | `flightRoutingEnabled` | `true` | Compute an aerial path while gliding/flying (`false` reverts to a straight line to the destination) |
+| `swimNavEnabled` | `true` | While fully underwater, follow a bent dotted line to the goal instead of a block-by-block route; reverts to walking navigation once your head clears the surface |
 | `elytraFlyingMinGroundClearanceBlocks` | `4` | Minimum height above ground before an elytra glide counts as flying |
 | `flightCellBlocks` | `6` | Side length (blocks) of the grid used to solve the aerial path; smaller fits through tighter gaps but reaches less far |
 | `flightDeviationThresholdBlocks` | `24.0` | Recalculate the aerial path once you're this far from it |

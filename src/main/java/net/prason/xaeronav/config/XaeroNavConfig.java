@@ -49,6 +49,7 @@ public final class XaeroNavConfig {
     private final ModConfigSpec.IntValue maxExpandedNodes;
     private final ModConfigSpec.DoubleValue heuristicWeight;
     private final ModConfigSpec.BooleanValue flightRoutingEnabled;
+    private final ModConfigSpec.BooleanValue swimNavEnabled;
     private final ModConfigSpec.IntValue elytraFlyingMinGroundClearanceBlocks;
     private final ModConfigSpec.IntValue flightCellBlocks;
     private final ModConfigSpec.DoubleValue flightDeviationThresholdBlocks;
@@ -252,6 +253,13 @@ public final class XaeroNavConfig {
                         "falseにすると目的地への直線（点線）だけになる（以前の挙動）",
                         "スペクテイターはブロックをすり抜けるので、この設定に関わらず常に直線")
                 .define("flightRoutingEnabled", true);
+
+        swimNavEnabled = builder
+                .comment("完全に水没して進んでいる間、ブロック単位の経路の代わりに目的地への曲げ点線を追従させるか",
+                        "水中は自分で見て泳げるので、格子に沿った経路を厳密に追う必要が薄い（滑空と同じ考え方）",
+                        "頭が水面から出ると通常の歩行ナビへ戻る",
+                        "falseにすると水中でも従来どおり歩行の経路を引く")
+                .define("swimNavEnabled", true);
 
         elytraFlyingMinGroundClearanceBlocks = builder
                 .comment("エリトラの滑空を「飛んでいる」とみなす、足元から地面までの最小の高さ（ブロック）",
@@ -475,6 +483,14 @@ public final class XaeroNavConfig {
 
     public void setFlightRoutingEnabled(boolean value) {
         flightRoutingEnabled.set(value);
+    }
+
+    public boolean swimNavEnabled() {
+        return swimNavEnabled.get();
+    }
+
+    public void setSwimNavEnabled(boolean value) {
+        swimNavEnabled.set(value);
     }
 
     public int elytraFlyingMinGroundClearanceBlocks() {
