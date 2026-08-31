@@ -27,6 +27,11 @@ Routes are found with A* over the actual terrain, not by straight-line distance.
 covers walking, climbing, descending, swimming, riding a boat, ladders and vines, jumping gaps of
 1 to 3 blocks, digging, and placing blocks to bridge a gap.
 
+Blocks placed to bridge a gap are budgeted against **how many you actually carry**. A route that
+needs more than you have is only offered when there is no other way through, and the HUD says how
+many are missing. When a route would eat most of your stack, a slightly longer path that places
+fewer blocks wins.
+
 Each segment is colored by what you do there. Blocks that need digging are highlighted through
 walls, and the next one to dig gets an outline. Colors also flag trouble ahead: digging next to
 lava, digging that lets water flow in, a void below, a swim longer than your breath, a fall that
@@ -147,12 +152,16 @@ Other markings:
 | `bridgingEnabled` | `true` | Allow placing blocks to bridge gaps or climb cliffs |
 | `lavaBridgingEnabled` | `true` | Allow bridging over lava (also requires `bridgingEnabled`; last resort when no route avoiding lava exists) |
 | `jumpGapEnabled` | `true` | Allow jumping gaps up to 3 blocks wide |
+| `avoidRiskyJumps` | `true` | Avoid jumps over the void or a fatal drop (opened only when no way around exists at all) |
+| `blockBudgetEnabled` | `true` | Cap the total blocks a route may place at how many you carry (lifted when no route fits, with a shortage warning; never applied in creative) |
+| `blockBudgetReserve` | `0` | Blocks held back from that budget |
 | `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
 | `costToGoGuideEnabled` | `true` | Use the coarse route's cost estimate as an additional heuristic for detailed search (helps in 3D mazes like the Nether) |
 | `detailHorizonBlocks` | `96` | Max horizontal distance the detailed search targets in one shot; farther destinations get intermediate waypoints |
 | `maxBridgeRunBlocks` | `30` | How many consecutive blocks a bridge over open air can run before it's abandoned for a detour (`0` = unlimited) |
 | `maxLavaBridgeRunBlocks` | `30` | Same, but specifically for bridges over lava (`0` = unlimited) |
+| `maxVoidBridgeRunBlocks` | `96` | Same, but specifically for bridges over the bottomless void (`0` = unlimited; the default matches the 47-81 block gaps measured between End islands) |
 | `maxSubmergedTicks` | `250` | How many ticks a route may keep your head underwater (`0` = unlimited) |
 | `searchHorizontalMargin` | `64` | Horizontal search margin (blocks) |
 | `searchVerticalMargin` | `32` | Vertical search margin (blocks) |
@@ -163,6 +172,7 @@ Other markings:
 | `maxExpandedNodes` | `100000` | Cap on nodes expanded per search; higher reaches farther accurately but costs more CPU/memory |
 | `heuristicWeight` | `1.5` | How much the search favors getting close to the goal; `1.0` guarantees the shortest path but can fail to reach destinations where real cost (digging, swimming) outruns the estimate |
 | `flightRoutingEnabled` | `true` | Compute an aerial path while gliding/flying (`false` reverts to a straight line to the destination) |
+| `elytraFlyingMinGroundClearanceBlocks` | `4` | Minimum height above ground before an elytra glide counts as flying |
 | `flightCellBlocks` | `6` | Side length (blocks) of the grid used to solve the aerial path; smaller fits through tighter gaps but reaches less far |
 | `flightDeviationThresholdBlocks` | `24.0` | Recalculate the aerial path once you're this far from it |
 | `flightRecalcIntervalTicks` | `20` | Recalculation interval (ticks) while gliding |
