@@ -159,7 +159,7 @@ Other markings:
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
 | `costToGoGuideEnabled` | `true` | Use the coarse route's cost estimate as an additional heuristic for detailed search (helps in 3D mazes like the Nether) |
 | `detailHorizonBlocks` | `96` | Max horizontal distance the detailed search targets in one shot; farther destinations get intermediate waypoints |
-| `maxBridgeRunBlocks` | `30` | How many consecutive blocks a bridge over open air can run before it's abandoned for a detour (`0` = unlimited) |
+| `maxBridgeRunBlocks` | `96` | How many consecutive blocks a bridge over open air can run before it's abandoned for a detour (`0` = unlimited) |
 | `maxLavaBridgeRunBlocks` | `30` | Same, but specifically for bridges over lava (`0` = unlimited) |
 | `maxVoidBridgeRunBlocks` | `96` | Same, but specifically for bridges over the bottomless void (`0` = unlimited; the default matches the 47-81 block gaps measured between End islands) |
 | `maxSubmergedTicks` | `250` | How many ticks a route may keep your head underwater (`0` = unlimited) |

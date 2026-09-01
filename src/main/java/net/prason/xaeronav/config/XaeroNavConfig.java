@@ -171,7 +171,7 @@ public final class XaeroNavConfig {
                         "空洞に架ける橋と分けて持つのは、足場を外したときの結末が違うから——",
                         "空洞なら落ちるだけだが、溶岩の上では即死する",
                         "橋の連続長そのものはmaxBridgeRunBlocksと共通なので、実際に効くのは小さい方",
-                        "既定はmaxBridgeRunBlocksと同じ30で、下げるとネザーの溶岩の海を渡る距離が縮む",
+                        "既定は30で、下げるとネザーの溶岩の海を渡る距離が縮む",
                         "（渡れる道が無くなれば層1が溶岩を避ける大回りのルートを選び直す）")
                 .defineInRange("maxLavaBridgeRunBlocks", 30, 0, 256);
 
