@@ -30,6 +30,13 @@ neoForge {
         create("client") {
             client()
             gameDirectory = rootProject.layout.projectDirectory.dir("run")
+
+            // ModDevGradleが生成するIDE実行構成はモジュール束縛を持たない。単一ローダーなら
+            // 「プロジェクト全体のクラスパス」＝そのローダーぶんだけで済むが、Stonecutterで
+            // fabricノードが並ぶとIntelliJが全モジュールのクラスパスを渡し、NeoForgeとFabricの
+            // Minecraftが同居してFMLが起動前に落ちる（Found multiple copies of MinecraftServer.class）。
+            // IDEからはneoforgeノードの runClient タスクで起動する。
+            disableIdeRun()
         }
     }
 }
