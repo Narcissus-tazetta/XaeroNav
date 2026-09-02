@@ -98,7 +98,10 @@ jobs:
           VERSION=$(grep 'deps.fabric_api' stonecutter.properties.toml | cut -d'"' -f2 | cut -d'+' -f1)
           echo "fabric_api=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # ハングしたときに6時間待たされないようにする。ここで打ち切っても後続の
+      # ログ出力・アップロードは `if: always()` で走るので、原因を追う材料は残る
       - name: Run the client
+        timeout-minutes: 20
         uses: headlesshq/mc-runtime-test@4.5.1
         with:
           mc: ${{ matrix.node.minecraft }}
@@ -107,6 +110,20 @@ jobs:
           java: 21
           mc-runtime-test: ${{ matrix.node.loader }}
           fabric-api: ${{ matrix.node.loader == 'fabric' && steps.deps.outputs.fabric_api || 'none' }}
+
+      # 起動に失敗・ハングしたときは、まずここを読めば分かるようにする
+      # （artifactを落とさなくてもジョブのログで完結させる）
+      - name: Show the client log
+        if: always()
+        run: |
+          if [ -f run/logs/latest.log ]; then
+            echo "::group::run/logs/latest.log (末尾200行)"
+            tail -200 run/logs/latest.log
+            echo "::endgroup::"
+          else
+            echo "run/logs/latest.log が無い"
+            ls -la run/ 2>/dev/null || true
+          fi
 
       # mixinが当たらなかったこと自体はログにしか出ない（configがrequired=falseなので落ちない）。
       # 誰も読まないログは無いのと同じなので、ここで見つけたらCIを落とす
@@ -123,11 +140,13 @@ jobs:
           fi
           echo "XaeroNavのmixin適用に失敗の記録は無し"
 
-      - name: Upload client log
+      - name: Upload client logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: client-log-${{ matrix.node.node }}
-          path: run/logs/latest.log
+          path: |
+            run/logs
+            run/crash-reports
           if-no-files-found: warn
           retention-days: 7

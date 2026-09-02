@@ -10,6 +10,13 @@ where to go next.
 - Client-only. Nothing to install on the server.
 - MIT licensed
 
+This is the 0.1 series, and routing is the part still worth stress-testing. If a route detours,
+stops short, never appears, or sends you somewhere you cannot follow, run
+`/xaeronav debug probe <x> <y> <z>` where it happens and
+[open an issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) with that output —
+it says what the search reached and why it stopped, which is usually enough to reproduce the
+problem here.
+
 ![Route drawn on Xaero's World Map](docs/images/map-image.png)
 
 ## Installation

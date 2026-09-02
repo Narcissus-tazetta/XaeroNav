@@ -9,6 +9,11 @@
 - クライアント専用。サーバー側に入れるものはありません
 - ライセンスは MIT
 
+まだ 0.1 系で、いちばん試してほしいのは経路そのものです。遠回りする・途中で切れる・そもそも出ない・
+辿れない道を通される、といったことがあったら、その場で `/xaeronav debug probe <x> <y> <z>` を実行して、
+出力を添えて [Issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) を立ててください。
+詳細探索がどこまで到達して何で止まったかが出るので、たいていはこちらで同じ状況を再現できます。
+
 ![Xaero's World Mapに描かれた経路](docs/images/map-image.png)
 
 ## インストール

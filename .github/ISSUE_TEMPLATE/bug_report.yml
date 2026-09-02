@@ -23,7 +23,13 @@ body:
   - type: input
     id: loader
     attributes:
-      label: Minecraft and NeoForge version
+      label: Minecraft and loader version
+      description: |
+        Whichever loader you are on. On Fabric, include the Fabric API version too — it is a hard
+        dependency, and which build of it you have changes what XaeroNav sees.
+
+        - `Minecraft 1.21.1 / NeoForge 21.1.228`
+        - `Minecraft 1.21.1 / Fabric Loader 0.16.9 + Fabric API 0.116.7+1.21.1`
       placeholder: "Minecraft 1.21.1 / NeoForge 21.1.228"
     validations:
       required: true
