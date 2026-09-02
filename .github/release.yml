@@ -1,0 +1,15 @@
+# 自動生成されるリリースノート（release.ymlの generate_release_notes）の絞り込み。
+#
+# 依存の更新はユーザーに向けた変更ではないので載せない。ラベルで外すのが確実 —
+# Dependabotが開くPRには必ず`dependencies`が付く。作者名も併記してあるが、
+# botのログイン名の表記揺れに賭けないよう、効いているのはラベルの方だと考えること。
+#
+# 注意: ここに出るのはPRだけで、mainへ直接pushしたコミットは1行も出ない。
+# 機能の説明は手で書く前提でいる（release.ymlが`draft: true`なのはそのため）。
+changelog:
+  exclude:
+    labels:
+      - dependencies
+    authors:
+      - dependabot
+      - dependabot[bot]
