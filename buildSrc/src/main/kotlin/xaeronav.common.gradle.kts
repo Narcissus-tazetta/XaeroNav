@@ -67,7 +67,33 @@ val isCanonicalNode = node.current.project == canonicalNode
 tasks.withType<Test>().configureEach {
     onlyIf("正典ノード($canonicalNode)でのみ実行する") { isCanonicalNode }
 
-    // ノードのプロジェクトディレクトリはversions/<ノード>だが、テストが読むソースツリー
-    // （言語ファイル・実機の保存データ）はリポジトリのルートにある
-    workingDir = rootProject.projectDir
+    // テストは使い捨てのディレクトリで走らせる。ここをリポジトリのルートにすると、
+    // クラスパスに載っているMinecraftのlog4j設定がルート直下の`logs/`へ書き出し、
+    // テストを回すたびにローテートされたログが溜まり続ける
+    workingDir = layout.buildDirectory.dir("test-run").get().asFile
+    doFirst {
+        workingDir.mkdirs()
+    }
+
+    // ソースツリー（言語ファイル等）を読むテストのための基点。作業ディレクトリからの
+    // 相対パスで書くと、上のとおり作業ディレクトリを動かした時点で壊れる
+    systemProperty("xaeronav.projectRoot", rootProject.projectDir.absolutePath)
+}
+
+// 配布jarのファイル名にはバージョン（+gitの短縮ハッシュ）が入るので、ビルドのたびに
+// 別名のjarが増える。Gradleが把握しているのはタスクの出力"ファイル"1つだけなので、
+// 隣に残った過去の世代は誰も消さず、build/libsに溜まり続ける。
+//
+// 消すのは「同じ成果物の、違うバージョン」だけに限る。同じバージョンの別種
+// （loomが作る -dev や -sources）は残す。
+tasks.withType<AbstractArchiveTask>().configureEach {
+    doFirst {
+        val directory = destinationDirectory.get().asFile
+        val currentVersion = archiveVersion.get()
+        val prefix = archiveBaseName.get() + "-"
+        directory.listFiles { file ->
+            file.isFile && file.name.startsWith(prefix) && file.name.endsWith(".jar")
+                    && !file.name.contains(currentVersion)
+        }?.forEach { it.delete() }
+    }
 }

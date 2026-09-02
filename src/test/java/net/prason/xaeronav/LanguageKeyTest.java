@@ -30,8 +30,14 @@ import org.junit.jupiter.api.Test;
  */
 class LanguageKeyTest {
 
-    private static final Path LANG_DIR = Path.of("src/main/resources/assets/xaeronav/lang");
-    private static final Path SOURCE_DIR = Path.of("src/main/java");
+    /**
+     * テストの作業ディレクトリは使い捨ての場所なので、ソースツリーの位置はビルド側から受け取る
+     * （作業ディレクトリをリポジトリのルートにすると、Minecraftのlog4j設定がそこへログを
+     * 書き出してファイルが溜まり続ける）。
+     */
+    private static final Path PROJECT_ROOT = Path.of(System.getProperty("xaeronav.projectRoot", "."));
+    private static final Path LANG_DIR = PROJECT_ROOT.resolve("src/main/resources/assets/xaeronav/lang");
+    private static final Path SOURCE_DIR = PROJECT_ROOT.resolve("src/main/java");
 
     /** {@code "key": "value"} の左辺だけを拾う。 */
     private static final Pattern JSON_KEY = Pattern.compile("\"([^\"]+)\"\\s*:");

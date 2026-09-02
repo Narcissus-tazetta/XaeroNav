@@ -27,12 +27,12 @@ import net.neoforged.neoforge.common.ModConfigSpec;
  */
 class ConfigSpecGoldenTest {
 
-    private static final Path ACTUAL = Path.of("build", "config-spec.actual");
+    /** 実際の中身。作業ディレクトリ（build/test-run）へ出すので、cleanで一緒に消える。 */
+    private static final Path ACTUAL = Path.of("config-spec.actual");
 
     @Test
     void specMatchesGolden() throws IOException {
         String actual = dump(((ModConfigSpecStore) XaeroNavConfig.store()).modConfigSpec().getSpec());
-        Files.createDirectories(ACTUAL.getParent());
         Files.writeString(ACTUAL, actual, StandardCharsets.UTF_8);
         assertEquals(golden(), actual, "設定の定義がゴールデンと違う。差分は " + ACTUAL.toAbsolutePath() + " と突き合わせる");
     }
