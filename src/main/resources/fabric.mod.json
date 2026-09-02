@@ -19,7 +19,7 @@
   },
   "mixins": ["xaeronav-xaero.mixins.json"],
   "depends": {
-    "fabricloader": ">=${fabric_loader_version}",
+    "fabricloader": "${fabric_loader_range}",
     "minecraft": "${minecraft_version}",
     "java": ">=21",
     "fabric-api": "*"

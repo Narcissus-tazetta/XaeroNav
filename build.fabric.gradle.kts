@@ -94,7 +94,7 @@ val stageRuntimeTestMods by tasks.registering(Copy::class) {
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = modResourceProperties() + mapOf(
         "minecraft_version" to minecraftVersion,
-        "fabric_loader_version" to dep("fabric_loader"),
+        "fabric_loader_range" to dep("fabric_loader_range"),
         "xaero_worldmap_version" to dep("xaero_worldmap"),
         "xaero_minimap_version" to dep("xaero_minimap")
     )

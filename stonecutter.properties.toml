@@ -17,7 +17,12 @@ deps.xaero_minimap = "26.4.2"
 
 [fabric."1.21.1"]
 deps.minecraft = "1.21.1"
+# 開発・実行時に使うローダー（loom 1.17のClassTweakerが0.19.0以降を要る）
 deps.fabric_loader = "0.19.5"
+# fabric.mod.jsonへ書く「動く下限」。開発で使う版とは別物にしておく——ここを開発版に
+# 引きずられて上げると、XaeroNavが実際には要らない新しさをユーザーへ強制することになる。
+# 下限はハード依存のfabric-apiが要求する値に合わせてある
+deps.fabric_loader_range = ">=0.15.11"
 deps.fabric_api = "0.116.7+1.21.1"
 deps.modmenu = "11.0.4"
 # NeoForgeは本体に同梱しているものと同じ版に揃える（mixinの@Local / @WrapOperation）

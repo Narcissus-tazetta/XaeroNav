@@ -5,7 +5,7 @@
 目的地までの実際に歩ける経路を計算して、ワールド内・Xaero's World Map・Xaero's Minimap の
 3 箇所に描くクライアント MOD です。画面上部には次にどちらへ進むかが出ます。
 
-- Minecraft 1.21.1 / NeoForge 21.1.228 以降 または Fabric（Fabric Loader 0.19.5 以降 + Fabric API）
+- Minecraft 1.21.1 / NeoForge 21.1.228 以降 または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）
 - クライアント専用。サーバー側に入れるものはありません
 - ライセンスは MIT
 
@@ -14,7 +14,7 @@
 ## インストール
 
 1. Minecraft 1.21.1 用のローダーを導入する。[NeoForge](https://neoforged.net/) 21.1.228 以降、
-   または [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.5 以降 +
+   または [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 +
    [Fabric API](https://modrinth.com/mod/fabric-api)）。
 2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から使うローダー向けの
    jar（`xaeronav-neoforge-*.jar` または `xaeronav-fabric-*.jar`）をダウンロードし、
