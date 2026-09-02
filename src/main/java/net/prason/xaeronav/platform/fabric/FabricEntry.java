@@ -1,8 +1,7 @@
 package net.prason.xaeronav.platform.fabric;
 
 //? fabric {
-/*import com.mojang.brigadier.arguments.ArgumentType;
-import com.mojang.brigadier.context.CommandContext;
+/*import com.mojang.brigadier.context.CommandContext;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;

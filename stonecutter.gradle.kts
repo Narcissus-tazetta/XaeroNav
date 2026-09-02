@@ -26,12 +26,17 @@ tasks.register("buildAll") {
     dependsOn(stonecutter.tasks.named("build"))
 }
 
-tasks.register<Copy>("collectJars") {
+// Copyではなくsync。Copyだと前のビルドのjarが残り、バージョンやコミットハッシュの違う
+// 古い成果物がそのままリリースに添付されうる（release.ymlはbuild/libs/*.jarを丸ごと拾う）
+tasks.register<Sync>("collectJars") {
     group = "build"
     description = "全ノードの配布jarをルートのbuild/libsへ集める"
     dependsOn(tasks.named("buildAll"))
+    // ノード側のbuild/libsにも過去のビルドのjarが残る（jarタスクは古い出力を消さない）。
+    // 今回のバージョンのものだけを拾う——バージョンにはgitの短縮ハッシュが付くので、
+    // これで「このビルドが作ったjar」だけに絞れる
     from(stonecutter.versions.map { layout.projectDirectory.dir("versions/${it.project}/build/libs") }) {
-        include("*.jar")
+        include("*-${stampedModVersion()}.jar")
     }
     into(layout.buildDirectory.dir("libs"))
 }
