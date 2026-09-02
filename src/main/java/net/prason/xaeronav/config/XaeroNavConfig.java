@@ -3,9 +3,6 @@ package net.prason.xaeronav.config;
 import java.util.Collections;
 import java.util.List;
 
-import org.apache.commons.lang3.tuple.Pair;
-
-import net.neoforged.neoforge.common.ModConfigSpec;
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
@@ -17,75 +14,97 @@ import net.prason.xaeronav.pathfinding.world.MovementOptions;
 public final class XaeroNavConfig {
 
     public static final XaeroNavConfig INSTANCE;
-    public static final ModConfigSpec SPEC;
+
+    private static final NavConfigStore STORE;
 
     static {
-        Pair<XaeroNavConfig, ModConfigSpec> pair = new ModConfigSpec.Builder().configure(XaeroNavConfig::new);
-        INSTANCE = pair.getLeft();
-        SPEC = pair.getRight();
+        NavConfigStore store = createStore();
+        INSTANCE = new XaeroNavConfig(store.spec());
+        store.build();
+        STORE = store;
     }
 
-    private final ModConfigSpec.BooleanValue diggingEnabled;
-    private final ModConfigSpec.BooleanValue bridgingEnabled;
-    private final ModConfigSpec.BooleanValue jumpGapEnabled;
-    private final ModConfigSpec.BooleanValue blockBudgetEnabled;
-    private final ModConfigSpec.IntValue blockBudgetReserve;
-    private final ModConfigSpec.BooleanValue lavaBridgingEnabled;
-    private final ModConfigSpec.BooleanValue deepLookAheadEnabled;
-    private final ModConfigSpec.BooleanValue costToGoGuideEnabled;
-    private final ModConfigSpec.BooleanValue fallDamageToleranceEnabled;
-    private final ModConfigSpec.BooleanValue avoidRiskyJumps;
-    private final ModConfigSpec.IntValue detailHorizonBlocks;
-    private final ModConfigSpec.IntValue maxBridgeRunBlocks;
-    private final ModConfigSpec.IntValue maxLavaBridgeRunBlocks;
-    private final ModConfigSpec.IntValue maxVoidBridgeRunBlocks;
-    private final ModConfigSpec.IntValue maxSubmergedTicks;
-    private final ModConfigSpec.IntValue searchHorizontalMargin;
-    private final ModConfigSpec.IntValue searchVerticalMargin;
-    private final ModConfigSpec.DoubleValue deviationThresholdBlocks;
-    private final ModConfigSpec.DoubleValue arrivalRadiusBlocks;
-    private final ModConfigSpec.IntValue groundLevelY;
-    private final ModConfigSpec.IntValue recalcIntervalTicks;
-    private final ModConfigSpec.IntValue maxExpandedNodes;
-    private final ModConfigSpec.DoubleValue heuristicWeight;
-    private final ModConfigSpec.BooleanValue flightRoutingEnabled;
-    private final ModConfigSpec.BooleanValue swimNavEnabled;
-    private final ModConfigSpec.IntValue elytraFlyingMinGroundClearanceBlocks;
-    private final ModConfigSpec.IntValue flightCellBlocks;
-    private final ModConfigSpec.DoubleValue flightDeviationThresholdBlocks;
-    private final ModConfigSpec.IntValue flightRecalcIntervalTicks;
+    private static NavConfigStore createStore() {
+        //? neoforge {
+        return new ModConfigSpecStore();
+        //?} fabric {
+        /*return new NightConfigStore(net.fabricmc.loader.api.FabricLoader.getInstance()
+                .getConfigDir().resolve("xaeronav-client.toml"));
+        *///?}
+    }
+
+    /** 設定画面のように、まとめて変更した後で1度だけ書き出す場所から呼ぶ。 */
+    public static void save() {
+        STORE.save();
+    }
+
+    /** ローダー側の登録処理（NeoForgeの{@code ModContainer#registerConfig}）が保存先の実体を要るため。 */
+    public static NavConfigStore store() {
+        return STORE;
+    }
+
+    private final NavConfigSpec.BoolValue diggingEnabled;
+    private final NavConfigSpec.BoolValue bridgingEnabled;
+    private final NavConfigSpec.BoolValue jumpGapEnabled;
+    private final NavConfigSpec.BoolValue blockBudgetEnabled;
+    private final NavConfigSpec.IntValue blockBudgetReserve;
+    private final NavConfigSpec.BoolValue lavaBridgingEnabled;
+    private final NavConfigSpec.BoolValue deepLookAheadEnabled;
+    private final NavConfigSpec.BoolValue costToGoGuideEnabled;
+    private final NavConfigSpec.BoolValue fallDamageToleranceEnabled;
+    private final NavConfigSpec.BoolValue avoidRiskyJumps;
+    private final NavConfigSpec.IntValue detailHorizonBlocks;
+    private final NavConfigSpec.IntValue maxBridgeRunBlocks;
+    private final NavConfigSpec.IntValue maxLavaBridgeRunBlocks;
+    private final NavConfigSpec.IntValue maxVoidBridgeRunBlocks;
+    private final NavConfigSpec.IntValue maxSubmergedTicks;
+    private final NavConfigSpec.IntValue searchHorizontalMargin;
+    private final NavConfigSpec.IntValue searchVerticalMargin;
+    private final NavConfigSpec.DoubleValue deviationThresholdBlocks;
+    private final NavConfigSpec.DoubleValue arrivalRadiusBlocks;
+    private final NavConfigSpec.IntValue groundLevelY;
+    private final NavConfigSpec.IntValue recalcIntervalTicks;
+    private final NavConfigSpec.IntValue maxExpandedNodes;
+    private final NavConfigSpec.DoubleValue heuristicWeight;
+    private final NavConfigSpec.BoolValue flightRoutingEnabled;
+    private final NavConfigSpec.BoolValue swimNavEnabled;
+    private final NavConfigSpec.IntValue elytraFlyingMinGroundClearanceBlocks;
+    private final NavConfigSpec.IntValue flightCellBlocks;
+    private final NavConfigSpec.DoubleValue flightDeviationThresholdBlocks;
+    private final NavConfigSpec.IntValue flightRecalcIntervalTicks;
     private static final int FLIGHT_CLEARANCE_DETOUR_DEFAULT = 12;
 
-    private final ModConfigSpec.IntValue flightClearanceDetourBlocks;
-    private final ModConfigSpec.IntValue flightMaxExpandedNodes;
-    private final ModConfigSpec.IntValue flightExtendMaxExpandedNodes;
-    private final ModConfigSpec.DoubleValue flightHeuristicWeight;
-    private final ModConfigSpec.ConfigValue<List<? extends String>> diggableBlocks;
-    private final ModConfigSpec.ConfigValue<List<? extends String>> forbiddenBlocks;
-    private final ModConfigSpec.BooleanValue hudEnabled;
-    private final ModConfigSpec.BooleanValue straightLineEnabled;
-    private final ModConfigSpec.BooleanValue goalMarkerEnabled;
+    private final NavConfigSpec.IntValue flightClearanceDetourBlocks;
+    private final NavConfigSpec.IntValue flightMaxExpandedNodes;
+    private final NavConfigSpec.IntValue flightExtendMaxExpandedNodes;
+    private final NavConfigSpec.DoubleValue flightHeuristicWeight;
+    private final NavConfigSpec.StringListValue diggableBlocks;
+    private final NavConfigSpec.StringListValue forbiddenBlocks;
+    private final NavConfigSpec.BoolValue hudEnabled;
+    private final NavConfigSpec.BoolValue straightLineEnabled;
+    private final NavConfigSpec.BoolValue goalMarkerEnabled;
 
-    private XaeroNavConfig(ModConfigSpec.Builder builder) {
-        builder.comment("XaeroNav 経路探索設定").push("pathfinding");
+    // package-private: 2つの保存先が同じ定義から同じ設定ファイルを作ることをテストが確かめる
+    XaeroNavConfig(NavConfigSpec spec) {
+        spec.comment("XaeroNav 経路探索設定").push("pathfinding");
 
-        diggingEnabled = builder
+        diggingEnabled = spec
                 .comment("掘削を経路に含めることを許可するか（falseなら徒歩のみで到達可能な経路だけ探索する）")
                 .define("diggingEnabled", true);
 
-        bridgingEnabled = builder
+        bridgingEnabled = spec
                 .comment("空洞を渡る・断崖を登るためのブロック設置を経路に含めることを許可するか",
                         "trueでも、ホットバーに置けるブロックが無い場合と、水に接する場所には設置を提示しない")
                 .define("bridgingEnabled", true);
 
-        lavaBridgingEnabled = builder
+        lavaBridgingEnabled = spec
                 .comment("溶岩に足場を置いて渡る移動を経路に含めることを許可するか（bridgingEnabledも必要）",
                         "溶岩を避けた道が一切見つからない場合の最後の手段。非常に高いコストを付けてあるので、",
                         "遠回りでも溶岩を避けられるならそちらが選ばれる",
                         "falseなら、溶岩に阻まれた目的地へは経路が出ないまま詰む")
                 .define("lavaBridgingEnabled", true);
 
-        blockBudgetEnabled = builder
+        blockBudgetEnabled = spec
                 .comment("持ち物にあるブロックの数を、経路が置ける足場の総数の上限にするか",
                         "橋の長さの上限(maxBridgeRunBlocks)は「1本が何マス続いてよいか」なので、",
                         "短い橋を何度も架ける経路は止められない——途中で持ち物が尽きると、そこから先の",
@@ -96,19 +115,19 @@ public final class XaeroNavConfig {
                         "falseなら従来どおり数を見ない（1個でも持っていれば何マスでも橋を架ける）")
                 .define("blockBudgetEnabled", true);
 
-        blockBudgetReserve = builder
+        blockBudgetReserve = spec
                 .comment("上の予算から差し引いて手元に残す枚数",
                         "経路がぴったり使い切る設計だと、置き損ないや寄り道で1個でも減ると足りなくなる",
                         "増やすほど余裕を持った経路になるが、そのぶん橋を架けられる場面が減る")
                 .defineInRange("blockBudgetReserve", 0, 0, 512);
 
-        jumpGapEnabled = builder
+        jumpGapEnabled = spec
                 .comment("隙間を飛び越える移動を経路に含めることを許可するか（最大3マスの隙間まで）",
                         "falseにすると、跳べば渡れる隙間でも迂回かブロック設置(bridgingEnabled)で越える経路になる",
                         "着地を外すと落ちるので、跳躍に自信が無い場合や落ちると危険な地形ではオフにする")
                 .define("jumpGapEnabled", true);
 
-        avoidRiskyJumps = builder
+        avoidRiskyJumps = spec
                 .comment("底の無い空虚（ジ・エンドの奈落）の上と、外したら今の体力で死ぬ落差の上での",
                         "跳躍を避けるか。隙間の下が溶岩の場合はこの設定に関わらず常に跳ばない",
                         "trueでも「絶対に跳ばない」ではない——回り込める道が一本も無いと分かったときだけ、",
@@ -121,21 +140,21 @@ public final class XaeroNavConfig {
                         "falseにすると従来どおり、奈落や高所の隙間も普通に跳ぶ経路が出る")
                 .define("avoidRiskyJumps", true);
 
-        fallDamageToleranceEnabled = builder
+        fallDamageToleranceEnabled = spec
                 .comment("落下ダメージを受ける降下を経路に含めることを許可するか",
                         "許容するダメージは経路を計算した時点の体力の1/3まで（満タンなら3ハート＝9マスの落下まで）",
                         "水バケツを持っている場合は、着地寸前に水を置いてダメージを消す降下（MLG）も候補に入る",
                         "falseなら安全に降りられる高さ(3マス)までしか降下しない")
                 .define("fallDamageToleranceEnabled", false);
 
-        deepLookAheadEnabled = builder
+        deepLookAheadEnabled = spec
                 .comment("歩いている間、経路の先を読み込み済みチャンクの限界まで伸ばし続けるか",
                         "trueなら進むほど先の経路が長く描かれ、次の区間を待つ間の途切れが無くなる",
                         "falseなら常に「今の区間＋次の1区間」だけを保つ（描かれる経路は短いが探索は軽い）",
                         "どちらでも、すでに歩いている手前側の経路が引き直されることはない")
                 .define("deepLookAheadEnabled", true);
 
-        costToGoGuideEnabled = builder
+        costToGoGuideEnabled = spec
                 .comment("詳細探索のヒューリスティックに、層1（粗い地図）が壁や溶岩の海を回避した",
                         "見積もりを併用するか（幾何学的な直線距離とのうち大きい方を使う）",
                         "ネザーのような3D迷路では直線距離がほぼ無意味なので、これで探索が壁沿いに",
@@ -144,7 +163,7 @@ public final class XaeroNavConfig {
                         "falseにすると幾何学的な直線距離だけに戻る（比較用）")
                 .define("costToGoGuideEnabled", true);
 
-        detailHorizonBlocks = builder
+        detailHorizonBlocks = spec
                 .comment("詳細探索が一度に狙う最大の水平距離（ブロック）。これより遠い目的地には",
                         "長距離ルートの中間目標を挟み、経路は末端から継ぎ足して伸ばしていく",
                         "地形によらない固定値。かつては直近の探索が実際に引けた距離を測って使っていたが、",
@@ -154,7 +173,7 @@ public final class XaeroNavConfig {
                         "もっと解けるので、探索を減らしたければ上げてよい")
                 .defineInRange("detailHorizonBlocks", 96, 24, 512);
 
-        maxBridgeRunBlocks = builder
+        maxBridgeRunBlocks = spec
                 .comment("空中に足場を置いて渡る橋を、何マス連続させたら諦めて迂回するか（0で無制限）",
                         "ネザーの溶岩の海のように迂回路が長い地形では、コストの重みだけでは橋が",
                         "選ばれ続ける。ここを超える橋は移動そのものを生成しないので、探索は最初から",
@@ -166,7 +185,7 @@ public final class XaeroNavConfig {
                         "収まる値。溶岩の上はmaxLavaBridgeRunBlocksが別に30で抑えるので影響しない")
                 .defineInRange("maxBridgeRunBlocks", 96, 0, 256);
 
-        maxLavaBridgeRunBlocks = builder
+        maxLavaBridgeRunBlocks = spec
                 .comment("そのうち溶岩の上に架ける橋を、何マスまで許すか（0で無制限）",
                         "空洞に架ける橋と分けて持つのは、足場を外したときの結末が違うから——",
                         "空洞なら落ちるだけだが、溶岩の上では即死する",
@@ -175,7 +194,7 @@ public final class XaeroNavConfig {
                         "（渡れる道が無くなれば層1が溶岩を避ける大回りのルートを選び直す）")
                 .defineInRange("maxLavaBridgeRunBlocks", 30, 0, 256);
 
-        maxVoidBridgeRunBlocks = builder
+        maxVoidBridgeRunBlocks = spec
                 .comment("そのうち底の無い空虚（ジ・エンドの奈落、探索範囲より深い大空洞）の上に架ける橋を、",
                         "何マスまで許すか（0で無制限）",
                         "溶岩と分けて持つのは、地形として出会う頻度がまるで違うから——ジ・エンドでは",
@@ -188,7 +207,7 @@ public final class XaeroNavConfig {
                         "30でも緩和の梯子が開けば渡れる経路自体は見つかる（RealEndTerrainTest）")
                 .defineInRange("maxVoidBridgeRunBlocks", 96, 0, 256);
 
-        maxSubmergedTicks = builder
+        maxSubmergedTicks = spec
                 .comment("頭を水に浸けたまま何tickまで進む経路を許すか（0で無制限）",
                         "空気は300tickで尽き、そこからは1秒ごとにダメージが入る。既定の250はその5/6で、",
                         "潜り始めに空気が満タンとは限らないぶんと、案内どおりの速さで泳げないぶんの余裕",
@@ -201,26 +220,26 @@ public final class XaeroNavConfig {
                         "（詰むよりは息継ぎの要る潜水の方がマシ、という優先順）。その区間は警告色になる")
                 .defineInRange("maxSubmergedTicks", 250, 0, 1200);
 
-        searchHorizontalMargin = builder
+        searchHorizontalMargin = spec
                 .comment("探索範囲の水平方向マージン（ブロック数）")
                 .defineInRange("searchHorizontalMargin", 64, 8, 256);
 
-        searchVerticalMargin = builder
+        searchVerticalMargin = spec
                 .comment("探索範囲の垂直方向マージン（ブロック数）")
                 .defineInRange("searchVerticalMargin", 32, 4, 128);
 
-        deviationThresholdBlocks = builder
+        deviationThresholdBlocks = spec
                 .comment("プレイヤーが経路からこの距離(ブロック)以上離れたら再計算する",
                         "この距離の中を歩いている限り経路は引き直さないので、大きいほど線が落ち着く",
                         "既定値は線の横2〜3マスのずれを許す値")
                 .defineInRange("deviationThresholdBlocks", 4.0, 1.0, 16.0);
 
-        arrivalRadiusBlocks = builder
+        arrivalRadiusBlocks = spec
                 .comment("目的地からこの距離(ブロック)以内に来たら到着とみなす（水平・垂直とも）",
                         "掘っても辿り着けない目的地では、実際に辿り着けた地点を基準にする")
                 .defineInRange("arrivalRadiusBlocks", 3.0, 1.0, 16.0);
 
-        groundLevelY = builder
+        groundLevelY = spec
                 .comment("この高さ(Y座標)以上で、かつ頭上が開けている場所を地上とみなす",
                         "屋根の下(空が見えない場所)から地上の目的地へ向かうとき、目的地の真下を一直線に掘るのではなく、",
                         "まず最寄りの地上（この高さ以上で空の下）へ出る経路を探してから、改めて目的地へ向かう",
@@ -230,38 +249,38 @@ public final class XaeroNavConfig {
                         "既定値60は海面の少し下")
                 .defineInRange("groundLevelY", 60, -64, 320);
 
-        recalcIntervalTicks = builder
+        recalcIntervalTicks = spec
                 .comment("経路の再確認間隔（tick）。プレイヤーが動いていない間はこの間隔で経路上のブロック変化だけを調べる")
                 .defineInRange("recalcIntervalTicks", 40, 20, 1200);
 
-        maxExpandedNodes = builder
+        maxExpandedNodes = spec
                 .comment("1回の探索で展開するノード数の上限。届かなかったときに探索を打ち切る天井で、",
                         "経路が見つかった時点で探索は終わるため、上げても届く経路の計算時間は変わらない",
                         "探索はワーカースレッドで走るのでフレームレートには直接影響しない",
                         "下げると、届くはずの経路が手前で切れるようになる")
                 .defineInRange("maxExpandedNodes", AStarPathfinder.DEFAULT_MAX_EXPANDED_NODES, 1_000, 500_000);
 
-        heuristicWeight = builder
+        heuristicWeight = spec
                 .comment("経路探索の「ゴールへの近さ」を重視する度合い",
                         "1.0は最短経路を保証するが、掘削や遊泳のように実際のコストが見積もりを大きく上回る場所では",
                         "探索が四方に広がり、上限が数十マス先で尽きて経路が届かなくなる",
                         "上げるほど遠くまで届くかわりに、遠回りな経路が混じりうる（海を渡る・長距離では上げると効く）")
                 .defineInRange("heuristicWeight", AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT, 1.0, 3.0);
 
-        flightRoutingEnabled = builder
+        flightRoutingEnabled = spec
                 .comment("滑空・飛行中に空中の経路を計算するか",
                         "falseにすると目的地への直線（点線）だけになる（以前の挙動）",
                         "スペクテイターはブロックをすり抜けるので、この設定に関わらず常に直線")
                 .define("flightRoutingEnabled", true);
 
-        swimNavEnabled = builder
+        swimNavEnabled = spec
                 .comment("完全に水没して進んでいる間、ブロック単位の経路の代わりに目的地への曲げ点線を追従させるか",
                         "水中は自分で見て泳げるので、格子に沿った経路を厳密に追う必要が薄い（滑空と同じ考え方）",
                         "頭が水面から出ると通常の歩行ナビへ戻る",
                         "falseにすると水中でも従来どおり歩行の経路を引く")
                 .define("swimNavEnabled", true);
 
-        elytraFlyingMinGroundClearanceBlocks = builder
+        elytraFlyingMinGroundClearanceBlocks = spec
                 .comment("エリトラの滑空を「飛んでいる」とみなす、足元から地面までの最小の高さ（ブロック）",
                         "エリトラを装備したまま連続ジャンプしていると1tickだけ滑空判定が立つことがあり、",
                         "その瞬間に地上の経路を捨てて空中の経路へ切り替わる——着地した次のtickで元へ戻るので、",
@@ -274,7 +293,7 @@ public final class XaeroNavConfig {
                         "（本当に立てないので猶予を置く意味が無い）")
                 .defineInRange("elytraFlyingMinGroundClearanceBlocks", 4, 0, 32);
 
-        flightCellBlocks = builder
+        flightCellBlocks = spec
                 .comment("空中経路を解く格子の一辺（ブロック）。含むブロックが全て空のセルだけを通る",
                         "この粗さがそのままクリアランスになる——秒速30マスで飛ぶエリトラに1マスの隙間を",
                         "狙わせても意味が無いので、余裕を持って抜けられる空間だけを経路の候補にする",
@@ -283,20 +302,20 @@ public final class XaeroNavConfig {
                         "4→6にするだけで同じ予算が覆う体積が3.4倍になる。代わりに狭い通路は通れなくなる")
                 .defineInRange("flightCellBlocks", 6, 2, 16);
 
-        flightDeviationThresholdBlocks = builder
+        flightDeviationThresholdBlocks = spec
                 .comment("滑空中に経路からこの距離(ブロック)以上離れたら引き直す",
                         "歩行のdeviationThresholdBlocksとは別に持つ。エリトラは常時ずれるので、",
                         "歩行と同じ幅にすると飛んでいる間ずっと経路が引き直される",
                         "垂直方向はこの1.5倍まで許す（上下のぶれは水平より大きい）")
                 .defineInRange("flightDeviationThresholdBlocks", 24.0, 4.0, 64.0);
 
-        flightRecalcIntervalTicks = builder
+        flightRecalcIntervalTicks = spec
                 .comment("滑空中に経路を引き直す間隔（tick）",
                         "エリトラは1.5ブロック/tickで飛ぶので、歩行のrecalcIntervalTicks(40)では",
                         "引き直しの合間に60ブロック進んでしまう")
                 .defineInRange("flightRecalcIntervalTicks", 20, 5, 200);
 
-        flightClearanceDetourBlocks = builder
+        flightClearanceDetourBlocks = spec
                 .comment("周囲が完全に塞がったセルを通ることを、水平何ブロックぶんの遠回りと釣り合わせるか",
                         "「最短でも狭い所は案内しないでほしい」をこれで表す。大きいほど広い空間を選ぶ",
                         "禁止ではなく割増なのは、そこしか道が無い地形で経路ごと消えないようにするため",
@@ -306,7 +325,7 @@ public final class XaeroNavConfig {
                         "開けた場所でも理由なく高い所を通るようになる")
                 .defineInRange("flightClearanceDetourBlocks", FLIGHT_CLEARANCE_DETOUR_DEFAULT, 0, 128);
 
-        flightMaxExpandedNodes = builder
+        flightMaxExpandedNodes = spec
                 .comment("空中経路の1回の探索で展開するセル数の上限",
                         "歩行のmaxExpandedNodesとは別に持つ。空中は3D格子で1セルあたりの隣接が26あり、",
                         "同じ数字でも意味する探索の広さがまるで違う",
@@ -314,51 +333,51 @@ public final class XaeroNavConfig {
                         "計算中は投げ直さないので、長くなるぶん経路の更新間隔が伸びる")
                 .defineInRange("flightMaxExpandedNodes", 150_000, 1_000, 1_000_000);
 
-        flightExtendMaxExpandedNodes = builder
+        flightExtendMaxExpandedNodes = spec
                 .comment("末端から先を継ぎ足すときの展開セル数の上限",
                         "継ぎ足しは短い区間を何度も繋ぐので、1回にflightMaxExpandedNodesを許すと",
                         "地形が詰まったときに毎回2秒かけて少ししか伸びず、飛ぶ速度に追いつかなくなる",
                         "小さくすると1回の伸びは短くなるが、そのぶん頻繁に繋げる")
                 .defineInRange("flightExtendMaxExpandedNodes", 60_000, 1_000, 1_000_000);
 
-        flightHeuristicWeight = builder
+        flightHeuristicWeight = spec
                 .comment("空中経路の「ゴールへの近さ」を重視する度合い",
                         "歩行より高くしてある。空は障害物が疎で、寄り道の少ない見積もりがよく当たるうえ、",
                         "空中経路に最短の保証は要らない（人間が見て操縦するための線であって、辿る手順ではない）",
                         "上げるほど同じ予算で遠くまで届く。遠くまで検索したいときは格子幅の次に効く")
                 .defineInRange("flightHeuristicWeight", 2.5, 1.0, 5.0);
 
-        diggableBlocks = builder
+        diggableBlocks = spec
                 .comment("掘って通ってよいブロックの追加リスト（例: \"minecraft:cobblestone\"）",
                         "既定で掘れるのは自然生成の地形（石・土・砂・鉱石・葉・ネザーラック等）だけで、",
                         "加工されたブロック（丸石・石レンガ・板材…）や中身を持つブロック（チェスト・かまど・",
                         "modの機械）は誰かが置いたものとみなして掘らない。知らないブロックも掘らない側に倒す",
                         "modが追加した石や土で経路が塞がる場合、そのブロックIDをここへ足す")
-                .defineListAllowEmpty("additionalDiggableBlocks", Collections.emptyList(),
+                .defineStringList("additionalDiggableBlocks", Collections.emptyList(),
                         () -> "minecraft:cobblestone", o -> o instanceof String);
 
-        forbiddenBlocks = builder
+        forbiddenBlocks = spec
                 .comment("掘削禁止ブロックのリスト（例: \"minecraft:diamond_ore\"）。上のリストより優先される",
                         "既定で掘れる自然地形のうち、壊したくないものを個別に外すために使う")
-                .defineListAllowEmpty("additionalForbiddenBlocks", Collections.emptyList(),
+                .defineStringList("additionalForbiddenBlocks", Collections.emptyList(),
                         () -> "minecraft:diamond_ore", o -> o instanceof String);
 
-        builder.pop();
-        builder.comment("XaeroNav 表示設定").push("display");
+        spec.pop();
+        spec.comment("XaeroNav 表示設定").push("display");
 
-        hudEnabled = builder
+        hudEnabled = spec
                 .comment("画面上部に案内（次の曲がり角・残りの道のり・所要時間）を表示するか")
                 .define("hudEnabled", true);
 
-        straightLineEnabled = builder
+        straightLineEnabled = spec
                 .comment("経路が分からない区間（未読み込みチャンクの先など）を目的地までの点線で示すか")
                 .define("straightLineEnabled", true);
 
-        goalMarkerEnabled = builder
+        goalMarkerEnabled = spec
                 .comment("Xaeroの世界地図・ミニマップの目的地にピンを立てるか")
                 .define("goalMarkerEnabled", true);
 
-        builder.pop();
+        spec.pop();
     }
 
     public boolean diggingEnabled() {

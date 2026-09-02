@@ -16,6 +16,7 @@ import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -170,7 +171,9 @@ public final class ChunkView implements CellSource {
         for (int slot = 0; slot < hotbar.length; slot++) {
             ItemStack stack = player.getInventory().getItem(slot);
             hotbar[slot] = stack.copy();
-            hotbarEfficiency[slot] = stack.getEnchantmentLevel(efficiency);
+            // NeoForgeが足す ItemStack#getEnchantmentLevel は使わない。この階層はローダーに
+            // 依存しない決まりで、他のMODがエンチャント値を動的に書き換える場合まで拾う必要も無い
+            hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
         }
         // 置ける枚数は持ち物<b>全体</b>で数える。ホットバーだけを見ていた頃は、インベントリに
         // 1スタック持っていても橋の案内が出ず、逆にホットバーの1個だけで64マスの橋が出ていた。

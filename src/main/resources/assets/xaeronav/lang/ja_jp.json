@@ -9,6 +9,10 @@
   "commands.xaeronav.flight_tail": "XaeroNav: 末端 (%1$d, %2$d, %3$d) — 目的地まで残り%4$dブロック",
   "commands.xaeronav.flight_coarse": "XaeroNav: 長距離ルート 中間目標%1$d本 / 目的地まで到達%2$d",
   "commands.xaeronav.flight_diagnostic_only": "XaeroNav: （測定のみ。線を出すには /xaeronav goto で目的地を設定すること）",
+  "commands.xaeronav.hooks_ok": "%s: 連携中",
+  "commands.xaeronav.hooks_mod_missing": "%s: 連携先のMOD(%s)が未導入",
+  "commands.xaeronav.hooks_not_applied": "%s: mixinが当たっていない（Xaeroの版が対応範囲の外の可能性）",
+  "commands.xaeronav.hooks_render_broken": "世界地図を開いている間、経路の描画処理が一度も呼ばれていない",
   "commands.xaeronav.cleared": "XaeroNav: 経路をクリア",
 
   "hud.xaeronav.searching": "経路を計算中…",
@@ -20,6 +24,7 @@
   "hud.xaeronav.unreachable_unmapped": "地図上で目的地まで繋がっていません — 目的地の周辺をまだ探索していない可能性があります",
   "hud.xaeronav.unreachable_notice": "XaeroNav: 目的地まで行けません — %s",
   "hud.xaeronav.hook_missing": "XaeroNav: Xaero's Map への連携に失敗したため、%sが無効です。Xaero がこのビルドの対応範囲より新しい可能性があります — /xaeronav version の結果を添えて報告してください。",
+  "hud.xaeronav.hook_render_missing": "XaeroNav: 世界地図への経路描画が届いていません。Xaero がこのビルドの対応範囲より新しい可能性があります — /xaeronav debug hooks の結果を添えて報告してください。",
   "hud.xaeronav.hook_world_map": "世界地図への経路描画",
   "hud.xaeronav.hook_waypoint_menu": "ウェイポイントの右クリックメニュー",
   "hud.xaeronav.hook_minimap": "ミニマップへの経路描画",

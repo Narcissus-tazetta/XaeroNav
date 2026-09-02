@@ -5,7 +5,7 @@
 目的地までの実際に歩ける経路を計算して、ワールド内・Xaero's World Map・Xaero's Minimap の
 3 箇所に描くクライアント MOD です。画面上部には次にどちらへ進むかが出ます。
 
-- Minecraft 1.21.1 / NeoForge 21.1.228 以降
+- Minecraft 1.21.1 / NeoForge 21.1.228 以降 または Fabric（Fabric Loader 0.19.5 以降 + Fabric API）
 - クライアント専用。サーバー側に入れるものはありません
 - ライセンスは MIT
 
@@ -13,9 +13,12 @@
 
 ## インストール
 
-1. Minecraft 1.21.1 用の [NeoForge](https://neoforged.net/) 21.1.228 以降を導入する。
-2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から最新の
-   `xaeronav-*.jar` をダウンロードし、`mods` フォルダへ入れる。
+1. Minecraft 1.21.1 用のローダーを導入する。[NeoForge](https://neoforged.net/) 21.1.228 以降、
+   または [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.5 以降 +
+   [Fabric API](https://modrinth.com/mod/fabric-api)）。
+2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から使うローダー向けの
+   jar（`xaeronav-neoforge-*.jar` または `xaeronav-fabric-*.jar`）をダウンロードし、
+   `mods` フォルダへ入れる。
 3. 地図と連携させたい場合は Xaero's World Map 1.44.2 以降、Xaero's Minimap 26.4.2 以降も入れる
    （任意）。
 
@@ -211,11 +214,14 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 ## ビルド
 
 ```bash
-./gradlew build
+./gradlew build collectJars
 ```
 
-`spotlessCheck`（未使用 import・行末の空白・末尾の改行）と両方のテストが一緒に走ります。
-成果物は `build/libs/`。
+対応する全ターゲット（MC バージョン × ローダー）をまとめてビルドします。`spotlessCheck`
+（未使用 import・行末の空白・末尾の改行）と両方のテストも一緒に走ります。`collectJars` を
+付けると、各ターゲットの jar が `build/libs/` へ集まります。
+
+ターゲットの構成と増やし方は [docs/multiloader.md](docs/multiloader.md) にあります。
 
 テストは重さで分けてあります。`./gradlew test` は実機の保存データを使う探索以外の全部で数秒、
 その探索（1分ほどかかる）は `@Tag("slow")` を付けて `./gradlew slowTest` に分けてあります。
@@ -226,11 +232,15 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 ./gradlew slowTest   # 実機地形の経路探索
 ```
 
-開発用クライアントの起動:
+経路探索コアはローダーにもバージョンにも依存しないので、テストが実際に走るのは
+正典ノード（`stonecutter.properties.toml` の `canonical_test_node`）だけです。
+
+開発用クライアントの起動（ターゲットを指定する）:
 
 ```bash
-./gradlew runClient                      # Xaero 込み
-./gradlew runClient -Pwith_xaero=false   # Xaero 抜き（フォールバック動作の確認用）
+./gradlew :1.21.1-neoforge:runClient                      # Xaero 込み
+./gradlew :1.21.1-fabric:runClient                        # Fabric 側
+./gradlew :1.21.1-neoforge:runClient -Pwith_xaero=false   # Xaero 抜き（フォールバック動作の確認用）
 ```
 
 Xaero はコンパイル時にだけ必要な依存（`compileOnly`）で、配布物には含まれません。
@@ -247,7 +257,8 @@ pathfinding/
   async/    ワーカースレッドでの実行とキャンセル
 client/     経路の状態管理・描画・HUD・案内・コマンド・キーバインド
 mixin/xaero/  Xaero の世界地図・ミニマップへのフック（required=false）
-config/     TOML 設定
+config/     TOML 設定（定義は1箇所、保存先だけローダーごと）
+platform/   ローダーごとの起動処理とイベント配線。ここ以外にローダー固有のコードは置かない
 ```
 
 探索コアは Minecraft のワールドを直接見ず、[`CellSource`](src/main/java/net/prason/xaeronav/pathfinding/world/CellSource.java)

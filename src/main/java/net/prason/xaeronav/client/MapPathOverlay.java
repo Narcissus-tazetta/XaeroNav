@@ -9,6 +9,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.xaero.XaeroHookHealth;
 
 /**
  * Xaeroの世界地図・ミニマップへ経路を描くときの「何をどの色で置くか」。
@@ -93,6 +94,7 @@ public final class MapPathOverlay {
      * 呼び出し側は{@code VertexConsumer}の取得自体を省ける。
      */
     public static Snapshot snapshot() {
+        XaeroHookHealth.hookRan();
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
             return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of(), false);

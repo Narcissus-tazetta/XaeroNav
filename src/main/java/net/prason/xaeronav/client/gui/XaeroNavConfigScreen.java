@@ -70,6 +70,6 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     @Override
     public void onClose() {
         super.onClose();
-        XaeroNavConfig.SPEC.save();
+        XaeroNavConfig.save();
     }
 }

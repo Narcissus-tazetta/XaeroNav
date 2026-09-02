@@ -1,5 +1,7 @@
 package net.prason.xaeronav.client;
 
+import java.util.function.Consumer;
+
 import org.lwjgl.glfw.GLFW;
 
 import com.mojang.blaze3d.platform.InputConstants;
@@ -9,7 +11,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
-import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.client.gui.XaeroNavConfigScreen;
 import net.prason.xaeronav.config.XaeroNavConfig;
@@ -46,12 +47,13 @@ public final class XaeroNavKeys {
         return new KeyMapping(name, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, CATEGORY);
     }
 
-    public static void register(RegisterKeyMappingsEvent event) {
-        event.register(GOTO_LOOKING_AT);
-        event.register(CLEAR);
-        event.register(TOGGLE_HUD);
-        event.register(OPEN_CONFIG_SCREEN);
-        event.register(GOTO_MAP_CURSOR);
+    /** ローダーごとの登録口（NeoForgeは{@code RegisterKeyMappingsEvent}、Fabricは{@code KeyBindingHelper}）へ流す。 */
+    public static void register(Consumer<KeyMapping> sink) {
+        sink.accept(GOTO_LOOKING_AT);
+        sink.accept(CLEAR);
+        sink.accept(TOGGLE_HUD);
+        sink.accept(OPEN_CONFIG_SCREEN);
+        sink.accept(GOTO_MAP_CURSOR);
     }
 
     /**
@@ -81,7 +83,7 @@ public final class XaeroNavKeys {
         while (TOGGLE_HUD.consumeClick()) {
             boolean enabled = !XaeroNavConfig.INSTANCE.hudEnabled();
             XaeroNavConfig.INSTANCE.setHudEnabled(enabled);
-            XaeroNavConfig.SPEC.save();
+            XaeroNavConfig.save();
             mc.player.displayClientMessage(Component.translatable(enabled
                     ? "hud.xaeronav.hud_on"
                     : "hud.xaeronav.hud_off"), true);

@@ -9,6 +9,10 @@
   "commands.xaeronav.flight_tail": "XaeroNav: tail (%1$d, %2$d, %3$d) — %4$d blocks left to the goal",
   "commands.xaeronav.flight_coarse": "XaeroNav: long-range route %1$d waypoints / reached goal %2$d",
   "commands.xaeronav.flight_diagnostic_only": "XaeroNav: (measurement only — use /xaeronav goto to set a destination and draw the line)",
+  "commands.xaeronav.hooks_ok": "%s: connected",
+  "commands.xaeronav.hooks_mod_missing": "%s: the companion mod (%s) is not installed",
+  "commands.xaeronav.hooks_not_applied": "%s: the mixin did not apply (your Xaero version may be out of the supported range)",
+  "commands.xaeronav.hooks_render_broken": "the route drawing hook was never called while the world map was open",
   "commands.xaeronav.cleared": "XaeroNav: route cleared",
 
   "hud.xaeronav.searching": "Finding a route...",
@@ -20,6 +24,7 @@
   "hud.xaeronav.unreachable_unmapped": "The map has no connection to the destination - the area around it may still be unexplored",
   "hud.xaeronav.unreachable_notice": "XaeroNav: can't reach the destination - %s",
   "hud.xaeronav.hook_missing": "XaeroNav: could not hook into Xaero's Map, so %s is disabled. Your Xaero version may be newer than this build supports - please report it with /xaeronav version.",
+  "hud.xaeronav.hook_render_missing": "XaeroNav: route drawing is not reaching the world map. Your Xaero version may be newer than this build supports - please report it with /xaeronav debug hooks.",
   "hud.xaeronav.hook_world_map": "route drawing on the world map",
   "hud.xaeronav.hook_waypoint_menu": "the waypoint right-click menu",
   "hud.xaeronav.hook_minimap": "route drawing on the minimap",

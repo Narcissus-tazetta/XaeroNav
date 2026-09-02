@@ -66,8 +66,9 @@ jobs:
           git tag "$TAG"
           git push origin "$TAG"
 
+      # 全ノード（MCバージョン×ローダー）をビルドして、jarをbuild/libsへ集める
       - name: Build
-        run: ./gradlew build -Prelease -Pmod_version=${{ steps.release.outputs.version }}
+        run: ./gradlew build collectJars -Prelease -Pmod_version=${{ steps.release.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

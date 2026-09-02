@@ -12,8 +12,6 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
@@ -21,6 +19,7 @@ import net.prason.xaeronav.pathfinding.astar.PathRisk;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.xaero.XaeroHookHealth;
 
 /**
  * 画面上部の案内表示。「次にどちらへ曲がるか」「残りの道のり・所要時間」を出す。
@@ -48,8 +47,7 @@ public final class NavHud {
     private final PathCache<Set<PathRisk>> risksAhead = new PathCache<>();
     private final PathCache<Boolean> usesBoat = new PathCache<>();
 
-    @SubscribeEvent
-    public void onRenderGui(RenderGuiEvent.Post event) {
+    public void render(GuiGraphics graphics) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.options.hideGui || !XaeroNavConfig.INSTANCE.hudEnabled()) {
             return;
@@ -163,7 +161,13 @@ public final class NavHud {
             }
         }
 
-        draw(event.getGuiGraphics(), mc.font);
+        // mixinは当たっているのに地図へ描かれていないことに気付けるのはここだけ。
+        // 経路は出ているので、黙っていると「地図連携だけ壊れた」ではなく「そういうもの」に見える
+        if (XaeroHookHealth.worldMapRenderBroken()) {
+            add(Component.translatable("hud.xaeronav.hook_render_missing"), WARNING_COLOR);
+        }
+
+        draw(graphics, mc.font);
     }
 
     private void add(Component line, int color) {

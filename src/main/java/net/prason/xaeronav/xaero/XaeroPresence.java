@@ -1,6 +1,6 @@
 package net.prason.xaeronav.xaero;
 
-import net.neoforged.fml.ModList;
+import net.prason.xaeronav.platform.ModPresence;
 
 /**
  * Xaero's World Mapが「MODとして読み込まれているか」。
@@ -22,11 +22,11 @@ public final class XaeroPresence {
     }
 
     public static boolean mapPresent() {
-        return ModList.get().isLoaded(WORLD_MAP_MOD_ID);
+        return ModPresence.isLoaded(WORLD_MAP_MOD_ID);
     }
 
     /** ミニマップ側。地図データは世界地図が持つので、こちらはウェイポイントを置けるかの判定にだけ使う。 */
     public static boolean minimapPresent() {
-        return ModList.get().isLoaded(MINIMAP_MOD_ID);
+        return ModPresence.isLoaded(MINIMAP_MOD_ID);
     }
 }

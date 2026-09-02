@@ -18,6 +18,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      nodes: ${{ steps.nodes.outputs.nodes }}
     steps:
       - uses: actions/checkout@v7
 
@@ -28,11 +30,16 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      # コンパイル + フォーマット確認(spotlessCheck) + テストをまとめて実行する。
-      # spotlessCheckはjavaプラグインのcheckタスクに自動で組み込まれるため、
-      # ./gradlew build だけでこの3つがすべて走る。実機地形の重いテスト(slowTest)も
-      # checkが依存しているので、手元の既定から外れていてもCIでは必ず通る。
-      - run: ./gradlew build --console=plain
+      # 全ノード（MCバージョン×ローダー）のコンパイル + フォーマット確認(spotlessCheck) +
+      # テストをまとめて実行する。ノードを増やしてもここは変わらない。
+      # 実機地形の重いテスト(slowTest)もcheckが依存しているので、手元の既定から外れていても必ず通る。
+      # 経路探索のテストが実際に走るのは正典ノードだけ（stonecutter.properties.tomlのcanonical_test_node）。
+      - run: ./gradlew build collectJars --console=plain
+
+      # 起動スモークテストのジョブをノードごとに立てるための一覧。
+      # ノードの定義はsettings.gradle.ktsにしか無い状態を保つ
+      - id: nodes
+        run: echo "nodes=$(./gradlew printNodes -q --console=plain | tail -1)" >> "$GITHUB_OUTPUT"
 
       # 失敗したときに、どのテストがなぜ落ちたかをログを掘らずに見られるようにする
       - name: Upload test report
@@ -41,15 +48,86 @@ jobs:
         with:
           name: test-report
           path: |
-            build/reports/tests/test
-            build/reports/tests/slowTest
+            versions/*/build/reports/tests/test
+            versions/*/build/reports/tests/slowTest
           retention-days: 7
 
       # PRから実際のjarを落として動作確認できるようにする
-      - name: Upload mod jar
+      - name: Upload mod jars
         uses: actions/upload-artifact@v7
         with:
-          name: xaeronav-jar
+          name: xaeronav-jars
           path: build/libs/*.jar
           if-no-files-found: error
           retention-days: 14
+
+  # 実際にMinecraftを起動して、ワールドへ入るところまで到達できるかを見る。
+  #
+  # Xaero連携のmixinはrequired=falseなので、注入先が変わっても例外は出ず「地図に線が出ない」だけになる。
+  # ビルドが通ることは何の保証にもならないので、起動してログを読むところまでをCIの仕事にする。
+  runtime:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJson(needs.build.outputs.nodes) }}
+    name: runtime (${{ matrix.node.node }})
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build and stage mods
+        run: ./gradlew :${{ matrix.node.node }}:stageRuntimeTestMods --console=plain
+
+      - name: Put mods into the test client
+        run: |
+          mkdir -p run/mods
+          cp build/runtime-test/${{ matrix.node.node }}/mods/*.jar run/mods/
+
+      # fabric-apiの版はstonecutter.properties.tomlが持つ唯一の情報源から読む
+      - id: deps
+        if: matrix.node.loader == 'fabric'
+        run: |
+          VERSION=$(grep 'deps.fabric_api' stonecutter.properties.toml | cut -d'"' -f2 | cut -d'+' -f1)
+          echo "fabric_api=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Run the client
+        uses: headlesshq/mc-runtime-test@4.5.1
+        with:
+          mc: ${{ matrix.node.minecraft }}
+          modloader: ${{ matrix.node.loader }}
+          regex: .*${{ matrix.node.loader }}.*
+          java: 21
+          mc-runtime-test: ${{ matrix.node.loader }}
+          fabric-api: ${{ matrix.node.loader == 'fabric' && steps.deps.outputs.fabric_api || 'none' }}
+
+      # mixinが当たらなかったこと自体はログにしか出ない（configがrequired=falseなので落ちない）。
+      # 誰も読まないログは無いのと同じなので、ここで見つけたらCIを落とす
+      - name: Check that the Xaero hooks applied
+        run: |
+          LOG=run/logs/latest.log
+          if [ ! -f "$LOG" ]; then
+            echo "::error::$LOG が無い。クライアントが起動していない可能性がある"
+            exit 1
+          fi
+          if grep -nE 'Mixin apply failed.*xaeronav|Critical injection failure.*xaeronav|xaeronav-xaero\.mixins\.json.*(failed|error)' "$LOG"; then
+            echo "::error::XaeroNavのmixinが当たっていない。Xaeroの版が対応範囲の外にある可能性がある"
+            exit 1
+          fi
+          echo "XaeroNavのmixin適用に失敗の記録は無し"
+
+      - name: Upload client log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: client-log-${{ matrix.node.node }}
+          path: run/logs/latest.log
+          if-no-files-found: warn
+          retention-days: 7

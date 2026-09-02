@@ -3,7 +3,7 @@ package net.prason.xaeronav.xaero;
 import java.util.ArrayList;
 import java.util.List;
 
-import net.neoforged.fml.ModList;
+import net.prason.xaeronav.platform.ModPresence;
 
 /**
  * Xaero連携のmixinが実際に当たったかを、注入先のクラスに付く{@link XaeroHookMarker}で確かめる。
@@ -50,11 +50,16 @@ public final class XaeroHooks {
     public static List<Hook> missing() {
         List<Hook> missing = new ArrayList<>();
         for (Hook hook : Hook.values()) {
-            if (ModList.get().isLoaded(hook.modId()) && !applied(hook.className())) {
+            if (ModPresence.isLoaded(hook.modId()) && !applied(hook.className())) {
                 missing.add(hook);
             }
         }
         return List.copyOf(missing);
+    }
+
+    /** その連携1つが実際に当たっているか。 */
+    public static boolean applied(Hook hook) {
+        return applied(hook.className());
     }
 
     private static boolean applied(String className) {

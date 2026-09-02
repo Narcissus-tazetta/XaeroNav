@@ -6,6 +6,7 @@ import java.util.List;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
@@ -13,8 +14,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
@@ -97,11 +96,12 @@ public final class PathRenderer {
     // 毎フレーム組み直さずに使い回す（描画スレッド専用）。
     private double[] straightPoints = new double[12];
 
-    @SubscribeEvent
-    public void onRenderLevelStage(RenderLevelStageEvent event) {
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
-            return;
-        }
+    /**
+     * 半透明ブロックを描いた後に呼ぶ。ローダーごとのイベント（NeoForgeは
+     * {@code RenderLevelStageEvent.AFTER_TRANSLUCENT_BLOCKS}、Fabricは
+     * {@code WorldRenderEvents.AFTER_TRANSLUCENT}）から、カメラと行列だけを受け取る。
+     */
+    public void render(PoseStack poseStack, Camera camera) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) {
             return;
@@ -126,8 +126,7 @@ public final class PathRenderer {
             return;
         }
 
-        Vec3 cameraPos = event.getCamera().getPosition();
-        PoseStack poseStack = event.getPoseStack();
+        Vec3 cameraPos = camera.getPosition();
         poseStack.pushPose();
         poseStack.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
 

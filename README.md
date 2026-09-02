@@ -6,7 +6,7 @@ A client-side Minecraft mod that finds a route you can actually walk to a destin
 it in the world, on Xaero's World Map, and on Xaero's Minimap. The top of the screen tells you
 where to go next.
 
-- Minecraft 1.21.1, NeoForge 21.1.228 or newer
+- Minecraft 1.21.1, on NeoForge 21.1.228+ or Fabric (Fabric Loader 0.19.5+ and Fabric API)
 - Client-only. Nothing to install on the server.
 - MIT licensed
 
@@ -14,10 +14,12 @@ where to go next.
 
 ## Installation
 
-1. Install [NeoForge](https://neoforged.net/) 21.1.228 or newer for Minecraft 1.21.1.
-2. Download the latest `xaeronav-*.jar` from the
-   [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) and drop it into your
-   `mods` folder.
+1. Install a loader for Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 or newer,
+   or [Fabric](https://fabricmc.net/) with Fabric Loader 0.19.5 or newer plus
+   [Fabric API](https://modrinth.com/mod/fabric-api).
+2. Download the jar for your loader from the
+   [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) — `xaeronav-neoforge-*.jar`
+   or `xaeronav-fabric-*.jar` — and drop it into your `mods` folder.
 3. For map integration, also install Xaero's World Map 1.44.2+ and/or Xaero's Minimap 26.4.2+.
    This part is optional.
 
@@ -216,11 +218,14 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 ## Building
 
 ```bash
-./gradlew build
+./gradlew build collectJars
 ```
 
-This also runs `spotlessCheck` (unused imports, trailing whitespace, final newline) and both test
-suites. Artifacts land in `build/libs/`.
+This builds every target (Minecraft version × loader) at once, and also runs `spotlessCheck`
+(unused imports, trailing whitespace, final newline) and both test suites. `collectJars` gathers
+each target's jar into `build/libs/`.
+
+How the targets are set up, and how to add one, is in [docs/multiloader.md](docs/multiloader.md).
 
 The suite is split by cost. `./gradlew test` runs everything except the searches over real saved
 world data, which take about a minute; those carry `@Tag("slow")` and run as `./gradlew slowTest`.
@@ -231,11 +236,15 @@ world data, which take about a minute; those carry `@Tag("slow")` and run as `./
 ./gradlew slowTest   # real-terrain pathfinding searches
 ```
 
-Running a dev client:
+The pathfinding core does not depend on the loader or the Minecraft version, so the tests only
+actually run on the canonical node (`canonical_test_node` in `stonecutter.properties.toml`).
+
+Running a dev client (pick a target):
 
 ```bash
-./gradlew runClient                      # with Xaero
-./gradlew runClient -Pwith_xaero=false   # without Xaero (to check fallback behavior)
+./gradlew :1.21.1-neoforge:runClient                      # with Xaero
+./gradlew :1.21.1-fabric:runClient                        # the Fabric side
+./gradlew :1.21.1-neoforge:runClient -Pwith_xaero=false   # without Xaero (to check fallback behavior)
 ```
 
 Xaero is a compile-time-only dependency (`compileOnly`) and isn't bundled with the release.
@@ -252,7 +261,8 @@ pathfinding/
   async/    Worker-thread execution and cancellation
 client/     Route state, rendering, HUD, guidance, commands, keybinds
 mixin/xaero/  Hooks into Xaero's World Map / Minimap (required=false)
-config/     TOML configuration
+config/     TOML configuration (defined once, only the backing store differs per loader)
+platform/   Per-loader startup and event wiring. No loader-specific code lives anywhere else
 ```
 
 The search core never looks at the Minecraft world directly. It reads blocks through

@@ -1,0 +1,29 @@
+# ノードごとの依存バージョン。ノードを増やすときはここへテーブルを1つ足す。
+# テーブル名は `[<ローダー>."<MCバージョン>"]` で、build.<ローダー>.gradle.kts の
+# `properties.tags(...)` が選ぶ。
+
+# 経路探索のテストを実際に走らせるノード。pathfinding/ はローダーにもMCバージョンにも
+# 依存しない（//? を書かない鉄則）ので、1ノードで回せば全ノードぶんの検証になる。
+# 全ノードで回すとCIの時間が丸ごと倍になるだけで、見つかるものは増えない。
+canonical_test_node = "1.21.1-neoforge"
+
+[neoforge."1.21.1"]
+deps.minecraft = "1.21.1"
+deps.neoforge = "21.1.228"
+deps.neoforge_loader_range = "[4,)"
+deps.xaerolib = "1.7.1"
+deps.xaero_worldmap = "1.44.2"
+deps.xaero_minimap = "26.4.2"
+
+[fabric."1.21.1"]
+deps.minecraft = "1.21.1"
+deps.fabric_loader = "0.19.5"
+deps.fabric_api = "0.116.7+1.21.1"
+deps.modmenu = "11.0.4"
+# NeoForgeは本体に同梱しているものと同じ版に揃える（mixinの@Local / @WrapOperation）
+deps.mixinextras = "0.5.3"
+# NeoForge 21.1.228 が同梱している版に揃える
+deps.night_config = "3.8.3"
+deps.xaerolib = "1.7.1"
+deps.xaero_worldmap = "1.44.2"
+deps.xaero_minimap = "26.4.2"
