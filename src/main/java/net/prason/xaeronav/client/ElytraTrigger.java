@@ -2,7 +2,7 @@ package net.prason.xaeronav.client;
 
 /**
  * エリトラの滑空を「飛行モード」とみなす・みなさないの判定。境界での往復を防ぐヒステリシスだけを
- * 受け持ち、{@code Minecraft}に触れないので単体で検証できる（{@link SwimTrigger}と同じ形）。
+ * 受け持ち、{@code Minecraft}に触れないので単体で検証できる。
  *
  * <p>ヒステリシスは2種類ある。
  *
@@ -21,8 +21,8 @@ package net.prason.xaeronav.client;
 final class ElytraTrigger {
 
     /**
-     * 滑空判定がこれだけ続いて初めて飛行モードへ入る（tick）。{@link SwimTrigger#HEAD_OUT_GRACE_TICKS}
-     * と同じ0.5秒。跳ねたときの滑空判定はこれよりずっと短い。
+     * 滑空判定がこれだけ続いて初めて飛行モードへ入る（tick）。0.5秒——跳ねたときに立つ滑空判定は
+     * これよりずっと短い。
      */
     static final int SUSTAIN_TICKS = 10;
 

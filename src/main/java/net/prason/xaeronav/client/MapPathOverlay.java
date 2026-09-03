@@ -82,7 +82,7 @@ public final class MapPathOverlay {
      */
     public record Snapshot(PathResult ground, BlockPos goal, boolean straightLine, boolean goalMarker,
                             BlockPos playerPos, List<BlockPos> coarseWaypoints, List<Vec3> flightRoute,
-                            int flightRouteFrom, List<Vec3> flightDash, boolean diving) {
+                            int flightRouteFrom, List<Vec3> flightDash) {
 
         public boolean isEmpty() {
             return ground == null && goal == null && coarseWaypoints.isEmpty() && flightRoute.isEmpty();
@@ -97,7 +97,7 @@ public final class MapPathOverlay {
         XaeroHookHealth.hookRan();
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
-            return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of(), false);
+            return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of());
         }
         return PathfindingState.INSTANCE.mapOverlaySnapshot(player.blockPosition());
     }
@@ -186,17 +186,15 @@ public final class MapPathOverlay {
                 fromX = snapshot.playerPos().getX();
                 fromZ = snapshot.playerPos().getZ();
             }
-            // 滑空中は長距離ルートの中間目標を辿る（無ければ曲がり点線、それも無ければ直線）。
-            // 水没中は水面に沿った追尾線を青で描く（白い点線と取り違えないよう）
-            float[] color = snapshot.diving() ? PathColors.SWIM : PathColors.STRAIGHT;
+            // 滑空中は長距離ルートの中間目標を辿る（無ければ曲がり点線、それも無ければ直線）
             for (Vec3 point : snapshot.flightDash()) {
                 int nextX = (int) Math.floor(point.x);
                 int nextZ = (int) Math.floor(point.z);
-                straightDots(sink, fromX, fromZ, nextX, nextZ, color);
+                straightDots(sink, fromX, fromZ, nextX, nextZ, PathColors.STRAIGHT);
                 fromX = nextX;
                 fromZ = nextZ;
             }
-            straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ(), color);
+            straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ(), PathColors.STRAIGHT);
         }
 
         // 目印は最後。経路や点線と重なる位置に来るので、後から置いて上に乗せる

@@ -113,16 +113,13 @@ public final class PathRenderer {
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
         boolean hasFlight = !flight.isEmpty();
         boolean arrived = PathfindingState.INSTANCE.arrived();
-        // 水没中は水面に沿った追尾線が主案内（白い点線ではなく青い実線）
-        boolean hasSwim = goal != null && !arrived && PathfindingState.INSTANCE.submerged();
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
-        boolean hasStraight = goal != null && !arrived && !hasSwim
-                && XaeroNavConfig.INSTANCE.straightLineEnabled();
+        boolean hasStraight = goal != null && !arrived && XaeroNavConfig.INSTANCE.straightLineEnabled();
         if (!hasGround) {
             geometry = null;
         }
-        if (!hasGround && !hasFlight && !hasStraight && !hasSwim) {
+        if (!hasGround && !hasFlight && !hasStraight) {
             return;
         }
 
@@ -156,9 +153,6 @@ public final class PathRenderer {
         }
         if (hasFlight) {
             renderFlightRoute(bufferSource, pose, flight, cullRadius, cameraPos);
-        }
-        if (hasSwim) {
-            renderSwimRoute(bufferSource, pose, goal, cullRadius, cameraPos);
         }
         if (hasStraight) {
             renderStraightLine(bufferSource, pose, current, hasFlight ? flight.tail() : null, goal, cullRadius);
@@ -241,60 +235,6 @@ public final class PathRenderer {
 
         VertexConsumer quads = bufferSource.getBuffer(RenderType.debugQuads());
         drawTubeSegments(quads, pose, count, cullRadius, TUBE_ALPHA, camera, PathColors.FLIGHT);
-        bufferSource.endBatch(RenderType.debugQuads());
-    }
-
-    /**
-     * 現在地から水面へ上がる区間を、真上ではなく目的地方向へ斜めに振る最小の水平距離（ブロック）。
-     * 真上へ引くと、水中で目的地方向を向いているプレイヤーの視界に線が縦に張り付く。
-     */
-    private static final double SWIM_SURFACE_LEAD_BLOCKS = 3.0;
-
-    /**
-     * 水没中の追尾線。現在地→（目的地方向へ斜め上の水面）→水面に沿った中間点→目的地を、
-     * 空中経路と同じ筒で青く描く。白い点線（{@link #renderStraightLine}）と役割が違う
-     * ——こちらは「辿る線」なので実線。
-     */
-    private void renderSwimRoute(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
-                                  BlockPos goal, double cullRadius, Vec3 camera) {
-        double surfaceY = PathfindingState.INSTANCE.swimSurfaceY();
-        List<Vec3> along = PathfindingState.INSTANCE.swimAlongSurface();
-        Minecraft mc = Minecraft.getInstance();
-        double fromX = mc.player.getX();
-        double fromZ = mc.player.getZ();
-        // 体の中ほどから引く（足元だと地形に埋もれ、目線だと見下ろしたとき体に隠れる）
-        double fromY = mc.player.getY() + 0.9;
-        int count = 0;
-        count = pushStraightPoint(count, fromX, fromY, fromZ);
-        if (!Double.isNaN(surfaceY)) {
-            // 水面へ上がる区間。真上ではなく目的地（無ければ最初の曲がり点）の方向へ斜めに振って、
-            // プレイヤーの視界と重ならないようにする。水面が見つからない（洞窟の水没）ときは挟まない
-            double toX = along.isEmpty() ? goal.getX() + 0.5 : along.get(0).x;
-            double toZ = along.isEmpty() ? goal.getZ() + 0.5 : along.get(0).z;
-            double dirX = toX - fromX;
-            double dirZ = toZ - fromZ;
-            double horizontal = Math.sqrt(dirX * dirX + dirZ * dirZ);
-            if (horizontal > 1.0e-3) {
-                // 深さぶん前へ出す＝およそ45度で上がる。ただし次の点より先へは出さず、
-                // 浅くても視界を抜けるだけの最小距離は確保する
-                double lead = Math.min(Math.max(surfaceY - fromY, SWIM_SURFACE_LEAD_BLOCKS), horizontal);
-                count = pushStraightPoint(count,
-                        fromX + dirX / horizontal * lead, surfaceY, fromZ + dirZ / horizontal * lead);
-            } else {
-                count = pushStraightPoint(count, fromX, surfaceY, fromZ);
-            }
-        }
-        for (Vec3 point : along) {
-            count = pushStraightPoint(count, point.x, point.y, point.z);
-        }
-        count = pushStraightPoint(count, goal.getX() + 0.5, goal.getY() + 0.55, goal.getZ() + 0.5);
-
-        VertexConsumer occluded = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
-        drawTubeSegments(occluded, pose, count, cullRadius, OCCLUDED_TUBE_ALPHA, camera, PathColors.SWIM);
-        bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
-
-        VertexConsumer quads = bufferSource.getBuffer(RenderType.debugQuads());
-        drawTubeSegments(quads, pose, count, cullRadius, TUBE_ALPHA, camera, PathColors.SWIM);
         bufferSource.endBatch(RenderType.debugQuads());
     }
 

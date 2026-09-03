@@ -69,18 +69,6 @@ public final class PathfindingState {
     private static final double LANDING_APPROACH_ENTER_BLOCKS = 48.0;
 
     /**
-     * 潜水中の追尾ナビから歩行の案内へ引き継ぐ水平距離（ブロック）。
-     *
-     * <p>滑空の{@link #LANDING_APPROACH_ENTER_BLOCKS}と同じ理屈だが距離が短い。追尾線は
-     * 「どちらへ泳ぐか」しか示せないので、上陸する場所と最後に歩く道は歩行の経路に任せた方がよい。
-     * 泳ぐ速さは滑空の1/10以下なので、48ブロックも手前で切り替えると追尾線がほとんど出なくなる。
-     */
-    private static final double SWIM_HANDOFF_ENTER_BLOCKS = 16.0;
-
-    /** 引き継いだ後、これだけ離れるまでは追尾ナビへ戻さない（境界での往復を防ぐ）。 */
-    private static final double SWIM_HANDOFF_EXIT_BLOCKS = 24.0;
-
-    /**
      * 引き継いだ後、これを超えて離れたら飛行の案内へ戻す（ブロック）＝5チャンク。
      *
      * <p>往復しないよう入口より広く取るが、<b>広く取りすぎてはいけない</b>。留まる条件には
@@ -287,9 +275,6 @@ public final class PathfindingState {
     // 滑空中の案内。目的地と「いま滑空しているか」はこちらが持ち、その目的地への空中経路だけを
     // 向こうが持つ。非同期結果の鮮度はstillFlyingToで問い合わせてもらう
     private final FlightNavState flight = new FlightNavState(this::stillFlyingTo);
-    // 水没中の追尾ナビ。滑空とは別パイプライン——曲げ点線1本だけで、3D経路探索も長距離ルートも無い
-    private final SwimNavState swim = new SwimNavState(this::stillSwimmingTo);
-    private final SwimTrigger swimTrigger = new SwimTrigger();
     // clear()・新規setGoal()のたびに増分する。非同期結果を適用する直前にこれと照合し、
     // 一致しなければ「もう古くなったリクエストの結果」として捨てる(clear後に古い結果が
     // currentResultを復活させてしまう競合を防ぐ)。
@@ -359,13 +344,8 @@ public final class PathfindingState {
     // 見せる（自動エリトラ検知。「空はプレイヤー自身が見て操縦できる」ため障害物回避の
     // 経路は不要という判断）
     private volatile boolean flying;
-    // 完全に水没して進んでいるか。滑空と同じ理屈で、水中は自分で見て泳げるので地上A*を止め、
-    // 目的地への曲げ点線（{@link SwimNavState}）を追従させるだけにする
-    private volatile boolean submerged;
     // 目的地の近くまで来て歩行の案内へ引き継いだか。境界での往復を防ぐヒステリシスに使う
     private volatile boolean landingApproachActive;
-    // 潜水中の追尾ナビから歩行の案内へ引き継いだか。上と同じヒステリシス
-    private volatile boolean swimHandoffActive;
 
     /** エリトラの滑空を飛行とみなすかの判定（時間と高さのヒステリシス）。 */
     private final ElytraTrigger elytraTrigger = new ElytraTrigger();
@@ -454,17 +434,12 @@ public final class PathfindingState {
         clear();
         this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
-        // 滑空中・水没中に指定された目的地は、地上へ戻るまで歩行の経路を引かない
+        // 滑空中に指定された目的地は、地上へ戻るまで歩行の経路を引かない
         // （引いても表示せず捨てるだけになる）
         this.flying = airborne(level, player);
-        // ここではトリガーの状態を進めない（ヒステリシスの前進はonClientTickが1tick1回だけ行う）。
-        // 頭が水面から出ていれば通常の歩行ナビへ落ち、次のtickでトリガーが追随する
-        this.submerged = !this.flying && XaeroNavConfig.INSTANCE.swimNavEnabled() && player.isUnderWater();
         GoalWaypoint.sync(this.goal);
         if (this.flying) {
             flight.recalculate(this.goal);
-        } else if (this.submerged) {
-            swim.recalculate(this.goal);
         } else {
             recalculate();
         }
@@ -541,11 +516,7 @@ public final class PathfindingState {
         this.rerouteNoticeTicks = 0;
         this.flying = false;
         this.flight.reset();
-        this.submerged = false;
-        this.swim.reset();
-        this.swimTrigger.reset();
         this.landingApproachActive = false;
-        this.swimHandoffActive = false;
         // elytraTriggerはここで戻さない。追っているのは目的地ではなく<b>プレイヤーの体の状態</b>で、
         // 滑空中にgotoを打つと「もう滑空している」という継続が消え、飛行モードへ入り直すまでの
         // 0.5秒だけ地上の探索が走ってHUDに「経路なし」が出る。滑空していなければ次のtickの
@@ -558,7 +529,7 @@ public final class PathfindingState {
     }
 
     public PathResult currentResult() {
-        if (flying || submerged) {
+        if (flying) {
             return null;
         }
         DisplayedPath shown = displayed;
@@ -576,40 +547,30 @@ public final class PathfindingState {
      */
     public MapPathOverlay.Snapshot mapOverlaySnapshot(BlockPos playerPos) {
         boolean airborne = flying;
-        boolean diving = submerged;
-        boolean guiding = airborne || diving;
         boolean done = arrived;
         BlockPos currentGoal = goal;
         DisplayedPath shown = displayed;
         FlightRoute route = airborne ? flight.route() : FlightRoute.NONE;
 
-        PathResult ground = guiding || shown == null ? null : shown.result();
+        PathResult ground = airborne || shown == null ? null : shown.result();
         if (ground != null && ground.steps().isEmpty()) {
             ground = null;
         }
-        List<Vec3> dash = diving ? swim.alongSurface()
-                : flight.dashWaypoints(airborne, done, currentGoal);
+        List<Vec3> dash = flight.dashWaypoints(airborne, done, currentGoal);
         return new MapPathOverlay.Snapshot(ground,
                 currentGoal,
-                // 水没中は点線が主案内なので、直線表示が切られていても出す
-                XaeroNavConfig.INSTANCE.straightLineEnabled() || diving,
+                XaeroNavConfig.INSTANCE.straightLineEnabled(),
                 XaeroNavConfig.INSTANCE.goalMarkerEnabled() && !GoalWaypoint.placed(),
                 playerPos,
-                coarseRouteWaypoints(shown, currentGoal, guiding, done),
+                coarseRouteWaypoints(shown, currentGoal, airborne, done),
                 route.points(),
                 FlightProgress.INSTANCE.segmentFor(route) + 1,
-                dash,
-                diving);
+                dash);
     }
 
     /** エリトラで滑空中か。滑空中は経路を計算せず、目的地への直線（点線）だけを見せる。 */
     public boolean flying() {
         return flying;
-    }
-
-    /** 完全に水没して進んでいるか。水没中は歩行の経路を計算せず、目的地への曲げ点線だけを追従させる。 */
-    public boolean submerged() {
-        return submerged;
     }
 
     /**
@@ -618,11 +579,6 @@ public final class PathfindingState {
      */
     private boolean stillFlyingTo(BlockPos computedGoal, ResourceKey<Level> dimension) {
         return flying && computedGoal.equals(goal) && dimension.equals(goalDimension);
-    }
-
-    /** 水没中の追尾線の非同期結果を適用してよいか（{@link SwimNavState.Current}）。 */
-    private boolean stillSwimmingTo(BlockPos computedGoal, ResourceKey<Level> dimension) {
-        return submerged && computedGoal.equals(goal) && dimension.equals(goalDimension);
     }
 
     /**
@@ -656,19 +612,6 @@ public final class PathfindingState {
      */
     public List<Vec3> flightDashWaypoints() {
         return flight.dashWaypoints(flying, arrived, goal);
-    }
-
-    /**
-     * 水没中の追尾線——水面の高さに沿った中間点（曲がり点＋目的地が水中ならその真上の水面点）。
-     * 始点も目的地も含まない。飛んでいない・水没していない・まだ計算できていない場合は空。
-     */
-    public List<Vec3> swimAlongSurface() {
-        return submerged ? swim.alongSurface() : List.of();
-    }
-
-    /** 水没中の追尾線を組んだときの水面の高さ。{@link SwimNavState#NO_SURFACE}なら水面なし。 */
-    public double swimSurfaceY() {
-        return submerged ? swim.surfaceY() : SwimNavState.NO_SURFACE;
     }
 
     /** 探索がまだ走っているか。まだ経路が無いのが計算中だからなのかを案内表示が区別するために使う。 */
@@ -871,39 +814,6 @@ public final class PathfindingState {
             // 滑空中は地上の経路追従・A*の再計算を止め、空中経路だけを見る
             checkArrival(mc.player, currentGoal, null);
             flight.tick(mc.level, mc.player, currentGoal);
-            return;
-        }
-        double waterDepth = SwimNavState.depthBelowSurface(mc.level, mc.player);
-        boolean nowSubmerged = swimTrigger.update(XaeroNavConfig.INSTANCE.swimNavEnabled(),
-                mc.player.isUnderWater(), mc.player.isInWater(), waterDepth)
-                && !swimHandoff(mc.player, currentGoal);
-        if (nowSubmerged != submerged) {
-            // 切り替えのたびに表示中の経路を捨てるので、頻繁に往復していれば案内が消えたように見える。
-            // どの条件で切り替わったのかは実機でしか分からない（水深も距離もその場の値）
-            LOGGER.info("XaeroNav: 水中ナビを{} (水深={}, 目が水中={}, 体が水中={}, 目的地まで{}ブロック)",
-                    nowSubmerged ? "開始しました" : "終了しました", String.format("%.2f", waterDepth),
-                    mc.player.isUnderWater(), mc.player.isInWater(),
-                    Math.round(Math.sqrt(horizontalDistanceSq(mc.player, currentGoal))));
-            submerged = nowSubmerged;
-            if (nowSubmerged) {
-                // 世代を進めた時点で走っている歩行A*の結果は捨てられる。ただし世代不一致の
-                // whenCompleteは早期returnしてcomputingを書かないので、ここで明示的に下ろす
-                generation.incrementAndGet();
-                computing = false;
-                // 潜った瞬間から追従線を出したい。周期を待つと最初の1秒だけ空白になる
-                swim.recalculate(currentGoal);
-            } else {
-                // 水から出た。潜る前の経路は遠くのものなので先に消してから引き直す
-                displayed = null;
-                swim.reset();
-                recalculate();
-                return;
-            }
-        }
-        if (submerged) {
-            // 水没中は地上の経路追従・A*の再計算を止め、目的地への追従線だけを見る
-            checkArrival(mc.player, currentGoal, null);
-            swim.tick(mc.level, mc.player, currentGoal);
             return;
         }
         if (shown != null && shown.mode() == PathMode.WAYPOINT) {
@@ -1424,21 +1334,6 @@ public final class PathfindingState {
             landingApproachActive = distance <= LANDING_APPROACH_ENTER_BLOCKS && groundBelow(level, player);
         }
         return landingApproachActive;
-    }
-
-    /**
-     * 潜水中に目的地の近くまで来ていて、そろそろ歩行の案内へ引き継ぐべきか。
-     *
-     * <p>{@link #landingApproach}と違って真下の地面を条件にしない。{@code StanceFinder#isStance}は
-     * 水のセルをそのまま立ち位置として受けるので、水中からでも歩行の探索は始点を解決できる
-     * （泳ぎの移動も生成される）。
-     */
-    private boolean swimHandoff(Player player, BlockPos currentGoal) {
-        double distance = Math.sqrt(horizontalDistanceSq(player, currentGoal));
-        swimHandoffActive = swimHandoffActive
-                ? distance <= SWIM_HANDOFF_EXIT_BLOCKS
-                : distance <= SWIM_HANDOFF_ENTER_BLOCKS;
-        return swimHandoffActive;
     }
 
     /** 真下に立てる場所があるか（{@code StanceFinder}と同じ判定・同じ深さ）。 */

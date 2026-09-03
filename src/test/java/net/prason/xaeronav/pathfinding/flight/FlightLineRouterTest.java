@@ -102,26 +102,9 @@ class FlightLineRouterTest {
     }
 
     @Test
-    void bendsAroundWaterByDefault() {
-        // 既定では水も障害物。滑空の点線が水面を貫かないための挙動
+    void bendsAroundWater() {
+        // 水も障害物。滑空の点線が水面を貫かないための挙動
         assertEquals(3, route(water(2, 260, 2)).size(), "水塊を突き抜けたまま曲がっていない");
-    }
-
-    @Test
-    void swimsStraightThroughWaterWhenWaterIsPassable() {
-        // 水没中の追尾線モードでは水は通り道。避けるものが無ければ素の直線
-        FakeCells cells = water(2, 260, 2);
-        assertEquals(List.of(START, GOAL),
-                new FlightLineRouter(cells, true).findGuideLine(START, GOAL),
-                "水を避けて曲げてしまっている");
-    }
-
-    @Test
-    void stillAvoidsSolidTerrainWhenWaterIsPassable() {
-        // 水は通せても、水中の岩の張り出し（洞窟の壁）は避ける
-        FakeCells cells = wall(2, 260, 2);
-        assertEquals(3, new FlightLineRouter(cells, true).findGuideLine(START, GOAL).size(),
-                "水モードでも固体地形は避けるべき");
     }
 
     @Test
