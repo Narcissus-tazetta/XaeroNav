@@ -2202,8 +2202,11 @@ public final class PathfindingState {
     private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
                                              int reach, boolean boatAvailable, boolean playerAnchored,
                                              int minWaypointIndex) {
-        if (horizontalDistance(start, currentGoal) <= reach || !XaeroPresence.mapPresent()) {
+        if (horizontalDistance(start, currentGoal) <= reach) {
             return new DetailTarget(currentGoal, -1, 0);
+        }
+        if (!XaeroPresence.mapPresent()) {
+            return goalOrPointToward(start, currentGoal, reach);
         }
         DetailTarget target = reachableWaypointTarget(start, currentGoal,
                 cachedOrFreshRoute(start, currentGoal, boatAvailable), renderRadius, reach, playerAnchored,
@@ -2214,7 +2217,7 @@ public final class PathfindingState {
         if (!playerAnchored) {
             // 継ぎ足しはルートの持ち主ではない。ここでfreshRouteを呼ぶと、末端の位置を始点に
             // 長距離ルートごと引き直すことになり、層2の精緻化も投げ直されて手前の案内が入れ替わる
-            return new DetailTarget(currentGoal, -1, 0);
+            return goalOrPointToward(start, currentGoal, reach);
         }
         CoarseRoute inFlight = refiningRoute;
         if (inFlight != null && inFlight.goal().equals(currentGoal)) {
@@ -2224,21 +2227,59 @@ public final class PathfindingState {
             // 地図を読み直しては精緻化を捨てる」ループに入り、精緻版が永久に完成しない。
             // 完成すればpendingRefinedRouteReadyが引き直しをかけ、24ブロック間隔のwaypointが
             // 届くようになる。それまでは長距離ルートを挟まない従来動作へ落とす
-            return new DetailTarget(currentGoal, -1, 0);
+            return goalOrPointToward(start, currentGoal, reach);
         }
         CoarseRoute cached = coarseRoute;
         if (cached != null && cached.goal().equals(currentGoal)
                 && horizontalDistance(start, cached.computedFrom()) < COARSE_ROUTE_RETRY_MOVE_BLOCKS) {
             // 引き直したところで同じルートになる。層1の引き直しはメインスレッドでの地図読みと
             // 層1A*2回ぶんで、届く中間目標が1つも無い間はそれを毎回の再計算で払うことになる
-            return new DetailTarget(currentGoal, -1, 0);
+            return goalOrPointToward(start, currentGoal, reach);
         }
         // キャッシュ済みのwaypointが1つも描画距離内に届かない＝大きく迂回して経路から外れた。
         // 目的地は変わっていないのでキャッシュは効くはずだが、地形は不変でも自分の位置は変わるので、
         // 今の位置を始点に引き直す（地形が変わらない限り引き直さない、という原則の唯一の例外）
         target = reachableWaypointTarget(start, currentGoal, freshRoute(start, currentGoal, boatAvailable),
                 renderRadius, reach, true, minWaypointIndex);
-        return target != null ? target : new DetailTarget(currentGoal, -1, 0);
+        return target != null ? target : goalOrPointToward(start, currentGoal, reach);
+    }
+
+    /**
+     * ルート上に狙える点が無いときの目標。
+     *
+     * <p><b>一度に狙える距離({@code reach})の外にある目的地をそのまま渡してはいけない。</b>探索の箱は
+     * 描画距離で切られるので、その外のゴールには原理的に到達できない——A\*は毎回フル予算を焼いて
+     * 「一番近づけた地点まで」の部分経路を返すだけになる。実機のprobeで、509ブロック先の目的地を
+     * 上限なしで狙わせると465,536ノード・2秒を使って届かなかった（箱は140×305）。
+     *
+     * <p>そこで{@code reach}ぶんだけ目的地の方向へ進んだ点を狙う。中間目標に対して
+     * {@link #pointAlongRoute}がやっているのと同じことを、ルートが無い場合にも適用する。
+     * 到着判定は目的地そのものを見ている（{@code checkArrival}）ので、手前で切っても着けなくならない。
+     */
+    private DetailTarget goalOrPointToward(BlockPos start, BlockPos currentGoal, int reach) {
+        BlockPos aim = aimTowardGoal(start, currentGoal, reach);
+        if (aim.equals(currentGoal)) {
+            return new DetailTarget(currentGoal, -1, 0);
+        }
+        return new DetailTarget(resolveWaypointOnSurface(aim), -1, INTERPOLATED_GOAL_RADIUS_BLOCKS);
+    }
+
+    /** 目的地そのもの、または遠すぎるならその方向へ{@code reach}だけ進んだ点。 */
+    static BlockPos aimTowardGoal(BlockPos start, BlockPos goal, int reach) {
+        double distance = horizontalDistance(start, goal);
+        return distance <= reach ? goal : pointAlong(start, goal, distance, reach);
+    }
+
+    /**
+     * この点を目標にすると長さ0の経路しか出ないか。
+     *
+     * <p>ゴールは領域（半径{@link #WAYPOINT_GOAL_RADIUS_BLOCKS}）なので、始点がその中に入っていれば
+     * 探索は始点ノードを取り出した瞬間に到達扱いで終わる。判定を「間引き間隔」ではなく
+     * 「半径＋間引き間隔」で見るのはそのため。
+     */
+    static boolean tooCloseToAim(BlockPos start, BlockPos aim) {
+        return horizontalDistance(start, aim)
+                < WAYPOINT_GOAL_RADIUS_BLOCKS + REFINED_WAYPOINT_MIN_SPACING_BLOCKS;
     }
 
     /**
@@ -2544,13 +2585,20 @@ public final class PathfindingState {
         // 選んだ点が近すぎると長さ0の経路しか出せない。ゴールを領域にしたぶん、始点がその領域の
         // 中に入っていれば探索は始点ノードを取り出した瞬間に到達扱いで終わる——閾値は
         // 「間引き間隔」ではなく「半径＋間引き間隔」で見ないと、0ステップが多発する
-        if (horizontalDistance(start, waypoints.get(farthestIndex))
-                < WAYPOINT_GOAL_RADIUS_BLOCKS + REFINED_WAYPOINT_MIN_SPACING_BLOCKS) {
+        if (tooCloseToAim(start, waypoints.get(farthestIndex))) {
             // 前へ出すための調整なので、歯止めより手前へ戻してはいけない
             farthestIndex = Math.max(farthestIndex, Math.min(farthestIndex + 1, farthestInRadius));
         }
         BlockPos aim = waypoints.get(farthestIndex);
         double distance = horizontalDistance(start, aim);
+        // 近すぎるのに前へ出せなかった＝この列にはもう先が無い。<b>目的地へ届かなかったルートは
+        // 最終waypointが目的地に差し替わらない</b>（replaceLastはreachedGoalのときだけ）ので、
+        // そこへ着くとここに落ちる。そのまま返すと目標が自分の位置になり、探索は0ステップで
+        // 「到達」を返す——経路は空、しかも失敗ではないのでエスカレーションも走らない。
+        // nullを返して呼び出し側の目的地方向への切り詰めに任せる
+        if (tooCloseToAim(start, aim) && !aim.equals(currentGoal)) {
+            return null;
+        }
         // 本来の目的地は歯止めに使わない。ルートを引き直しても最後の要素は必ず目的地なので、
         // ここへ一度触れると「新しい列に無ければ歯止めが外れる」という逃げ道が永久に塞がる——
         // 以降どれだけ離れても目的地そのものを狙い続け、詳細探索は毎回予算を焼くことになる
@@ -2608,7 +2656,7 @@ public final class PathfindingState {
     }
 
     /** {@code from}から{@code to}へ向かう線上で、水平距離{@code reach}だけ進んだ点。Yも比例配分する。 */
-    private static BlockPos pointAlong(BlockPos from, BlockPos to, double distance, double reach) {
+    static BlockPos pointAlong(BlockPos from, BlockPos to, double distance, double reach) {
         double ratio = reach / distance;
         return new BlockPos(
                 (int) Math.round(from.getX() + (to.getX() - from.getX()) * ratio),
