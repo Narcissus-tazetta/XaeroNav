@@ -1,6 +1,8 @@
 package net.prason.xaeronav.client;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
@@ -42,8 +44,20 @@ final class PathValidator {
     static Failure firstFailureFrom(Level level, PathResult result, int fromIndex) {
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         List<PathStep> steps = result.steps();
-        for (int i = Math.max(0, fromIndex); i < steps.size(); i++) {
-            String reason = stepFailure(level, steps.get(i), i, cursor);
+        // 掘削は経路全体で積み上げる。<b>手前のステップで掘るセルは、その先のステップにとっても
+        // 「通れる前提」</b>——掘るのはプレイヤーがそこへ着いてからなので、いま塞がっているのは
+        // 当たり前で、変化ではない。ステップ自身の掘削しか見ていなかった頃は、砂利を掘って登る
+        // ような経路が毎回この検査で蹴られ、探索は同じ経路を出し直すので<b>2秒ごとの全引き直しが
+        // 永久に続いた</b>（実機ログで110秒・34回）。しかも「失敗」ではないので緩和も
+        // エスカレーションも走らない
+        Set<BlockPos> plannedDigs = new HashSet<>();
+        for (int i = 0; i < steps.size(); i++) {
+            PathStep step = steps.get(i);
+            plannedDigs.addAll(step.digCells());
+            if (i < fromIndex) {
+                continue;
+            }
+            String reason = stepFailure(level, step, i, cursor, plannedDigs);
             if (reason != null) {
                 return new Failure(i, reason);
             }
@@ -51,12 +65,26 @@ final class PathValidator {
         return null;
     }
 
-    /** このステップが今のワールドで成立しない理由。成立するなら{@code null}。 */
+    /**
+     * このステップ<b>単体</b>が今のワールドで成立しない理由。成立するなら{@code null}。
+     *
+     * <p>手前のステップの掘削を織り込まないので、合流点を探すときのように「他所から来て
+     * いきなりここへ入れるか」を問う用途に使う。経路を順に辿る検査は{@link #firstFailureFrom}。
+     */
     static String stepFailure(Level level, PathStep step, int index) {
-        return stepFailure(level, step, index, new BlockPos.MutableBlockPos());
+        return stepFailure(level, step, index, new BlockPos.MutableBlockPos(), Set.copyOf(step.digCells()));
     }
 
-    private static String stepFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor) {
+    /**
+     * このステップで<b>塞がっていてはいけない</b>身体セル＝手前（自分自身を含む）で掘る予定に
+     * なっていないもの。
+     */
+    static List<BlockPos> unexcavatedBodyCells(PathStep step, Set<BlockPos> plannedDigs) {
+        return step.bodyCells().stream().filter(cell -> !plannedDigs.contains(cell)).toList();
+    }
+
+    private static String stepFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
+                                      Set<BlockPos> plannedDigs) {
         BlockPos pos = step.pos();
         if (step.swimming() || step.boating()) {
             // 泳ぐ区間もボートの区間も、足場ではなく水そのものが前提
@@ -83,10 +111,7 @@ final class PathValidator {
                         .formatted(i, step.movement(), cell.toShortString());
             }
         }
-        for (BlockPos cell : step.bodyCells()) {
-            if (step.digCells().contains(cell)) {
-                continue;
-            }
+        for (BlockPos cell : unexcavatedBodyCells(step, plannedDigs)) {
             long flags = CellData.flagsOf(level.getBlockState(cell));
             // 閉じたドアは通れる前提（開けて通る）なので、塞がっているとは見なさない
             if (!CellData.occupiableWithoutDigging(flags) && !CellData.openable(flags)) {
