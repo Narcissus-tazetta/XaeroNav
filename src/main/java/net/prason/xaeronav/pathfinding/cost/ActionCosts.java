@@ -157,6 +157,16 @@ public final class ActionCosts {
             Math.max(SWIM_UP_ONE_BLOCK, SWIM_ONE_BLOCK * DIAGONAL_DISTANCE);
 
     /**
+     * 斜め1マスで1段浮上するコスト（tick）。{@link #SWIM_ASCEND_ONE_BLOCK}の斜め版で、水平の変位が
+     * 1ではなく√2になるぶん3次元の変位は√3になる。
+     *
+     * <p>これが無いと浮上はカーディナル4方向に縛られ、「斜めに進む」と「上がる」を別々の手で
+     * 払うことになる——水面へ向かう区間だけ経路が直角に折れる。
+     */
+    public static final double DIAGONAL_SWIM_ASCEND_ONE_BLOCK =
+            Math.max(SWIM_UP_ONE_BLOCK, SWIM_ONE_BLOCK * Math.sqrt(3.0));
+
+    /**
      * 斜め1マスで1段登るコスト（tick）。{@link #ASCEND_ONE_BLOCK}と同じ「跳ぶ時間と水平移動時間の
      * 大きい方」というmaxモデルを踏襲する（跳んでいる間も水平には進んでいるので加算ではない）。
      *

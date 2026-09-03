@@ -583,6 +583,82 @@ class AStarPathfinderTest {
     }
 
     /**
+     * 水面へ向かうとき、XとZの両方へ進みながら上がれる。
+     *
+     * <p>浮上がカーディナル4方向しか無かった頃は「真っ直ぐ進んでから上がる」か「上がってから
+     * 斜めに進む」に分解され、水面へ向かう区間だけ経路が直角に折れていた（実機報告
+     * 「水面で斜めっていう選択肢が入っていない」）。
+     */
+    @Test
+    void risesDiagonallyTowardsASurfaceGoalOffTheAxis() {
+        // 十分に広い水塊。目的地は斜め上（XもZもZ方向も動かす必要がある）
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 30, -8, 40, 86, 40));
+        for (int x = -1; x <= 30; x++) {
+            for (int z = -1; z <= 30; z++) {
+                cells.set(x, 40, z, FakeCells.BEDROCK);
+                for (int y = 41; y <= 55; y++) {
+                    cells.set(x, y, z, FakeCells.WATER);
+                }
+            }
+        }
+
+        PathResult result = search(cells.maxSubmergedTicks(0), new BlockPos(0, 41, 0),
+                new BlockPos(20, 52, 20));
+
+        assertTrue(result.complete());
+        List<PathStep> steps = result.steps();
+        boolean roseDiagonally = false;
+        for (int i = 1; i < steps.size(); i++) {
+            BlockPos previous = steps.get(i - 1).pos();
+            BlockPos current = steps.get(i).pos();
+            if (current.getY() > previous.getY()
+                    && current.getX() != previous.getX() && current.getZ() != previous.getZ()) {
+                roseDiagonally = true;
+                break;
+            }
+        }
+        assertTrue(roseDiagonally,
+                "浮上がカーディナル4方向に縛られ、上がる区間だけ直角に折れている: "
+                        + steps.stream().map(PathStep::pos).toList());
+    }
+
+    /**
+     * 上と同じ「跳ねて割増を回避する」の<b>斜め版</b>。既存の番人は幅1の一本道なので斜めの手が
+     * そもそも生成されず、斜め浮上を足したときの跳ねを検出できない。開けた水中で見る。
+     */
+    @Test
+    void doesNotBobDiagonallyToDodgeTheSubmergedPenalty() {
+        // 天井と床のある水没した部屋。<b>目的地は真っ直ぐではなく斜め</b>——跳ねが得になるのは
+        // 「正直に進んでも斜めの値段を払う」区間だけで、カーディナルに進める区間では
+        // 斜め跳ね(√3+√2·P)より素直な水平2手(2·P)の方が元から安く、番人にならない
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 24, 76, 24));
+        for (int x = -1; x <= 13; x++) {
+            for (int z = -1; z <= 13; z++) {
+                cells.set(x, 60, z, FakeCells.BEDROCK);
+                for (int y = 61; y <= 64; y++) {
+                    cells.set(x, y, z, FakeCells.WATER);
+                }
+                cells.set(x, 65, z, FakeCells.BEDROCK);
+            }
+        }
+
+        PathResult result = search(cells.maxSubmergedTicks(0), new BlockPos(0, 61, 0),
+                new BlockPos(12, 61, 12));
+
+        assertTrue(result.complete());
+        List<PathStep> steps = result.steps();
+        int climbs = 0;
+        for (int i = 1; i < steps.size(); i++) {
+            if (steps.get(i).pos().getY() > steps.get(i - 1).pos().getY()) {
+                climbs++;
+            }
+        }
+        assertEquals(0, climbs,
+                "水面へ出るためでもないのに浮上している＝割増を跳ねて回避している: "
+                        + steps.stream().map(PathStep::pos).toList());
+    }
+
+    /**
      * 浮上の割増免除を悪用して上下に跳ねない。斜め浮上だけが割増の対象外なので、値を大きくしすぎると
      * 「斜めに上がって斜めに降りる」を繰り返すのが水平移動より安くなり、水中で延々と波打つ経路になる。
      * {@code SUBMERGED_TRAVEL_PENALTY}の上限はここから決まっている。

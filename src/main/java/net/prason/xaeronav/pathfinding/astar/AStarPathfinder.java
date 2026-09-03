@@ -740,6 +740,9 @@ public final class AStarPathfinder {
             for (int i = 0; i < CARDINAL_DX.length; i++) {
                 addSwimAscend(current, CARDINAL_DX[i], CARDINAL_DZ[i]);
             }
+            for (int i = 0; i < DIAGONAL_DX.length; i++) {
+                addDiagonalSwimAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            }
         }
         if (CellData.climbable(standingCell)) {
             addClimbUp(current);
@@ -1272,6 +1275,32 @@ public final class AStarPathfinder {
         relax(from, x, y, z, ActionCosts.SWIM_ASCEND_ONE_BLOCK, MoveKind.SWIM_ASCEND);
     }
 
+    /**
+     * 斜めに進みながら1マス浮上する。{@link #addSwimAscend}がカーディナル4方向にしか無いと、
+     * 水面へ向かう区間だけ「真っ直ぐ進んでから上がる」か「上がってから斜めに進む」に分解され、
+     * そこだけ経路が直角に折れる。
+     *
+     * <p>角2セルの通行可能性を求めるのは{@link #addDiagonalSwim}と同じ理由（体が壁の角を
+     * すり抜けないように）。
+     */
+    private void addDiagonalSwimAscend(PathNode from, int dx, int dz) {
+        int x = from.x + dx;
+        int y = from.y + 1;
+        int z = from.z + dz;
+
+        if (!CellData.water(view.cell(x, y, z))
+                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
+            return;
+        }
+        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
+            return;
+        }
+        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
+            return;
+        }
+        relax(from, x, y, z, ActionCosts.DIAGONAL_SWIM_ASCEND_ONE_BLOCK, MoveKind.SWIM_ASCEND);
+    }
+
     /** 水中を潜る。水底の地形沿いに進む方が近い場合に使う。 */
     private void addSwimDown(PathNode from) {
         int y = from.y - 1;
@@ -1743,11 +1772,18 @@ public final class AStarPathfinder {
         // 潜ったまま横断せず、先に水面へ出てから渡らせる。対象外にするのは浮上だけで、
         // 水平移動にも潜降にも掛ける——水平だけに掛けると、斜め浮上と斜め降下を繰り返して
         // 上下に跳ねながら進むことで割増を回避できてしまう。
+        //
+        // <b>免除は水平1マス以内の浮上に限る。</b>斜めに進みながら上がる手まで免除すると、
+        // 斜めに進むべき区間で「斜めに上がって斜めに降りる」の往復（√3 + √2·P）が
+        // 斜め水平2手（2·√2·P）より安くなり、同じ跳ねが斜めの形で戻ってくる
+        // （{@code doesNotBobDiagonallyToDodgeTheSubmergedPenalty}で実測）。
+        // カーディナルに進める区間では元から水平2手の方が安いので、この穴は斜めでしか出ない。
+        //
         // 割増は経路の選択のためのもので、息の勘定（submergedTicks）には混ぜない——あちらは
         // 実際にかかる時間でなければ意味がない
-        boolean gainsHeight = y > from.y;
+        boolean surfacing = y > from.y && Math.abs(x - from.x) + Math.abs(z - from.z) <= 1;
         double tentativeCost = from.cost
-                + (submerged && !gainsHeight ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost);
+                + (submerged && !surfacing ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost);
         PathNode neighbor = node(x, y, z, boating);
         if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
             return;
