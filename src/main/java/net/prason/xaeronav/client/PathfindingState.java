@@ -873,11 +873,17 @@ public final class PathfindingState {
             flight.tick(mc.level, mc.player, currentGoal);
             return;
         }
+        int waterDepth = SwimNavState.waterDepthAbove(mc.level, mc.player, SwimTrigger.MIN_DEPTH_BLOCKS);
         boolean nowSubmerged = swimTrigger.update(XaeroNavConfig.INSTANCE.swimNavEnabled(),
-                mc.player.isUnderWater(), mc.player.isInWater(),
-                SwimNavState.waterDepthAbove(mc.level, mc.player, SwimTrigger.MIN_DEPTH_BLOCKS))
+                mc.player.isUnderWater(), mc.player.isInWater(), waterDepth)
                 && !swimHandoff(mc.player, currentGoal);
         if (nowSubmerged != submerged) {
+            // 切り替えのたびに表示中の経路を捨てるので、頻繁に往復していれば案内が消えたように見える。
+            // どの条件で切り替わったのかは実機でしか分からない（水深も距離もその場の値）
+            LOGGER.info("XaeroNav: 水中ナビを{} (水深={}, 目が水中={}, 体が水中={}, 目的地まで{}ブロック)",
+                    nowSubmerged ? "開始しました" : "終了しました", waterDepth,
+                    mc.player.isUnderWater(), mc.player.isInWater(),
+                    Math.round(Math.sqrt(horizontalDistanceSq(mc.player, currentGoal))));
             submerged = nowSubmerged;
             if (nowSubmerged) {
                 // 世代を進めた時点で走っている歩行A*の結果は捨てられる。ただし世代不一致の
