@@ -10,7 +10,6 @@ public final class ActionCosts {
 
     public static final double WALK_ONE_BLOCK = 20.0 / 4.317;
     public static final double SPRINT_ONE_BLOCK = 20.0 / 5.612;
-    public static final double WALK_ONE_IN_WATER = 20.0 / 2.2;
 
     /**
      * 水中を泳いで1マス進む。{@code LivingEntity#travel}の水中分岐は
@@ -22,8 +21,11 @@ public final class ActionCosts {
      * 継続条件が「疾走中かつ体が水中」）なので0.9側を採る:
      * v* = 0.9·0.02/0.1 = 0.18 blocks/tick = 3.6 blocks/秒。
      *
-     * <p>{@link #WALK_ONE_IN_WATER}(2.2 blocks/秒)と分けるのは、あちらが<b>水底を歩く</b>速度だから。
-     * 泳ぎに流用すると1.6倍の過大評価になり、水面を泳ぐより陸を大きく迂回する方が安く見える。
+     * <p><b>水底に足が着いていても同じ値段。</b>{@code travel}の水中分岐は{@code isInWater()}だけで
+     * 入り、{@code onGround()}は装備（水中歩行）の係数にしか使われない——立っていようが泳いでいようが
+     * v*は{@code isSprinting()}だけで決まる。かつて「水底を歩く」用に別の定数(2.2 blocks/秒)を
+     * 持っていたが、この式からはどちらの姿勢でも出てこない値で、浅瀬を1.64倍に過大評価していた。
+     * その結果、浅瀬を避けて深い方へ潜る／沼地を大きく迂回する経路が出ていた。
      */
     public static final double SWIM_ONE_BLOCK = 20.0 / 3.6;
 

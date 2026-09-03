@@ -583,6 +583,44 @@ class AStarPathfinderTest {
     }
 
     /**
+     * 岸へ上がる直前に一旦水中へ戻らない。
+     *
+     * <p>浅瀬（足が着く水）を「水底を歩く」値段で数えていた頃は、それが遊泳の1.64倍あったので、
+     * <b>浅瀬を避けて深い方へ沈み、泳いでから上がる</b>のが安くなっていた。実機で
+     * 「地面に上がる前に一旦水中に戻る軌道」として見えていたのがこれ。
+     *
+     * <p>バニラの{@code LivingEntity#travel}は水中分岐を{@code isInWater()}だけで選び、
+     * 足が着いているかは装備の係数にしか使わない——立っていても泳いでいても速度は同じなので、
+     * 浅瀬を割高にする理由が無い。
+     */
+    @Test
+    void staysAtTheSurfaceInsteadOfDivingBackBeforeComingAshore() {
+        // 傾斜した浜: 海底が x=8 の y=60 から x=15 の y=65 まで1マスずつ上がる。水面は y=65
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 50, -8, 30, 86, 8));
+        for (int x = -1; x <= 25; x++) {
+            int floorTop = x < 8 ? 60 : Math.min(60 + (x - 8), 65);
+            for (int z = -1; z <= 1; z++) {
+                for (int y = 60; y <= floorTop; y++) {
+                    cells.set(x, y, z, FakeCells.BEDROCK);
+                }
+                for (int y = floorTop + 1; y <= 65; y++) {
+                    cells.set(x, y, z, FakeCells.WATER);
+                }
+            }
+        }
+
+        PathResult result = new AStarPathfinder(cells.maxSubmergedTicks(0))
+                .search(new BlockPos(2, 62, 0), new BlockPos(18, 66, 0), NOT_CANCELLED);
+
+        assertTrue(result.complete());
+        List<PathStep> steps = result.steps();
+        for (int i = 1; i < steps.size(); i++) {
+            assertTrue(steps.get(i).pos().getY() >= steps.get(i - 1).pos().getY(),
+                    "岸へ向かう途中で沈んでいる: " + steps.stream().map(PathStep::pos).toList());
+        }
+    }
+
+    /**
      * 水面へ向かうとき、XとZの両方へ進みながら上がれる。
      *
      * <p>浮上がカーディナル4方向しか無かった頃は「真っ直ぐ進んでから上がる」か「上がってから

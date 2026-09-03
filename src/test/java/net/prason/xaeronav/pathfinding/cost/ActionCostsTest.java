@@ -19,7 +19,7 @@ class ActionCostsTest {
 
     @Test
     void waterAndCobwebAreSlowerThanOpenGround() {
-        assertTrue(ActionCosts.WALK_ONE_IN_WATER > ActionCosts.SPRINT_ONE_BLOCK);
+        assertTrue(ActionCosts.SWIM_ONE_BLOCK > ActionCosts.SPRINT_ONE_BLOCK);
         assertTrue(ActionCosts.SPRINT_ONE_IN_COBWEB > ActionCosts.SPRINT_ONE_BLOCK);
     }
 

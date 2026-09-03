@@ -69,7 +69,7 @@ class HeuristicTest {
         assertTrue(estimate <= ActionCosts.ASCEND_ONE_BLOCK + 1e-9,
                 "折り返し階段（Ascendの往復）より高く見積もってはいけない");
         assertTrue(estimate <= ActionCosts.LADDER_UP_ONE_BLOCK + 1e-9);
-        assertTrue(estimate <= ActionCosts.WALK_ONE_IN_WATER + 1e-9,
+        assertTrue(estimate <= ActionCosts.SWIM_UP_ONE_BLOCK + 1e-9,
                 "SwimUpより高く見積もってはいけない");
         assertTrue(estimate <= ActionCosts.ASCEND_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS + 1e-9,
                 "Pillar（Ascend相当+設置オーバーヘッド）より高く見積もってはいけない");
@@ -103,7 +103,7 @@ class HeuristicTest {
 
         assertTrue(estimate <= ActionCosts.fallCost(1) + 1e-9, "1マス落下より高く見積もってはいけない");
         assertTrue(estimate <= ActionCosts.LADDER_DOWN_ONE_BLOCK + 1e-9, "梯子より高く見積もってはいけない");
-        assertTrue(estimate <= ActionCosts.WALK_ONE_IN_WATER + 1e-9, "遊泳より高く見積もってはいけない");
+        assertTrue(estimate <= ActionCosts.SWIM_DOWN_ONE_BLOCK + 1e-9, "遊泳より高く見積もってはいけない");
         for (int drop = 2; drop <= ActionCosts.SAFE_FALL_BLOCKS; drop++) {
             assertTrue(Heuristic.estimate(0, 64, 0, 0, 64 - drop, 0, tightened)
                             <= ActionCosts.fallCost(drop) + 1e-9,

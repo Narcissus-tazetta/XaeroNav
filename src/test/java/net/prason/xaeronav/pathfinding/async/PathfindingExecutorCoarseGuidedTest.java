@@ -32,7 +32,7 @@ class PathfindingExecutorCoarseGuidedTest {
 
     /**
      * 横に長い湖。ヒューリスティックは陸のスプリント速度で残りを見積もるので直進＝遊泳を強く推すが、
-     * 遊泳の実コストは約2.55倍あり、その差のぶん詳細探索は水域を無駄に広く展開する。粗い地図は湖を
+     * 遊泳の実コストは約1.56倍あり、その差のぶん詳細探索は水域を無駄に広く展開する。粗い地図は湖を
      * {@code WATER}として認識して北へ迂回する経由地を置くため、区間ごとの探索は陸の上だけを短く辿れる。
      *
      * <p>cost-to-goガイドは明示的に無効化する——このテストが確かめたいのは「waypoint分割そのものの
@@ -56,8 +56,8 @@ class PathfindingExecutorCoarseGuidedTest {
         }
         BlockPos start = new BlockPos(0, 63, 0);
         BlockPos goal = new BlockPos(200, 63, 0);
-        // 直接探索には足りず（1997要る）、1区間ぶんには足りる（211）予算
-        SearchLimits limits = new SearchLimits(1_000, 30_000, 1.5);
+        // 直接探索には足りず（実測で635要る）、チェーンには足りる（200でも届く）予算
+        SearchLimits limits = new SearchLimits(400, 30_000, 1.5);
 
         PathfindingExecutor executor = new PathfindingExecutor();
         // 対照は<b>素の探索</b>（submitRaw）で取る。submitは詰み回避の再挑戦

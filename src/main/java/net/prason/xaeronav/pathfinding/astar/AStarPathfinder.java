@@ -810,7 +810,8 @@ public final class AStarPathfinder {
     private double stepCost(int x, int y, int z) {
         long feet = view.cell(x, y, z);
         if (CellData.water(feet)) {
-            return ActionCosts.WALK_ONE_IN_WATER;
+            // 足が着いていても水の中の速度で進む（{@link ActionCosts#SWIM_ONE_BLOCK}参照）
+            return ActionCosts.SWIM_ONE_BLOCK;
         }
         if (CellData.cobweb(feet) || CellData.cobweb(view.cell(x, y + 1, z))) {
             return ActionCosts.SPRINT_ONE_IN_COBWEB;

@@ -40,8 +40,7 @@ public final class CoarseRouter {
     /**
      * 水面を渡る倍率。疾走とうつ伏せ泳ぎの速度比（5.612 / 3.6）そのもの。
      *
-     * <p>層1が水セルに見ているのは<b>水面を渡る</b>コストなので、水底を歩く
-     * {@link ActionCosts#WALK_ONE_IN_WATER}ではなく{@link ActionCosts#SWIM_ONE_BLOCK}を使う。
+     * <p>層1が水セルに見ているのは<b>水面を渡る</b>コストなので{@link ActionCosts#SWIM_ONE_BLOCK}を使う。
      *
      * <p>分母が{@link ActionCosts#SPRINT_ONE_BLOCK}なのは、倍率を掛ける相手の
      * {@link #STRAIGHT_COST}が疾走を基準にしているから。徒歩で割ると、陸を疾走で見積もりながら
