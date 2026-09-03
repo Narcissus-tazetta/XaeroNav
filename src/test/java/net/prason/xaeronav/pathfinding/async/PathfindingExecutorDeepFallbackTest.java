@@ -43,9 +43,16 @@ class PathfindingExecutorDeepFallbackTest {
     private static final int VOID_GAP = 45;
     private static final int LARGE_ISLAND_RADIUS = 80;
 
-    /** 通常予算では{@code NODE_BUDGET}で終わる小さめの上限。 */
+    /**
+     * 通常予算では{@code NODE_BUDGET}で終わる小さめの上限。<b>この地形の実測は2万で予算切れ・
+     * 3万で到達</b>（28,408ノード）なので、帯の下側を採る。
+     *
+     * <p>コストモデルが動くと必要ノード数も動く。<b>ここが「届いてしまう」側へ落ちると、
+     * 深い予算へフォールバックする経路を一度も通らないまま緑になる</b>ので、対照の
+     * {@code assertFalse}を各ケースの先頭に置いてある。
+     */
     private static final SearchLimits NORMAL =
-            new SearchLimits(50_000, 20_000, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
+            new SearchLimits(20_000, 20_000, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
 
     /** 同じ地形を舐め尽くせる大きい上限。 */
     private static final SearchLimits DEEP =

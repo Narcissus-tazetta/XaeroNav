@@ -160,13 +160,18 @@ public final class PathfindingExecutor {
     private static final double THRIFT_TRIGGER_FRACTION = 0.5;
 
     /**
-     * 節約の引き直しで、足場1つを置く手間を何倍にするか
-     * （{@code ActionCosts#PLACE_BLOCK_OVERHEAD_TICKS}＝16.0 tick）。
+     * 節約の引き直しで、足場1つを置く動作の値段を何倍にするか
+     * （{@code ActionCosts#PLACE_BLOCK_AIM_TICKS}）。
      *
-     * <p><b>「1個節約するために何マス余計に歩いてよいか」がこの値の意味</b>。橋1マスの値段は
-     * 疾走3.564＋設置16.0で、倍にすれば設置ぶんが16.0増える＝<b>疾走4.5マス相当</b>。
-     * 3倍なら9マス相当で、それ以上は{@link #THRIFT_MAX_COST_INCREASE}の関門で弾かれるだけの
-     * 引き直しが増える。
+     * <p><b>「1個節約するために何マス余計に歩いてよいか」がこの値の意味</b>。倍にすれば
+     * 置く動作ぶん（{@code ActionCosts#PLACE_BLOCK_AIM_TICKS}＝16.0）が上乗せされる＝
+     * <b>疾走4.5マス相当</b>。3倍なら9マス相当で、それ以上は
+     * {@link #THRIFT_MAX_COST_INCREASE}の関門で弾かれるだけの引き直しが増える。
+     *
+     * <p>掛かるのは置く動作の側だけで、走行を中断するぶん
+     * （{@code ActionCosts#TERRAIN_EDIT_INTERRUPTION_TICKS}）には掛からない。減らしたいのは
+     * <b>使う枚数</b>なので枚数に比例する成分だけを割り増す——{@link #trueCost}が割増を
+     * 差し引いて比べられるのも、全ての設置が同じ額だけ膨らんでいるからこそ。
      */
     private static final double THRIFT_PLACEMENT_COST_SCALE = 2.0;
 
@@ -772,7 +777,7 @@ public final class PathfindingExecutor {
      */
     private static double trueCost(PathResult result, double placementScale) {
         return totalCost(result)
-                - (placementScale - 1.0) * ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS * placements(result);
+                - (placementScale - 1.0) * ActionCosts.PLACE_BLOCK_AIM_TICKS * placements(result);
     }
 
     private static double totalCost(PathResult result) {
