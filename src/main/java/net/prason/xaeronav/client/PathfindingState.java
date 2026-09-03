@@ -869,7 +869,8 @@ public final class PathfindingState {
         // 「打ち切られた末端に近づいたら引き直す」に落ちて毎回<b>全置換</b>され、手前の案内まで
         // 描き変わる。地上へ出る中継区間（TO_SURFACE）だけはゴールの意味が違うので対象外
         if (shown.mode() != PathMode.TO_SURFACE) {
-            if (shouldExtend(mc.player, shown, mc.options.getEffectiveRenderDistance() * 16)) {
+            int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+            if (shouldExtend(mc.player, shown, renderRadius)) {
                 // 末端から継ぎ足す。着いてから引き直すのでは遅い——探索に数百msかかり、反映は
                 // さらに次tick以降なので、その間ずっと「もう終わっている経路」を見せることになる。
                 //
@@ -879,7 +880,14 @@ public final class PathfindingState {
                 return;
             }
             if (reachedPathEnd(mc.player, shown)) {
-                // 末端に着いたのに伸ばせていない＝行き止まりか予算切れ。ここで初めて全体を引き直す
+                // 末端に着いたのに伸ばせていない＝行き止まりか予算切れ。ここで初めて全体を引き直す。
+                //
+                // ここへ来た時点で案内は途切れる——引き直しには数秒かかり、その間プレイヤーは
+                // 案内の無い状態で立たされる（実機報告「ルートの先まで着いて計算が追いついていない」）。
+                // <b>継ぎ足しがなぜ間に合わなかったのか</b>が分からないと直しようがないので、
+                // 断った理由をここで残す。1本の経路につき1回しか出ない（この直後にcomputingが立つ）
+                LOGGER.info("XaeroNav: 経路の末端に着いたので引き直します (継ぎ足せなかった理由={}, {}ステップ)",
+                        extendRefusal(mc.player, shown, renderRadius), shown.result().steps().size());
                 recalculate();
                 return;
             }
@@ -1231,6 +1239,31 @@ public final class PathfindingState {
         }
         double lead = Math.min(EXTEND_DISTANCE_BLOCKS, pathLength(steps));
         return distanceTo(player.position(), end) <= lead;
+    }
+
+    /**
+     * {@link #shouldExtend}が断った理由。末端まで歩いてしまった原因を実機ログから追うためだけに使う。
+     * 判定の順序は{@link #shouldExtend}と揃えること——ずれると、実際に効いた条件と違う理由が出る。
+     */
+    private String extendRefusal(Player player, DisplayedPath shown, int renderRadius) {
+        PathResult result = shown.result();
+        if (!extendableTail(result)) {
+            return "打ち切り方が" + result.termination();
+        }
+        List<PathStep> steps = result.steps();
+        BlockPos end = steps.get(steps.size() - 1).pos();
+        if (end.equals(goal)) {
+            return "末端が目的地そのもの";
+        }
+        if (extendBlocked(player, end)) {
+            return "直前の継ぎ足しが失敗した末端";
+        }
+        if (XaeroNavConfig.INSTANCE.deepLookAheadEnabled()) {
+            return "読み込み済みの余地が足りない (残り" + extendLead(player, end, renderRadius)
+                    + "ブロック, 要" + MIN_DETAIL_REACH_BLOCKS + ")";
+        }
+        return "末端まで" + Math.round(distanceTo(player.position(), end)) + "ブロック (継ぎ足しは"
+                + Math.round(Math.min(EXTEND_DISTANCE_BLOCKS, pathLength(steps))) + "ブロック手前から)";
     }
 
     /**
