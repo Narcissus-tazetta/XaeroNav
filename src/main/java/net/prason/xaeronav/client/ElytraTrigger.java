@@ -29,10 +29,6 @@ final class ElytraTrigger {
     private boolean gliding;
     private int fallFlyingTicks;
 
-    boolean gliding() {
-        return gliding;
-    }
-
     /**
      * このtickの状態から飛行モードが有効かを更新して返す。
      *

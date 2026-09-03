@@ -1288,6 +1288,10 @@ public final class AStarPathfinder {
         int y = from.y + 1;
         int z = from.z + dz;
 
+        if (CellData.standable(view.cell(x, y - 1, z))) {
+            // 足場があるなら同じ移動をDiagonalAscend側が作る。2種類のMoveKindで二重に作らない
+            return;
+        }
         if (!CellData.water(view.cell(x, y, z))
                 || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
             return;

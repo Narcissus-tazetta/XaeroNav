@@ -2261,7 +2261,12 @@ public final class PathfindingState {
         if (aim.equals(currentGoal)) {
             return new DetailTarget(currentGoal, -1, 0);
         }
-        return new DetailTarget(resolveWaypointOnSurface(aim), -1, INTERPOLATED_GOAL_RADIUS_BLOCKS);
+        // Xaeroの地図が無ければ地表の解決に入ってはいけない。{@code XaeroMapReader}はXaero未導入だと
+        // クラスのロード自体が落ちる（この関数はmapPresent()がfalseの経路からも呼ばれる）。
+        // 補間したYのまま渡してよい——探索側の{@code StanceFinder#resolveGoal}が同じ柱で
+        // 実際に立てる高さへ寄せ直す
+        BlockPos resolved = XaeroPresence.mapPresent() ? resolveWaypointOnSurface(aim) : aim;
+        return new DetailTarget(resolved, -1, INTERPOLATED_GOAL_RADIUS_BLOCKS);
     }
 
     /** 目的地そのもの、または遠すぎるならその方向へ{@code reach}だけ進んだ点。 */
