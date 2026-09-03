@@ -2,6 +2,9 @@ package net.prason.xaeronav.pathfinding.async;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CancellationException;
@@ -12,6 +15,7 @@ import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
+import net.prason.xaeronav.pathfinding.world.OwnerTrackingCells;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -24,6 +28,10 @@ import org.junit.jupiter.api.Test;
  * のjavadoc参照）。ここでは<b>正しさ</b>——通常予算で届く地形は通常予算の結果を、通常予算では
  * 届かず深い予算でだけ届く地形は深い予算の結果を、どちらも届かない地形は失敗を返すこと、
  * および新しいリクエストが来たら両方とも打ち切られることを見る。
+ *
+ * <p>結果の選び方を見るケースは1つの{@link FakeCells}を両方の探索へ渡している。{@code FakeCells}は
+ * 探索中に書き換わらないので共有してよい——本物の{@code ChunkView}はセルのキャッシュを持つので
+ * 共有できず、それを見るのが{@link #givesEachParallelSearchItsOwnView()}。
  *
  * <p>{@code PathfindingExecutorLooseningTest}と同じ大きい島（径80）を使うため1ケースが
  * 数秒かかる。{@code @Tag("slow")}で既定の{@code test}から外す。
@@ -78,7 +86,7 @@ class PathfindingExecutorDeepFallbackTest {
                         + normalOnly.termination());
 
         PathResult result = new PathfindingExecutor()
-                .submitWithDeepFallback(cells, start, goal, NORMAL, DEEP, true, 0).get();
+                .submitWithDeepFallback(cells, cells, start, goal, NORMAL, DEEP, true, 0).get();
 
         assertTrue(result.complete(), "深い予算までフォールバックすれば渡れるはず: " + result.termination());
     }
@@ -91,7 +99,7 @@ class PathfindingExecutorDeepFallbackTest {
         BlockPos goal = new BlockPos(10 + VOID_GAP + 5, 61, 10);
 
         PathResult result = new PathfindingExecutor()
-                .submitWithDeepFallback(cells, start, goal, NORMAL, DEEP, true, 0).get();
+                .submitWithDeepFallback(cells, cells, start, goal, NORMAL, DEEP, true, 0).get();
 
         assertTrue(result.complete(), "小さい島からは元から渡れていたはず: " + result.termination());
     }
@@ -113,9 +121,42 @@ class PathfindingExecutorDeepFallbackTest {
         BlockPos goal = new BlockPos(35, 61, 35);
 
         PathResult result = new PathfindingExecutor()
-                .submitWithDeepFallback(cells, start, goal, NORMAL, DEEP, true, 0).get();
+                .submitWithDeepFallback(cells, cells, start, goal, NORMAL, DEEP, true, 0).get();
 
         assertFalse(result.complete(), "孤立した目的地に届いてしまっている: " + result.termination());
+    }
+
+    /**
+     * 2つの探索が<b>それぞれ別のビューを占有する</b>こと。
+     *
+     * <p>同じ{@link net.prason.xaeronav.pathfinding.world.CellSource}を両方へ渡していた頃、実機で
+     * {@code ChunkView}のセルキャッシュ（{@code Long2LongOpenHashMap}）が並行に書き換わって
+     * {@code ArrayIndexOutOfBoundsException}が出ていた。例外が出るかどうかはタイミング次第なので、
+     * ここでは<b>どのビューも1スレッドしか触っていないこと</b>を直接見る。
+     *
+     * <p>「2つのビューの占有者が違う」まで見るのが要点——深い探索が実は走っていなければ
+     * 違反ゼロは当たり前に成立してしまい、番人として空振りになる。
+     */
+    @Test
+    void givesEachParallelSearchItsOwnView() throws Exception {
+        // 通常予算では届かない地形。深い探索が最後まで走るので、2つが本当に重なる
+        FakeCells cells = twoIslands(LARGE_ISLAND_RADIUS);
+        BlockPos start = new BlockPos(LARGE_ISLAND_RADIUS, 61, LARGE_ISLAND_RADIUS);
+        BlockPos goal = new BlockPos(LARGE_ISLAND_RADIUS + VOID_GAP + 5, 61, LARGE_ISLAND_RADIUS);
+
+        OwnerTrackingCells normalView = new OwnerTrackingCells(cells);
+        OwnerTrackingCells deepView = new OwnerTrackingCells(cells);
+
+        new PathfindingExecutor()
+                .submitWithDeepFallback(normalView.view(), deepView.view(), start, goal, NORMAL, DEEP, true, 0)
+                .get();
+
+        assertNull(normalView.intruder(), "通常予算のビューを占有者以外のスレッドが触っている");
+        assertNull(deepView.intruder(), "深い予算のビューを占有者以外のスレッドが触っている");
+        assertNotNull(normalView.owner(), "通常予算のビューが一度も使われていない");
+        assertNotNull(deepView.owner(), "深い予算のビューが一度も使われていない＝並列に走っていない");
+        assertNotSame(normalView.owner(), deepView.owner(),
+                "2つの探索が同じスレッドで走っている＝並列フォールバックが働いていない");
     }
 
     /** 新しいリクエストが来たら、通常・深い両方の探索が打ち切られること。 */
@@ -126,7 +167,7 @@ class PathfindingExecutorDeepFallbackTest {
         BlockPos goal = new BlockPos(LARGE_ISLAND_RADIUS + VOID_GAP + 5, 61, LARGE_ISLAND_RADIUS);
 
         PathfindingExecutor executor = new PathfindingExecutor();
-        var superseded = executor.submitWithDeepFallback(cells, start, goal, NORMAL, DEEP, true, 0);
+        var superseded = executor.submitWithDeepFallback(cells, cells, start, goal, NORMAL, DEEP, true, 0);
         // 同じexecutorへの次のsubmitが前のジョブ(通常・深い両方)を打ち切る
         PathResult next = executor.submit(cells, start, goal, NORMAL, true, 0).get();
 

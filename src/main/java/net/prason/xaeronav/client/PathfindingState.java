@@ -1659,8 +1659,9 @@ public final class PathfindingState {
             future = executor.submitCoarseGuided(view, bounds, start, finalTarget, limits, costToGoGuideEnabled,
                     goalRadius);
         } else if (deepBudgetInParallel) {
-            future = executor.submitWithDeepFallback(view, start, finalTarget, limits, deepLimits,
-                    costToGoGuideEnabled, goalRadius);
+            // 深い予算は別スレッドで同時に走るので、セルのキャッシュを共有させない
+            future = executor.submitWithDeepFallback(view, view.forParallelSearch(), start, finalTarget,
+                    limits, deepLimits, costToGoGuideEnabled, goalRadius);
         } else {
             future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius);
         }

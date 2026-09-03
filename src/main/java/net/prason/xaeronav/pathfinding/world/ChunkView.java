@@ -41,7 +41,9 @@ import net.prason.xaeronav.pathfinding.cost.DigCost;
  *
  * <p><b>スレッド契約:</b> {@link #capture}はメインスレッドから呼ぶこと。生成後のインスタンスは
  * 単一のワーカースレッドが占有する（直前チャンクとセルのキャッシュを可変フィールドに持つため、
- * 複数スレッドで共有してはならない）。
+ * 複数スレッドで共有してはならない）。<b>探索を並列に走らせるときは{@link #forParallelSearch}で
+ * ビューを分ける</b>——共有すると壊れ方が例外とは限らず、別のチャンクのブロックを読んだまま
+ * 経路が出る。
  */
 public final class ChunkView implements CellSource {
 
@@ -252,6 +254,30 @@ public final class ChunkView implements CellSource {
 
     public int totalChunksInBounds() {
         return totalChunksInBounds;
+    }
+
+    /**
+     * 同じチャンク参照を使い、キャッシュだけを持ち直した独立のビュー。<b>2つの探索を同時に走らせる
+     * ときは、必ず片方にこれを渡すこと</b>（{@code PathfindingExecutor#submitWithDeepFallback}）。
+     *
+     * <p>共有してよいのは{@code chunks}だけ——{@link #capture}が組み終えた後は読むだけなので、
+     * 複数スレッドから引いても壊れない。逆に{@code cells}・{@code states}・チャンクのメモは
+     * どれも探索中に書き換わるので、共有すると{@code Long2LongOpenHashMap}が内部で壊れて
+     * {@code ArrayIndexOutOfBoundsException}になるか、キーと値がねじれて<b>別のチャンクの
+     * ブロックを読む</b>（メモは{@code cachedChunkKey}と{@code cachedChunk}を別々に書くため）。
+     *
+     * <p>ホットバーを複製するのは、{@link ItemStack}が採掘速度の解決で内部に遅延キャッシュを
+     * 持ちうるため。9スロットぶんなので実質ただ。
+     */
+    public ChunkView forParallelSearch() {
+        ItemStack[] copiedHotbar = new ItemStack[hotbar.length];
+        for (int slot = 0; slot < hotbar.length; slot++) {
+            copiedHotbar[slot] = hotbar[slot].copy();
+        }
+        return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
+                options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
+                canMlgWaterBucket, boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock,
+                minBuildHeight, maxBuildHeight, minSection);
     }
 
     /**

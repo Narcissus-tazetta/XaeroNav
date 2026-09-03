@@ -250,25 +250,36 @@ public final class PathfindingExecutor {
      * 時間切れ確定（{@code plainSearchHopeless}）と分かっている場合は、深い予算だけで
      * 足りるので呼び出し側（{@code PathfindingState}）はこちらを使わず従来どおり
      * {@link #submit}に深い{@link SearchLimits}を渡す。
+     *
+     * <p><b>ビューを2つ受け取るのは飾りではない。</b>{@link CellSource}は単一のワーカースレッドが
+     * 占有する約束（{@code ChunkView}のスレッド契約）で、2つの探索へ同じインスタンスを渡すと
+     * セルのキャッシュが並行に書き換わって壊れる。実際そうなっていて、実機で
+     * {@code ArrayIndexOutOfBoundsException}が出ていた。呼び出し側に2つ渡させるのは、
+     * {@code CellSource}へ複製用のメソッドを生やすと実装側が{@code this}を返して黙って
+     * 元に戻せてしまうため——引数で強制すれば取り違えようがない。
+     *
+     * @param normalView 通常予算の探索が占有するビュー
+     * @param deepView   深い予算の探索が占有するビュー。{@code normalView}とは別インスタンスであること
      */
-    public CompletableFuture<PathResult> submitWithDeepFallback(CellSource view, BlockPos start, BlockPos goal,
+    public CompletableFuture<PathResult> submitWithDeepFallback(CellSource normalView, CellSource deepView,
+                                                                  BlockPos start, BlockPos goal,
                                                                   SearchLimits normalLimits, SearchLimits deepLimits,
                                                                   boolean costToGoGuideEnabled, int goalRadius) {
         return submit(cancelled -> {
-            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, start, goal, cancelled) : null;
-            BlockPos resolvedStart = StanceFinder.resolveStart(view, start);
-            BlockPos resolvedGoal = StanceFinder.resolveGoal(view, goal);
+            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(normalView, start, goal, cancelled) : null;
+            BlockPos resolvedStart = StanceFinder.resolveStart(normalView, start);
+            BlockPos resolvedGoal = StanceFinder.resolveGoal(normalView, goal);
 
             // 通常予算が先に届いたら、まだ走っている深い方をここで打ち切る。deepExecutor自体は
             // 空けておかないと、次の呼び出しがこのジョブの後ろに並んで無駄に待たされる
             AtomicBoolean normalWon = new AtomicBoolean(false);
             BooleanSupplier deepCancelled = () -> cancelled.getAsBoolean() || normalWon.get();
             CompletableFuture<PathResult> deepFuture = CompletableFuture.supplyAsync(() ->
-                    search(view, deepLimits, deepCancelled, costToGo, (pathfinder, c) ->
+                    search(deepView, deepLimits, deepCancelled, costToGo, (pathfinder, c) ->
                             pathfinder.search(resolvedStart, resolvedGoal, c, Carryover.NONE, goalRadius)),
                     deepExecutor);
 
-            PathResult normal = search(view, normalLimits, cancelled, costToGo, (pathfinder, c) ->
+            PathResult normal = search(normalView, normalLimits, cancelled, costToGo, (pathfinder, c) ->
                     pathfinder.search(resolvedStart, resolvedGoal, c, Carryover.NONE, goalRadius));
 
             if (normal.complete() || cancelled.getAsBoolean()) {
