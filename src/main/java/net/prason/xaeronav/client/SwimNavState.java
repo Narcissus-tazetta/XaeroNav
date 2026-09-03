@@ -14,6 +14,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -51,6 +52,9 @@ final class SwimNavState {
 
     /** 水面を探して上へ見ていく最大の高さ（ブロック）。これを超えたら「水面なし」（洞窟の水没など）。 */
     private static final int SURFACE_SCAN_LIMIT = 128;
+
+    /** {@link #depthBelowSurface}が水面を探す上限（ブロック）。これより深ければ判定は変わらない。 */
+    private static final int DEPTH_SCAN_LIMIT = 8;
 
     /** 水面が見つからなかったことを表す番兵。 */
     static final double NO_SURFACE = Double.NaN;
@@ -189,19 +193,34 @@ final class SwimNavState {
     }
 
     /**
-     * 足元から上へ水が何ブロック続いているか。{@code limit}まで数えたら打ち切って{@code limit}を返す。
+     * 視点から水面までの深さ（ブロック）。水面が{@link #DEPTH_SCAN_LIMIT}より上なら打ち切って
+     * その値を返す。視点が水中でなければ0。
      *
-     * <p>{@link #waterSurfaceAbove}と違って線を組むためではなく「深く潜っているか」を見るためだけの
-     * ものなので、水面まで辿らず必要な深さだけ数える（追尾ナビの判定は毎tick走る）。
+     * <p><b>ブロック数ではなく連続値で測る。</b>足元のブロックから上へ水を数える形にしていた頃は、
+     * 泳いで上下に揺れるだけで整数が閾値を跨ぎ、追尾ナビが1〜4秒おきに入り直していた
+     * （実機ログ: 目も体も水中のまま水深だけが2と3を往復し、抜けるたびに経路を引き直していた）。
+     * 視点からの実距離なら、揺れは同じでも値は連続に動くので、入りと抜けの閾値に幅を持たせれば
+     * 往復しない。
+     *
+     * <p>{@link #waterSurfaceAbove}と違って線を組むためではなく判定だけに使うので、水面まで
+     * 辿り切らずに打ち切ってよい（この判定は毎tick走る）。
      */
-    static int waterDepthAbove(Level level, Player player, int limit) {
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos().set(player.blockPosition());
-        int depth = 0;
-        while (depth < limit && level.getFluidState(cursor).is(FluidTags.WATER)) {
-            depth++;
-            cursor.setY(cursor.getY() + 1);
+    static double depthBelowSurface(Level level, Player player) {
+        double eyeY = player.getEyeY();
+        int eyeBlockY = Mth.floor(eyeY);
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos()
+                .set(player.blockPosition().getX(), eyeBlockY, player.blockPosition().getZ());
+        if (!level.getFluidState(cursor).is(FluidTags.WATER)) {
+            return 0.0;
         }
-        return depth;
+        int ceiling = eyeBlockY + DEPTH_SCAN_LIMIT;
+        for (int y = eyeBlockY + 1; y <= ceiling; y++) {
+            cursor.setY(y);
+            if (!level.getFluidState(cursor).is(FluidTags.WATER)) {
+                return y - eyeY;
+            }
+        }
+        return ceiling - eyeY;
     }
 
     /**

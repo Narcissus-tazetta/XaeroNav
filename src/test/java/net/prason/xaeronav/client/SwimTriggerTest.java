@@ -8,10 +8,14 @@ import org.junit.jupiter.api.Test;
 class SwimTriggerTest {
 
     /** 追尾ナビに入れる深さ。 */
-    private static final int DEEP = SwimTrigger.MIN_DEPTH_BLOCKS;
+    private static final double DEEP = SwimTrigger.ENTER_DEPTH_BLOCKS;
 
     /** 水面すれすれ（ユーザー報告「見えてるのに追尾の線が邪魔」）。 */
-    private static final int SHALLOW = SwimTrigger.MIN_DEPTH_BLOCKS - 1;
+    private static final double SHALLOW = SwimTrigger.STAY_DEPTH_BLOCKS - 0.1;
+
+    /** 入りの閾値と抜けの閾値のあいだ。泳ぎの上下動が収まる幅。 */
+    private static final double BETWEEN =
+            (SwimTrigger.ENTER_DEPTH_BLOCKS + SwimTrigger.STAY_DEPTH_BLOCKS) / 2;
 
     private final SwimTrigger trigger = new SwimTrigger();
 
@@ -81,6 +85,29 @@ class SwimTriggerTest {
         trigger.update(true, true, true, DEEP);
         assertTrue(trigger.update(true, true, true, SHALLOW));
         assertTrue(trigger.update(true, true, true, DEEP));
+    }
+
+    /**
+     * 入りと抜けの閾値のあいだを行き来しても、入った後は抜けない。
+     *
+     * <p>実機で踏んだ回帰そのもの——泳ぎの上下動で深さが境界を跨ぐたびにモードが往復し、
+     * 抜けるたびに経路を全部引き直していた。
+     */
+    @Test
+    void doesNotFlapBetweenTheEnterAndStayDepths() {
+        assertTrue(trigger.update(true, true, true, DEEP));
+        for (int tick = 0; tick < SwimTrigger.HEAD_OUT_GRACE_TICKS * 3; tick++) {
+            assertTrue(trigger.update(true, true, true, BETWEEN),
+                    "tick " + tick + " で閾値のあいだなのに抜けた");
+        }
+    }
+
+    /** その幅は入る側には効かない。浅いところで泳いでいるだけなら入らないまま。 */
+    @Test
+    void doesNotEnterAtTheStayDepth() {
+        for (int tick = 0; tick < SwimTrigger.HEAD_OUT_GRACE_TICKS * 3; tick++) {
+            assertFalse(trigger.update(true, true, true, BETWEEN), "tick " + tick + " で入った");
+        }
     }
 
     /** 設定offなら状態に関わらず常に無効。 */
