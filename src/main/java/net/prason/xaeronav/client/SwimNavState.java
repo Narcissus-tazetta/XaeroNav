@@ -189,6 +189,22 @@ final class SwimNavState {
     }
 
     /**
+     * 足元から上へ水が何ブロック続いているか。{@code limit}まで数えたら打ち切って{@code limit}を返す。
+     *
+     * <p>{@link #waterSurfaceAbove}と違って線を組むためではなく「深く潜っているか」を見るためだけの
+     * ものなので、水面まで辿らず必要な深さだけ数える（追尾ナビの判定は毎tick走る）。
+     */
+    static int waterDepthAbove(Level level, Player player, int limit) {
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos().set(player.blockPosition());
+        int depth = 0;
+        while (depth < limit && level.getFluidState(cursor).is(FluidTags.WATER)) {
+            depth++;
+            cursor.setY(cursor.getY() + 1);
+        }
+        return depth;
+    }
+
+    /**
      * {@code from}の列を上へ辿って水と空気の境目のYを返す。水中でなければ、または
      * {@link #SURFACE_SCAN_LIMIT}以内に水面が無ければ{@link #NO_SURFACE}。
      */

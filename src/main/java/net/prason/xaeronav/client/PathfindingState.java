@@ -69,6 +69,18 @@ public final class PathfindingState {
     private static final double LANDING_APPROACH_ENTER_BLOCKS = 48.0;
 
     /**
+     * 潜水中の追尾ナビから歩行の案内へ引き継ぐ水平距離（ブロック）。
+     *
+     * <p>滑空の{@link #LANDING_APPROACH_ENTER_BLOCKS}と同じ理屈だが距離が短い。追尾線は
+     * 「どちらへ泳ぐか」しか示せないので、上陸する場所と最後に歩く道は歩行の経路に任せた方がよい。
+     * 泳ぐ速さは滑空の1/10以下なので、48ブロックも手前で切り替えると追尾線がほとんど出なくなる。
+     */
+    private static final double SWIM_HANDOFF_ENTER_BLOCKS = 16.0;
+
+    /** 引き継いだ後、これだけ離れるまでは追尾ナビへ戻さない（境界での往復を防ぐ）。 */
+    private static final double SWIM_HANDOFF_EXIT_BLOCKS = 24.0;
+
+    /**
      * 引き継いだ後、これを超えて離れたら飛行の案内へ戻す（ブロック）＝5チャンク。
      *
      * <p>往復しないよう入口より広く取るが、<b>広く取りすぎてはいけない</b>。留まる条件には
@@ -352,9 +364,11 @@ public final class PathfindingState {
     private volatile boolean submerged;
     // 目的地の近くまで来て歩行の案内へ引き継いだか。境界での往復を防ぐヒステリシスに使う
     private volatile boolean landingApproachActive;
+    // 潜水中の追尾ナビから歩行の案内へ引き継いだか。上と同じヒステリシス
+    private volatile boolean swimHandoffActive;
 
-    /** エリトラの滑空を飛行とみなしているか。抜けるときの閾値を下げるためのヒステリシス。 */
-    private volatile boolean elytraGliding;
+    /** エリトラの滑空を飛行とみなすかの判定（時間と高さのヒステリシス）。 */
+    private final ElytraTrigger elytraTrigger = new ElytraTrigger();
     /**
      * 通過済みとみなす中間目標の数。地図の点線をどこから描くかにだけ使う。
      *
@@ -531,7 +545,11 @@ public final class PathfindingState {
         this.swim.reset();
         this.swimTrigger.reset();
         this.landingApproachActive = false;
-        this.elytraGliding = false;
+        this.swimHandoffActive = false;
+        // elytraTriggerはここで戻さない。追っているのは目的地ではなく<b>プレイヤーの体の状態</b>で、
+        // 滑空中にgotoを打つと「もう滑空している」という継続が消え、飛行モードへ入り直すまでの
+        // 0.5秒だけ地上の探索が走ってHUDに「経路なし」が出る。滑空していなければ次のtickの
+        // updateが自分で戻すので、持ち越して困ることもない
         this.arrivedTicks = 0;
     }
 
@@ -856,7 +874,9 @@ public final class PathfindingState {
             return;
         }
         boolean nowSubmerged = swimTrigger.update(XaeroNavConfig.INSTANCE.swimNavEnabled(),
-                mc.player.isUnderWater(), mc.player.isInWater());
+                mc.player.isUnderWater(), mc.player.isInWater(),
+                SwimNavState.waterDepthAbove(mc.level, mc.player, SwimTrigger.MIN_DEPTH_BLOCKS))
+                && !swimHandoff(mc.player, currentGoal);
         if (nowSubmerged != submerged) {
             submerged = nowSubmerged;
             if (nowSubmerged) {
@@ -1400,6 +1420,21 @@ public final class PathfindingState {
         return landingApproachActive;
     }
 
+    /**
+     * 潜水中に目的地の近くまで来ていて、そろそろ歩行の案内へ引き継ぐべきか。
+     *
+     * <p>{@link #landingApproach}と違って真下の地面を条件にしない。{@code StanceFinder#isStance}は
+     * 水のセルをそのまま立ち位置として受けるので、水中からでも歩行の探索は始点を解決できる
+     * （泳ぎの移動も生成される）。
+     */
+    private boolean swimHandoff(Player player, BlockPos currentGoal) {
+        double distance = Math.sqrt(horizontalDistanceSq(player, currentGoal));
+        swimHandoffActive = swimHandoffActive
+                ? distance <= SWIM_HANDOFF_EXIT_BLOCKS
+                : distance <= SWIM_HANDOFF_ENTER_BLOCKS;
+        return swimHandoffActive;
+    }
+
     /** 真下に立てる場所があるか（{@code StanceFinder}と同じ判定・同じ深さ）。 */
     private static boolean groundBelow(Level level, Player player) {
         return groundClearance(level, player) <= LANDING_GROUND_SEARCH_BLOCKS;
@@ -1419,7 +1454,12 @@ public final class PathfindingState {
             if (cursor.getY() < level.getMinBuildHeight()) {
                 break;
             }
-            if (CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
+            // 水面も降りられる場所として数える。{@code StanceFinder#isStance}が水のセルを
+            // 立ち位置として受ける以上、海や湖の上は「地面が無い」ではなく「そこへ降りられる」
+            // ——固体しか見ていなかったので、水上を飛んでいる間は目的地が48ブロック以内に
+            // 入っても歩行の案内へ引き継がれなかった
+            long flags = CellData.flagsOf(level.getBlockState(cursor));
+            if (CellData.standable(flags) || CellData.water(flags)) {
                 return dy;
             }
         }
@@ -1441,30 +1481,22 @@ public final class PathfindingState {
      * 常にtrueへ固定するので、これ一つで飛行モード全部を捉えられる。<b>こちらには高さを課さない</b>
      * ——本当に立てないので、猶予を置くと足元に床の無い始点で探索を投げ続けることになる。
      *
-     * <p>エリトラ（{@code isFallFlying}）だけは足元の高さを見る。装備したまま連続ジャンプしていると
-     * 1tickだけ滑空判定が立ち、その瞬間に地上の経路を捨てて空中へ切り替わる——着地した次のtickで
-     * 戻るので、跳ねるたびに経路が丸ごと作り直されていた。切り替えの代償が大きい
-     * （{@code generation}を進めて走っている探索ごと捨てる）ので、判定そのものを鈍くするのが正しい。
+     * <p>エリトラ（{@code isFallFlying}）だけは判定を鈍らせる。切り替えの代償が大きい
+     * （{@code generation}を進めて走っている探索ごと捨て、着地時には表示中の経路を消して引き直す）
+     * ので、鈍らせるのは{@link ElytraTrigger}の責務にまとめてある。
      */
     private boolean airborne(Level level, Player player) {
         if (player.getAbilities().flying) {
-            elytraGliding = false;
+            elytraTrigger.reset();
             return true;
         }
         if (!player.isFallFlying()) {
-            elytraGliding = false;
-            return false;
+            return elytraTrigger.update(false, 0, 0);
         }
         int required = XaeroNavConfig.INSTANCE.elytraFlyingMinGroundClearanceBlocks();
-        if (required <= 0) {
-            elytraGliding = true;
-            return true;
-        }
-        // 入りと抜けで閾値を変える。同じ高さで判定すると、境界の上を滑空している間ずっと
-        // 飛行と歩行を往復し、そのたびに経路が作り直される（landingApproachと同じ形）
-        int clearance = groundClearance(level, player);
-        elytraGliding = clearance >= (elytraGliding ? Math.max(1, required / 2) : required);
-        return elytraGliding;
+        // 高さを問わない設定なら真下を走査するだけ無駄になる
+        int clearance = required <= 0 ? 0 : groundClearance(level, player);
+        return elytraTrigger.update(true, clearance, required);
     }
 
     /**
