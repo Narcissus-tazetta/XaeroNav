@@ -1878,25 +1878,66 @@ public final class PathfindingState {
      * <p>世界の変化でいま塞がっているステップも同じ理由で外す。塞がった箇所を迂回するときは
      * 連続してブロックが置かれていることがあり、その塊を抜けた最初のステップへ合流したい。
      */
+    /**
+     * 合流点として認める距離の余裕（ブロック）。<b>最も近いステップから</b>これだけの範囲を
+     * 同じくらい近いとみなし、その中でいちばん先のステップへ合流する。
+     *
+     * <p><b>いちばん近い1点を選んではいけない。</b>合流点より手前は捨てるので、
+     * <b>先のステップへ合流できるほど残りの道のりが短くなる</b>——距離だけで選ぶと、
+     * 経路が曲がっている所で自分より手前のステップが「最も近い」に選ばれ、いま歩いてきた区間を
+     * もう一度歩かされる。実測（実機3次元の経路に対し、4/8/16ブロック逸脱した位置から）:
+     *
+     * <pre>
+     *              最も近い           近い中で最後(+8)
+     * 地上   平均1.045 最悪1.505 → 平均1.001 最悪1.066
+     * 地上2  平均1.030 最悪2.013 → 平均1.003 最悪1.089
+     * ネザー 平均1.074 最悪1.782 → 平均1.000 最悪1.048
+     * エンド 平均1.091 最悪1.943 → 平均1.002 最悪1.039
+     * </pre>
+     *
+     * <p>「合流までの見積もり＋残りの道のり」で選ぶ方が筋が良さそうに見えるが、<b>実測では
+     * 地上で悪化した</b>（平均1.088・最悪1.233）——{@code Heuristic}は幾何学的な下限なので、
+     * 川や崖の向こうの点を「近い」と見積もる。余裕を8ブロックに切っておけば、その賭けをせずに
+     * 「同じくらい近いなら先の方」だけを取れる。
+     */
+    private static final double JOIN_SLACK_BLOCKS = 8.0;
+
     private static int joinableStepIndex(Level level, List<PathStep> steps, Vec3 position, int minIndex) {
-        int best = -1;
-        double bestDistance = Double.MAX_VALUE;
-        for (int i = Math.max(0, minIndex); i < steps.size(); i++) {
-            PathStep step = steps.get(i);
-            if (step.bridging()) {
-                continue;
+        return joinableStepIndex(steps, position, minIndex,
+                i -> PathValidator.stepFailure(level, steps.get(i), i) == null);
+    }
+
+    /**
+     * {@code Level}を切り離した版。合流点選びは経路とプレイヤー位置だけで決まるので、
+     * ここだけ取り出せばワールド無しで振る舞いを固定できる（{@code SpliceJoinTest}）。
+     *
+     * @param usable そのステップが今も通れるか（本番は{@link PathValidator}）
+     */
+    static int joinableStepIndex(List<PathStep> steps, Vec3 position, int minIndex,
+                                  java.util.function.IntPredicate usable) {
+        int from = Math.max(0, minIndex);
+        double nearest = Double.MAX_VALUE;
+        for (int i = from; i < steps.size(); i++) {
+            if (!steps.get(i).bridging()) {
+                nearest = Math.min(nearest, distanceTo(position, steps.get(i).pos()));
             }
-            double distance = distanceTo(position, step.pos());
-            if (distance >= bestDistance) {
-                continue;
-            }
-            if (PathValidator.stepFailure(level, step, i) != null) {
-                continue;
-            }
-            bestDistance = distance;
-            best = i;
         }
-        return best;
+        if (nearest == Double.MAX_VALUE) {
+            return -1;
+        }
+        // 後ろから見て、範囲内で最初に見つかった通れるステップが「いちばん先」。
+        // 経路の検査は重いので、採用しうる候補にだけ掛ける
+        double limit = nearest + JOIN_SLACK_BLOCKS;
+        for (int i = steps.size() - 1; i >= from; i--) {
+            PathStep step = steps.get(i);
+            if (step.bridging() || distanceTo(position, step.pos()) > limit) {
+                continue;
+            }
+            if (usable.test(i)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
