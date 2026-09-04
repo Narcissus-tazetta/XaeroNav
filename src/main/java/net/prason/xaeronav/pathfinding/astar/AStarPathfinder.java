@@ -698,19 +698,23 @@ public final class AStarPathfinder {
             // ボートの枝に対して非許容になり、乗り込む1手の一時コストと相まって一度も展開されない
             heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock,
                     boating ? ActionCosts.PADDLE_ONE_BLOCK : ActionCosts.SPRINT_ONE_BLOCK);
-            if (goalRadius > 0) {
-                // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
-                // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
-                // 「あと何マス上がるか」だけの下限へ書き換えているのと同じ考え方）
-                heuristic = Math.max(0.0, heuristic - goalRadius * ActionCosts.SPRINT_ONE_BLOCK);
-            }
+            // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
+            // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
+            // 「あと何マス上がるか」だけの下限へ書き換えているのと同じ考え方）
+            double radiusAllowance = goalRadius * ActionCosts.SPRINT_ONE_BLOCK;
+            heuristic = Math.max(0.0, heuristic - radiusAllowance);
             if (costToGo != null) {
-                // 両者の大きい方を使う。Heuristicは幾何学的な下限（admissible）、costToGoは
-                // 層1が壁や溶岩の海を回避した見積もりだが、崖ペナルティ等の「発明された」重みを
-                // 含むため厳密な下限ではない——大きい方を取っても許容性は壊れない
-                // （Heuristic単独で既にadmissibleなので、それより小さいcostToGoを使っても
-                // 損はしない。costToGoの方が大きい場面でだけ、より現実に近い見積もりへ差し替わる）
-                heuristic = Math.max(heuristic, costToGo.estimate(x, y, z));
+                // 両者の大きい方を使う。Heuristicは幾何学的な下限、costToGoは層1が壁や溶岩の海を
+                // 回避したぶんだけ現実に近い見積もり。
+                //
+                // <b>ガイド側にも半径ぶんを差し引く。</b>領域ゴールで差し引いた下限を、そのまま
+                // 中心までを測るガイドで上書きしては元に戻してしまう。
+                //
+                // ガイドは崖ペナルティ等の「発明された」重みを含むので厳密な下限ではなく、
+                // 上回った瞬間に経路の形が変わる。層1の解像度に由来する上振れは
+                // {@code CoarseRouter#centerOffsetCost}が落としてある——あれが無いと
+                // hに16ブロック周期の鋸歯が乗り、経路がチャンク境界へ吸い寄せられて直角になる
+                heuristic = Math.max(heuristic, costToGo.estimate(x, y, z) - radiusAllowance);
             }
         }
         PathNode created = new PathNode(x, y, z, boating, heuristic);
