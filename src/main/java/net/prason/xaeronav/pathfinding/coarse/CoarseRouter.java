@@ -337,8 +337,9 @@ public final class CoarseRouter {
         int states = map.chunksX() * map.chunksZ() * CoarseMap.MAX_FLOORS;
         double[] cost = new double[states];
         Arrays.fill(cost, Double.POSITIVE_INFINITY);
+        double goalOffset = centerOffsetCost(goal.getX(), goal.getZ(), goalX, goalZ);
         if (!map.containsChunk(goalX, goalZ)) {
-            return new CoarseCostToGo(map, cost);
+            return new CoarseCostToGo(map, cost, goalOffset);
         }
         double waterMultiplier = boatAvailable ? BOAT_MULTIPLIER : WATER_MULTIPLIER;
         int goalFloor = resolveFloor(map, goalX, goalZ, goal.getY());
@@ -371,7 +372,37 @@ public final class CoarseRouter {
             }
             relaxBackwardVertical(map, cost, closed, open, x, z, floor);
         }
-        return new CoarseCostToGo(map, cost);
+        return new CoarseCostToGo(map, cost, goalOffset);
+    }
+
+    /**
+     * セル中心の値をブロック座標へ落とすときに差し引く量（tick）。
+     *
+     * <p>表が持っているのは<b>セル中心から目的地セルの中心まで</b>の値だけなので、素のまま引くと
+     * セルの中のどこにいても同じ値になる。実際には、引く側の座標も目的地もセルの中で最大
+     * 半セル対角ぶん中心からずれていて、その分だけ表の値は実コストを上回る。
+     *
+     * <p>差し引かないと、{@code AStarPathfinder#node}のmaxが幾何学的な下限（{@code Heuristic}）より
+     * 大きい値を拾い、<b>hに16ブロック周期の鋸歯が乗る</b>。重み1.5・closedを開き直さない探索と
+     * 組み合わさると、詳細経路はチャンク境界へ吸い寄せられて<b>長い直線と直角</b>だけになる。
+     * 同じ始終点での実測（左が鋸歯の乗った経路、右がガイド無しの最適経路と一致する現在の経路）:
+     *
+     * <pre>
+     * 合成の平地   60手(斜め22/直進38)          → 40手(全部斜め)
+     * 合成の起伏   150手(斜め30/直進120)         → 100手(斜め80)
+     * 実機エンド島 148手(斜め32/直進116)         → 101手(斜め79)
+     * </pre>
+     *
+     * <p><b>一律に1セル対角ぶん（{@link #DIAGONAL_COST}）引くのでは引きすぎる。</b>上振れの上限では
+     * あるが、ガイド全体が弱まって奈落越えに要る展開ノード数が既定予算(10万)を超える。ずれは
+     * 座標ごとに分かっているので、その実測値だけを引く。
+     */
+    private static double centerOffsetCost(int x, int z, int chunkX, int chunkZ) {
+        int dx = Math.abs(x - (chunkX * CELL_BLOCKS + CELL_BLOCKS / 2));
+        int dz = Math.abs(z - (chunkZ * CELL_BLOCKS + CELL_BLOCKS / 2));
+        int diagonal = Math.min(dx, dz);
+        int straight = Math.max(dx, dz) - diagonal;
+        return (diagonal * ActionCosts.DIAGONAL_DISTANCE + straight) * ActionCosts.SPRINT_ONE_BLOCK;
     }
 
     /**
@@ -380,8 +411,11 @@ public final class CoarseRouter {
      * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}とのmaxを取るので、0を返しても
      * 「情報が無いので寄与しない」以上の害は無い——{@link Double#POSITIVE_INFINITY}を返すと、
      * layer3の探索範囲がこの地図の読み取り範囲より広いだけで無限大に汚染されてしまう）。
+     *
+     * @param goalOffset 目的地がその所属セルの中心からずれているぶん（{@link #centerOffsetCost}）。
+     *                   座標ごとのずれと違って探索中は変わらないので、表を作るときに1度だけ求める
      */
-    private record CoarseCostToGo(CoarseMap map, double[] cost) implements CostToGo {
+    private record CoarseCostToGo(CoarseMap map, double[] cost, double goalOffset) implements CostToGo {
         @Override
         public double estimate(int x, int y, int z) {
             int chunkX = x >> 4;
@@ -394,7 +428,10 @@ public final class CoarseRouter {
                 return 0.0;
             }
             double value = cost[stateIndex(map, chunkX, chunkZ, floor)];
-            return Double.isInfinite(value) ? 0.0 : value;
+            if (Double.isInfinite(value)) {
+                return 0.0;
+            }
+            return Math.max(0.0, value - centerOffsetCost(x, z, chunkX, chunkZ) - goalOffset);
         }
     }
 
