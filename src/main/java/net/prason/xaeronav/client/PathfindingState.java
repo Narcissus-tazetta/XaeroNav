@@ -195,6 +195,32 @@ public final class PathfindingState {
     private static final int DEEP_SEARCH_BUDGET_FACTOR = 6;
 
     /**
+     * <b>並列フォールバックの通常予算側だけに使う、軽くした重み。</b>
+     *
+     * <p>重み付きA*(既定1.5)は展開ノードを大きく減らす代わりに、展開済みノードを開き直さないぶん
+     * 「先に着いた少し悪い経路」がそのまま確定する。実測（実機9地形・種固定の乱数で振った経路、
+     * {@code PathOptimalityTest}）では、最適との差も無駄な上下もほとんどこの重みで説明が付く:
+     *
+     * <pre>
+     *          重み1.5          重み1.2          重み1.0
+     * サバンナ  比1.049/上下1.62 比1.026/上下1.24 比1.003/上下1.05
+     * 山岳      比1.048/上下1.33 比1.018/上下1.06 比1.003/上下1.01
+     * </pre>
+     *
+     * <p><b>一律に下げてはいけない。</b>140〜200ブロックの経路では展開ノードが3〜5倍に増え、
+     * 山岳では既定予算(10万)で届かない経路が20本中1本から3本に増える。
+     *
+     * <p>そこで{@code PathfindingExecutor#submitWithDeepFallback}が<b>元から通常予算と深い予算を
+     * 並列に走らせている</b>ことを使う——通常側だけこの重みにすると、易しい経路は通常側が勝って
+     * 質が上がり、難しい経路は今までどおり深い側（{@link AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT}）が
+     * 拾う。深い側は重みも予算も従来の通常探索以上なので、<b>待ち時間は増えない</b>。
+     *
+     * <p>継ぎ足し・合流・区間チェーンには掛けない。あちらは深い予算の受け皿を持たないので、
+     * 重みを下げて届かなくなると「継ぎ足せない」「合流できない」がそのまま案内の途切れになる。
+     */
+    private static final double QUALITY_HEURISTIC_WEIGHT = 1.2;
+
+    /**
      * 深い予算での探索に許す最長時間（ミリ秒）。倍率だけで決めると、{@code maxExpandedNodes}を
      * 大きくしている環境で1回の探索が分単位になりうる——その間ずっと案内が古いままになる。
      * 15秒は「渡れないよりはマシ」と「待たされている感じ」の折り合いで、実測（53万ノードに
@@ -1648,7 +1674,7 @@ public final class PathfindingState {
         } else if (deepBudgetInParallel) {
             // 深い予算は別スレッドで同時に走るので、セルのキャッシュを共有させない
             future = executor.submitWithDeepFallback(view, view.forParallelSearch(), start, finalTarget,
-                    limits, deepLimits, costToGoGuideEnabled, goalRadius);
+                    qualityLimits(limits), deepLimits, costToGoGuideEnabled, goalRadius);
         } else {
             future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius);
         }
@@ -1928,6 +1954,15 @@ public final class PathfindingState {
      * <p><b>探索の後に見るしかない。</b>合流点までの下限（幾何学）で先に判定しようとしても、
      * 崖のケースは下限130に対して実コスト1004——下限では引き返しを見抜けない。
      */
+    /**
+     * 並列フォールバックの通常予算側に渡す上限。予算と時間はそのままに、重みだけ
+     * {@link #QUALITY_HEURISTIC_WEIGHT}まで落とす。設定でそれより低くしている人の値は下げない。
+     */
+    static SearchLimits qualityLimits(SearchLimits limits) {
+        return new SearchLimits(limits.maxExpandedNodes(), limits.timeLimitMillis(),
+                Math.min(limits.heuristicWeight(), QUALITY_HEURISTIC_WEIGHT));
+    }
+
     static boolean spliceWorthTaking(double spliceCost, BlockPos player, BlockPos joinPos, BlockPos goal) {
         double gained = Heuristic.estimate(player.getX(), player.getY(), player.getZ(),
                         goal.getX(), goal.getY(), goal.getZ())

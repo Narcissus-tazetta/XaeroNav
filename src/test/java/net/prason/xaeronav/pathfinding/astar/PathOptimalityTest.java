@@ -49,6 +49,14 @@ class PathOptimalityTest {
     /** 実機の既定予算（{@code PathfindingState}）。 */
     private static final int PRODUCTION_NODE_BUDGET = 100_000;
 
+    /**
+     * 実機が<b>この距離の経路に対して実際に使う</b>重み。{@code PathfindingState}は通常予算と
+     * 深い予算を並列に走らせ、通常側だけ軽い重み(1.2)にしている——ここで測る40〜90ブロックの
+     * 経路はまず通常側が勝つので、そちらの重みで測るのが実機に近い。
+     * 通常側が届かない長距離では深い側の{@link AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT}に落ちる。
+     */
+    private static final double PRODUCTION_WEIGHT = 1.2;
+
     /** 基準の探索に渡す予算。実測で最大30万ノード程度なので、実質無制限。 */
     private static final int UNLIMITED_NODE_BUDGET = 3_000_000;
 
@@ -64,14 +72,11 @@ class PathOptimalityTest {
     private static final int MIN_ROUTE_BLOCKS = 40;
     private static final int MAX_ROUTE_BLOCKS = 90;
 
-    /** 全体の悪化を捕まえる線。 */
-    private static final double MEAN_LIMIT = 1.06;
+    /** 全体の悪化を捕まえる線。実測は0.83〜1.026。 */
+    private static final double MEAN_LIMIT = 1.05;
 
-    /**
-     * 1本でも破滅的なら落とす線。エンドの島渡り（層1の16ブロック解像度が「どの島を踏むか」を
-     * 決めてしまう区間）だけが1.4倍台に届くので、そこを許す位置に置いてある。
-     */
-    private static final double WORST_LIMIT = 1.45;
+    /** 1本でも破滅的なら落とす線。実測は1.025〜1.123。 */
+    private static final double WORST_LIMIT = 1.25;
 
     /**
      * 無駄な上下（正味の高低差を引いた上り＋下り）が、基準の経路より何倍まで許されるか。
@@ -81,13 +86,16 @@ class PathOptimalityTest {
      * コスト模型が上下に値段を付けている（{@code ActionCosts#STEP_TRANSITION_TICKS}）以上、
      * 基準の経路は無駄な上下を避けているはずで、そこから離れるぶんは実装側の取り分。
      *
-     * <p><b>1.00にはならない。</b>残っているのは重み{@link AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT}
-     * そのもので、実測すると重みを下げるだけ真っ直ぐになる（サバンナ: 1.5→1.62倍 / 1.2→1.24倍 /
-     * 1.0→1.05倍）。ただし下げると展開ノードが3〜5倍に増え、山岳の長距離では既定予算で
-     * 届かない経路が出る（20本中1本→3本）。<b>いまは速さを採っている</b>ぶんがこの比。
-     * 実測は地上/平原1.21・山岳1.33・サバンナ1.62・海岸1.36・森0.71・ネザー1.00〜1.04・エンド1.67。
+     * <p><b>1.00にはならない。</b>残っているのは重み（{@link #PRODUCTION_WEIGHT}）そのもので、
+     * 下げるほど真っ直ぐになる（サバンナ: 1.5→1.62倍 / 1.2→1.24倍 / 1.0→1.05倍）。ただし
+     * 下げると展開ノードが3〜5倍に増え、山岳の長距離では既定予算で届かない経路が出る
+     * （20本中1本→3本）。実機はそのぶんを深い予算の並列探索で受けている
+     * （{@code PathfindingState#QUALITY_HEURISTIC_WEIGHT}）。
+     *
+     * <p>実測は地上/平原1.17・山岳1.06・サバンナ1.24・海岸1.28・森0.67・
+     * ネザー0.43〜1.00・エンド1.40。
      */
-    private static final double WOBBLE_LIMIT = 1.75;
+    private static final double WOBBLE_LIMIT = 1.50;
 
     private record Terrain(String name, String resource, boolean ceiling) {
     }
@@ -198,8 +206,8 @@ class PathOptimalityTest {
                 if (!best.complete()) {
                     continue;
                 }
-                PathResult production = solve(cells, route[0], route[1],
-                        AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT, true, PRODUCTION_NODE_BUDGET);
+                PathResult production = solve(cells, route[0], route[1], PRODUCTION_WEIGHT, true,
+                        PRODUCTION_NODE_BUDGET);
                 measured++;
                 bestWobble += wobble(route[0], best);
                 productionWobble += wobble(route[0], production);
