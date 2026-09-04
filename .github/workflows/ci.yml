@@ -98,7 +98,38 @@ jobs:
           VERSION=$(grep 'deps.fabric_api' stonecutter.properties.toml | cut -d'"' -f2 | cut -d'+' -f1)
           echo "fabric_api=$VERSION" >> "$GITHUB_OUTPUT"
 
-      # ハングしたときに6時間待たされないようにする。ここで打ち切っても後続の
+      # ワールドへ入ってテストが通ったあと、JVMが終了しないまま止まることがある
+      # （両ローダーで発生。最後のログはサーバーの保存完了で、その先のXaeroの
+      # セッション終了までは進まない）。打ち切られるとログには何も残らないので、
+      # ログが伸びなくなった時点でスタックを取り、クライアントを落として先へ進める
+      - name: Watch for a stalled client
+        run: |
+          nohup bash -c '
+            # 起動から終了まで通常60秒前後で、その間ログは途切れなく出続ける。
+            # 5分完全に止まっていれば、待っても進まない
+            STALL=300
+            while [ "$SECONDS" -lt 1500 ]; do
+              sleep 15
+              LOG=run/logs/latest.log
+              [ -f "$LOG" ] || continue
+              [ $(( $(date +%s) - $(stat -c %Y "$LOG") )) -ge "$STALL" ] || continue
+              PIDS=$(fuser "$LOG" 2>/dev/null || true)
+              {
+                echo "=== ログが ${STALL}秒 伸びていない。スタックを取る ($(date -u)) ==="
+                for PID in ${PIDS:-$(pgrep -f java || true)}; do
+                  echo "--- pid=$PID"
+                  tr "\0" " " < "/proc/$PID/cmdline" 2>/dev/null; echo
+                  "$JAVA_HOME/bin/jstack" -l "$PID" 2>&1 || true
+                done
+              } > run/logs/threaddump.txt 2>&1
+              # fuserで特定できたときだけ落とす。java全部を巻き込むとGradleデーモンまで
+              # 巻き添えになり、後続のキャッシュ保存が壊れる
+              [ -n "$PIDS" ] && kill -9 $PIDS
+              exit 0
+            done
+          ' > /dev/null 2>&1 &
+
+      # 上のウォッチが効かなかったときの最後の砦。ここで打ち切っても後続の
       # ログ出力・アップロードは `if: always()` で走るので、原因を追う材料は残る
       - name: Run the client
         timeout-minutes: 20
@@ -116,6 +147,11 @@ jobs:
       - name: Show the client log
         if: always()
         run: |
+          if [ -f run/logs/threaddump.txt ]; then
+            echo "::group::run/logs/threaddump.txt（クライアントが止まっていた）"
+            cat run/logs/threaddump.txt
+            echo "::endgroup::"
+          fi
           if [ -f run/logs/latest.log ]; then
             echo "::group::run/logs/latest.log (末尾200行)"
             tail -200 run/logs/latest.log
