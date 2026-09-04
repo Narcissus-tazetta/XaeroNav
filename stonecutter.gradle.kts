@@ -36,7 +36,7 @@ tasks.register<Sync>("collectJars") {
     // 今回のバージョンのものだけを拾う——バージョンにはgitの短縮ハッシュが付くので、
     // これで「このビルドが作ったjar」だけに絞れる
     from(stonecutter.versions.map { layout.projectDirectory.dir("versions/${it.project}/build/libs") }) {
-        include("*-${stampedModVersion()}.jar")
+        include("*-${archiveModVersion()}.jar")
     }
     into(layout.buildDirectory.dir("libs"))
 }

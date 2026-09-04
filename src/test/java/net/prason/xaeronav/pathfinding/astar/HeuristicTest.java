@@ -51,12 +51,19 @@ class HeuristicTest {
     }
 
     /**
-     * 水平移動を伴わない純粋な昇りは、高さを1段稼ぐ全ての移動のうち最安の{@code Ascend}で見積もる。
-     * {@code Ascend}は水平1歩を伴うが、その1歩は折り返せば戻せるので、正味の水平変位0でも使える。
+     * 水平移動を伴わない純粋な昇りは、高さを1段稼ぐ全ての移動のうち最安のもので見積もる。
+     *
+     * <p>陸の{@code Ascend}は水平1歩を伴うが、その1歩は折り返せば戻せるので正味の水平変位0でも
+     * 使える。それでも最安は{@code SwimUp}——陸の上下には
+     * {@link ActionCosts#STEP_TRANSITION_TICKS}が乗るのに対し、泳ぎの上昇はジャンプではないので
+     * 乗らない。
      */
     @Test
     void pureVerticalAscendUsesTheCheapestMoveThatGainsHeight() {
-        assertEquals(5 * ActionCosts.ASCEND_ONE_BLOCK, Heuristic.estimate(0, 64, 0, 0, 69, 0), 1e-9);
+        double cheapest = Math.min(ActionCosts.ASCEND_ONE_BLOCK, ActionCosts.SWIM_UP_ONE_BLOCK);
+        assertEquals(ActionCosts.SWIM_UP_ONE_BLOCK, cheapest, 1e-9,
+                "陸のAscendの方が安いなら、この見積もりの根拠が変わっている");
+        assertEquals(5 * cheapest, Heuristic.estimate(0, 64, 0, 0, 69, 0), 1e-9);
     }
 
     /**

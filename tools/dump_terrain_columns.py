@@ -193,6 +193,9 @@ def main():
     parser.add_argument('max_x', type=int)
     parser.add_argument('max_z', type=int)
     parser.add_argument('--band', required=True, help='書き出すYの範囲 "下,上"')
+    parser.add_argument('--depth', type=int, default=0,
+                        help='列ごとに、その列のいちばん上からこの深さまでだけ書き出す（0で無制限）。'
+                             '地表を歩く経路しか見ないなら、下の岩盤まで書いてもファイルが太るだけ')
     parser.add_argument('--out', required=True)
     args = parser.parse_args()
 
@@ -249,6 +252,9 @@ def main():
     min_y, max_y = band_high, band_low
     for (x, z), cells in sorted(columns.items()):
         cells.sort()
+        if args.depth > 0:
+            floor = cells[-1][0] - args.depth
+            cells = [c for c in cells if c[0] >= floor]
         runs = []
         run_from, run_to, run_kind = cells[0][0], cells[0][0], cells[0][1]
         for y, kind in cells[1:]:
