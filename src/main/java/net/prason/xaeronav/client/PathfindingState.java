@@ -241,6 +241,15 @@ public final class PathfindingState {
     private static final double SUSPICIOUS_TERRAIN_EDIT_FRACTION = 0.1;
 
     /**
+     * 上の割合と<b>あわせて</b>要求する掘削・設置の実数。
+     *
+     * <p>割合だけだと短い経路で必ず鳴る——5ステップ先の段差を1つ掘る経路は2割で、これは普通の
+     * 案内。しかも経路は数十tickごとに引き直されるので、同じ1行がその間ずっと出続ける。
+     * 見たいのは「道中ずっと壊している」方なので、実数の下限で普段の1〜2手を落とす。
+     */
+    private static final int SUSPICIOUS_TERRAIN_EDIT_STEPS = 8;
+
+    /**
      * 地上優先ナビ（{@link #shouldClimbToSurface}）に入る深さの下限（ブロック）。
      * 地上のすぐ下は、洞窟の入口も崖もたいてい目と鼻の先にあるので、中継区間を挟むより
      * そのまま目的地を目指した方が短い。数マスのために案内を2段階にする価値はない。
@@ -2343,7 +2352,8 @@ public final class PathfindingState {
      * 中間目標が飛んでいるのか。1行あれば区別が付く。
      *
      * <p>普段は黙っている——{@link #SUSPICIOUS_DEVIATION_BLOCKS}を超えて外れたときと、
-     * 掘削・設置が{@link #SUSPICIOUS_TERRAIN_EDIT_FRACTION}を超えたときだけ出す。
+     * 掘削・設置が{@link #SUSPICIOUS_TERRAIN_EDIT_STEPS}手を超えつつ
+     * {@link #SUSPICIOUS_TERRAIN_EDIT_FRACTION}も超えたときだけ出す。
      */
     private void noteSuspiciousShape(BlockPos start, BlockPos target, PathResult result) {
         List<PathStep> steps = result.steps();
@@ -2385,8 +2395,9 @@ public final class PathfindingState {
             deviation = Math.max(deviation, Math.abs((step.pos().getX() - start.getX()) * gz
                     - (step.pos().getZ() - start.getZ()) * gx) / length);
         }
-        if (deviation < SUSPICIOUS_DEVIATION_BLOCKS
-                && bridges + digs <= steps.size() * SUSPICIOUS_TERRAIN_EDIT_FRACTION) {
+        boolean manyEdits = bridges + digs >= SUSPICIOUS_TERRAIN_EDIT_STEPS
+                && bridges + digs > steps.size() * SUSPICIOUS_TERRAIN_EDIT_FRACTION;
+        if (deviation < SUSPICIOUS_DEVIATION_BLOCKS && !manyEdits) {
             return;
         }
         LOGGER.info("XaeroNav: 経路が直線から大きく外れています "
