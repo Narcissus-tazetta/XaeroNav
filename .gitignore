@@ -21,3 +21,6 @@ logs/
 
 # Stonecutterが生成するノードごとの作業ディレクトリ
 versions/
+
+# Pythonツール（tools/）のバイトコード
+__pycache__/

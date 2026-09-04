@@ -67,28 +67,25 @@ class RealEndTerrainTest {
     }
 
     /**
-     * <b>実機の既定予算(100,000ノード)でこの地形の奈落を渡れること。</b>実測69,159ノードで、
-     * <b>余裕は薄い</b>——65,000では届かない。ここが「届かない」側へ落ちると、実機では
-     * {@code PathfindingState#DEEP_SEARCH_BUDGET_FACTOR}の6倍へエスカレーションするまで
-     * 案内が出ない（島渡りだけ数秒待たされる、という形で出る）。
+     * <b>この地形の奈落を渡れること。</b>実測195,486ノードで、既定予算(100,000)には収まらない——
+     * 実機ではこれを{@code PathfindingExecutor#submitWithDeepFallback}の深い予算(6倍)が拾う。
+     * 深い予算は通常予算と<b>並列に</b>走るので、失敗を確認してから始めるぶんの待ちは無い。
      *
-     * <p>余裕がこの幅しか無いのは、奈落の上の橋が<b>他の手より安いわけではない</b>ため。
-     * 走行を中断する割増（{@code ActionCosts#TERRAIN_EDIT_INTERRUPTION_TICKS}）が柱と浅い橋を
-     * 展開の枝から外すぶんだけ余裕が生まれている（実測127,163→78,143ノード）。層1のガイドが
-     * セル境界で実コストを上回らなくなった（{@code CoarseRouter#centerOffsetCost}）ぶんが
-     * さらに乗って69,159。
+     * <p>かつては既定予算で渡れていた（69,159ノード）。層1のガイドから「発明された重み」を
+     * 落として実コストの下限にした（{@code CoarseRouter#costToGo}）ぶん、ガイドが探索を絞る力が
+     * 弱くなったのと引き換え。<b>経路の質を採った選択</b>で、その量は{@code PathOptimalityTest}が測る。
      *
      * <p>橋の上限96で解けることもここで見る（別テストに分けると同じ探索をもう一度払う）。
      */
     @Test
-    void crossesTheVoidWithinTheDefaultBudget() throws IOException {
-        assertFalse(search(96, 65_000, 0, Carryover.NONE).complete(),
-                "65,000で届く＝余裕がこの想定より広い。閾値を測り直すこと");
+    void crossesTheVoidWithTheDeepBudget() throws IOException {
+        assertFalse(search(96, 150_000, 0, Carryover.NONE).complete(),
+                "150,000で届く＝探索が想定より軽い。閾値を測り直すこと");
 
-        PathResult normal = search(96, 100_000, 0, Carryover.NONE);
-        assertTrue(normal.complete(), "既定の予算で渡れるはず: " + normal.termination());
-        assertTrue(longestBridgeRun(normal) > 30,
-                "上限30を超える橋が要る地形（だから上限も上げてある）: " + longestBridgeRun(normal));
+        PathResult deep = search(96, 250_000, 0, Carryover.NONE);
+        assertTrue(deep.complete(), "深い予算で渡れるはず: " + deep.termination());
+        assertTrue(longestBridgeRun(deep) > 30,
+                "上限30を超える橋が要る地形（だから上限も上げてある）: " + longestBridgeRun(deep));
     }
 
     /**

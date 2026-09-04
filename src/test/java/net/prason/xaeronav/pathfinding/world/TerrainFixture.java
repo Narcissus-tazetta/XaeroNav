@@ -10,11 +10,14 @@ import java.util.zip.GZIPInputStream;
 import net.minecraft.core.BlockPos;
 
 /**
- * 実機のワールド保存データから書き出した「固体ブロックの列」を{@link FakeCells}へ読み込む。
+ * 実機のワールド保存データから書き出した地形を{@link FakeCells}へ読み込む。
+ * 書き出しは{@code tools/dump_terrain_columns.py}。
  *
  * <p>形式は1行目が探索範囲({@code minX minY minZ maxX maxY maxZ})、以降が
- * {@code x z fromY,toY fromY,toY …}。ブロックの種別は持たない——地形の形さえ合っていれば
- * 「この地形でその予算・上限なら解けるのか」は測れるので、全て{@link FakeCells#STONE}になる。
+ * {@code x z <種別>fromY,toY <種別>fromY,toY …}。種別は{@link FakeCells}の記号1文字で、
+ * <b>数字（または負のYの{@code -}）で始まるランは種別なし＝{@link FakeCells#STONE}</b>——
+ * 種別を持たなかった頃に書き出したフィクスチャをそのまま読めるようにしてある。
+ * 地上・ネザーは水と溶岩が経路そのものを決めるので、あちらのフィクスチャには種別が要る。
  *
  * <p>設定（設置の可否・橋の上限・落下の許容など）は再現したい実機の条件ごとに違うので、
  * 空の{@link FakeCells}を組む所だけ呼び出し側へ渡す。
@@ -50,11 +53,17 @@ public final class TerrainFixture {
                 int x = Integer.parseInt(parts[0]);
                 int z = Integer.parseInt(parts[1]);
                 for (int i = 2; i < parts.length; i++) {
-                    int comma = parts[i].indexOf(',');
-                    int from = Integer.parseInt(parts[i].substring(0, comma));
-                    int to = Integer.parseInt(parts[i].substring(comma + 1));
+                    String run = parts[i];
+                    char kind = FakeCells.STONE;
+                    if (!Character.isDigit(run.charAt(0)) && run.charAt(0) != '-') {
+                        kind = run.charAt(0);
+                        run = run.substring(1);
+                    }
+                    int comma = run.indexOf(',');
+                    int from = Integer.parseInt(run.substring(0, comma));
+                    int to = Integer.parseInt(run.substring(comma + 1));
                     for (int y = from; y <= to; y++) {
-                        cells.set(x, y, z, FakeCells.STONE);
+                        cells.set(x, y, z, kind);
                     }
                 }
             }

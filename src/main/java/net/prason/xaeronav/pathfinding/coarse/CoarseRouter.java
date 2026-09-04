@@ -111,6 +111,21 @@ public final class CoarseRouter {
     private static final double HEIGHT_COST_PER_BLOCK = ActionCosts.JUMP_ONE_BLOCK;
 
     /**
+     * ガイドが1ブロックの登りに乗せる追加コスト。<b>{@link #HEIGHT_COST_PER_BLOCK}ではない</b>——
+     * 登りは水平移動に相乗りするので、実際に増えるのは{@code Ascend}と疾走の差だけ
+     * （{@code Heuristic}の相乗りと同じ考え方）。{@link #HEIGHT_COST_PER_BLOCK}をそのまま使うと
+     * 4倍ほど過大になり、起伏のある地上で経路が平坦な方へ不必要に逃げる。
+     */
+    private static final double GUIDE_ASCEND_COST_PER_BLOCK =
+            ActionCosts.ASCEND_ONE_BLOCK - ActionCosts.SPRINT_ONE_BLOCK;
+
+    /** {@link CoarseMap#WATER}に分類される最小の水の割合（{@code LiveCoarseSampler}の閾値）。 */
+    private static final double WATER_CELL_MIN_FRACTION = 0.5;
+
+    /** {@link CoarseMap#LAVA_MIXED}に分類される最小の溶岩の割合（{@code LiveCoarseSampler}の閾値）。 */
+    private static final double LAVA_MIXED_CELL_MIN_FRACTION = 0.25;
+
+    /**
      * セル内の起伏（{@code maxHeight - minHeight}）がこれを超えたら崖とみなす。
      * バニラの{@code SAFE_FALL_DISTANCE}既定値（{@link ActionCosts#SAFE_FALL_BLOCKS}）をそのまま使う。
      * これより緩やかな起伏は、平均高さの差分で表現される通常の坂として扱えば十分。
@@ -330,6 +345,43 @@ public final class CoarseRouter {
      * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}とのmaxを取って使う設計
      * （{@code AStarPathfinder#node}参照）なので、この近似が探索を壊すことはない
      * （最悪でも幾何学的下限まで自然に落ちる）。
+     *
+     * <p><b>ガイド（この表）は実コストの下限でなければならない、という約束。</b>
+     *
+     * <p>{@code AStarPathfinder#node}はガイドと幾何学的な{@code Heuristic}の<b>大きい方</b>をhに使う。
+     * ガイドが実コストを上回った瞬間、A*はその方向を実際より高く見積もって<b>経路の形を変える</b>——
+     * しかも層1はチャンク単位なので、変わり方は地形ではなくチャンク格子に従う。
+     *
+     * <p>そこで<b>同じ地図を2通りに値付けする</b>。{@link #findRoute}（どの谷を通るかの計画）は
+     * 好みを含んだ値、この表（詳細探索のガイド）は下限だけ。
+     * 下限側で落とすのは次の5つで、いずれも<b>実際にかかる時間ではない</b>:
+     *
+     * <ul>
+     * <li>{@link #cliffPenalty} — セル内の起伏が大きいだけで、平坦な棚を通れることもある</li>
+     * <li>{@link #SMALL_ISLAND_PENALTY} — 「大きい島を渡りたい」という人間の好み</li>
+     * <li>{@link #UNKNOWN_MULTIPLIER} — 分からないことは高くつく理由にならない</li>
+     * <li>{@link #LAYER_TRANSITION_PENALTY} — 縦穴があるか分からないぶんの割増</li>
+     * <li>下りの{@link #HEIGHT_COST_PER_BLOCK} — 降りは走り抜けられて実コストが増えない</li>
+     * </ul>
+     *
+     * <p>残す水・溶岩・奈落の倍率は実時間だが、セルの<b>一部</b>がその地形でも全体に掛かるので、
+     * 分類の閾値ぶん（{@link #WATER_CELL_MIN_FRACTION}・{@link #LAVA_MIXED_CELL_MIN_FRACTION}）
+     * まで薄めて下限にする。
+     *
+     * <p><b>代償は探索の広さ。</b>実機エンドの島渡り（{@code RealEndTerrainTest}の区間）で
+     * 69,159→260,176ノード、並列の深い予算まで含めた実時間で約1.2秒→約3.2秒。好みを戻すほど
+     * 速くなるが経路は悪くなる（崖ペナルティを戻すと147,073ノード・約1.4秒だが、地上で許容を
+     * 超える経路が7本→34本）。<b>案内の速さより経路の質を採った</b>のがこの選択。
+     *
+     * <p>実機の保存データ3次元×16方向×2距離で測った、基準（重み1.0・ガイド無し・予算無制限）
+     * との経路コスト比（{@code PathOptimalityTest}）:
+     *
+     * <pre>
+     *          好みを含んだ値         下限だけ
+     * 地上   平均1.129 最悪1.473 → 平均1.034 最悪1.223
+     * ネザー 平均1.043 最悪1.215 → 平均0.995 最悪1.096
+     * エンド 平均1.041 最悪1.482 → 平均0.998 最悪1.417
+     * </pre>
      */
     public static CostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy) {
         int goalX = goal.getX() >> 4;
@@ -448,7 +500,7 @@ public final class CoarseRouter {
         for (int neighborFloor = 0; neighborFloor < neighborFloorCount; neighborFloor++) {
             // from/toを入れ替え: 「neighborからxへ入るコスト」を計算する（逆走なので）
             double step = horizontalStepCost(map, neighborX, neighborZ, neighborFloor, x, z, floor, diagonal,
-                    waterMultiplier, bridgePolicy);
+                    waterMultiplier, bridgePolicy, true);
             if (Double.isInfinite(step)) {
                 continue;
             }
@@ -466,10 +518,12 @@ public final class CoarseRouter {
             if (neighborFloor < 0 || neighborFloor >= floorCount) {
                 continue;
             }
-            double deltaHeight =
-                    Math.abs(map.heightAtFloor(x, z, neighborFloor) - map.heightAtFloor(x, z, floor));
-            double step = deltaHeight * HEIGHT_COST_PER_BLOCK * LAYER_TRANSITION_PENALTY;
-            offerBackward(map, cost, closed, open, x, z, floor, x, z, neighborFloor, step);
+            // 逆走なので「neighborFloorからfloorへ上がる」ぶん。下りに値段を付けず、
+            // LAYER_TRANSITION_PENALTYも掛けないのはcostToGoのjavadocのとおり
+            double climb = Math.max(0,
+                    map.heightAtFloor(x, z, floor) - map.heightAtFloor(x, z, neighborFloor));
+            offerBackward(map, cost, closed, open, x, z, floor, x, z, neighborFloor,
+                    climb * GUIDE_ASCEND_COST_PER_BLOCK);
         }
     }
 
@@ -518,7 +572,7 @@ public final class CoarseRouter {
         boolean diagonal = dx != 0 && dz != 0;
         int nextFloor = nearestConnectableFloor(map, x, z, floor, nextX, nextZ);
         double step = horizontalStepCost(map, x, z, floor, nextX, nextZ, nextFloor, diagonal, waterMultiplier,
-                bridgePolicy);
+                bridgePolicy, false);
         if (Double.isInfinite(step)) {
             return;
         }
@@ -609,9 +663,17 @@ public final class CoarseRouter {
         return startIndex;
     }
 
+    /**
+     * 1セル進むコスト。
+     *
+     * @param lowerBound 実コストの<b>下限</b>として使う値を求める（{@link #costToGo}のガイド用）。
+     *                   {@code false}なら好みを含んだ計画用の値（{@link #findRoute}用）。
+     *                   違いは{@link #costToGo}のjavadoc参照
+     */
     private static double horizontalStepCost(CoarseMap map, int fromX, int fromZ, int fromFloor,
                                              int toX, int toZ, int toFloor, boolean diagonal,
-                                             double waterMultiplier, BridgePolicy bridgePolicy) {
+                                             double waterMultiplier, BridgePolicy bridgePolicy,
+                                             boolean lowerBound) {
         byte kind = stateKind(map, toX, toZ, toFloor);
         double bridgeMultiplier = bridgeMultiplier(kind, bridgePolicy);
         if (Double.isInfinite(bridgeMultiplier)) {
@@ -619,9 +681,14 @@ public final class CoarseRouter {
         }
         double base = diagonal ? DIAGONAL_COST : STRAIGHT_COST;
         double multiplier = switch (kind) {
-            case CoarseMap.WATER -> waterMultiplier;
-            case CoarseMap.NO_DATA -> UNKNOWN_MULTIPLIER;
-            case CoarseMap.LAVA, CoarseMap.LAVA_MIXED, CoarseMap.VOID -> bridgeMultiplier;
+            case CoarseMap.WATER -> lowerBound
+                    ? atLeast(waterMultiplier, WATER_CELL_MIN_FRACTION) : waterMultiplier;
+            // 「分からない」は下限を上げる理由にならない。1.6のまま使うと、読み取り範囲の外側が
+            // 一律に高く見えて経路が範囲の内側へ引き寄せられる
+            case CoarseMap.NO_DATA -> lowerBound ? 1.0 : UNKNOWN_MULTIPLIER;
+            case CoarseMap.LAVA_MIXED -> lowerBound
+                    ? atLeast(bridgeMultiplier, LAVA_MIXED_CELL_MIN_FRACTION) : bridgeMultiplier;
+            case CoarseMap.LAVA, CoarseMap.VOID -> bridgeMultiplier;
             default -> 1.0;
         };
 
@@ -631,10 +698,20 @@ public final class CoarseRouter {
         // 片方でも高さが分からなければ段差は測れない。分からないことを段差0として扱うと、
         // 未知の領域が「平坦な近道」に見えてしまう
         if (fromHeight != CoarseMap.UNKNOWN_HEIGHT && toHeight != CoarseMap.UNKNOWN_HEIGHT) {
-            heightPenalty = Math.abs(toHeight - fromHeight) * HEIGHT_COST_PER_BLOCK;
+            heightPenalty = lowerBound
+                    ? Math.max(0, toHeight - fromHeight) * GUIDE_ASCEND_COST_PER_BLOCK
+                    : Math.abs(toHeight - fromHeight) * HEIGHT_COST_PER_BLOCK;
+        }
+        if (lowerBound) {
+            return base * multiplier + heightPenalty;
         }
         return base * multiplier + heightPenalty + cliffPenalty(map, toX, toZ, toFloor)
                 + smallIslandPenalty(map, fromX, fromZ, toX, toZ);
+    }
+
+    /** セルの{@code fraction}だけがその地形だと分かっているときの、倍率の下限。 */
+    private static double atLeast(double multiplier, double fraction) {
+        return 1.0 + (multiplier - 1.0) * fraction;
     }
 
     /**
