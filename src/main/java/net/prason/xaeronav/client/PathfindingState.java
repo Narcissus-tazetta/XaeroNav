@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntPredicate;
 
 import org.slf4j.Logger;
 
@@ -248,6 +249,39 @@ public final class PathfindingState {
      * 引き直しと同じになり、安く済ませるという目的自体が消える）。
      */
     private static final int SPLICE_MAX_EXPANDED_NODES = 30_000;
+
+    /**
+     * 合流点として認める距離の余裕（ブロック）。<b>最も近いステップから</b>これだけの範囲を
+     * 同じくらい近いとみなし、その中でいちばん先のステップへ合流する。
+     *
+     * <p><b>いちばん近い1点を選んではいけない。</b>合流点より手前は捨てるので、
+     * <b>先のステップへ合流できるほど残りの道のりが短くなる</b>——距離だけで選ぶと、
+     * 経路が曲がっている所で自分より手前のステップが「最も近い」に選ばれ、いま歩いてきた区間を
+     * もう一度歩かされる。実測（実機3次元の経路に対し、4/8/16ブロック逸脱した位置から）:
+     *
+     * <pre>
+     *              最も近い           近い中で最後(+8)
+     * 地上   平均1.045 最悪1.505 → 平均1.001 最悪1.066
+     * 地上2  平均1.030 最悪2.013 → 平均1.003 最悪1.089
+     * ネザー 平均1.074 最悪1.782 → 平均1.000 最悪1.048
+     * エンド 平均1.091 最悪1.943 → 平均1.002 最悪1.039
+     * </pre>
+     *
+     * <p>「合流までの見積もり＋残りの道のり」で選ぶ方が筋が良さそうに見えるが、<b>実測では
+     * 地上で悪化した</b>（平均1.088・最悪1.233）——{@code Heuristic}は幾何学的な下限なので、
+     * 川や崖の向こうの点を「近い」と見積もる。余裕を8ブロックに切っておけば、その賭けをせずに
+     * 「同じくらい近いなら先の方」だけを取れる。
+     */
+    private static final double JOIN_SLACK_BLOCKS = 8.0;
+
+    /**
+     * 合流のために払ってよい「目的地へ近づかない移動」の上限（tick）。徒歩48ブロック相当。
+     *
+     * <p>合流区間は障害物を回り込むぶんだけ遠回りになることがあるので、多少の余裕は要る。
+     * 止めたいのは<b>回り込みではなく引き返し</b>——崖から飛び降りた直後は、真上の経路が
+     * 「最も近い」ままなので、そこへ合流しようとすると崖を登り直す区間が出る。
+     */
+    private static final double SPLICE_DETOUR_ALLOWANCE_TICKS = 48.0 * ActionCosts.SPRINT_ONE_BLOCK;
 
     /** 合流に失敗した地点から、これだけ歩けばもう一度試す（ブロック）。 */
     private static final double SPLICE_RETRY_MOVE_BLOCKS = 8.0;
@@ -1906,38 +1940,15 @@ public final class PathfindingState {
      * <p>世界の変化でいま塞がっているステップも同じ理由で外す。塞がった箇所を迂回するときは
      * 連続してブロックが置かれていることがあり、その塊を抜けた最初のステップへ合流したい。
      */
-    /**
-     * 合流点として認める距離の余裕（ブロック）。<b>最も近いステップから</b>これだけの範囲を
-     * 同じくらい近いとみなし、その中でいちばん先のステップへ合流する。
-     *
-     * <p><b>いちばん近い1点を選んではいけない。</b>合流点より手前は捨てるので、
-     * <b>先のステップへ合流できるほど残りの道のりが短くなる</b>——距離だけで選ぶと、
-     * 経路が曲がっている所で自分より手前のステップが「最も近い」に選ばれ、いま歩いてきた区間を
-     * もう一度歩かされる。実測（実機3次元の経路に対し、4/8/16ブロック逸脱した位置から）:
-     *
-     * <pre>
-     *              最も近い           近い中で最後(+8)
-     * 地上   平均1.045 最悪1.505 → 平均1.001 最悪1.066
-     * 地上2  平均1.030 最悪2.013 → 平均1.003 最悪1.089
-     * ネザー 平均1.074 最悪1.782 → 平均1.000 最悪1.048
-     * エンド 平均1.091 最悪1.943 → 平均1.002 最悪1.039
-     * </pre>
-     *
-     * <p>「合流までの見積もり＋残りの道のり」で選ぶ方が筋が良さそうに見えるが、<b>実測では
-     * 地上で悪化した</b>（平均1.088・最悪1.233）——{@code Heuristic}は幾何学的な下限なので、
-     * 川や崖の向こうの点を「近い」と見積もる。余裕を8ブロックに切っておけば、その賭けをせずに
-     * 「同じくらい近いなら先の方」だけを取れる。
-     */
-    private static final double JOIN_SLACK_BLOCKS = 8.0;
 
     /**
-     * 合流のために払ってよい「目的地へ近づかない移動」の上限（tick）。徒歩48ブロック相当。
-     *
-     * <p>合流区間は障害物を回り込むぶんだけ遠回りになることがあるので、多少の余裕は要る。
-     * 止めたいのは<b>回り込みではなく引き返し</b>——崖から飛び降りた直後は、真上の経路が
-     * 「最も近い」ままなので、そこへ合流しようとすると崖を登り直す区間が出る。
+     * 並列フォールバックの通常予算側に渡す上限。予算と時間はそのままに、重みだけ
+     * {@link #QUALITY_HEURISTIC_WEIGHT}まで落とす。設定でそれより低くしている人の値は下げない。
      */
-    private static final double SPLICE_DETOUR_ALLOWANCE_TICKS = 48.0 * ActionCosts.SPRINT_ONE_BLOCK;
+    static SearchLimits qualityLimits(SearchLimits limits) {
+        return new SearchLimits(limits.maxExpandedNodes(), limits.timeLimitMillis(),
+                Math.min(limits.heuristicWeight(), QUALITY_HEURISTIC_WEIGHT));
+    }
 
     /**
      * この合流は割に合うか。<b>払ったコストに見合うだけ目的地へ近づいているか</b>で見る。
@@ -1954,15 +1965,6 @@ public final class PathfindingState {
      * <p><b>探索の後に見るしかない。</b>合流点までの下限（幾何学）で先に判定しようとしても、
      * 崖のケースは下限130に対して実コスト1004——下限では引き返しを見抜けない。
      */
-    /**
-     * 並列フォールバックの通常予算側に渡す上限。予算と時間はそのままに、重みだけ
-     * {@link #QUALITY_HEURISTIC_WEIGHT}まで落とす。設定でそれより低くしている人の値は下げない。
-     */
-    static SearchLimits qualityLimits(SearchLimits limits) {
-        return new SearchLimits(limits.maxExpandedNodes(), limits.timeLimitMillis(),
-                Math.min(limits.heuristicWeight(), QUALITY_HEURISTIC_WEIGHT));
-    }
-
     static boolean spliceWorthTaking(double spliceCost, BlockPos player, BlockPos joinPos, BlockPos goal) {
         double gained = Heuristic.estimate(player.getX(), player.getY(), player.getZ(),
                         goal.getX(), goal.getY(), goal.getZ())
@@ -1983,19 +1985,47 @@ public final class PathfindingState {
      * @param usable そのステップが今も通れるか（本番は{@link PathValidator}）
      */
     static int joinableStepIndex(List<PathStep> steps, Vec3 position, int minIndex,
-                                  java.util.function.IntPredicate usable) {
+                                  IntPredicate usable) {
         int from = Math.max(0, minIndex);
+        // まずは検査を掛けずに測る。経路の検査は重いので、採用しうる候補にだけ掛けたい
+        int join = latestWithinSlack(steps, position, from, nearestDistance(steps, position, from, i -> true),
+                usable);
+        if (join >= 0) {
+            return join;
+        }
+        // 近い一帯が全部塞がっていた。<b>ここで諦めてはいけない</b>——範囲は検査を掛けずに
+        // 測った「最も近いステップ」から取るので、その一帯が塞がっていると範囲ごと外れる。
+        // 塞がった箇所を迂回する場面（連続してブロックが置かれている）がまさにそれで、
+        // 諦めると合流できるのに呼び出し側の全引き直しへ落ちる。通れるステップだけで測り直す
+        return latestWithinSlack(steps, position, from, nearestDistance(steps, position, from, usable),
+                usable);
+    }
+
+    /** {@code from}以降の、橋でなく{@code usable}なステップまでの最短距離。無ければ無限大。 */
+    private static double nearestDistance(List<PathStep> steps, Vec3 position, int from,
+                                           IntPredicate usable) {
         double nearest = Double.MAX_VALUE;
         for (int i = from; i < steps.size(); i++) {
-            if (!steps.get(i).bridging()) {
-                nearest = Math.min(nearest, distanceTo(position, steps.get(i).pos()));
+            if (steps.get(i).bridging()) {
+                continue;
+            }
+            double distance = distanceTo(position, steps.get(i).pos());
+            if (distance < nearest && usable.test(i)) {
+                nearest = distance;
             }
         }
+        return nearest;
+    }
+
+    /**
+     * {@code nearest}から{@link #JOIN_SLACK_BLOCKS}以内にある、いちばん先のステップ。
+     * 後ろから見るので、最初に見つかったものがそれ。
+     */
+    private static int latestWithinSlack(List<PathStep> steps, Vec3 position, int from, double nearest,
+                                          IntPredicate usable) {
         if (nearest == Double.MAX_VALUE) {
             return -1;
         }
-        // 後ろから見て、範囲内で最初に見つかった通れるステップが「いちばん先」。
-        // 経路の検査は重いので、採用しうる候補にだけ掛ける
         double limit = nearest + JOIN_SLACK_BLOCKS;
         for (int i = steps.size() - 1; i >= from; i--) {
             PathStep step = steps.get(i);

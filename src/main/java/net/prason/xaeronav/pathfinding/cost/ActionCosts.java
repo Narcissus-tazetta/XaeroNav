@@ -361,7 +361,7 @@ public final class ActionCosts {
      * <p><b>値は{@link #DIG_OVERHEAD_TICKS}と同じ釣り合いで置いてある。</b>2マスの段差を
      * 柱1本で越える場合を実測すると、36.0では<b>迂回10ブロック</b>で積む側に倒れる
      * （幅4の溝を橋で渡る場合は設置2本＋跳躍1回ぶんなので迂回21ブロック）。
-     * 掘削(7ブロック)より遠くまで迂回させるのは、設置が手持ちのブロックを消費するうえ、
+     * 掘削(8ブロック)より遠くまで迂回させるのは、設置が手持ちのブロックを消費するうえ、
      * 置いた足場がそのまま地形として残る（次に通ったときの地形が変わる）ため——掘る方は
      * 素材が増える側に働く。
      *
@@ -520,7 +520,7 @@ public final class ActionCosts {
      * ソウルサンドには設定されていない）。遅くなるのは水平成分だけなので、maxの中の水平側だけを割る。
      *
      * <p><b>1.0を超える倍率（氷）を渡してはいけない</b>。{@link net.prason.xaeronav.pathfinding.astar.Heuristic}
-     * は昇りの下限に{@link #ASCEND_ONE_BLOCK}を置いているので、そこを割ると非許容になる。
+     * は昇りの下限をこの値と{@link #SWIM_UP_ONE_BLOCK}の安い方に置いているので、そこを割ると非許容になる。
      */
     public static double ascendOneBlock(double speedFactor) {
         return Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK / speedFactor) + STEP_TRANSITION_TICKS;
@@ -528,7 +528,7 @@ public final class ActionCosts {
 
     /**
      * {@link #ascendOneBlock}の1段降り版。{@link #DESCEND_ONE_BLOCK}のとおり落下の時間は
-     * 計上せず、水平移動そのもの（{@code AStarPathfinder#stepCost}と同じ形）にする。
+     * 計上せず、水平移動に{@link #STEP_TRANSITION_TICKS}を足しただけにする。
      */
     public static double descendOneBlock(double speedFactor) {
         return SPRINT_ONE_BLOCK / speedFactor + STEP_TRANSITION_TICKS;

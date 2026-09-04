@@ -111,6 +111,25 @@ class SpliceJoinTest {
                 "塞がっていない中でいちばん先へ合流するはず: " + steps.get(index).pos().toShortString());
     }
 
+    /**
+     * <b>近い範囲が全部塞がっていても諦めないこと。</b>範囲は検査を掛けずに測った「最も近い
+     * ステップ」から取るので、その一帯が塞がっていると範囲ごと外れる。塞がった箇所を迂回する
+     * 場面がまさにそれで、ここで-1を返すと合流できるのに全部引き直すことになる。
+     */
+    @Test
+    void looksBeyondTheSlackWhenEverythingNearIsBlocked() {
+        List<PathStep> steps = new ArrayList<>();
+        for (int x = 1; x <= 40; x++) {
+            steps.add(step(x, 0));
+        }
+        // プレイヤーの周り（余裕8ブロックぶん）がまるごと塞がっている
+        int index = PathfindingState.joinableStepIndex(steps, new Vec3(20.5, Y + 0.5, 0.5), 0,
+                i -> steps.get(i).pos().getX() < 8 || steps.get(i).pos().getX() > 32);
+
+        assertTrue(steps.get(index).pos().getX() > 32,
+                "塞がった一帯の手前で諦めている: " + steps.get(index).pos().toShortString());
+    }
+
     /** {@code minIndex}より手前は候補にしない（塞がった箇所を迂回するとき用）。 */
     @Test
     void respectsTheMinimumIndex() {

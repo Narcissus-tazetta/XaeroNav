@@ -20,6 +20,20 @@ fun Project.stampedModVersion(): String {
     return gitCommitHash()?.let { "$base+$it" } ?: base
 }
 
+/**
+ * ファイル名・成果物名に使うバージョン。semverのbuild-metadataの区切り `+` はファイル名に
+ * 向かない（URLエンコードされる・ツールによっては扱いが割れる）ので `-` にする。
+ *
+ * <p><b>MODのメタデータ側は{@code stampedModVersion}のまま `+` を使う</b>——あちらはsemverとして
+ * 解釈されるので、build-metadataの区切りを変えると別のバージョンになってしまう。
+ *
+ * <p>成果物名を組む所とそれを拾う所（{@code collectJars}）で別々に書くと、片方だけ変えたときに
+ * <b>1つも拾えないまま緑になる</b>。実際そうなっていた——jarは `-` で作られ、拾う側は `+` で
+ * 探していたので{@code build/libs}が空になり、CIのjarアップロード（{@code if-no-files-found: error}）と
+ * リリースが落ちる状態だった。1か所に寄せて二度と割れないようにする。
+ */
+fun Project.archiveModVersion(): String = stampedModVersion().replace('+', '-')
+
 private fun Project.gitCommitHash(): String? {
     val output = runCatching {
         providers.exec {
