@@ -23,6 +23,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.Carryover;
+import net.prason.xaeronav.pathfinding.astar.Heuristic;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
@@ -33,6 +34,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
@@ -1902,6 +1904,38 @@ public final class PathfindingState {
      */
     private static final double JOIN_SLACK_BLOCKS = 8.0;
 
+    /**
+     * 合流のために払ってよい「目的地へ近づかない移動」の上限（tick）。徒歩48ブロック相当。
+     *
+     * <p>合流区間は障害物を回り込むぶんだけ遠回りになることがあるので、多少の余裕は要る。
+     * 止めたいのは<b>回り込みではなく引き返し</b>——崖から飛び降りた直後は、真上の経路が
+     * 「最も近い」ままなので、そこへ合流しようとすると崖を登り直す区間が出る。
+     */
+    private static final double SPLICE_DETOUR_ALLOWANCE_TICKS = 48.0 * ActionCosts.SPRINT_ONE_BLOCK;
+
+    /**
+     * この合流は割に合うか。<b>払ったコストに見合うだけ目的地へ近づいているか</b>で見る。
+     *
+     * <p>合流点まで実際に掛かるコストと、目的地までの幾何学的な下限がどれだけ縮んだかを比べる。
+     * 縮んだぶん＋{@link #SPLICE_DETOUR_ALLOWANCE_TICKS}を超えて払っているなら、その合流は
+     * 前へ進むためではなく<b>元の経路へ戻るため</b>に払っている。
+     *
+     * <p>実測（高台を西へ向かう経路の途中で崖下へ飛び降りた場面）: 合流区間は真上の崖へ
+     * 登り直す1004tickで、目的地への下限は529→463と<b>66しか縮まない</b>。合流を採ると合計1467、
+     * その場から引き直せば1060だった。逆に普通の逸脱（経路の横数ブロック）では、払うのも縮むのも
+     * 数ブロックぶんなので余裕の中に収まる。
+     *
+     * <p><b>探索の後に見るしかない。</b>合流点までの下限（幾何学）で先に判定しようとしても、
+     * 崖のケースは下限130に対して実コスト1004——下限では引き返しを見抜けない。
+     */
+    static boolean spliceWorthTaking(double spliceCost, BlockPos player, BlockPos joinPos, BlockPos goal) {
+        double gained = Heuristic.estimate(player.getX(), player.getY(), player.getZ(),
+                        goal.getX(), goal.getY(), goal.getZ())
+                - Heuristic.estimate(joinPos.getX(), joinPos.getY(), joinPos.getZ(),
+                        goal.getX(), goal.getY(), goal.getZ());
+        return spliceCost <= gained + SPLICE_DETOUR_ALLOWANCE_TICKS;
+    }
+
     private static int joinableStepIndex(Level level, List<PathStep> steps, Vec3 position, int minIndex) {
         return joinableStepIndex(steps, position, minIndex,
                 i -> PathValidator.stepFailure(level, steps.get(i), i) == null);
@@ -2033,6 +2067,15 @@ public final class PathfindingState {
                 spliceBlockedFrom = playerAt;
                 LOGGER.info("XaeroNav: 経路へ合流できませんでした ({}, 合流点={}, 展開ノード数={})",
                         splice.termination(), joinPos.toShortString(), splice.expandedNodes());
+                return;
+            }
+            double spliceCost = splice.steps().stream().mapToDouble(PathStep::cost).sum();
+            if (!spliceWorthTaking(spliceCost, playerAt, joinPos, currentGoal)) {
+                // 合流できるが、そのために元の経路へ引き返すことになる。捨てて全部引き直す
+                // （次のtickでspliceBlockedFromが効いて、呼び出し側のrecalculateへ落ちる）
+                spliceBlockedFrom = playerAt;
+                LOGGER.info("XaeroNav: 合流は引き返しになるので諦めました (合流点={}, 合流区間={}tick)",
+                        joinPos.toShortString(), Math.round(spliceCost));
                 return;
             }
             spliceBlockedFrom = null;
