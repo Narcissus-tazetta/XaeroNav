@@ -76,6 +76,25 @@ final class PathValidator {
     }
 
     /**
+     * そのセルを今のワールドから読めるか。
+     *
+     * <p><b>未読み込みチャンクを「地形が消えた」と取り違えないための門番。</b>
+     * {@code Level#getBlockState}は未読み込みの座標に対して{@code EmptyLevelChunk}の
+     * {@code VOID_AIR}を返す（{@code ClientChunkCache#getChunk}が{@code emptyChunk}へ落ちる）。
+     * これは<b>足場も無く・掘る必要も無い</b>と読めてしまうので、門番が無いと
+     * 「足場が無い」と「掘る前提のセルが既に空いている」の両方が同時に誤爆する。
+     *
+     * <p>効くのは<b>読み込み済み範囲の外へ伸びた経路</b>。層2はXaeroの地図データから
+     * 描画距離の外の区間も組むので、そこが必ず無効と判定されて経路ごと捨てられていた
+     * （実機ログ: {@code ステップ522(TRAVERSE) 足場が無い pos=0, 3, -1}＝245ブロック先）。
+     * 分からないものを「壊れた」と数えてはいけない——変化を拾えないのは織り込み済みで、
+     * 近づけば読めるようになる。
+     */
+    private static boolean readable(Level level, BlockPos pos) {
+        return level.hasChunkAt(pos);
+    }
+
+    /**
      * このステップで<b>塞がっていてはいけない</b>身体セル＝手前（自分自身を含む）で掘る予定に
      * なっていないもの。
      */
@@ -86,6 +105,11 @@ final class PathValidator {
     private static String stepFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
                                       Set<BlockPos> plannedDigs) {
         BlockPos pos = step.pos();
+        if (!readable(level, pos)) {
+            // このステップの周りは丸ごと読めない。1セルずつの門番でも同じ結論になるが、
+            // 先に降りておくと未読み込み区間を舐める間のブロック参照そのものが要らなくなる
+            return null;
+        }
         if (step.swimming() || step.boating()) {
             // 泳ぐ区間もボートの区間も、足場ではなく水そのものが前提
             if (!CellData.water(CellData.flagsOf(level.getBlockState(pos)))) {
@@ -99,19 +123,24 @@ final class PathValidator {
         } else if (!step.bridging()) {
             // ブロックを置いて渡る区間は、足元が空いていることが前提なので床を確認しない
             cursor.set(pos.getX(), pos.getY() - 1, pos.getZ());
-            if (!CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
+            if (readable(level, cursor)
+                    && !CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
                 return "ステップ%d(%s) 足場が無い pos=%s".formatted(i, step.movement(), cursor.immutable().toShortString());
             }
         }
         // 掘り終えた区間を「まだ掘る場所」として提示し続けないよう、掘る前提のセルが
         // 空いていたら経路ごと組み直す（掘れば経路自体も安くなりうる）
         for (BlockPos cell : step.digCells()) {
-            if (CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(cell)))) {
+            if (readable(level, cell)
+                    && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(cell)))) {
                 return "ステップ%d(%s) 掘る前提のセルが既に空いている cell=%s"
                         .formatted(i, step.movement(), cell.toShortString());
             }
         }
         for (BlockPos cell : unexcavatedBodyCells(step, plannedDigs)) {
+            if (!readable(level, cell)) {
+                continue;
+            }
             long flags = CellData.flagsOf(level.getBlockState(cell));
             // 閉じたドアは通れる前提（開けて通る）なので、塞がっているとは見なさない
             if (!CellData.occupiableWithoutDigging(flags) && !CellData.openable(flags)) {

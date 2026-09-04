@@ -199,24 +199,48 @@ public final class ActionCosts {
     public static final double FALL_ASYMPTOTIC_MIN_PER_BLOCK = 1.0 / 3.92;
 
     /**
+     * 横へ1ブロックずれて元の進行方向へ戻る迂回の値段（tick）。疾走の斜め2手が直進2手を
+     * 置き換えるので{@code 2·(√2−1)·}{@link #SPRINT_ONE_BLOCK}。
+     *
+     * <p><b>地形を触る手間の単位</b>としてこれを使う——{@link #DIG_OVERHEAD_TICKS}や
+     * {@link #PLACE_BLOCK_OVERHEAD_TICKS}を「迂回何ブロックと釣り合うか」で置けるようになり、
+     * 値の妥当性を人間が判断できる形になる。時間そのものは同じ単位のtickなので換算は要らない。
+     */
+    public static final double SIDESTEP_ONE_BLOCK = 2.0 * (DIAGONAL_DISTANCE - 1.0) * SPRINT_ONE_BLOCK;
+
+    /**
      * ブロックを1つ壊すときの、破壊時間そのもの以外の手間。立ち止まって向き直り、狙いを付け、
      * 壊し終えてから走り出し直すまで。
      *
-     * <p><b>値は「1マスの出っ張りを、掘るか跨ぐか」の釣り合いで決めてある。</b>跨ぐのは
-     * {@link #ASCEND_ONE_BLOCK}+{@link #DESCEND_ONE_BLOCK}＝13.95tick。掘って通るのは
-     * 破壊時間＋この値＋{@link #SPRINT_ONE_BLOCK}なので、土(1.88)・草(2.25)をシャベルで掘る場合に
-     * 8.0でちょうど釣り合う（石(5.63)なら跨ぐ方が安い、という順序も同時に付く）。
+     * <p><b>値は「1セル掘るか、横へ迂回するか」の釣り合いで置いてある。</b>単位は
+     * {@link #SIDESTEP_ONE_BLOCK}(2.95)。2マスの壁（登れないので掘るか迂回するかしかない）を
+     * 実測すると、22.0では<b>迂回7ブロック</b>で掘る側に倒れる。
      *
-     * <p>以前は2.0＝0.1秒で、これは<b>人間には物理的に不可能な速さ</b>だった。結果として道具を
-     * 持っていると1マス掘るのが徒歩1.1マス相当になり、2マス以上の迂回が要る地形では常に掘る方が
-     * 勝っていた——「平地を歩いているだけなのに地面を壊せと言われる」というユーザー報告そのもの。
+     * <p>算術上の比（22.0/2.95＝7.5）よりわずかに手前で倒れるのは、探索が
+     * {@link net.prason.xaeronav.pathfinding.astar.AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT}で
+     * 重み付けされていて、目的地から一度離れる手を系統的に嫌うため。<b>釣り合いを動かすときは
+     * 比ではなく実測の倒れる位置を見ること</b>（{@code TerrainEditVersusDetourTest}）。
      *
-     * <p>{@link #PLACE_BLOCK_OVERHEAD_TICKS}(16.0)より軽いままにしてあるのは意図的で、
-     * あちらの「掘るのと積むのが同じ手数に見えるなら掘る方を選ばせたい」という順序は保つ。
+     * <p><b>この釣り合いが低すぎると、自然地形では歩くたびに掘ることになる。</b>2マスの段差や
+     * 幅1の壁は数ブロックおきにあるので、迂回3ブロックで掘る側に倒れる値（＝8.0）では
+     * そのほとんどが掘削になる——ユーザー報告「地上を歩いてる時に無駄なブロックを掘る動作が多い」
+     * がこれ。逆に上げすぎると、少し掘れば通れる洞窟や崖で大回りの案内が出る。
+     *
+     * <p>下限側は自動的に満たされる: 1マスの出っ張りを跨ぐのは
+     * {@link #ASCEND_ONE_BLOCK}+{@link #DESCEND_ONE_BLOCK}＝8.20tickで、掘って通るのは
+     * 破壊時間＋この値＋{@link #SPRINT_ONE_BLOCK}なので必ず跨ぐ方が安い。
+     *
+     * <p><b>これは1セルあたりの値段</b>なので、身体2セルを掘り抜く移動は2回払う。同じ停止で
+     * 2つ壊す場合には過大だが、地上を歩く場面では1セルで済む（2マスの壁は上のセルだけ崩して
+     * 跨げる）ので、効くのは天井のある坑道を掘り進む経路だけ。そこでは掘る以外の道が無いことが
+     * 多く、経路の形は変わらない。
+     *
+     * <p>{@link #PLACE_BLOCK_OVERHEAD_TICKS}より軽いままにしてあるのは意図的で、
+     * 「掘るのと積むのが同じ手数に見えるなら掘る方を選ばせたい」という順序を保つ。
      * 置く方が重いのは、狙う先が<b>特定のブロックの特定の面</b>で、しかも空洞へ後ろ向きに
      * 下がりながらやることになるため。
      */
-    public static final double DIG_OVERHEAD_TICKS = 8.0;
+    public static final double DIG_OVERHEAD_TICKS = 22.0;
 
     /**
      * 水底に足を着けたまま、頭が水に浸かった状態で掘る遅さ。{@code Player#getDigSpeed}は
@@ -268,17 +292,52 @@ public final class ActionCosts {
     public static final double SUBMERGED_TRAVEL_PENALTY = 1.3;
 
     /**
+     * 狙って1つ置く動作そのものの値段（tick）。立ち止まって<b>特定のブロックの特定の面</b>へ
+     * 向き直り、狙って置くまで。
+     *
+     * <p><b>「走行を中断すること」の割増（{@link #TERRAIN_EDIT_INTERRUPTION_TICKS}）を含まない</b>
+     * のがここの要点。それを含まない値が要る場所が3つある——奈落・溶岩の上の橋
+     * （{@code AStarPathfinder#addBridge}）、既に落下している最中に置く水バケツMLG
+     * （{@link #MLG_WATER_OVERHEAD_TICKS}）、区間の入口で1度だけ払うボート
+     * （{@link #BOAT_OVERHEAD_TICKS}）。
+     */
+    public static final double PLACE_BLOCK_AIM_TICKS = 16.0;
+
+    /**
+     * 走っている途中で地形を触ることの割増（tick）。疾走を切り、進行方向から目を離し、
+     * 済んでから走り出し直すまで——<b>破壊時間や設置動作そのものとは別に必ず掛かる分</b>。
+     *
+     * <p>掛かるのは<b>設置だけ</b>（{@link #PLACE_BLOCK_OVERHEAD_TICKS}・{@code addPillar}）。
+     * 掘削は同じ理由の割増を{@link #DIG_OVERHEAD_TICKS}に畳み込んである——あちらはセル単位で
+     * 掛かるうえ釣り合わせる相手も違うので、共通化すると片方の実測がもう片方を動かしてしまう。
+     * 値は{@link #PLACE_BLOCK_OVERHEAD_TICKS}の側で実測して置いてある。
+     *
+     * <p><b>奈落・溶岩の上の橋には掛けない。</b>あちらでは橋の値段の上限を握っているのが
+     * 人間の好みではなく<b>探索が橋に手を届かせられるか</b>で、実測済みの窓
+     * （{@link #LAVA_BRIDGE_PENALTY_TICKS}）から外れると経路そのものが出なくなる。
+     * 迂回させたいという意図も、そこでは迂回路が探索の箱の中に無いので買えるものが無い。
+     */
+    public static final double TERRAIN_EDIT_INTERRUPTION_TICKS = 20.0;
+
+    /**
      * ブロックを設置して空洞を渡る際の照準・設置オーバーヘッド（Pillarの水平版）。
      *
      * <p>橋を架けながらの前進は「一度止まって足元の縁へ向き直り、狙って置く」の繰り返しなので、
-     * 走るのに比べて1/3程度の速さしか出ない。ここを数tickに見積もると1マスあたり徒歩(4.63)より
-     * 安くなり、数マス迂回すれば済む場所でも常に設置が選ばれてしまう。
+     * 走るのに比べて1/3程度の速さしか出ない。
      *
-     * <p>{@link #DIG_OVERHEAD_TICKS}より十分重くしてあるのは、掘るのと積むのが同じくらいの手数に
-     * 見える場面では掘る方を選ばせたいから。設置は手持ちのブロックを消費するうえ、置いた足場が
-     * そのまま地形として残る（次に通ったときの地形が変わる）。掘る方は素材が増える側に働く。
+     * <p><b>値は{@link #DIG_OVERHEAD_TICKS}と同じ釣り合いで置いてある。</b>2マスの段差を
+     * 柱1本で越える場合を実測すると、36.0では<b>迂回11ブロック</b>で積む側に倒れる
+     * （幅4の溝を橋で渡る場合は設置2本＋跳躍1回ぶんなので迂回21ブロック）。
+     * 掘削(7ブロック)より遠くまで迂回させるのは、設置が手持ちのブロックを消費するうえ、
+     * 置いた足場がそのまま地形として残る（次に通ったときの地形が変わる）ため——掘る方は
+     * 素材が増える側に働く。
+     *
+     * <p><b>2つの成分に分かれている。</b>{@link #PLACE_BLOCK_AIM_TICKS}が置く動作そのもので、
+     * {@link #TERRAIN_EDIT_INTERRUPTION_TICKS}が走行を切ることの割増。奈落・溶岩の上の橋では
+     * 後者を払わない（{@code AStarPathfinder#addBridge}）——理由はあちらの説明に書いてある。
      */
-    public static final double PLACE_BLOCK_OVERHEAD_TICKS = 16.0;
+    public static final double PLACE_BLOCK_OVERHEAD_TICKS =
+            PLACE_BLOCK_AIM_TICKS + TERRAIN_EDIT_INTERRUPTION_TICKS;
 
     /**
      * 落下ダメージ許容時、ダメージ1点(0.5ハート)あたりの追加ペナルティ。{@link #JUMP_REACH_PENALTY}と
@@ -288,22 +347,30 @@ public final class ActionCosts {
 
     /**
      * 水バケツMLG（着地寸前に水を設置し直後に回収して落下ダメージを無効化する）の照準・設置・回収
-     * オーバーヘッド。{@link #PLACE_BLOCK_OVERHEAD_TICKS}と同じ「照準して設置」動作なので同値を採用。
+     * オーバーヘッド。
+     *
+     * <p>{@link #PLACE_BLOCK_AIM_TICKS}（狙って置く動作そのもの）と同値。
+     * {@link #TERRAIN_EDIT_INTERRUPTION_TICKS}を含めないのは、MLGが<b>既に落下している最中</b>の
+     * 動作で、走行を中断して始めるものではないため。
      */
-    public static final double MLG_WATER_OVERHEAD_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
+    public static final double MLG_WATER_OVERHEAD_TICKS = PLACE_BLOCK_AIM_TICKS;
 
     /**
      * ボートを出して乗り、渡り終えて降りて回収するまでの手間。区間の入口で1度だけ払う。
      *
-     * <p>{@link #PLACE_BLOCK_OVERHEAD_TICKS}（狙って置く1動作）の2回分にしてある——
-     * 出す・乗るで1往復、降りる・回収するで1往復。降りる側を別の移動として作らず入口にまとめるのは、
-     * A*のノードが座標だけをキーにしていて「いま乗っているか」を状態として持てないため。
+     * <p>{@link #PLACE_BLOCK_AIM_TICKS}（狙って置く1動作）の2回分——出す・乗るで1往復、
+     * 降りる・回収するで1往復。降りる側を別の移動として作らず入口にまとめるのは、A*のノードが
+     * 座標だけをキーにしていて「いま乗っているか」を状態として持てないため。
+     *
+     * <p><b>{@link #TERRAIN_EDIT_INTERRUPTION_TICKS}を含めてはいけない。</b>区間の入口で1度だけ
+     * 払うここに「1マスごとの中断」を2回分掛けると中断を二重に数えることになり、下の損益分岐
+     * （水面10マス強）が意図せず倍以上に動く。
      *
      * <p>この値が損益分岐を決める: 泳ぎ({@link #SWIM_ONE_BLOCK})とボート({@link #PADDLE_ONE_BLOCK})の
      * 差は1マスあたり約3tickなので、10マスちょっと以上の水面を渡るときだけボートが選ばれる。
      * 小川を渡るのにいちいちボートを出せとは言わない、という線引きになる。
      */
-    public static final double BOAT_OVERHEAD_TICKS = 2.0 * PLACE_BLOCK_OVERHEAD_TICKS;
+    public static final double BOAT_OVERHEAD_TICKS = 2.0 * PLACE_BLOCK_AIM_TICKS;
 
     /**
      * 溶岩の上に足場を置いて渡る1ブロックあたりの追加ペナルティ。設置を1回でも外せば死ぬので
@@ -315,9 +382,14 @@ public final class ActionCosts {
      * 20ブロックの溶岩を渡るのに半径559ブロック相当の展開が先に必要になり、ネザーの3D迷路では
      * 20万ノードを焼いても橋に一度も到達しなかった（実機で確認）。
      *
-     * <p>{@link #PLACE_BLOCK_OVERHEAD_TICKS}と同値にすると1ブロック約35.6tick＝徒歩10ブロック相当。
+     * <p>{@link #PLACE_BLOCK_AIM_TICKS}と同値にすると橋1ブロックは約35.6tick＝徒歩10ブロック相当。
      * 20ブロックの溶岩横断が徒歩200ブロックの迂回と釣り合い、詳細探索の箱（描画距離）に収まる
      * 迂回路を一通り試してから橋を選ぶ、というちょうどの重みになる。
+     *
+     * <p><b>{@link #TERRAIN_EDIT_INTERRUPTION_TICKS}を含めてはいけない。</b>あの割増は
+     * 「1回設置するか横へ迂回するか」の釣り合いで決まる値で、上限を握っているのは人間の好み。
+     * こちらの上限を握っているのは<b>探索が橋に手を届かせられるか</b>という別の軸なので、
+     * 連動させると人間側の理由で動かしたときに上の実測の窓から外れる。
      *
      * <p>これより大きく迂回すべきかどうかは層1（{@code CoarseRouter.BridgePolicy}）が決める。
      * 描画距離の外の迂回路は詳細探索にはそもそも見えないので、ここで表現しようとしてはいけない。
@@ -326,7 +398,7 @@ public final class ActionCosts {
      * {@code CellSource#maxBridgeRunBlocks()}（移動を生成しない上限）で表す。ここを重くして
      * 表そうとすると、上の理由でそのまま展開ノード数の浪費になる。
      */
-    public static final double LAVA_BRIDGE_PENALTY_TICKS = PLACE_BLOCK_OVERHEAD_TICKS;
+    public static final double LAVA_BRIDGE_PENALTY_TICKS = PLACE_BLOCK_AIM_TICKS;
 
     /**
      * 底の無い空虚（ジ・エンドの奈落、探索範囲より深い大空洞）の上に足場を置いて渡る1ブロックあたりの

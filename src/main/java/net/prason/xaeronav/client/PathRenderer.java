@@ -447,9 +447,9 @@ public final class PathRenderer {
 
     /**
      * @param matched いま居るステップ。これより手前のハイライトは描かない——線と同じ切り詰めで、
-     *                <b>これが無いと通り過ぎた枠が経路の引き直しまで残る</b>。設置予定地の枠は
-     *                {@link #placementPending}が「実際に置かれた」と見たときにしか消えないので、
-     *                置かずに脇を通り過ぎるとセルが{@code replaceable}のまま残り続ける
+     *                <b>これが無いと通り過ぎた枠が経路の引き直しまで残る</b>。作業予定地の枠は
+     *                {@link #placementPending}・{@link #digPending}が「もう済んでいる」と見たときにしか
+     *                消えないので、手を付けずに脇を通り過ぎるとセルが元のまま残り続ける
      *                （ユーザー報告「通り過ぎた後でも青い枠が残る」の正体）
      */
     private boolean highlightVisible(PathGeometry geometry, int index, int matched, Vec3 camera,
@@ -463,7 +463,9 @@ public final class PathRenderer {
         if (dx * dx + dy * dy + dz * dz > cullRadiusSq) {
             return false;
         }
-        return !geometry.highlightPlacement[index] || placementPending(geometry, index);
+        return geometry.highlightPlacement[index]
+                ? placementPending(geometry, index)
+                : digPending(geometry, index);
     }
 
     /**
@@ -483,6 +485,29 @@ public final class PathRenderer {
         BlockPos pos = new BlockPos(geometry.highlightX[index], geometry.highlightY[index],
                 geometry.highlightZ[index]);
         return CellData.replaceable(CellData.flagsOf(level.getBlockState(pos)));
+    }
+
+    /**
+     * 掘る予定のセルがまだ塞がっているか。{@link #placementPending}の掘削版で、狙いも同じ
+     * ——<b>壊した瞬間に枠を消すためのもので、経路の引き直しを待たない</b>。引き直しは
+     * 数十tickに一度なうえ、壊したこと自体が引き直しの引き金なので、待つと壊し終えた場所に
+     * オレンジの枠が数秒残って見える。
+     *
+     * <p>判定は{@link CellData#occupiableWithoutDigging}——探索側
+     * （{@code AStarPathfinder#occupyCost}）が「掘らないと通れない」を決めているのと同じ規則にする。
+     * 空気かどうかで見ると、水・ツタのように<b>掘らずに体を置けるセル</b>に枠が残る。
+     *
+     * <p>砂・砂利の柱を掘るときは、1つ壊すと上が落ちてきて同じ枠が下の段へ移って見える。
+     * これは実際に掘る手が増えているので正しい。
+     */
+    private boolean digPending(PathGeometry geometry, int index) {
+        Level level = Minecraft.getInstance().level;
+        if (level == null) {
+            return true;
+        }
+        BlockPos pos = new BlockPos(geometry.highlightX[index], geometry.highlightY[index],
+                geometry.highlightZ[index]);
+        return !CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(pos)));
     }
 
     /**

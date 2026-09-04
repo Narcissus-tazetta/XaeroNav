@@ -77,11 +77,16 @@ public final class CoarseRouter {
     /**
      * {@link BridgePolicy#BRIDGE}で溶岩セルを渡る倍率。層1と層3はコストの単位をtickで揃えてあるので、
      * ここは勘ではなく層3の実コストから導く——1ブロックあたり
-     * {@code SPRINT_ONE_BLOCK + PLACE_BLOCK_OVERHEAD_TICKS + LAVA_BRIDGE_PENALTY_TICKS ≒ 35.6}tick、
+     * {@code SPRINT_ONE_BLOCK + PLACE_BLOCK_AIM_TICKS + LAVA_BRIDGE_PENALTY_TICKS ≒ 35.6}tick、
      * 通常の陸が3.564なので比は約10倍になる。
+     *
+     * <p>足すのが{@code PLACE_BLOCK_OVERHEAD_TICKS}ではなく{@code PLACE_BLOCK_AIM_TICKS}なのは、
+     * 層3が溶岩・奈落の橋では走行を中断するぶんの割増を乗せないため
+     * （{@code ActionCosts#TERRAIN_EDIT_INTERRUPTION_TICKS}）。層1だけ乗せると2つの層が
+     * 別の値段で同じ橋を評価することになる。
      */
     private static final double LAVA_BRIDGE_MULTIPLIER =
-            (ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+            (ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_AIM_TICKS
                     + ActionCosts.LAVA_BRIDGE_PENALTY_TICKS) / ActionCosts.SPRINT_ONE_BLOCK;
 
     /**
@@ -95,7 +100,7 @@ public final class CoarseRouter {
      * 必ずそちらが勝つ。詳細探索が上限で渡れない長さの奈落は、そもそも層1が選ばなくなる。
      */
     private static final double VOID_BRIDGE_MULTIPLIER =
-            (ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS
+            (ActionCosts.SPRINT_ONE_BLOCK + ActionCosts.PLACE_BLOCK_AIM_TICKS
                     + ActionCosts.VOID_BRIDGE_PENALTY_TICKS) / ActionCosts.SPRINT_ONE_BLOCK;
 
     /**

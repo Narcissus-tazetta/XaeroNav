@@ -165,9 +165,15 @@ public final class AStarPathfinder {
     private boolean placedBudgetBlocked;
 
     /**
-     * 足場を1つ置く手間の値段（tick）。既定は{@link ActionCosts#PLACE_BLOCK_OVERHEAD_TICKS}そのもので、
-     * <b>持ち物が乏しいときだけ</b>呼び出し側が割り増した値を渡す（{@code PathfindingExecutor}の
-     * 節約の引き直し）。
+     * 足場を1つ置く動作そのものの値段（tick）。既定は
+     * {@link ActionCosts#PLACE_BLOCK_AIM_TICKS}そのもので、<b>持ち物が乏しいときだけ</b>
+     * 呼び出し側が割り増した値を渡す（{@code PathfindingExecutor}の節約の引き直し）。
+     *
+     * <p><b>割増が掛かるのは置く動作の側だけ</b>で、走行を中断するぶん
+     * （{@link ActionCosts#TERRAIN_EDIT_INTERRUPTION_TICKS}）には掛からない。節約の引き直しが
+     * 減らしたいのは<b>使う枚数</b>なので、枚数に比例する成分だけを割り増すのが筋
+     * ——そして{@code PathfindingExecutor}が割増を差し引いて2つの経路を比べられるのも、
+     * 全ての設置が同じ額だけ膨らんでいるからこそ。
      *
      * <p><b>探索の開始時に決まる一律の値であること。</b>残り枚数で値段を変えると、同じ辺の値段が
      * 到達経路によって変わってA*の前提が崩れる（{@link PathNode#placedTotal}がノードの同一性に
@@ -323,7 +329,7 @@ public final class AStarPathfinder {
 
     /**
      * 足場を置く手間の値段に掛ける係数を明示するコンストラクタ。{@code 1.0}が既定
-     * （{@link ActionCosts#PLACE_BLOCK_OVERHEAD_TICKS}そのもの）。
+     * （{@link ActionCosts#PLACE_BLOCK_AIM_TICKS}そのもの）。
      *
      * <p>持ち物が乏しいときに「置く手数を減らした経路」を探し直すためのもの
      * （{@code PathfindingExecutor}の節約の引き直し）。<b>上限（{@link #placedBudget}）とは
@@ -335,7 +341,7 @@ public final class AStarPathfinder {
     public AStarPathfinder(CellSource view, SearchLimits limits, CostToGo costToGo, Tolerances tolerances,
                             double placementCostScale) {
         RunCaps caps = tolerances.caps();
-        this.placementCostTicks = ActionCosts.PLACE_BLOCK_OVERHEAD_TICKS * placementCostScale;
+        this.placementCostTicks = ActionCosts.PLACE_BLOCK_AIM_TICKS * placementCostScale;
         this.maxBridgeRun = caps.maxBridgeRunBlocks();
         this.maxLavaBridgeRun = caps.effectiveLavaBridgeRun();
         this.maxVoidBridgeRun = caps.effectiveVoidBridgeRun();
@@ -1580,9 +1586,18 @@ public final class AStarPathfinder {
         }
         // 進む1マスぶんだけ踏み切り地点の倍率で割る。置いたブロックの上は等速なので、遅いのは
         // ソウルサンド等の上から踏み出す分だけ。設置の手間（placementCostTicks）は
-        // 立っているブロックと無関係なので割らない
+        // 立っているブロックと無関係なので割らない。
+        //
+        // 走行を中断するぶんの割増は、奈落・溶岩の上では乗せない。あちらの値段の上限を握っているのは
+        // 人間の好みではなく「探索が橋に手を届かせられるか」で、実測済みの窓
+        // （ActionCosts#LAVA_BRIDGE_PENALTY_TICKS）から外れると経路そのものが出なくなる
+        // ——ジ・エンドの島渡りが60万ノードでも解けなくなることをRealEndTerrainTestで確認した。
+        // 迂回させたいという意図も、そこでは迂回路が探索の箱の中に無いので買えるものが無い
+        double interruption = voidBelow || lavaNearby
+                ? 0.0
+                : ActionCosts.TERRAIN_EDIT_INTERRUPTION_TICKS;
         double cost = ActionCosts.SPRINT_ONE_BLOCK / takeoffSpeedFactor(from.x, from.y, from.z)
-                + placementCostTicks
+                + placementCostTicks + interruption
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
                 // 遥か下が溶岩なら落差は測らない。外したときの結末は既に溶岩の割増が表しているので、
                 // 深さで二重に取ると測っていないネザーの橋の値段まで動く
@@ -1651,8 +1666,11 @@ public final class AStarPathfinder {
         if (Double.isInfinite(clearanceCost)) {
             return;
         }
+        // 柱は必ず実在の足場の上から始まる（上のreplaceable判定）ので、走行を中断するぶんの割増は
+        // 常に乗る。橋の側にある免除は「奈落・溶岩の上に迂回路が無い」ことを根拠にしたもので、
+        // 地面の上から1マス上がる話には当てはまらない
         double cost = ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
-                + placementCostTicks
+                + placementCostTicks + ActionCosts.TERRAIN_EDIT_INTERRUPTION_TICKS
                 + submerged(from, clearanceCost, from.x, from.y + 2, from.z);
         // 積んだブロックの上は自分が置いた足場であって地形ではないので、橋の連続を断たない。
         // 0に戻していた頃は「橋を上限まで架ける→1マス積む→また上限まで架ける」が合法だった。

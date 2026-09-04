@@ -31,6 +31,11 @@ public final class FakeCells implements CellSource {
     public static final char AIR = '.';
     /** 石。掘れば通れる（掘削コストは{@link #STONE_DIG_TICKS}）。 */
     public static final char STONE = '#';
+    /**
+     * 土・草をシャベルで掘る速さの固体（{@link #SOFT_DIG_TICKS}）。<b>地上を歩いている普段の
+     * プレイで実際に掘る相手</b>はこちらで、掘るか迂回するかの釣り合いはこれで測る。
+     */
+    public static final char SOFT = 'D';
     /** 掘れない岩盤。 */
     public static final char BEDROCK = 'B';
     /** 水。足場なしで通れる。 */
@@ -51,6 +56,16 @@ public final class FakeCells implements CellSource {
     public static final char ABSENT = '?';
 
     public static final double STONE_DIG_TICKS = 40.0;
+
+    /**
+     * 土・草を鉄のシャベルで掘り切るまで（tick）。硬度0.6・速度6・適正道具なので
+     * {@code 0.6 × 30/6 + }{@link ActionCosts#DIG_OVERHEAD_TICKS}＝25.0。
+     *
+     * <p>{@link #STONE_DIG_TICKS}(40)は硬度1.5を木・石のツルハシで掘るくらいの重さで、
+     * <b>地面や土手を掘る場面の値ではない</b>。掘る／迂回するの分岐を40で測ると釣り合いが
+     * 倍近く迂回寄りに出るので、その分岐を見るテストは必ずこちらを使うこと。
+     */
+    public static final double SOFT_DIG_TICKS = 0.6 * 30.0 / 6.0 + ActionCosts.DIG_OVERHEAD_TICKS;
 
     /** バニラの{@code Blocks.SOUL_SAND}の{@code speedFactor(0.4F)}そのもの。 */
     public static final float SOUL_SAND_SPEED_FACTOR = 0.4f;
@@ -238,6 +253,7 @@ public final class FakeCells implements CellSource {
             case AIR -> air();
             // 掘れば通れる普通の固体。掘る前は足場でもある
             case STONE -> CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE, STONE_DIG_TICKS);
+            case SOFT -> CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE, SOFT_DIG_TICKS);
             case BEDROCK -> CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE, Double.POSITIVE_INFINITY);
             // 水は当たり判定を持たないので足場にはならないが、掘らずに体を置ける
             case WATER -> CellData.withDigTicks(CellData.PRESENT | CellData.WATER, 0.0);

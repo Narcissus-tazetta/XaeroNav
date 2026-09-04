@@ -231,6 +231,25 @@ public final class PathfindingState {
     private static final double SUSPICIOUS_DEVIATION_BLOCKS = 24.0;
 
     /**
+     * 経路のステップのうち掘削・設置がこの割合を超えたら、迂回していなくても内訳を出す
+     * （{@link #noteSuspiciousShape}）。
+     *
+     * <p>ずれだけを引き金にしていると、<b>まっすぐ進みながら道中ずっと地形を壊している経路が
+     * 1行も残らない</b>。ユーザー報告「無駄な掘削・設置が多い」はそちらの形で出るので、
+     * 診断もそちらを直接見る必要がある。
+     */
+    private static final double SUSPICIOUS_TERRAIN_EDIT_FRACTION = 0.1;
+
+    /**
+     * 上の割合と<b>あわせて</b>要求する掘削・設置の実数。
+     *
+     * <p>割合だけだと短い経路で必ず鳴る——5ステップ先の段差を1つ掘る経路は2割で、これは普通の
+     * 案内。しかも経路は数十tickごとに引き直されるので、同じ1行がその間ずっと出続ける。
+     * 見たいのは「道中ずっと壊している」方なので、実数の下限で普段の1〜2手を落とす。
+     */
+    private static final int SUSPICIOUS_TERRAIN_EDIT_STEPS = 8;
+
+    /**
      * 地上優先ナビ（{@link #shouldClimbToSurface}）に入る深さの下限（ブロック）。
      * 地上のすぐ下は、洞窟の入口も崖もたいてい目と鼻の先にあるので、中継区間を挟むより
      * そのまま目的地を目指した方が短い。数マスのために案内を2段階にする価値はない。
@@ -2332,7 +2351,9 @@ public final class PathfindingState {
      * 急斜面を降りるための折り返し（{@code DESCEND}が多い）なのか、橋（{@code BRIDGE}）なのか、
      * 中間目標が飛んでいるのか。1行あれば区別が付く。
      *
-     * <p>普段は黙っている——{@link #SUSPICIOUS_DEVIATION_BLOCKS}を超えたときだけ出す。
+     * <p>普段は黙っている——{@link #SUSPICIOUS_DEVIATION_BLOCKS}を超えて外れたときと、
+     * 掘削・設置が{@link #SUSPICIOUS_TERRAIN_EDIT_STEPS}手を超えつつ
+     * {@link #SUSPICIOUS_TERRAIN_EDIT_FRACTION}も超えたときだけ出す。
      */
     private void noteSuspiciousShape(BlockPos start, BlockPos target, PathResult result) {
         List<PathStep> steps = result.steps();
@@ -2374,7 +2395,9 @@ public final class PathfindingState {
             deviation = Math.max(deviation, Math.abs((step.pos().getX() - start.getX()) * gz
                     - (step.pos().getZ() - start.getZ()) * gx) / length);
         }
-        if (deviation < SUSPICIOUS_DEVIATION_BLOCKS) {
+        boolean manyEdits = bridges + digs >= SUSPICIOUS_TERRAIN_EDIT_STEPS
+                && bridges + digs > steps.size() * SUSPICIOUS_TERRAIN_EDIT_FRACTION;
+        if (deviation < SUSPICIOUS_DEVIATION_BLOCKS && !manyEdits) {
             return;
         }
         LOGGER.info("XaeroNav: 経路が直線から大きく外れています "
