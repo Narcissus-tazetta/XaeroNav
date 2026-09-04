@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.function.BooleanSupplier;
 
 import org.junit.jupiter.api.Tag;
@@ -23,15 +24,18 @@ import net.prason.xaeronav.pathfinding.world.TerrainFixture;
  * <b>実機の地形で、案内される経路が最良からどれだけ離れているかを測る。</b>
  * 地形は{@code tools/dump_terrain_columns.py}で保存データから書き出したもの。
  *
- * <p>ユーザー報告「最適じゃないルートを案内されている気がする」に対する番人。個別の地形で
- * 「この経路が出てほしい」を書く他のテストと違い、<b>基準との比</b>だけを見る——地上・ネザー・
- * エンドを16方向へ、という人間が期待経路を書けない規模で崩れを捕まえるため。
+ * <p>個別の地形で「この経路が出てほしい」を書く他のテストと違い、<b>基準との比</b>だけを見る。
+ * 人間が期待経路を書けない規模——9つの地形へ、種を固定した乱数で振った始点・終点——で崩れを
+ * 捕まえるため。
+ *
+ * <p><b>地形はバイオームごとに性格が違う</b>ので、1つの地形で測っても足りない。山岳（起伏168）は
+ * 昇降の値付けを、海岸（水65%）は水の渡り方を、玄武岩の三角州は溶岩と細かい起伏を、
+ * それぞれ別の形で突く。1つずつ「この地形では」と書くのではなく、まとめて比だけ見るのがこの形の狙い。
  *
  * <p><b>基準は同じ{@code CellSource}に対する重み1.0・層1ガイド無し・予算実質無制限の探索。</b>
  * 実運用の構成（重み{@link AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT}・ガイド有り・既定予算）との
  * 差は、まるごと<b>実装が持ち込んだ最適でなさ</b>になる。基準も同じ探索器なので厳密な最適では
- * ない（{@code orderingCost}の量子化とclosedを開き直さない性質のぶん）——測っているのは
- * 「この探索器が到達しうる最良から、実運用の構成がどれだけ離れるか」。
+ * ない（{@code orderingCost}の量子化とclosedを開き直さない性質のぶん）。
  *
  * <p><b>捕まえられないもの: コスト模型そのものの間違い。</b>両側が同じ模型なので比は1.00のまま
  * 出る。「掘るか迂回するか」の交換レートのような値の妥当性は人間が見るしかない
@@ -45,56 +49,88 @@ class PathOptimalityTest {
     /** 実機の既定予算（{@code PathfindingState}）。 */
     private static final int PRODUCTION_NODE_BUDGET = 100_000;
 
-    /** 基準の探索に渡す予算。この地形なら実測で最大30万ノード程度なので、実質無制限。 */
+    /** 基準の探索に渡す予算。実測で最大30万ノード程度なので、実質無制限。 */
     private static final int UNLIMITED_NODE_BUDGET = 3_000_000;
 
-    /** 全体の悪化を捕まえる線。実測は地上1.034・ネザー0.995・エンド0.998。 */
+    /**
+     * 乱数の種。<b>固定するのが要点</b>——毎回違う経路を測ると、落ちたときに再現できないうえ、
+     * たまたま厳しい組が引かれただけなのか本当に悪化したのかを区別できない。
+     */
+    private static final long SEED = 20260904L;
+
+    /** 地形ごとに測る経路の本数。 */
+    private static final int ROUTES_PER_TERRAIN = 20;
+
+    private static final int MIN_ROUTE_BLOCKS = 40;
+    private static final int MAX_ROUTE_BLOCKS = 90;
+
+    /** 全体の悪化を捕まえる線。 */
     private static final double MEAN_LIMIT = 1.06;
 
     /**
-     * 1本でも破滅的なら落とす線。実測は地上1.223・ネザー1.096・<b>エンド1.417</b>。
-     *
-     * <p>エンドの1本だけ大きいのは島渡り（奈落を43本の橋で渡る区間）で、層1の16ブロック解像度が
-     * 「どの島を踏むか」を決めてしまうため原理的に詰まらない。その1本を許す位置に置いてあるので、
-     * <b>他の2次元では実質1.2倍が上限</b>として効く。
+     * 1本でも破滅的なら落とす線。エンドの島渡り（層1の16ブロック解像度が「どの島を踏むか」を
+     * 決めてしまう区間）だけが1.4倍台に届くので、そこを許す位置に置いてある。
      */
     private static final double WORST_LIMIT = 1.45;
 
-    /** 中心から振る距離（ブロック）。近距離と、詳細探索の地平(96)に近い距離。 */
-    private static final int[] RADII = {40, 70};
+    /**
+     * 無駄な上下（正味の高低差を引いた上り＋下り）が、基準の経路より何倍まで許されるか。
+     *
+     * <p>ユーザー報告「平地で1〜2マス下がって上がるルートが出る」に対する番人。<b>地形そのものの
+     * 起伏ではなく、基準との比で見る</b>のが要点——山岳では上下して当たり前なので絶対量では測れない。
+     * コスト模型が上下に値段を付けている（{@code ActionCosts#STEP_TRANSITION_TICKS}）以上、
+     * 基準の経路は無駄な上下を避けているはずで、そこから離れるぶんは実装側の取り分。
+     *
+     * <p><b>1.00にはならない。</b>残っているのは重み{@link AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT}
+     * そのもので、実測すると重みを下げるだけ真っ直ぐになる（サバンナ: 1.5→1.62倍 / 1.2→1.24倍 /
+     * 1.0→1.05倍）。ただし下げると展開ノードが3〜5倍に増え、山岳の長距離では既定予算で
+     * 届かない経路が出る（20本中1本→3本）。<b>いまは速さを採っている</b>ぶんがこの比。
+     * 実測は地上/平原1.21・山岳1.33・サバンナ1.62・海岸1.36・森0.71・ネザー1.00〜1.04・エンド1.67。
+     */
+    private static final double WOBBLE_LIMIT = 1.75;
 
-    private static final int DIRECTIONS = 16;
-
-    private record Dimension(String name, String resource, TerrainFixture.Configure configure,
-                              List<BlockPos> centers) {
+    private record Terrain(String name, String resource, boolean ceiling) {
     }
 
-    /** 道具を持って普通に歩いている状態。次元によらず同じにして、差が地形だけから出るようにする。 */
-    private static FakeCells walkingPlayer(SearchBounds bounds) {
-        return FakeCells.empty(bounds).canPlaceBlocks(true).maxBridgeRunBlocks(96)
+    /** 道具を持って普通に歩いている状態。地形によらず同じにして、差が地形だけから出るようにする。 */
+    private static FakeCells walkingPlayer(SearchBounds bounds, boolean ceiling) {
+        FakeCells cells = FakeCells.empty(bounds).canPlaceBlocks(true).maxBridgeRunBlocks(96)
                 .maxFallDamagePoints(6);
+        // ネザーは岩盤天井が書き出した箱より上にある。実装の`ChunkView`と同じく空が開けていない状態にする
+        return ceiling ? cells.openSkyYOverride(bounds.maxY()) : cells;
     }
 
-    private static List<Dimension> dimensions() {
+    private static List<Terrain> terrains() {
         return List.of(
-                new Dimension("地上", "/overworld_terrain_columns.txt.gz",
-                        PathOptimalityTest::walkingPlayer,
-                        List.of(new BlockPos(80, 0, 80), new BlockPos(170, 0, 120),
-                                new BlockPos(110, 0, 180))),
-                // ネザーは岩盤天井が書き出した箱より上にある。実装の`ChunkView`と同じく、
-                // 空が開けていない状態として見せる
-                new Dimension("ネザー", "/nether_terrain_columns.txt.gz",
-                        bounds -> walkingPlayer(bounds).openSkyYOverride(bounds.maxY()),
-                        List.of(new BlockPos(-110, 0, -110), new BlockPos(-60, 0, -140),
-                                new BlockPos(-140, 0, -60))),
-                new Dimension("エンド", "/end_terrain_columns.txt.gz",
-                        PathOptimalityTest::walkingPlayer,
-                        List.of(new BlockPos(1230, 0, 1200), new BlockPos(1200, 0, 1210),
-                                new BlockPos(1260, 0, 1190))));
+                new Terrain("地上/平原丘陵", "/overworld_terrain_columns.txt.gz", false),
+                new Terrain("地上/山岳", "/overworld_mountains.txt.gz", false),
+                new Terrain("地上/サバンナ", "/overworld_savanna.txt.gz", false),
+                new Terrain("地上/海岸", "/overworld_coast.txt.gz", false),
+                new Terrain("地上/森", "/overworld_forest.txt.gz", false),
+                new Terrain("ネザー/荒地", "/nether_terrain_columns.txt.gz", true),
+                new Terrain("ネザー/玄武岩", "/nether_basalt_deltas.txt.gz", true),
+                new Terrain("ネザー/ソウル", "/nether_soul_sand_valley.txt.gz", true),
+                new Terrain("ネザー/深紅の森", "/nether_crimson_forest.txt.gz", true),
+                new Terrain("エンド", "/end_terrain_columns.txt.gz", false));
     }
 
     private static double cost(PathResult result) {
         return result.steps().stream().mapToDouble(PathStep::cost).sum();
+    }
+
+    /** 正味の高低差を引いた上り＋下り。まっすぐ登る経路では0になる。 */
+    private static int wobble(BlockPos start, PathResult result) {
+        int up = 0;
+        int down = 0;
+        BlockPos previous = start;
+        for (PathStep step : result.steps()) {
+            int dy = step.pos().getY() - previous.getY();
+            up += Math.max(0, dy);
+            down += Math.max(0, -dy);
+            previous = step.pos();
+        }
+        int net = Math.abs(up - down);
+        return up + down - net;
     }
 
     private static PathResult solve(FakeCells cells, BlockPos start, BlockPos goal, double weight,
@@ -109,54 +145,55 @@ class PathOptimalityTest {
     }
 
     /**
-     * 中心から{@link #DIRECTIONS}方向×{@link #RADII}。<b>方向を振るのが要点</b>——1本の経路では、
-     * たまたまその地形が素直だっただけなのか実装が正しいのかを区別できない。
-     * 立てない座標（水面・空中・箱の外）は飛ばす。
+     * 箱の中から立てる点を種固定の乱数で拾い、{@link #MIN_ROUTE_BLOCKS}〜{@link #MAX_ROUTE_BLOCKS}
+     * 離れた組を作る。<b>中心から放射状に振るのではなく散らす</b>のは、1つの中心の周りだけを見ると
+     * その地点の地形の癖しか測れないため。
      */
-    private static List<BlockPos[]> routes(FakeCells cells, List<BlockPos> centers) {
+    private static List<BlockPos[]> routes(FakeCells cells, long seed) {
         SearchBounds bounds = cells.bounds();
+        Random random = new Random(seed);
         List<BlockPos[]> routes = new ArrayList<>();
-        for (BlockPos rawCenter : centers) {
-            if (TerrainFixture.standableY(cells, bounds, rawCenter.getX(), rawCenter.getZ())
-                    == Integer.MIN_VALUE) {
+        int attempts = 0;
+        while (routes.size() < ROUTES_PER_TERRAIN && attempts++ < 4000) {
+            BlockPos start = randomStandable(cells, bounds, random);
+            if (start == null) {
                 continue;
             }
-            BlockPos center = TerrainFixture.onGround(cells, bounds, rawCenter);
-            for (int radius : RADII) {
-                for (int direction = 0; direction < DIRECTIONS; direction++) {
-                    double angle = direction * 2.0 * Math.PI / DIRECTIONS;
-                    int x = center.getX() + (int) Math.round(radius * Math.cos(angle));
-                    int z = center.getZ() + (int) Math.round(radius * Math.sin(angle));
-                    if (TerrainFixture.standableY(cells, bounds, x, z) == Integer.MIN_VALUE) {
-                        continue;
-                    }
-                    routes.add(new BlockPos[] {center,
-                            TerrainFixture.onGround(cells, bounds, new BlockPos(x, 0, z))});
-                }
+            double angle = random.nextDouble() * 2.0 * Math.PI;
+            int distance = MIN_ROUTE_BLOCKS + random.nextInt(MAX_ROUTE_BLOCKS - MIN_ROUTE_BLOCKS + 1);
+            int x = start.getX() + (int) Math.round(distance * Math.cos(angle));
+            int z = start.getZ() + (int) Math.round(distance * Math.sin(angle));
+            int y = TerrainFixture.standableY(cells, bounds, x, z);
+            if (y == Integer.MIN_VALUE) {
+                continue;
             }
+            routes.add(new BlockPos[] {start, new BlockPos(x, y, z)});
         }
         return routes;
     }
 
-    /**
-     * 実運用の構成が基準から離れすぎないこと。
-     *
-     * <p><b>平均と最悪の両方を見る。</b>平均だけだと1本の破滅的な経路が薄まって見えず、
-     * 最悪だけだと「全体が少しずつ悪くなった」を見逃す——層1ガイドの歪みは実際に両方の形で
-     * 出ていた（1本1.48倍、かつ全体が平均1.13倍）。
-     */
+    /** 箱の内側（縁から16ブロック入った所）で立てる点。 */
+    private static BlockPos randomStandable(FakeCells cells, SearchBounds bounds, Random random) {
+        int x = bounds.minX() + 16 + random.nextInt(Math.max(1, bounds.maxX() - bounds.minX() - 32));
+        int z = bounds.minZ() + 16 + random.nextInt(Math.max(1, bounds.maxZ() - bounds.minZ() - 32));
+        int y = TerrainFixture.standableY(cells, bounds, x, z);
+        return y == Integer.MIN_VALUE ? null : new BlockPos(x, y, z);
+    }
+
     @Test
     void routesStayCloseToTheBestThisSearcherCanFind() throws IOException {
         List<String> report = new ArrayList<>();
         List<String> failures = new ArrayList<>();
-        for (Dimension dimension : dimensions()) {
-            // 探索は`cells`を読むだけなので1つを使い回す（1本ごとに読み直すと展開より読み込みの方が重い）
-            FakeCells cells = TerrainFixture.load(dimension.resource(), dimension.configure());
+        for (Terrain terrain : terrains()) {
+            FakeCells cells = TerrainFixture.load(terrain.resource(),
+                    bounds -> walkingPlayer(bounds, terrain.ceiling()));
             double worst = 1.0;
             double total = 0.0;
             String worstRoute = "";
             int measured = 0;
-            for (BlockPos[] route : routes(cells, dimension.centers())) {
+            int bestWobble = 0;
+            int productionWobble = 0;
+            for (BlockPos[] route : routes(cells, SEED)) {
                 PathResult best = solve(cells, route[0], route[1], 1.0, false, UNLIMITED_NODE_BUDGET);
                 if (!best.complete()) {
                     continue;
@@ -164,6 +201,8 @@ class PathOptimalityTest {
                 PathResult production = solve(cells, route[0], route[1],
                         AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT, true, PRODUCTION_NODE_BUDGET);
                 measured++;
+                bestWobble += wobble(route[0], best);
+                productionWobble += wobble(route[0], production);
                 double ratio = cost(production) / cost(best);
                 total += ratio;
                 if (ratio > worst) {
@@ -173,14 +212,25 @@ class PathOptimalityTest {
                                     cost(best), cost(production));
                 }
             }
+            if (measured == 0) {
+                failures.add(terrain.name() + ": 経路が1本も出ない（地形か座標がおかしい）");
+                continue;
+            }
             double mean = total / measured;
-            report.add(String.format(Locale.ROOT, "%s: %d本 平均%.3f倍 最悪%.3f倍 %s",
-                    dimension.name(), measured, mean, worst, worstRoute));
+            double wobbleRatio = bestWobble == 0 ? 1.0 : (double) productionWobble / bestWobble;
+            report.add(String.format(Locale.ROOT,
+                    "%-12s %2d本 平均%.3f倍 最悪%.3f倍 無駄な上下%d/%d(%.2f倍) %s",
+                    terrain.name(), measured, mean, worst, productionWobble, bestWobble,
+                    wobbleRatio, worstRoute));
             if (mean > MEAN_LIMIT) {
-                failures.add(dimension.name() + ": 経路が全体に遠回りになっている");
+                failures.add(terrain.name() + ": 経路が全体に遠回りになっている");
             }
             if (worst > WORST_LIMIT) {
-                failures.add(dimension.name() + ": 破滅的に遠回りな経路がある " + worstRoute);
+                failures.add(terrain.name() + ": 破滅的に遠回りな経路がある " + worstRoute);
+            }
+            if (wobbleRatio > WOBBLE_LIMIT) {
+                failures.add(terrain.name() + ": 無駄な上下が基準より多い " + productionWobble
+                        + " 対 " + bestWobble);
             }
         }
         System.out.println(String.join("\n", report));
