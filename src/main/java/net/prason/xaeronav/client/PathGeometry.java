@@ -27,6 +27,22 @@ final class PathGeometry {
     /** 水面の区間の線を水面よりわずかに浮かせ、水面のテクスチャとのZファイティングを避ける。 */
     private static final double WATER_SURFACE_OFFSET = 0.05;
 
+    /**
+     * 泳いで渡る区間の線を、水面からどれだけ沈めて描くか（ブロック）。
+     *
+     * <p><b>うつ伏せ泳ぎの目線は水面そのもの</b>（{@code Pose.SWIMMING}はeyeHeight 0.4で、
+     * 体は目が水面に来る高さで浮く）。そこへ線を水面に置くと、渡り切るまで画面の中央＝水平線の
+     * 上に棒が載り続ける。逃がす方向が下なのは、上へ逃がすと今度は見上げたときに同じことに
+     * なるのと、水中から見上げる場面で水面の描画に紛れるため。
+     *
+     * <p>値は「近くでは視界の外、遠くではまだ読める」で決まる。1.25なら2マス先で視線の32度下
+     * （既定FOV70の縦の画角＝上下35度のすぐ外）、10マス先で7度下に来る。
+     *
+     * <p><b>ボートは沈めない。</b>あちらは目線が水面より1マス以上上にあるので、水面の線は
+     * 元から視界を塞がない。
+     */
+    private static final double SWIM_LINE_DEPTH = 1.25;
+
     /** 2区間を一直線とみなす外積の大きさの上限。区間長が約1ブロックなので、この値なら実質的に厳密一致。 */
     private static final double COLLINEAR_EPSILON = 1.0e-6;
 
@@ -65,6 +81,11 @@ final class PathGeometry {
      * まとめられているので、ステップ番号から区間を引くにはこの対応が要る）。
      */
     final int[] segmentEndStep;
+    /**
+     * 両端とも{@link #SWIM_LINE_DEPTH}ぶん沈めて描いた区間か。描画側が自分の周りを抜くために使う
+     * （{@code PathRenderer#SWIM_NEAR_CLIP_BLOCKS}）。
+     */
+    final boolean[] segmentSunk;
 
     final int[] highlightX;
     final int[] highlightY;
@@ -89,7 +110,8 @@ final class PathGeometry {
     final int fadeFromSegment;
 
     private PathGeometry(PathResult source, double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
-                         int[] segmentEndStep, double[] stepX, double[] stepY, double[] stepZ,
+                         int[] segmentEndStep, boolean[] segmentSunk,
+                         double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
                          boolean[] highlightPlacement, int[] highlightStep, int fadeFromSegment) {
         this.source = source;
@@ -101,6 +123,7 @@ final class PathGeometry {
         this.stepZ = stepZ;
         this.segmentColor = segmentColor;
         this.segmentEndStep = segmentEndStep;
+        this.segmentSunk = segmentSunk;
         this.highlightX = highlightX;
         this.highlightY = highlightY;
         this.highlightZ = highlightZ;
@@ -177,19 +200,32 @@ final class PathGeometry {
     }
 
     /**
-     * {@code step}にいるプレイヤーに対応する、経路上の描き始めの点。
-     * {@link #firstSegmentFrom}が返した区間の内側にある（区間は一直線なので端点の間に載る）。
+     * {@code step}にいるプレイヤーに対応する、区間{@code segment}の描き始めの点を{@code out}へ書く。
+     *
+     * <p>まとめる前のステップ位置を<b>その区間の弦へ射影する</b>のが要点。陸の区間は一直線に
+     * まとめてあるので射影しても同じ点だが、水の区間は一直線でなくても畳む（{@link #fluidShortcut}）
+     * ため、生の点は弦から外れている——そのまま切り口にすると、1手進むごとに線の手前側が
+     * 弦とは違う向きへ振れる。
      */
-    double cutX(int step) {
-        return stepX[step + 1];
+    void cutPoint(int segment, int step, double[] out) {
+        projectOntoSegment(stepX[step + 1], stepY[step + 1], stepZ[step + 1],
+                pointX[segment], pointY[segment], pointZ[segment],
+                pointX[segment + 1], pointY[segment + 1], pointZ[segment + 1], out);
     }
 
-    double cutY(int step) {
-        return stepY[step + 1];
-    }
-
-    double cutZ(int step) {
-        return stepZ[step + 1];
+    /** 点{@code p}を線分{@code a}-{@code b}へ射影した点（線分の外へは出さない）。 */
+    static void projectOntoSegment(double px, double py, double pz,
+                                   double ax, double ay, double az,
+                                   double bx, double by, double bz, double[] out) {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double dz = bz - az;
+        double lengthSq = dx * dx + dy * dy + dz * dz;
+        double t = lengthSq < 1.0e-12 ? 0.0
+                : Math.clamp(((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / lengthSq, 0.0, 1.0);
+        out[0] = ax + dx * t;
+        out[1] = ay + dy * t;
+        out[2] = az + dz * t;
     }
 
     boolean matches(PathResult result) {
@@ -208,12 +244,16 @@ final class PathGeometry {
         // ので、描画位置をそのまま通行判定に使うと1つ上の空気のセルを見てしまう
         BlockPos[] rawBlock = new BlockPos[count + 1];
 
+        // 沈めて描いた点。区間ごとの印（segmentSunk）を後から組み立てるために持つ
+        boolean[] rawSunk = new boolean[count + 1];
+
         rawBlock[0] = start;
-        center(level, start, rawX, rawY, rawZ, 0);
+        // 始点は、そこから出ていく1手と同じ扱いにする。別扱いにすると先頭の1区間だけ段差になる
+        rawSunk[0] = center(level, start, steps.isEmpty() ? null : steps.get(0), rawX, rawY, rawZ, 0);
         for (int i = 0; i < count; i++) {
             PathStep step = steps.get(i);
             rawBlock[i + 1] = step.pos();
-            center(level, step.pos(), rawX, rawY, rawZ, i + 1);
+            rawSunk[i + 1] = center(level, step.pos(), step, rawX, rawY, rawZ, i + 1);
             rawColor[i] = PathColors.forStep(step);
         }
 
@@ -262,10 +302,15 @@ final class PathGeometry {
         }
 
         float[] flatSegmentColor = new float[segments * 3];
+        boolean[] flatSegmentSunk = new boolean[segments];
+        int startRaw = 0;
         for (int i = 0; i < segments; i++) {
             flatSegmentColor[i * 3] = outColor[i][0];
             flatSegmentColor[i * 3 + 1] = outColor[i][1];
             flatSegmentColor[i * 3 + 2] = outColor[i][2];
+            int endRaw = outEndStep[i] + 1;
+            flatSegmentSunk[i] = rawSunk[startRaw] && rawSunk[endRaw];
+            startRaw = endRaw;
         }
 
         List<BlockPos> highlightCells = new ArrayList<>();
@@ -310,7 +355,7 @@ final class PathGeometry {
 
         return new PathGeometry(result,
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
-                flatSegmentColor, Arrays.copyOf(outEndStep, segments), rawX, rawY, rawZ,
+                flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, rawX, rawY, rawZ,
                 hx, hy, hz, hColor, hPlacement, hStep, Math.min(fadeFromSegment, segments));
     }
 
@@ -368,22 +413,48 @@ final class PathGeometry {
     }
 
     /**
-     * 経路のセルを線の通過点にする。
+     * 経路のセルを線の通過点にする。沈めて描いたなら{@code true}。
      *
-     * <p><b>水面のセルだけ</b>は線を水面の上へ持ち上げる。水面のセルはブロックの高さで言えば
+     * <p><b>水面のセルだけ</b>は線をセル中心から動かす。水面のセルはブロックの高さで言えば
      * 水の中なので、セル中心（+0.55）に描くと水面の描画に沈み、ボートに乗っていると自分の体の
      * 真下になって見えない。水の上を進む区間（ボート・水面を泳ぐ）はこれが常態になる。
      *
-     * <p>持ち上げるのを水面のセルに限るのが要点。以前は<b>水中のセルを列ごと水面へ揃えて</b>いて、
-     * XZが同一でYだけ違う{@code SwimUp}/{@code SwimDown}が1点に潰れ、潜降・浮上が
-     * 区間長0になって描画ごと消えていた。ここでは自分自身が水面でない限りセルのYを使うので、
-     * 高さ違いが潰れることはない。
+     * <p>動かす向きは<b>足場の有無</b>で分かれる。足が着いていれば目線は水面より上にあるので
+     * 水面の上へ持ち上げる（ボート・浅瀬を歩く区間）。足場が無い＝泳いでいる区間は目線が水面
+     * そのものなので、逆に{@link #SWIM_LINE_DEPTH}ぶん沈める。<b>沈める側は水面と水中の
+     * 段差も同時に消える</b>——持ち上げていた頃は、経路が1マス潜るだけで線が1.5マス落ちていた
+     * （水面セルが+1.05、その1つ下が+0.55）。
+     *
+     * <p>水面のセル以外でセルのYをそのまま使うのは変えていない。以前は<b>水中のセルを列ごと
+     * 水面へ揃えて</b>いて、XZが同一でYだけ違う{@code SwimUp}/{@code SwimDown}が1点に潰れ、
+     * 潜降・浮上が区間長0になって描画ごと消えていた。
      */
-    private static void center(Level level, BlockPos pos, double[] outX, double[] outY, double[] outZ,
-                               int index) {
+    private static boolean center(Level level, BlockPos pos, PathStep step,
+                                  double[] outX, double[] outY, double[] outZ, int index) {
         outX[index] = pos.getX() + 0.5;
-        outY[index] = pos.getY() + (isWaterSurface(level, pos) ? 1.0 + WATER_SURFACE_OFFSET : 0.55);
         outZ[index] = pos.getZ() + 0.5;
+        if (!isWaterSurface(level, pos)) {
+            outY[index] = pos.getY() + 0.55;
+            return false;
+        }
+        if (sinkable(level, pos, step)) {
+            outY[index] = pos.getY() + 1.0 - SWIM_LINE_DEPTH;
+            return true;
+        }
+        outY[index] = pos.getY() + 1.0 + WATER_SURFACE_OFFSET;
+        return false;
+    }
+
+    /**
+     * この水面のセルを、泳いでいる区間として沈めて描いてよいか。
+     *
+     * <p>ボートを除くのは目線の高さが違うから（{@link #SWIM_LINE_DEPTH}）。足場を見るのは、
+     * 浅瀬を<b>歩いて</b>渡る区間も水面のセルを通るため——そこで沈めると、線が自分の歩いている
+     * 地面の下へ潜る。{@code MoveKind.SWIM}は足が着いていても付くので、種類ではなく足場で見る。
+     */
+    private static boolean sinkable(Level level, BlockPos pos, PathStep step) {
+        return step != null && !step.boating()
+                && !CellData.standable(CellData.flagsOf(level.getBlockState(pos.below())));
     }
 
     /** 水のセルで、かつ真上が水でない＝そこが水面。 */

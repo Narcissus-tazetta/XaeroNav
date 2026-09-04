@@ -107,6 +107,22 @@ class PathProgressTest {
     }
 
     @Test
+    void measuresTheDistanceWithAndWithoutTheVerticalGap() {
+        // 水面を泳いでいて経路が5マス下を通っている場面。縦を数えると既定の逸脱閾値(4)を
+        // 超えるが、水の中では上下に自由に動けるので経路からは外れていない
+        List<BlockPos> positions = new ArrayList<>();
+        for (int i = 1; i <= 20; i++) {
+            positions.add(new BlockPos(i, Y, 0));
+        }
+        PathResult result = path(positions);
+
+        PathProgress.INSTANCE.update(result, new Vec3(10.5, Y + 5.0, 0.5));
+
+        assertEquals(5.0, PathProgress.INSTANCE.distance(), 1.0e-9);
+        assertEquals(0.0, PathProgress.INSTANCE.horizontalDistance(), 1.0e-9);
+    }
+
+    @Test
     void anEmptyRouteClearsTheMapping() {
         PathResult result = path(List.of(new BlockPos(1, Y, 0)));
         PathProgress.INSTANCE.update(result, standingOn(new BlockPos(1, Y, 0)));
@@ -115,5 +131,7 @@ class PathProgressTest {
 
         assertEquals(Double.MAX_VALUE, PathProgress.INSTANCE.distance(),
                 "経路が無い間は「経路から限りなく遠い」＝再計算の対象として扱う");
+        assertEquals(Double.MAX_VALUE, PathProgress.INSTANCE.horizontalDistance(),
+                "水平で測る側も同じ（水中の逸脱判定がここを読む）");
     }
 }

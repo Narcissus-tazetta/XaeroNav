@@ -30,6 +30,7 @@ final class PathProgress {
     private PathResult source;
     private int index;
     private double distance = Double.MAX_VALUE;
+    private double horizontalDistance = Double.MAX_VALUE;
 
     private PathProgress() {
     }
@@ -39,6 +40,7 @@ final class PathProgress {
             source = null;
             index = 0;
             distance = Double.MAX_VALUE;
+            horizontalDistance = Double.MAX_VALUE;
             return;
         }
         List<PathStep> steps = result.steps();
@@ -55,6 +57,7 @@ final class PathProgress {
         }
         index = best;
         distance = Math.sqrt(distanceSq(steps.get(best).pos(), position));
+        horizontalDistance = Math.sqrt(horizontalDistanceSq(steps.get(best).pos(), position));
     }
 
     /**
@@ -94,6 +97,17 @@ final class PathProgress {
         return distance;
     }
 
+    /**
+     * 縦のずれを数えない、経路までの距離（ブロック）。
+     *
+     * <p>上下に自由に動ける場面——水の中——でだけ使う。そこでは経路のYは指示ではなく、
+     * 息継ぎで浮上したことを「経路から外れた」と数えると引き直しが止まらない
+     * （{@code PathfindingState#offPathDistance}）。
+     */
+    double horizontalDistance() {
+        return horizontalDistance;
+    }
+
     private static int nearest(List<PathStep> steps, Vec3 position, int from, int to) {
         int best = from;
         double bestDistance = Double.MAX_VALUE;
@@ -116,7 +130,8 @@ final class PathProgress {
     }
 
     /**
-     * 全体走査へ落ちるかの判定にだけ使う水平距離。
+     * 縦のずれを数えない距離。全体走査へ落ちるかの判定（{@link #FULL_SCAN_DISTANCE}）と、
+     * 水の中での逸脱の判定（{@link #horizontalDistance()}）が使う。
      *
      * <p>ここでYを見ると、水面を泳いでいて経路が水中を通る場面（高低差だけで8ブロックを超える）で
      * 毎tick全体走査に落ちる。全体走査は経路が自分自身の近くを通る地形で遠くの区間へ飛び移るので、
