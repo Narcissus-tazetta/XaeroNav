@@ -37,6 +37,19 @@ public final class PathRenderer {
     private static final double TUBE_RADIUS = 0.03;
 
     /**
+     * 泳ぐ区間の線を、カメラの周りこの半径だけ描かない（ブロック）。
+     *
+     * <p>水面を泳いでいる間、線は{@code PathGeometry#SWIM_LINE_DEPTH}ぶん下にあって視界を
+     * 塞がないが、<b>その深さまで潜れば線は再び目の高さに来る</b>。泳ぎは息継ぎのたびに上下
+     * するので、これは例外ではなく常態。手前の1〜2マスに案内としての中身は無い（外洋の線は
+     * ただの直線）ので、自分の周りだけ抜く。
+     *
+     * <p>抜くのは沈めて描いた区間だけ。陸の線は足元に載っていることそのものが情報で、
+     * 抜くと「どのブロックの上を歩くのか」が消える。
+     */
+    private static final double SWIM_NEAR_CLIP_BLOCKS = 2.5;
+
+    /**
      * 空中経路の筒の太さ。歩行の経路とは間合いが2桁違う——足元の線は数ブロック先だが、
      * 空中経路は50〜200ブロック先まで伸びるので、{@link #TUBE_RADIUS}のままでは画面上で
      * サブピクセルになって消える。
@@ -86,6 +99,9 @@ public final class PathRenderer {
     private final double[] ringX = new double[4];
     private final double[] ringY = new double[4];
     private final double[] ringZ = new double[4];
+
+    // 通り過ぎた区間を切り詰めた描き始めの点（描画スレッド専用）。区間ごとに配列を作らない
+    private final double[] segmentCut = new double[3];
 
     // 経路がまだ無いときに点線を引き始めるプレイヤーの足元（描画スレッド専用）。
     private double playerX;
@@ -338,7 +354,7 @@ public final class PathRenderer {
             if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
                 continue;
             }
-            drawSegment(occludedQuads, pose, geometry, i, OCCLUDED_TUBE_ALPHA, i == first ? matched : -1);
+            drawSegment(occludedQuads, pose, geometry, i, OCCLUDED_TUBE_ALPHA, i == first ? matched : -1, camera);
         }
         for (int i = 0; i < highlights; i++) {
             if (!highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
@@ -372,7 +388,7 @@ public final class PathRenderer {
             if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
                 continue;
             }
-            drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA, i == first ? matched : -1);
+            drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA, i == first ? matched : -1, camera);
         }
         int visibleHighlights = 0;
         for (int i = 0; i < highlights; i++) {
@@ -403,14 +419,70 @@ public final class PathRenderer {
      * 二択になり、線の始まりが数十ブロック先へ飛ぶ。
      */
     private void drawSegment(VertexConsumer buffer, PoseStack.Pose pose, PathGeometry geometry, int index,
-                             float alpha, int cutStep) {
-        drawTube(buffer, pose, TUBE_RADIUS,
-                cutStep >= 0 ? geometry.cutX(cutStep) : geometry.pointX[index],
-                cutStep >= 0 ? geometry.cutY(cutStep) : geometry.pointY[index],
-                cutStep >= 0 ? geometry.cutZ(cutStep) : geometry.pointZ[index],
-                geometry.pointX[index + 1], geometry.pointY[index + 1], geometry.pointZ[index + 1],
-                geometry.segmentColor[index * 3], geometry.segmentColor[index * 3 + 1],
-                geometry.segmentColor[index * 3 + 2], alpha * fadeRatio(geometry, index));
+                             float alpha, int cutStep, Vec3 camera) {
+        double fromX = geometry.pointX[index];
+        double fromY = geometry.pointY[index];
+        double fromZ = geometry.pointZ[index];
+        if (cutStep >= 0) {
+            geometry.cutPoint(index, cutStep, segmentCut);
+            fromX = segmentCut[0];
+            fromY = segmentCut[1];
+            fromZ = segmentCut[2];
+        }
+        float red = geometry.segmentColor[index * 3];
+        float green = geometry.segmentColor[index * 3 + 1];
+        float blue = geometry.segmentColor[index * 3 + 2];
+        float segmentAlpha = alpha * fadeRatio(geometry, index);
+        double toX = geometry.pointX[index + 1];
+        double toY = geometry.pointY[index + 1];
+        double toZ = geometry.pointZ[index + 1];
+        if (!geometry.segmentSunk[index]) {
+            drawTube(buffer, pose, TUBE_RADIUS, fromX, fromY, fromZ, toX, toY, toZ,
+                    red, green, blue, segmentAlpha);
+            return;
+        }
+        drawTubeOutsideCamera(buffer, pose, fromX, fromY, fromZ, toX, toY, toZ, camera,
+                red, green, blue, segmentAlpha);
+    }
+
+    /**
+     * カメラを中心とする{@link #SWIM_NEAR_CLIP_BLOCKS}の球を避けて筒を描く。球に入る区間は
+     * 手前側と奥側の2本に割れる（線の途中を泳いでいる間はこちらが常態で、手前を切るだけでは
+     * 自分の真横を通る部分が残る）。
+     */
+    private void drawTubeOutsideCamera(VertexConsumer buffer, PoseStack.Pose pose,
+                                       double fromX, double fromY, double fromZ,
+                                       double toX, double toY, double toZ, Vec3 camera,
+                                       float red, float green, float blue, float alpha) {
+        double dx = toX - fromX;
+        double dy = toY - fromY;
+        double dz = toZ - fromZ;
+        double lengthSq = dx * dx + dy * dy + dz * dz;
+        double ox = fromX - camera.x;
+        double oy = fromY - camera.y;
+        double oz = fromZ - camera.z;
+        double half = dx * ox + dy * oy + dz * oz;
+        double offset = ox * ox + oy * oy + oz * oz
+                - SWIM_NEAR_CLIP_BLOCKS * SWIM_NEAR_CLIP_BLOCKS;
+        double discriminant = half * half - lengthSq * offset;
+        if (discriminant <= 0.0) {
+            // 球に掛からない。ここが大多数（遠い区間はすべてこちら）
+            drawTube(buffer, pose, TUBE_RADIUS, fromX, fromY, fromZ, toX, toY, toZ, red, green, blue, alpha);
+            return;
+        }
+        double root = Math.sqrt(discriminant);
+        double enter = (-half - root) / lengthSq;
+        double exit = (-half + root) / lengthSq;
+        if (enter > 0.0) {
+            drawTube(buffer, pose, TUBE_RADIUS, fromX, fromY, fromZ,
+                    fromX + dx * Math.min(enter, 1.0), fromY + dy * Math.min(enter, 1.0),
+                    fromZ + dz * Math.min(enter, 1.0), red, green, blue, alpha);
+        }
+        if (exit < 1.0) {
+            double start = Math.max(exit, 0.0);
+            drawTube(buffer, pose, TUBE_RADIUS, fromX + dx * start, fromY + dy * start, fromZ + dz * start,
+                    toX, toY, toZ, red, green, blue, alpha);
+        }
     }
 
     /**

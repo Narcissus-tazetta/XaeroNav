@@ -583,6 +583,31 @@ class AStarPathfinderTest {
     }
 
     /**
+     * 外洋を渡る間、経路は<b>水面の層に貼り付く</b>。
+     *
+     * <p>渡っている間の高さは案内としての中身が無い（水の中はどの層も等しく通れる）ので、上下に
+     * 折れるぶんはそのまま線のノイズになる。ここが揺れると、描画が水面を基準に線を置いている
+     * （{@code PathGeometry}）前提も、水中で縦のずれを逸脱に数えない前提
+     * （{@code PathfindingState#offPathDistance}）も同時に崩れる。
+     *
+     * <p>貼り付く理由は{@link ActionCosts#SUBMERGED_TRAVEL_PENALTY}——水面のセルは頭が水の外に
+     * 出るので割増が乗らず、1マスでも潜ると乗る。
+     */
+    @Test
+    void staysOnTheSurfaceLayerWhileCrossingOpenWater() {
+        // 水面(y=70)から対岸まで58マス。潜っても浮いても水しか無いので、層を選ぶのはコストだけ
+        CellSource cells = openSea(60);
+
+        PathResult result = search(cells, new BlockPos(0, 70, 0), new BlockPos(58, 70, 0));
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().allMatch(step -> step.pos().getY() == 70),
+                "水面の層から離れない: " + result.steps().stream().map(PathStep::pos).toList());
+        assertEquals(58, result.steps().size(),
+                "1手1マスで真っ直ぐ渡る: " + result.steps().size() + "手");
+    }
+
+    /**
      * 岸へ上がる直前に一旦水中へ戻らない。
      *
      * <p>浅瀬（足が着く水）を「水底を歩く」値段で数えていた頃は、それが遊泳の1.64倍あったので、

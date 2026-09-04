@@ -935,7 +935,8 @@ public final class PathfindingState {
         }
         // 経路の帯からはみ出したときだけ引き直す。1〜2マス横にずれた程度で作り直すと、
         // そのたびに違う経路が出てきて線が落ち着かない（歩いているだけで案内が変わる）
-        if (PathProgress.INSTANCE.distance() > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
+        if (offPathDistance(mc.level, mc.player, result)
+                > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
             if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
                     && !splicePath(mc.level, mc.player, shown, 0)) {
                 // 合流できない経路だけ、全部引き直す
@@ -1877,7 +1878,8 @@ public final class PathfindingState {
         // 特定できない（再計算そのものの理由はどこにも出ていない）。頻度は完走した経路を
         // 持っている間の再計算だけなので、debugゲート無しでも並ばない
         boolean tracked = PathProgress.INSTANCE.tracking(result);
-        double offPath = tracked ? PathProgress.INSTANCE.distance() : distanceToPath(result, player.position());
+        double offPath = tracked ? offPathDistance(level, player, result)
+                : distanceToPath(result, player.position());
         String dropped = null;
         // 「地形が変わった」は内訳まで出す。どのステップの何が不成立になったのかが分からないと、
         // 渡り切った直後に完走ルートが手放されるような症状の原因を追えない
@@ -1901,6 +1903,59 @@ public final class PathfindingState {
             return null;
         }
         return shown;
+    }
+
+    /**
+     * 逸脱の判定に使う、経路までの距離（ブロック）。
+     *
+     * <p><b>同じ水の中で縦に繋がっている間は、上下のずれを数えない。</b>水中では上下に自由に
+     * 動けるので、経路のYは「そこを通れ」という指示ではない——泳ぎは息継ぎのたびに浮上と潜降を
+     * 繰り返すので、縦のずれを逸脱に数えると、水面の経路を追っているだけで既定の閾値(4)を超え、
+     * 数秒おきに合流と引き直しが走る。<b>真上・真下にいるなら経路を辿れている</b>という見方は、
+     * 全体走査へ落ちるかの判定（{@link PathProgress#horizontalDistance()}）と同じ。
+     *
+     * <p>繋がりを見るのは、水中洞窟へ入り込んで本当に外れた場合まで見逃さないため。
+     */
+    private static double offPathDistance(Level level, Player player, PathResult result) {
+        double distance = PathProgress.INSTANCE.distance();
+        double horizontal = PathProgress.INSTANCE.horizontalDistance();
+        // 縦のずれが無い＝どちらで測っても同じ。水を舐めるまでもない
+        if (distance - horizontal < 1.0e-6) {
+            return distance;
+        }
+        BlockPos step = result.steps().get(PathProgress.INSTANCE.indexFor(result)).pos();
+        return swimmableBetween(level, player.blockPosition(), step) ? horizontal : distance;
+    }
+
+    /**
+     * プレイヤーとこのステップが、同じ水の中で縦に繋がっているか。繋がっているなら、上下のずれは
+     * その場で泳いで詰められる。
+     *
+     * <p>走査は<b>プレイヤーの柱</b>で行う。ステップ側の柱を見ると、間に挟まった陸地越しに
+     * 繋がって見えることがある（岸のすぐ横を泳いでいて、経路が崖の上を通っている場面）。
+     *
+     * <p>足元のセルが水でなければ1つ下から始める。水面を泳ぐプレイヤーは水面をまたいで浮き沈み
+     * するので、ブロック座標は水面のセルとその1つ上を行き来する——上に居る瞬間だけ「水の中に
+     * いない」と判定すると、まさに息継ぎの瞬間に逸脱が立つ。
+     */
+    private static boolean swimmableBetween(Level level, BlockPos player, BlockPos step) {
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        int playerY = player.getY();
+        if (!water(level, cursor.set(player.getX(), playerY, player.getZ()))) {
+            // 緩めるのはプレイヤー側の1マスだけ。ステップ側まで緩めると、水の上の崖を通る経路が
+            // 「水柱で繋がっている」ことになる
+            playerY--;
+        }
+        for (int y = Math.min(playerY, step.getY()); y <= Math.max(playerY, step.getY()); y++) {
+            if (!water(level, cursor.set(player.getX(), y, player.getZ()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean water(Level level, BlockPos pos) {
+        return level.hasChunkAt(pos) && CellData.water(CellData.flagsOf(level.getBlockState(pos)));
     }
 
     /**
