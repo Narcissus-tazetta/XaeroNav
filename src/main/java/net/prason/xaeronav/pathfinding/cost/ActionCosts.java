@@ -79,7 +79,38 @@ public final class ActionCosts {
      */
     public static final double JUMP_ONE_BLOCK = FallPhysics.ticksToFall(1.25) - FallPhysics.ticksToFall(0.25);
 
-    public static final double ASCEND_ONE_BLOCK = Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK);
+    /**
+     * 1マス上下するたびに乗る手間（tick）。上りにも下りにも掛ける。
+     *
+     * <p><b>値は「1マスの上下と、横へ何ブロック迂回するかの釣り合い」で置いてある。</b>
+     * 純粋な時間だけで測ると、1マス下がって上がる往復は平地2マスより{@code 1.069}tick高いだけ
+     * ——横へ1ブロックずれて戻る迂回（{@link #SIDESTEP_ONE_BLOCK}＝2.952）より<b>安い</b>。
+     * つまり模型は「1マスの窪みは踏み越える方が得」と言っており、実際そういう経路が出る
+     * （ユーザー報告「平地で1マス下がって1マス上がるみたいなルートがよく起きる」）。
+     *
+     * <p>3.0にすると1マスの窪みが{@code 1.069 + 2×3.0 = 7.07}＝<b>横2ブロックの迂回</b>と釣り合い、
+     * 2マスの窪みは横4ブロックと釣り合う。人間が「そのくらいなら回り込む」と感じる幅。
+     *
+     * <p><b>上下の両方に掛けるのが要点。</b>意味のある高低差（目的地が高い）は片道ぶんしか
+     * 掛からないのに対し、往復する無駄な上下は2倍払う——避けたいのは後者だけなので、
+     * この非対称がそのまま効く。
+     *
+     * <p>実測（実機地上の200ブロック級の経路2本、正味の高低差を引いた「無駄な上下」ブロック数）:
+     *
+     * <pre>
+     * 0.0 → 60 / 82（214手 / 214手）
+     * 1.5 → 44 / 72（218手 / 215手）
+     * 3.0 → 40 / 62（222手 / 216手）   ← ここ
+     * 5.0 → 34 / 42（237手 / 270手）
+     * </pre>
+     *
+     * <p>5.0まで上げると無駄な上下はさらに減るが、<b>迂回が効きすぎて経路が26%長くなる</b>
+     * （214手→270手）。3.0は手数を1〜4%に留めたまま無駄な上下を1/4〜1/3落とす。
+     */
+    public static final double STEP_TRANSITION_TICKS = 3.0;
+
+    public static final double ASCEND_ONE_BLOCK =
+            Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK) + STEP_TRANSITION_TICKS;
 
     /**
      * 隙間を飛び越えるときの滞空時間（約12.5tick）。踏み切ってから着地するまでは滞空時間そのもので、
@@ -117,14 +148,15 @@ public final class ActionCosts {
      * と同じだが、<b>あちらは1手ずつ実行するボットで実際に減速する</b>。こちらは人間に
      * 「そのまま走って降りろ」と指示するだけなので、減速しない側が正しい。
      *
-     * <p>{@link #SPRINT_ONE_BLOCK}を<b>下回らせてはいけない</b>——
+     * <p>水平成分は{@link #SPRINT_ONE_BLOCK}を<b>下回らせてはいけない</b>——
      * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}が水平の下限に疾走を置いているので、
-     * 割ると非許容になる。実測がわずかに速いぶんは切り捨てて疾走ちょうどに置く。
+     * 割ると非許容になる。実測がわずかに速いぶんは切り捨てて疾走ちょうどに置き、そこへ
+     * {@link #STEP_TRANSITION_TICKS}（1段の上下そのものの手間）を足す。
      *
      * <p>意図して大きく落ちる{@code Fall}は従来どおり{@link #fallCost(int)}で、あちらは
      * 落下時間そのものが律速なので変わらない。
      */
-    public static final double DESCEND_ONE_BLOCK = SPRINT_ONE_BLOCK;
+    public static final double DESCEND_ONE_BLOCK = SPRINT_ONE_BLOCK + STEP_TRANSITION_TICKS;
 
     /**
      * 落下ダメージを受けずに降りられる高さ。バニラは{@code ceil((落下距離 - SAFE_FALL_DISTANCE) × 倍率)}を
@@ -180,7 +212,7 @@ public final class ActionCosts {
      * 山の上を目指す経路で探索が不必要に広がる。
      */
     public static final double DIAGONAL_ASCEND_ONE_BLOCK =
-            Math.max(ASCEND_ONE_BLOCK, WALK_ONE_BLOCK * DIAGONAL_DISTANCE);
+            Math.max(ASCEND_ONE_BLOCK, WALK_ONE_BLOCK * DIAGONAL_DISTANCE + STEP_TRANSITION_TICKS);
 
     /**
      * 斜め1マスで1段降りるコスト（tick）。
@@ -190,7 +222,7 @@ public final class ActionCosts {
      * <b>降りは走り抜けられる</b>（{@link #DESCEND_ONE_BLOCK}の実測）。
      */
     public static final double DIAGONAL_DESCEND_ONE_BLOCK =
-            Math.max(DESCEND_ONE_BLOCK, SPRINT_ONE_BLOCK * DIAGONAL_DISTANCE);
+            Math.max(DESCEND_ONE_BLOCK, SPRINT_ONE_BLOCK * DIAGONAL_DISTANCE + STEP_TRANSITION_TICKS);
 
     /**
      * 大きく落下する場合、tick/マスはterminal velocity(3.92 blocks/tick)に漸近しこれを下回らない。
@@ -214,7 +246,8 @@ public final class ActionCosts {
      *
      * <p><b>値は「1セル掘るか、横へ迂回するか」の釣り合いで置いてある。</b>単位は
      * {@link #SIDESTEP_ONE_BLOCK}(2.95)。2マスの壁（登れないので掘るか迂回するかしかない）を
-     * 実測すると、22.0では<b>迂回7ブロック</b>で掘る側に倒れる。
+     * 実測すると、22.0では<b>迂回8ブロック</b>で掘る側に倒れる（壁の上を越える1段の上下に
+     * {@link #STEP_TRANSITION_TICKS}が2回ぶん乗るので、掘削1回ぶんの値段そのものより1ブロック遠い）。
      *
      * <p>算術上の比（22.0/2.95＝7.5）よりわずかに手前で倒れるのは、探索が
      * {@link net.prason.xaeronav.pathfinding.astar.AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT}で
@@ -326,7 +359,7 @@ public final class ActionCosts {
      * 走るのに比べて1/3程度の速さしか出ない。
      *
      * <p><b>値は{@link #DIG_OVERHEAD_TICKS}と同じ釣り合いで置いてある。</b>2マスの段差を
-     * 柱1本で越える場合を実測すると、36.0では<b>迂回11ブロック</b>で積む側に倒れる
+     * 柱1本で越える場合を実測すると、36.0では<b>迂回10ブロック</b>で積む側に倒れる
      * （幅4の溝を橋で渡る場合は設置2本＋跳躍1回ぶんなので迂回21ブロック）。
      * 掘削(7ブロック)より遠くまで迂回させるのは、設置が手持ちのブロックを消費するうえ、
      * 置いた足場がそのまま地形として残る（次に通ったときの地形が変わる）ため——掘る方は
@@ -490,7 +523,7 @@ public final class ActionCosts {
      * は昇りの下限に{@link #ASCEND_ONE_BLOCK}を置いているので、そこを割ると非許容になる。
      */
     public static double ascendOneBlock(double speedFactor) {
-        return Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK / speedFactor);
+        return Math.max(JUMP_ONE_BLOCK, WALK_ONE_BLOCK / speedFactor) + STEP_TRANSITION_TICKS;
     }
 
     /**
@@ -498,17 +531,19 @@ public final class ActionCosts {
      * 計上せず、水平移動そのもの（{@code AStarPathfinder#stepCost}と同じ形）にする。
      */
     public static double descendOneBlock(double speedFactor) {
-        return SPRINT_ONE_BLOCK / speedFactor;
+        return SPRINT_ONE_BLOCK / speedFactor + STEP_TRANSITION_TICKS;
     }
 
     /** {@link #ascendOneBlock}の斜め版。 */
     public static double diagonalAscendOneBlock(double speedFactor) {
-        return Math.max(ascendOneBlock(speedFactor), WALK_ONE_BLOCK * DIAGONAL_DISTANCE / speedFactor);
+        return Math.max(ascendOneBlock(speedFactor),
+                WALK_ONE_BLOCK * DIAGONAL_DISTANCE / speedFactor + STEP_TRANSITION_TICKS);
     }
 
     /** {@link #descendOneBlock}の斜め版。 */
     public static double diagonalDescendOneBlock(double speedFactor) {
-        return Math.max(descendOneBlock(speedFactor), SPRINT_ONE_BLOCK * DIAGONAL_DISTANCE / speedFactor);
+        return Math.max(descendOneBlock(speedFactor),
+                SPRINT_ONE_BLOCK * DIAGONAL_DISTANCE / speedFactor + STEP_TRANSITION_TICKS);
     }
 
     /** {@code gapBlocks}マスの隙間を飛び越えるコスト。着地点は{@code gapBlocks + 1}マス先になる。 */

@@ -21,7 +21,17 @@ import net.prason.xaeronav.pathfinding.cost.ActionCosts;
  */
 public final class Heuristic {
 
-    private static final double MIN_DIAGONAL_ASCEND = ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK;
+    /**
+     * 斜め1手に相乗りできる昇り1段の下限。<b>陸と水の安い方</b>を取る——泳ぎの上昇は
+     * ジャンプではないので{@link ActionCosts#STEP_TRANSITION_TICKS}が乗らず、
+     * {@code DIAGONAL_ASCEND_ONE_BLOCK}より安い。陸の値だけを下限に置くと水中で非許容になる。
+     */
+    private static final double MIN_DIAGONAL_ASCEND = Math.min(ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK,
+            ActionCosts.DIAGONAL_SWIM_ASCEND_ONE_BLOCK);
+
+    /** カーディナル1手に相乗りできる昇り1段の下限。{@link #MIN_DIAGONAL_ASCEND}と同じ理由で水も見る。 */
+    private static final double MIN_CARDINAL_ASCEND =
+            Math.min(ActionCosts.ASCEND_ONE_BLOCK, ActionCosts.SWIM_ASCEND_ONE_BLOCK);
 
     /**
      * 水平移動に相乗りできない純粋な昇り（{@code pureAscends}）1段の下限。
@@ -32,12 +42,15 @@ public final class Heuristic {
      * 梯子(8.511)を下限に置くと、この地形で見積もりが実コストを上回って非許容になる
      * （実例: {@code (0,64,0)→(1,67,0)} は Ascend×3 = 13.90 なのに見積もりは 21.65 になっていた）。
      *
-     * <p>{@code Ascend}系は必ず水平1歩を伴うが、その1歩は<b>戻せる</b>のが要点。高さを1段稼ぐ
-     * 全ての移動の中で最安なのは{@code Ascend}なので、水平の相乗り先を使い切ったあとも下限は
-     * これで変わらない（{@code DiagonalAscend}=6.551、{@code ClimbUp}=8.511、{@code SwimUp}=7.407、
-     * {@code Pillar}はさらに設置コストが乗る）。
+     * <p>{@code Ascend}系は必ず水平1歩を伴うが、その1歩は<b>戻せる</b>のが要点。折り返せば
+     * 正味の水平変位0のまま高さだけ稼げるので、水平の相乗り先を使い切ったあともこれが下限になる。
+     *
+     * <p><b>水も見るのが要点。</b>{@link ActionCosts#STEP_TRANSITION_TICKS}が乗る陸の{@code Ascend}
+     * (7.633)より、乗らない{@code SwimUp}(7.407)の方が安い。{@code ClimbUp}(8.511)と
+     * {@code Pillar}（設置コストが乗る）はどちらより高いので見なくてよい。
      */
-    private static final double MIN_PURE_ASCEND = ActionCosts.ASCEND_ONE_BLOCK;
+    private static final double MIN_PURE_ASCEND =
+            Math.min(ActionCosts.ASCEND_ONE_BLOCK, ActionCosts.SWIM_UP_ONE_BLOCK);
 
     private Heuristic() {
     }
@@ -90,16 +103,16 @@ public final class Heuristic {
         int pureAscends = up - diagonalAscends - cardinalAscends;
 
         // 下降も同じ水平の枠へ相乗りする。`up`と`down`は排他なので枠を奪い合わない。
-        // 相乗りできた分は追加コストが0——{@code Descend}/{@code DiagonalDescend}は走り抜ける限り
-        // 平地と同じ速さなので、値段が水平移動そのものだから（{@code ActionCosts#DESCEND_ONE_BLOCK}）。
-        // 単純加算していた頃は、ネザー相当の下限(4.392)で斜め下降1手の見積もりが9.432＝
-        // 実コスト9.321を上回って非許容になっていた。
+        // 相乗りできた分は追加コストを0にする。実際には1段ごとに
+        // {@code ActionCosts#STEP_TRANSITION_TICKS}が乗るので低く見ているが、下限としては正しい
+        // （高く見積もる方だけが非許容になる）。単純加算していた頃は、ネザー相当の下限(4.392)で
+        // 斜め下降1手の見積もりが9.432＝実コスト9.321を上回って非許容になっていた。
         int ridableDescends = Math.min(down, diagonalSteps + cardinalSteps);
         int pureDescends = down - ridableDescends;
 
         double horizontalAndAscend = diagonalAscends * MIN_DIAGONAL_ASCEND
                 + (diagonalSteps - diagonalAscends) * diagonalStep
-                + cardinalAscends * ActionCosts.ASCEND_ONE_BLOCK
+                + cardinalAscends * MIN_CARDINAL_ASCEND
                 + (cardinalSteps - cardinalAscends) * straight
                 + pureAscends * MIN_PURE_ASCEND;
         double descend = pureDescends * minDescentTicksPerBlock;

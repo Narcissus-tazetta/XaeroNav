@@ -111,19 +111,25 @@ class TerrainEditVersusDetourTest {
         assertEquals(ActionCosts.SIDESTEP_ONE_BLOCK, twoBlocks - oneBlock, 1e-6);
     }
 
+    /**
+     * <p>倒れる位置が「掘削1回ぶんの値段 ÷ 迂回1ブロックの値段」より遠いのは、実際に選ばれる
+     * 掘り方が<b>上の1マスだけ掘って壁の上を越える</b>形だから——越える1段の上り下りに
+     * {@link ActionCosts#STEP_TRANSITION_TICKS}が2回ぶん乗る。
+     */
     @Test
-    void digsThroughAWallOnlyWhenTheDetourExceedsSevenBlocks() {
-        assertEquals(0, digs(acrossWall(6)), "迂回6ブロックなら回り込む");
-        assertEquals(1, digs(acrossWall(7)), "迂回7ブロックからは掘って通る");
+    void digsThroughAWallOnlyWhenTheDetourExceedsEightBlocks() {
+        assertEquals(0, digs(acrossWall(7)), "迂回7ブロックなら回り込む");
+        assertEquals(1, digs(acrossWall(8)), "迂回8ブロックからは掘って通る");
 
-        assertTrue(acrossWall(6).complete() && acrossWall(7).complete());
+        assertTrue(acrossWall(7).complete() && acrossWall(8).complete());
     }
 
+    /** 迂回路の端にも1段の上りがあるので、そのぶん柱の方が早く釣り合う。 */
     @Test
-    void pillarsOntoALedgeOnlyWhenTheDetourExceedsElevenBlocks() {
-        assertEquals(0, places(upOntoLedge(10)), "迂回10ブロックなら回り込む");
-        assertEquals(1, places(upOntoLedge(11)), "迂回11ブロックからは柱を立てる");
+    void pillarsOntoALedgeOnlyWhenTheDetourExceedsTenBlocks() {
+        assertEquals(0, places(upOntoLedge(9)), "迂回9ブロックなら回り込む");
+        assertEquals(1, places(upOntoLedge(10)), "迂回10ブロックからは柱を立てる");
 
-        assertTrue(upOntoLedge(10).complete() && upOntoLedge(11).complete());
+        assertTrue(upOntoLedge(9).complete() && upOntoLedge(10).complete());
     }
 }
