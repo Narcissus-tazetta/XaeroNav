@@ -78,3 +78,5 @@ jobs:
           draft: true
           generate_release_notes: true
           files: build/libs/xaeronav-*.jar
+          # jar名とこのパターンが割れると、添付0個のままリリースだけ作られて緑になる（実際そうなった）
+          fail_on_unmatched_files: true

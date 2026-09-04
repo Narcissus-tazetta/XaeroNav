@@ -35,8 +35,11 @@ tasks.register<Sync>("collectJars") {
     // ノード側のbuild/libsにも過去のビルドのjarが残る（jarタスクは古い出力を消さない）。
     // 今回のバージョンのものだけを拾う——バージョンにはgitの短縮ハッシュが付くので、
     // これで「このビルドが作ったjar」だけに絞れる
-    from(stonecutter.versions.map { layout.projectDirectory.dir("versions/${it.project}/build/libs") }) {
-        include("*-${archiveModVersion()}.jar")
+    stonecutter.versions.forEach { node ->
+        val loader = node.project.substringAfterLast('-')
+        from(layout.projectDirectory.dir("versions/${node.project}/build/libs")) {
+            include("${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar")
+        }
     }
     into(layout.buildDirectory.dir("libs"))
 }

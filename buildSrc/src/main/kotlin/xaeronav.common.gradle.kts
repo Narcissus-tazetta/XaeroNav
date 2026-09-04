@@ -12,10 +12,11 @@ val minecraftVersion = node.current.version
 group = modProperty("mod_group_id")
 version = stampedModVersion()
 
-// jar名にノードを含める。ノードが増えると build/libs へ同名のjarが並んでしまい、
-// どれがどのローダー/バージョン向けか配布時に判別できなくなる。
+// jar名は `<mod_id>-<mod_version>-<ローダー>-<MCバージョン>[-<gitハッシュ>].jar`。
+// ローダー/MCバージョンをファイル名に含めないと build/libs へ同名のjarが並び、
+// どれがどのノード向けか配布時に判別できなくなる（ノードごとに build/libs は別）。
 base {
-    archivesName = "$loader-$minecraftVersion-${modProperty("mod_id")}"
+    archivesName = modProperty("mod_id")
 }
 
 java {
@@ -87,7 +88,7 @@ tasks.withType<Test>().configureEach {
 // 消すのは「同じ成果物の、違うバージョン」だけに限る。同じバージョンの別種
 // （loomが作る -dev や -sources）は残す。
 tasks.withType<AbstractArchiveTask>().configureEach {
-    archiveVersion = archiveModVersion()
+    archiveVersion = archiveVersionFor(loader, minecraftVersion)
 
     doFirst {
         val directory = destinationDirectory.get().asFile

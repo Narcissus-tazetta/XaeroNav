@@ -34,6 +34,19 @@ fun Project.stampedModVersion(): String {
  */
 fun Project.archiveModVersion(): String = stampedModVersion().replace('+', '-')
 
+/**
+ * 配布jarのファイル名 `<mod_id>-<この値>.jar` の後半部分。
+ * `<mod_version>-<ローダー>-<MCバージョン>[-<gitハッシュ>]`。
+ *
+ * <p>jarタスクの{@code archiveVersion}と{@code collectJars}のincludeパターンの両方でこれを使う。
+ * 片方だけ変えると{@code build/libs}が空のままCIが緑になる（{@code archiveModVersion}のコメント参照）。
+ */
+fun Project.archiveVersionFor(loader: String, minecraftVersion: String): String {
+    val version = modProperty("mod_version")
+    val hashSuffix = archiveModVersion().removePrefix(version)
+    return "$version-$loader-$minecraftVersion$hashSuffix"
+}
+
 private fun Project.gitCommitHash(): String? {
     val output = runCatching {
         providers.exec {
