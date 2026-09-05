@@ -5,6 +5,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 import java.util.zip.GZIPInputStream;
 
 import net.minecraft.core.BlockPos;
@@ -94,5 +97,44 @@ public final class TerrainFixture {
             throw new IllegalStateException(p.toShortString() + " に立てない＝地形データがずれている");
         }
         return new BlockPos(p.getX(), y, p.getZ());
+    }
+
+    /**
+     * 箱の中から立てる点を種固定の乱数で拾い、{@code minBlocks}〜{@code maxBlocks}離れた組を作る。
+     *
+     * <p><b>中心から放射状に振るのではなく散らす</b>のは、1つの中心の周りだけを見るとその地点の
+     * 地形の癖しか測れないため。始点も終点も箱の縁から16ブロック内側に収める。
+     *
+     * <p><b>種を固定するのが要点</b>——毎回違う経路を測ると、落ちたときに再現できないうえ、
+     * たまたま厳しい組が引かれただけなのか本当に悪化したのかを区別できない。
+     */
+    public static List<BlockPos[]> randomRoutes(CellSource cells, SearchBounds bounds, long seed,
+                                                int count, int minBlocks, int maxBlocks) {
+        Random random = new Random(seed);
+        List<BlockPos[]> routes = new ArrayList<>();
+        int attempts = 0;
+        while (routes.size() < count && attempts++ < 4000) {
+            BlockPos start = randomStandable(cells, bounds, random);
+            if (start == null) {
+                continue;
+            }
+            double angle = random.nextDouble() * 2.0 * Math.PI;
+            int distance = minBlocks + random.nextInt(maxBlocks - minBlocks + 1);
+            int x = start.getX() + (int) Math.round(distance * Math.cos(angle));
+            int z = start.getZ() + (int) Math.round(distance * Math.sin(angle));
+            int y = standableY(cells, bounds, x, z);
+            if (y == Integer.MIN_VALUE) {
+                continue;
+            }
+            routes.add(new BlockPos[] {start, new BlockPos(x, y, z)});
+        }
+        return routes;
+    }
+
+    private static BlockPos randomStandable(CellSource cells, SearchBounds bounds, Random random) {
+        int x = bounds.minX() + 16 + random.nextInt(Math.max(1, bounds.maxX() - bounds.minX() - 32));
+        int z = bounds.minZ() + 16 + random.nextInt(Math.max(1, bounds.maxZ() - bounds.minZ() - 32));
+        int y = standableY(cells, bounds, x, z);
+        return y == Integer.MIN_VALUE ? null : new BlockPos(x, y, z);
     }
 }
