@@ -20,7 +20,7 @@ import os
 import struct
 import zlib
 
-STONE, SOFT, WATER, LAVA, VINE, LADDER = '#', 'D', '~', 'L', 'V', 'H'
+STONE, SOFT, WATER, LAVA, VINE, LADDER, WALL = '#', 'D', '~', 'L', 'V', 'H', 'B'
 
 # 通り抜けられる（空気として書き出す）ブロック。草・花・松明の類までを含める——
 # 固体として書くと、地表が一面「掘らないと進めない」地形になる
@@ -30,7 +30,7 @@ PASSABLE_SUFFIXES = (
     'sign', 'button', 'lever', 'rail', 'pressure_plate', 'snow', 'carpet', 'mushroom',
     'seagrass', 'kelp', 'kelp_plant', 'sugar_cane', 'dead_bush', 'sweet_berry_bush',
     'cobweb', 'sculk_vein', 'glow_lichen', 'nether_sprouts', 'wither_rose', 'fire',
-    'soul_fire', 'bamboo', 'vine_end',
+    'soul_fire', 'vine_end',
 )
 PASSABLE_EXACT = {
     'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:short_grass',
@@ -38,11 +38,17 @@ PASSABLE_EXACT = {
     'minecraft:structure_void', 'minecraft:moving_piston', 'minecraft:tripwire',
     'minecraft:nether_portal', 'minecraft:end_portal', 'minecraft:end_gateway',
 }
-CLIMBABLE = {'minecraft:ladder': LADDER, 'minecraft:vine': VINE,
-             'minecraft:weeping_vines': VINE, 'minecraft:weeping_vines_plant': VINE,
-             'minecraft:twisting_vines': VINE, 'minecraft:twisting_vines_plant': VINE,
-             'minecraft:cave_vines': VINE, 'minecraft:cave_vines_plant': VINE,
-             'minecraft:scaffolding': LADDER}
+# 値は (記号, 地面の高さの基準にしないか)
+CLIMBABLE = {'minecraft:ladder': (LADDER, False), 'minecraft:vine': (VINE, True),
+             'minecraft:weeping_vines': (VINE, True), 'minecraft:weeping_vines_plant': (VINE, True),
+             'minecraft:twisting_vines': (VINE, True), 'minecraft:twisting_vines_plant': (VINE, True),
+             'minecraft:cave_vines': (VINE, True), 'minecraft:cave_vines_plant': (VINE, True),
+             'minecraft:scaffolding': (LADDER, False)}
+
+# 掘れない壁として書き出す。実機の`DiggableBlocks`は許可リスト制で、原木・幹は許可していない
+LOG_SUFFIXES = ('_log', '_wood', '_stem', '_hyphae')
+# `_stem`で終わるが実機では掘れる
+NOT_LOG = {'minecraft:mushroom_stem'}
 SOFT_BLOCKS = {
     'minecraft:dirt', 'minecraft:grass_block', 'minecraft:coarse_dirt', 'minecraft:rooted_dirt',
     'minecraft:podzol', 'minecraft:mycelium', 'minecraft:sand', 'minecraft:red_sand',
@@ -50,26 +56,37 @@ SOFT_BLOCKS = {
     'minecraft:snow_block', 'minecraft:mud', 'minecraft:farmland', 'minecraft:dirt_path',
     'minecraft:moss_block', 'minecraft:sculk', 'minecraft:netherrack', 'minecraft:crimson_nylium',
     'minecraft:warped_nylium', 'minecraft:soul_sand',
+    'minecraft:mangrove_roots', 'minecraft:muddy_mangrove_roots',
 }
 
 
 def classify(name):
+    """(記号, 地面の高さの基準にしないか) を返す。記号がNoneなら空気として書き出さない。
+
+    第2の値は`--depth`がどこから深さを測るかにだけ効く。木・ツタ・竹は地面の上に生えている
+    ものなので基準にできず、水と溶岩は液面ではなくその下の地形から測らないと海底が削れる。
+    """
     if name in PASSABLE_EXACT:
-        return None
+        return None, False
     short = name.split(':', 1)[1] if ':' in name else name
     if short.endswith(PASSABLE_SUFFIXES) and 'block' not in short:
-        return None
+        return None, False
     if name in CLIMBABLE:
         return CLIMBABLE[name]
     if name == 'minecraft:water' or short.endswith('_water'):
-        return WATER
+        return WATER, True
     if name == 'minecraft:lava':
-        return LAVA
-    if name in SOFT_BLOCKS:
-        return SOFT
+        return LAVA, True
+    # 葉・竹は実機では「掘って通る固体」。空気として捨てるとジャングルの天蓋が地形から消える
     if short.endswith('leaves'):
-        return None
-    return STONE
+        return SOFT, True
+    if name == 'minecraft:bamboo':
+        return SOFT, True
+    if name not in NOT_LOG and short.endswith(LOG_SUFFIXES):
+        return WALL, True
+    if name in SOFT_BLOCKS:
+        return SOFT, False
+    return STONE, False
 
 
 class Nbt:
@@ -194,8 +211,9 @@ def main():
     parser.add_argument('max_z', type=int)
     parser.add_argument('--band', required=True, help='書き出すYの範囲 "下,上"')
     parser.add_argument('--depth', type=int, default=0,
-                        help='列ごとに、その列のいちばん上からこの深さまでだけ書き出す（0で無制限）。'
-                             '地表を歩く経路しか見ないなら、下の岩盤まで書いてもファイルが太るだけ')
+                        help='列ごとに、地面のいちばん上からこの深さまでだけ書き出す（0で無制限）。'
+                             '地表を歩く経路しか見ないなら、下の岩盤まで書いてもファイルが太るだけ。'
+                             '木・ツタ・竹は基準にも含めず、常にそのまま残す')
     parser.add_argument('--out', required=True)
     args = parser.parse_args()
 
@@ -224,8 +242,8 @@ def main():
                         blocks = section_blocks(section)
                         if blocks is None:
                             continue
-                        uniform = classify(blocks) if isinstance(blocks, str) else False
-                        if isinstance(blocks, str) and uniform is None:
+                        uniform = classify(blocks) if isinstance(blocks, str) else None
+                        if uniform is not None and uniform[0] is None:
                             continue
                         for local_y in range(16):
                             y = base_y + local_y
@@ -239,25 +257,28 @@ def main():
                                     x = cx * 16 + local_x
                                     if x < args.min_x or x > args.max_x:
                                         continue
-                                    if isinstance(blocks, str):
-                                        kind = uniform
+                                    if uniform is not None:
+                                        kind, not_ground = uniform
                                     else:
-                                        kind = classify(
+                                        kind, not_ground = classify(
                                             blocks[local_y * 256 + local_z * 16 + local_x])
                                     if kind is None:
                                         continue
-                                    columns.setdefault((x, z), []).append((y, kind))
+                                    columns.setdefault((x, z), []).append((y, kind, not_ground))
 
     lines = []
     min_y, max_y = band_high, band_low
     for (x, z), cells in sorted(columns.items()):
         cells.sort()
         if args.depth > 0:
-            floor = cells[-1][0] - args.depth
-            cells = [c for c in cells if c[0] >= floor]
+            # 基準は地面のいちばん上。列の最上端から測ると木やツタの下の地面ごと削れる——
+            # 葉を固体として書くジャングルでは、それだと1割の列から地面が消える
+            ground = next((y for y, _, not_ground in reversed(cells) if not not_ground),
+                          cells[-1][0])
+            cells = [c for c in cells if c[0] >= ground - args.depth]
         runs = []
         run_from, run_to, run_kind = cells[0][0], cells[0][0], cells[0][1]
-        for y, kind in cells[1:]:
+        for y, kind, _ in cells[1:]:
             if y == run_to + 1 and kind == run_kind:
                 run_to = y
                 continue

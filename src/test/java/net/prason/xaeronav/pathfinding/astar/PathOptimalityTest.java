@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
 import java.util.function.BooleanSupplier;
 
 import org.junit.jupiter.api.Tag;
@@ -25,12 +24,17 @@ import net.prason.xaeronav.pathfinding.world.TerrainFixture;
  * 地形は{@code tools/dump_terrain_columns.py}で保存データから書き出したもの。
  *
  * <p>個別の地形で「この経路が出てほしい」を書く他のテストと違い、<b>基準との比</b>だけを見る。
- * 人間が期待経路を書けない規模——9つの地形へ、種を固定した乱数で振った始点・終点——で崩れを
+ * 人間が期待経路を書けない規模——12の地形へ、種を固定した乱数で振った始点・終点——で崩れを
  * 捕まえるため。
  *
  * <p><b>地形はバイオームごとに性格が違う</b>ので、1つの地形で測っても足りない。山岳（起伏168）は
  * 昇降の値付けを、海岸（水65%）は水の渡り方を、玄武岩の三角州は溶岩と細かい起伏を、
+ * ジャングルは天蓋（層1が見る代表高さが葉の上になる）を、沼地は浅い水（{@code WALK_ONE_IN_WATER}）を、
  * それぞれ別の形で突く。1つずつ「この地形では」と書くのではなく、まとめて比だけ見るのがこの形の狙い。
+ *
+ * <p><b>ここで測るのは40〜90ブロックを1回の探索で解いた経路。</b>実機がその距離を1回で解くのは
+ * 探索の地平（96ブロック）までで、それより長い経路の質は{@code LongRouteOptimalityTest}が
+ * 層1＋区間分割まで含めて測る。
  *
  * <p><b>基準は同じ{@code CellSource}に対する重み1.0・層1ガイド無し・予算実質無制限の探索。</b>
  * 実運用の構成（重み{@link AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT}・ガイド有り・既定予算）との
@@ -72,10 +76,10 @@ class PathOptimalityTest {
     private static final int MIN_ROUTE_BLOCKS = 40;
     private static final int MAX_ROUTE_BLOCKS = 90;
 
-    /** 全体の悪化を捕まえる線。実測は0.83〜1.026。 */
+    /** 全体の悪化を捕まえる線。実測は0.827〜1.021。 */
     private static final double MEAN_LIMIT = 1.05;
 
-    /** 1本でも破滅的なら落とす線。実測は1.025〜1.123。 */
+    /** 1本でも破滅的なら落とす線。実測は1.025〜1.145。 */
     private static final double WORST_LIMIT = 1.25;
 
     /**
@@ -92,7 +96,7 @@ class PathOptimalityTest {
      * （20本中1本→3本）。実機はそのぶんを深い予算の並列探索で受けている
      * （{@code PathfindingState#QUALITY_HEURISTIC_WEIGHT}）。
      *
-     * <p>実測は地上/平原1.17・山岳1.06・サバンナ1.24・海岸1.28・森0.67・
+     * <p>実測は地上/平原1.11・山岳1.01・サバンナ0.90・海岸1.28・森0.66・ジャングル1.02・沼地1.03・
      * ネザー0.43〜1.00・エンド1.40。
      */
     private static final double WOBBLE_LIMIT = 1.50;
@@ -115,6 +119,8 @@ class PathOptimalityTest {
                 new Terrain("地上/サバンナ", "/overworld_savanna.txt.gz", false),
                 new Terrain("地上/海岸", "/overworld_coast.txt.gz", false),
                 new Terrain("地上/森", "/overworld_forest.txt.gz", false),
+                new Terrain("地上/ジャングル", "/overworld_jungle.txt.gz", false),
+                new Terrain("地上/沼地", "/overworld_swamp.txt.gz", false),
                 new Terrain("ネザー/荒地", "/nether_terrain_columns.txt.gz", true),
                 new Terrain("ネザー/玄武岩", "/nether_basalt_deltas.txt.gz", true),
                 new Terrain("ネザー/ソウル", "/nether_soul_sand_valley.txt.gz", true),
@@ -152,42 +158,6 @@ class PathOptimalityTest {
                 .search(start, goal, NEVER);
     }
 
-    /**
-     * 箱の中から立てる点を種固定の乱数で拾い、{@link #MIN_ROUTE_BLOCKS}〜{@link #MAX_ROUTE_BLOCKS}
-     * 離れた組を作る。<b>中心から放射状に振るのではなく散らす</b>のは、1つの中心の周りだけを見ると
-     * その地点の地形の癖しか測れないため。
-     */
-    private static List<BlockPos[]> routes(FakeCells cells, long seed) {
-        SearchBounds bounds = cells.bounds();
-        Random random = new Random(seed);
-        List<BlockPos[]> routes = new ArrayList<>();
-        int attempts = 0;
-        while (routes.size() < ROUTES_PER_TERRAIN && attempts++ < 4000) {
-            BlockPos start = randomStandable(cells, bounds, random);
-            if (start == null) {
-                continue;
-            }
-            double angle = random.nextDouble() * 2.0 * Math.PI;
-            int distance = MIN_ROUTE_BLOCKS + random.nextInt(MAX_ROUTE_BLOCKS - MIN_ROUTE_BLOCKS + 1);
-            int x = start.getX() + (int) Math.round(distance * Math.cos(angle));
-            int z = start.getZ() + (int) Math.round(distance * Math.sin(angle));
-            int y = TerrainFixture.standableY(cells, bounds, x, z);
-            if (y == Integer.MIN_VALUE) {
-                continue;
-            }
-            routes.add(new BlockPos[] {start, new BlockPos(x, y, z)});
-        }
-        return routes;
-    }
-
-    /** 箱の内側（縁から16ブロック入った所）で立てる点。 */
-    private static BlockPos randomStandable(FakeCells cells, SearchBounds bounds, Random random) {
-        int x = bounds.minX() + 16 + random.nextInt(Math.max(1, bounds.maxX() - bounds.minX() - 32));
-        int z = bounds.minZ() + 16 + random.nextInt(Math.max(1, bounds.maxZ() - bounds.minZ() - 32));
-        int y = TerrainFixture.standableY(cells, bounds, x, z);
-        return y == Integer.MIN_VALUE ? null : new BlockPos(x, y, z);
-    }
-
     @Test
     void routesStayCloseToTheBestThisSearcherCanFind() throws IOException {
         List<String> report = new ArrayList<>();
@@ -201,7 +171,8 @@ class PathOptimalityTest {
             int measured = 0;
             int bestWobble = 0;
             int productionWobble = 0;
-            for (BlockPos[] route : routes(cells, SEED)) {
+            for (BlockPos[] route : TerrainFixture.randomRoutes(cells, cells.bounds(), SEED,
+                    ROUTES_PER_TERRAIN, MIN_ROUTE_BLOCKS, MAX_ROUTE_BLOCKS)) {
                 PathResult best = solve(cells, route[0], route[1], 1.0, false, UNLIMITED_NODE_BUDGET);
                 if (!best.complete()) {
                     continue;
