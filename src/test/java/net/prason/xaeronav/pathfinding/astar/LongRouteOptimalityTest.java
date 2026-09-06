@@ -31,10 +31,9 @@ import net.prason.xaeronav.pathfinding.world.TerrainFixture;
  * <li><b>窓160</b> — さらに描画距離10チャンク相当の窓を掛ける。全視界との差が<b>窓の狭さ</b>の取り分</li>
  * </ul>
  *
- * <p><b>実測では窓の取り分がほぼ無い（むしろ窓ありの方が安いことが多い）。</b>遠回りは
- * 層1と区間分割から出ていて、窓を広げても縮まらない——層1の解像度に手を入れる前に、
- * それを数字で確かめるのがこのテストの役目。窓ありが安くなるのは、歩くたびに現在地から層1を
- * 引き直すため。全視界側は出発点で1回引いた粗い地図に最後まで従う。
+ * <p><b>窓の取り分はほぼ無い。</b>遠回りは層1と区間分割から出ていて、窓を広げても縮まらない。
+ * このテストが最初にそれを数字にし、犯人が<b>層1ガイドの下限違反</b>だと分かった
+ * （{@code GuideAdmissibilityTest}）——直す前は平均1.119倍だった。
  *
  * <p><b>ジ・エンドをここに入れていない</b>のは、200ブロックを超える島渡りが
  * {@code PathfindingExecutor}の緩和の梯子（橋の連続長の上限外しなど）を必要とし、
@@ -62,11 +61,11 @@ class LongRouteOptimalityTest {
     private static final int MIN_ROUTE_BLOCKS = 200;
     private static final int MAX_ROUTE_BLOCKS = 450;
 
-    /** 全体の悪化を捕まえる線。実測は全視界1.119・窓1.092。 */
-    private static final double MEAN_LIMIT = 1.20;
+    /** 全体の悪化を捕まえる線。実測は全視界1.046・窓1.045。 */
+    private static final double MEAN_LIMIT = 1.10;
 
-    /** 1本でも破滅的なら落とす線。実測は全視界1.166・窓1.166。 */
-    private static final double WORST_LIMIT = 1.30;
+    /** 1本でも破滅的なら落とす線。実測は全視界1.078・窓1.093。 */
+    private static final double WORST_LIMIT = 1.20;
 
     private static FakeCells terrain() throws IOException {
         return TerrainFixture.load(TERRAIN, bounds -> FakeCells.empty(bounds)
@@ -80,18 +79,23 @@ class LongRouteOptimalityTest {
         List<String> failures = new ArrayList<>();
         List<Double> openRatios = new ArrayList<>();
         List<Double> windowedRatios = new ArrayList<>();
+        int overlaps = 0;
         for (BlockPos[] route : TerrainFixture.randomRoutes(cells, cells.bounds(), SEED, ROUTES,
                 MIN_ROUTE_BLOCKS, MAX_ROUTE_BLOCKS)) {
             String name = route[0].toShortString() + "→" + route[1].toShortString();
             double best = ProgressiveWalk.fullVisibilityBest(cells, route[0], route[1]);
-            double open = ProgressiveWalk.walkToGoal(cells, route[0], route[1],
+            List<PathStep> openWalk = ProgressiveWalk.walk(cells, route[0], route[1],
                     ProgressiveWalk.NO_WINDOW, true);
-            double windowed = ProgressiveWalk.walkToGoal(cells, route[0], route[1],
+            List<PathStep> windowedWalk = ProgressiveWalk.walk(cells, route[0], route[1],
                     WINDOW_RADIUS, true);
-            if (!Double.isFinite(best) || !Double.isFinite(open) || !Double.isFinite(windowed)) {
-                failures.add(name + ": 経路が返らない（基準" + best + " 全視界" + open + " 窓" + windowed + "）");
+            if (!Double.isFinite(best) || openWalk.isEmpty() || windowedWalk.isEmpty()) {
+                failures.add(name + ": 経路が返らない（基準" + best + "）");
                 continue;
             }
+            double open = ProgressiveWalk.cost(openWalk);
+            double windowed = ProgressiveWalk.cost(windowedWalk);
+            overlaps += ProgressiveWalk.selfOverlaps(openWalk)
+                    + ProgressiveWalk.selfOverlaps(windowedWalk);
             openRatios.add(open / best);
             windowedRatios.add(windowed / best);
             report.add(String.format(Locale.ROOT,
@@ -101,6 +105,12 @@ class LongRouteOptimalityTest {
         }
         if (openRatios.size() < ROUTES) {
             failures.add("測れた経路が" + openRatios.size() + "本しかない");
+        }
+        // 実機はPathLoopsで畳むが、ここは畳む前を見る——畳みが組み立て側のバグを隠さないように、
+        // 繋ぎ目でそもそも重なりが生まれていないことを確かめる
+        report.add("継ぎ足しの繋ぎ目で同じ位置を2度通ったステップ（畳む前）: " + overlaps);
+        if (overlaps > 0) {
+            failures.add("継ぎ足しの繋ぎ目で経路が同じ位置を" + overlaps + "回踏み直している");
         }
         report.add(check("層1＋区間分割", openRatios, failures));
         report.add(check("窓160まで込み", windowedRatios, failures));

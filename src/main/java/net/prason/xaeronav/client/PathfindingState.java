@@ -26,6 +26,7 @@ import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.Heuristic;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
+import net.prason.xaeronav.pathfinding.astar.PathLoops;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
@@ -2243,18 +2244,21 @@ public final class PathfindingState {
         List<PathStep> steps = shown.result().steps();
         List<PathStep> merged = new ArrayList<>(splice.steps());
         merged.addAll(steps.subList(joinIndex + 1, steps.size()));
+        // 合流区間は合流点より先がどこを通るかを知らないので、繋ぎ目で同じ位置を踏み直しうる
+        PathLoops.Folded folded = PathLoops.fold(merged);
         // 合流点より手前が消えたぶんだけ、区間の境目の添字がずれる
         int shift = splice.steps().size() - (joinIndex + 1);
         List<PathSegment> segments = new ArrayList<>();
         for (PathSegment segment : shown.segments()) {
             if (segment.endStep() > joinIndex) {
-                segments.add(new PathSegment(segment.endStep() + shift, segment.waypointIndex()));
+                segments.add(new PathSegment(folded.newIndex()[segment.endStep() + shift],
+                        segment.waypointIndex()));
             }
         }
         if (segments.isEmpty()) {
-            segments.add(new PathSegment(merged.size() - 1, shown.waypointIndex()));
+            segments.add(new PathSegment(folded.steps().size() - 1, shown.waypointIndex()));
         }
-        PathResult combined = new PathResult(List.copyOf(merged), shown.result().termination(),
+        PathResult combined = new PathResult(List.copyOf(folded.steps()), shown.result().termination(),
                 splice.expandedNodes(), splice.distinctNodes());
         return new DisplayedPath(combined, shown.mode(), shown.waypointIndex(), List.copyOf(segments));
     }
@@ -2398,13 +2402,18 @@ public final class PathfindingState {
                                          boolean reachesGoal) {
         List<PathStep> merged = new ArrayList<>(current.result().steps());
         merged.addAll(tail.steps());
+        // 継ぎ足す区間は手前がどこを通ったかを知らないので、繋ぎ目で同じ位置を踏み直しうる
+        PathLoops.Folded folded = PathLoops.fold(merged);
         // completeは「この経路が狙った先まで届いたか」であって「最終目的地に着いたか」ではない
         // （中間目標へ向かう経路も、その中間目標に届いていればcomplete）。ここを reachesGoal に
         // すると、継ぎ足した瞬間に未到達扱いになってshouldExtendが止まり、1回しか伸びなくなる
-        PathResult combined = new PathResult(List.copyOf(merged), tail.termination(),
+        PathResult combined = new PathResult(List.copyOf(folded.steps()), tail.termination(),
                 tail.expandedNodes(), tail.distinctNodes());
-        List<PathSegment> segments = new ArrayList<>(current.segments());
-        segments.add(new PathSegment(merged.size() - 1, tailWaypointIndex));
+        List<PathSegment> segments = new ArrayList<>();
+        for (PathSegment segment : current.segments()) {
+            segments.add(new PathSegment(folded.newIndex()[segment.endStep()], segment.waypointIndex()));
+        }
+        segments.add(new PathSegment(folded.steps().size() - 1, tailWaypointIndex));
         PathProgress.INSTANCE.carryOver(combined);
         return new DisplayedPath(combined, reachesGoal ? PathMode.GOAL : PathMode.WAYPOINT,
                 tailWaypointIndex, List.copyOf(segments));
