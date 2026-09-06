@@ -128,30 +128,13 @@ public final class PathfindingExecutor {
     /**
      * 区間の展開ノード上限を、呼び出し側の上限の何倍にするか。
      *
-     * <p><b>チェーンの区間は呼び出し側の上限より多くのノードを要ることがある。</b>実機報告の
-     * ネザーの溶岩の海（列の90%が溶岩、{@code NetherLavaSeaTest}）で踏んだ形で、深い予算
-     * (60万)のままでは<b>時間を30秒・60秒に伸ばしても15手で止まる</b>——縛っているのは時間では
-     * なくノード上限だった。上限だけ上げると<b>7.4秒で到達し、実際に使ったのは73万ノード</b>。
-     * 1区間が60万をわずかに超えるところで詰まっていた。
-     *
-     * <p>倍率を掛けてよいのは<b>チェーンが最後の手段で、区間を順番に解く</b>から。並列に走る
-     * 深い予算（{@code PathfindingState#DEEP_SEARCH_BUDGET_FACTOR}）を上げるとメモリのピークが
-     * 重なるが、こちらは重ならない。展開し切る時間の方は{@link #CHAIN_TIME_FACTOR}が受け持つ。
+     * <p><b>チェーンの区間は呼び出し側の上限より多くのノードを要ることがある。</b>区間ごとに
+     * 満額を渡してもなお足りないことがあり、上限で切られた区間は1手も返さない。倍率を掛けて
+     * よいのは<b>チェーンが最後の手段で、区間を順番に解く</b>から——並列に走る深い予算
+     * （{@code PathfindingState#DEEP_SEARCH_BUDGET_FACTOR}）を上げるとメモリのピークが重なるが、
+     * こちらは重ならない。時間は据え置きなので、上げたぶんが丸ごと余計に掛かるわけではない。
      */
     private static final int LEG_NODE_BUDGET_FACTOR = 3;
-
-    /**
-     * チェーン全体の持ち時間を、呼び出し側の上限の何倍にするか。
-     *
-     * <p>{@link #LEG_NODE_BUDGET_FACTOR}で上限を上げても、<b>その分のノードを展開し切る時間が
-     * 無ければ意味が無い</b>。溶岩の海の73万ノードは手元で7.9〜11.5秒だが、実機のログの処理速度
-     * （361,741ノード/12秒）で換算すると約24秒かかる——実機の15秒では届かない。
-     *
-     * <p>伸ばしてよいのは<b>チェーンが最後の手段だから</b>。通常の探索と並列の深い予算は
-     * 触っていないので、普段の応答は変わらない。代償は、本当に詰んでいる地形で
-     * 「行けません」が出るまでの待ち時間が倍になること。
-     */
-    private static final int CHAIN_TIME_FACTOR = 2;
 
     /** 最初の探索の取り分。残りは緩和と{@link #retryGreedier}のために空けておく。 */
     private static SearchLimits firstPassLimits(SearchLimits limits) {
@@ -452,13 +435,20 @@ public final class PathfindingExecutor {
         // 割ると、届くはずの区間が手前で切れるだけになる（実機で30000÷3区間=10000となり山岳地形の
         // 1区間目すら届かなかった）。
         //
-        // 代わりにチェーン全体を、単一探索1回分の時間の定数倍で縛る（CHAIN_TIME_FACTOR）。
-        // 区間ごとに固定の上限を置くと区間数ぶんまで伸びてしまい、これの代替手段であるはずの
-        // チェーンだけが青天井になる。その中で各区間が残り時間を山分けする（下のlegShare）
-        long chainDeadline = System.currentTimeMillis()
-                + limits.timeLimitMillis() * CHAIN_TIME_FACTOR;
+        // 代わりにチェーン全体を、単一探索1回分と同じ時間で縛る。区間ごとに固定の上限を置くと
+        // 区間数ぶんまで伸びてしまい、これの代替手段であるはずのチェーンだけが青天井になる。
+        // 伸ばしても意味が無い——溶岩の海（NetherLavaSeaTest）でチェーンは単発の倍のノード
+        // （104万 対 57万）を使ううえ遅く、時間を足すぶんだけ詰み判定が遅れるだけだった。
+        // その中で各区間が残り時間を山分けする（下のlegShare）
+        long chainDeadline = System.currentTimeMillis() + limits.timeLimitMillis();
 
         List<PathStep> steps = new ArrayList<>();
+        // 届かなかった区間のうち、いちばん長く引けた部分経路。チェーンが丸ごと空で返るのを
+        // 防ぐための最後の受け皿——実機のネザーの溶岩の海で、3区間とも届かず
+        // 「展開47万・ステップ数0」＝線が1本も出ないまま24秒待たされた。
+        // 案内は末端から継ぎ足して伸びていくので、途中までの線が出れば次の探索はそのぶん
+        // 近い所から始まる。空で返すとその起点すら作れず、同じ場所で何度でもやり直すことになる
+        List<PathStep> bestPartial = List.of();
         boolean complete = false;
         int totalExpanded = 0;
         int totalDistinct = 0;
@@ -538,13 +528,20 @@ public final class PathfindingExecutor {
             } else if (lastLeg) {
                 // 最後の区間は本来の目的地。届かなくても拾えた分はそのまま使う（暫定経路の思想）
                 steps.addAll(legResult.steps());
+            } else if (legResult.steps().size() > bestPartial.size()) {
+                bestPartial = legResult.steps();
             }
             // 中間の経由地に届かなかったときは、そこで諦めずに同じ地点から次の経由地を狙う。
             // 粗い地図は溶岩以外に「通行不能」を表現できず、チャンクを埋める垂直な壁は起伏0の
             // 平坦な台地に見えるため、経由地が壁の天面のような到達不能な点に落ちることがある。
             // 1つ届かないだけでチェーンごと捨てると、そういう地形で直接探索より悪くなる——
             // 最後の区間は必ず本来の目的地なので、経由地が全滅しても直接探索と同じ結果に落ち着く。
-            // 部分経路を継ぎ足さないのは、次の区間を同じ地点から引き直す以上そこで経路が飛ぶため
+            // 部分経路をその場で継ぎ足さないのは、次の区間を同じ地点から引き直す以上そこで
+            // 経路が飛ぶため。拾えた分はbestPartialに取っておき、全区間が空振りしたときだけ使う
+        }
+        if (steps.isEmpty()) {
+            // どの区間も届かず、最後の区間も1手も引けなかった。ここで空を返すと案内が消える
+            steps.addAll(bestPartial);
         }
         return new PathResult(steps, complete ? PathResult.Termination.REACHED_GOAL : termination,
                 totalExpanded, totalDistinct);
