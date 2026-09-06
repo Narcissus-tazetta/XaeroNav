@@ -1,7 +1,9 @@
 package net.prason.xaeronav.pathfinding.astar;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 import net.minecraft.core.BlockPos;
@@ -108,16 +110,37 @@ final class ProgressiveWalk {
                 .search(from, aim, NEVER, Carryover.NONE, radius);
     }
 
+    /** {@link #walk}のコストだけを見る版。届かなければ{@link Double#POSITIVE_INFINITY}。 */
+    static double walkToGoal(FakeCells all, BlockPos start, BlockPos goal, int radius,
+                             boolean extending) {
+        List<PathStep> walked = walk(all, start, goal, radius, extending);
+        return walked.isEmpty() ? Double.POSITIVE_INFINITY : cost(walked);
+    }
+
     /**
-     * 窓を動かしながら目的地まで歩き通し、実際に歩いた経路のコストを返す。
-     * 届かなければ{@link Double#POSITIVE_INFINITY}。
+     * 同じ位置を2回通っているステップの数。<b>1回の探索では起きえない</b>（{@code AStarPathfinder}は
+     * 同じセルを二度閉じない）ので、これが0でなければ継ぎ足しの繋ぎ目で生まれたもの。
+     */
+    static int selfOverlaps(List<PathStep> steps) {
+        Set<BlockPos> seen = new HashSet<>();
+        int overlaps = 0;
+        for (PathStep step : steps) {
+            if (!seen.add(step.pos())) {
+                overlaps++;
+            }
+        }
+        return overlaps;
+    }
+
+    /**
+     * 窓を動かしながら目的地まで歩き通し、実際に歩いた経路を返す。届かなければ空。
      *
      * @param radius    読み込み済みの窓の半径。{@link #NO_WINDOW}なら全視界
      * @param extending trueなら実装どおり末端から継ぎ足す。falseなら計画のたびに手前を捨てて
      *                  プレイヤーから引き直す。<b>歩き方は両方で同じ</b>にしてある
      */
-    static double walkToGoal(FakeCells all, BlockPos start, BlockPos goal, int radius,
-                             boolean extending) {
+    static List<PathStep> walk(FakeCells all, BlockPos start, BlockPos goal, int radius,
+                               boolean extending) {
         List<PathStep> walked = new ArrayList<>();
         List<PathStep> planned = new ArrayList<>();
         BlockPos player = start;
@@ -140,7 +163,7 @@ final class ProgressiveWalk {
                 end = next;
             }
             if (planned.isEmpty()) {
-                return Double.POSITIVE_INFINITY;
+                return List.of();
             }
             int walkTo = 0;
             while (walkTo < planned.size()
@@ -152,10 +175,10 @@ final class ProgressiveWalk {
             planned = new ArrayList<>(planned.subList(walkTo, planned.size()));
             player = walked.get(walked.size() - 1).pos();
             if (horizontal(player, goal) <= 1) {
-                return cost(walked);
+                return walked;
             }
         }
-        return Double.POSITIVE_INFINITY;
+        return List.of();
     }
 
     /** 全視界・重み1.0・ガイド無しの1回の探索。届かなければ{@link Double#POSITIVE_INFINITY}。 */

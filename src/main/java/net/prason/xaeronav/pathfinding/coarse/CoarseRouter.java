@@ -119,12 +119,6 @@ public final class CoarseRouter {
     private static final double GUIDE_ASCEND_COST_PER_BLOCK =
             ActionCosts.ASCEND_ONE_BLOCK - ActionCosts.SPRINT_ONE_BLOCK;
 
-    /** {@link CoarseMap#WATER}に分類される最小の水の割合（{@code LiveCoarseSampler}の閾値）。 */
-    private static final double WATER_CELL_MIN_FRACTION = 0.5;
-
-    /** {@link CoarseMap#LAVA_MIXED}に分類される最小の溶岩の割合（{@code LiveCoarseSampler}の閾値）。 */
-    private static final double LAVA_MIXED_CELL_MIN_FRACTION = 0.25;
-
     /**
      * セル内の起伏（{@code maxHeight - minHeight}）がこれを超えたら崖とみなす。
      * バニラの{@code SAFE_FALL_DISTANCE}既定値（{@link ActionCosts#SAFE_FALL_BLOCKS}）をそのまま使う。
@@ -362,25 +356,31 @@ public final class CoarseRouter {
      * <li>{@link #UNKNOWN_MULTIPLIER} — 分からないことは高くつく理由にならない</li>
      * <li>{@link #LAYER_TRANSITION_PENALTY} — 縦穴があるか分からないぶんの割増</li>
      * <li>下りの{@link #HEIGHT_COST_PER_BLOCK} — 降りは走り抜けられて実コストが増えない</li>
+     * <li>水・{@link CoarseMap#LAVA_MIXED}の倍率 — セルの過半数が水でも、乾いた帯を通って
+     *     16ブロック横断できる列は珍しくない。閾値ぶんまで薄めても下限にはならない</li>
+     * <li>代表高さ(チャンク平均)で測った登り — 鞍部を越えられる尾根セルが平均の高さぶん
+     *     登らされる。<b>セル内の最低と最高</b>で測り直す</li>
+     * <li>床の高さと実際のYのずれ（{@link #floorOffsetCost}） — 崖下の浜のように床として
+     *     記録されなかった高さに居ると、「その床まで登ってから」の値になる</li>
      * </ul>
      *
-     * <p>残す水・溶岩・奈落の倍率は実時間だが、セルの<b>一部</b>がその地形でも全体に掛かるので、
-     * 分類の閾値ぶん（{@link #WATER_CELL_MIN_FRACTION}・{@link #LAVA_MIXED_CELL_MIN_FRACTION}）
-     * まで薄めて下限にする。
+     * <p>奈落（{@link CoarseMap#VOID}）の倍率だけは薄めない。ジ・エンドで島の縁へ誘導しているのは
+     * これで、外すと島渡りが解けなくなる。
+     *
+     * <p><b>下限であることは{@code GuideAdmissibilityTest}が直接測る。</b>実測は最適経路上で
+     * 0.65〜0.98倍。上の5つのうち後半3つは、そこで1.22〜2.02倍の上振れとして見つかったもの。
      *
      * <p><b>代償は探索の広さ。</b>実機エンドの島渡り（{@code RealEndTerrainTest}の区間）で
      * 69,159→260,176ノード、並列の深い予算まで含めた実時間で約1.2秒→約3.2秒。好みを戻すほど
      * 速くなるが経路は悪くなる（崖ペナルティを戻すと147,073ノード・約1.4秒だが、地上で許容を
      * 超える経路が7本→34本）。<b>案内の速さより経路の質を採った</b>のがこの選択。
      *
-     * <p>実機の保存データ3次元×16方向×2距離で測った、基準（重み1.0・ガイド無し・予算無制限）
-     * との経路コスト比（{@code PathOptimalityTest}）:
+     * <p>基準（重み1.0・ガイド無し・予算無制限）との経路コスト比。40〜90ブロックは
+     * {@code PathOptimalityTest}、200〜450ブロックは{@code LongRouteOptimalityTest}:
      *
      * <pre>
-     *          好みを含んだ値         下限だけ
-     * 地上   平均1.129 最悪1.473 → 平均1.034 最悪1.223
-     * ネザー 平均1.043 最悪1.215 → 平均0.995 最悪1.096
-     * エンド 平均1.041 最悪1.482 → 平均0.998 最悪1.417
+     * 40〜90ブロック   地上 平均0.96〜1.01 最悪1.067 / ネザー 平均0.82〜1.00 / エンド 平均1.011
+     * 200〜450ブロック 地上 平均1.046 最悪1.078
      * </pre>
      */
     public static CostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy) {
@@ -389,12 +389,14 @@ public final class CoarseRouter {
         int states = map.chunksX() * map.chunksZ() * CoarseMap.MAX_FLOORS;
         double[] cost = new double[states];
         Arrays.fill(cost, Double.POSITIVE_INFINITY);
-        double goalOffset = centerOffsetCost(goal.getX(), goal.getZ(), goalX, goalZ);
         if (!map.containsChunk(goalX, goalZ)) {
-            return new CoarseCostToGo(map, cost, goalOffset);
+            return new CoarseCostToGo(map, cost,
+                    centerOffsetCost(goal.getX(), goal.getZ(), goalX, goalZ));
         }
         double waterMultiplier = boatAvailable ? BOAT_MULTIPLIER : WATER_MULTIPLIER;
         int goalFloor = resolveFloor(map, goalX, goalZ, goal.getY());
+        double goalOffset = centerOffsetCost(goal.getX(), goal.getZ(), goalX, goalZ)
+                + floorOffsetCost(map, goalX, goalZ, goalFloor, goal.getY());
         int goalIndex = stateIndex(map, goalX, goalZ, goalFloor);
         cost[goalIndex] = 0.0;
         boolean[] closed = new boolean[states];
@@ -458,6 +460,25 @@ public final class CoarseRouter {
     }
 
     /**
+     * その座標が、割り当てられた床の高さからどれだけ縦にずれているか。
+     *
+     * <p>層1は<b>床＝水平な面</b>しか持たないので、張り出しの下・崖下の浜のように床として
+     * 記録されなかった高さに居ると、見積もりが「その床まで登ってから」の値になり実コストを
+     * 上回る。実測（{@code GuideAdmissibilityTest}の海岸）で、ゴールが崖下のy=48なのに層1の床が
+     * y=63しか無い経路が<b>1.84倍</b>まで上振れしていた。ずれのぶんを引いて打ち消す。
+     *
+     * <p>下りにも登りの単価を使う（下りは実コストが増えないので引きすぎになるが、
+     * <b>引きすぎは下限を壊さない</b>）。
+     */
+    private static double floorOffsetCost(CoarseMap map, int chunkX, int chunkZ, int floor, int y) {
+        short height = stateHeight(map, chunkX, chunkZ, floor);
+        if (height == CoarseMap.UNKNOWN_HEIGHT) {
+            return 0.0;
+        }
+        return Math.abs(y - height) * GUIDE_ASCEND_COST_PER_BLOCK;
+    }
+
+    /**
      * {@link #costToGo}の結果をブロック座標で引けるようにする薄いラッパー。範囲外・データ無しの
      * 座標は0を返す（層1に情報が無いだけで、{@code AStarPathfinder}側は幾何学的な
      * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}とのmaxを取るので、0を返しても
@@ -483,7 +504,8 @@ public final class CoarseRouter {
             if (Double.isInfinite(value)) {
                 return 0.0;
             }
-            return Math.max(0.0, value - centerOffsetCost(x, z, chunkX, chunkZ) - goalOffset);
+            return Math.max(0.0, value - centerOffsetCost(x, z, chunkX, chunkZ)
+                    - floorOffsetCost(map, chunkX, chunkZ, floor, y) - goalOffset);
         }
     }
 
@@ -681,37 +703,42 @@ public final class CoarseRouter {
         }
         double base = diagonal ? DIAGONAL_COST : STRAIGHT_COST;
         double multiplier = switch (kind) {
-            case CoarseMap.WATER -> lowerBound
-                    ? atLeast(waterMultiplier, WATER_CELL_MIN_FRACTION) : waterMultiplier;
+            // 「セルの半分が水」でも、乾いた帯を通って16ブロック横断できる列は珍しくない。
+            // 割合ぶんまで薄めても下限ではなく、実測で海岸のガイドが実残りコストの2.02倍まで
+            // 上振れしていた（GuideAdmissibilityTest）。溶岩まじりの25%も同じ形
+            case CoarseMap.WATER -> lowerBound ? 1.0 : waterMultiplier;
+            case CoarseMap.LAVA_MIXED -> lowerBound ? 1.0 : bridgeMultiplier;
             // 「分からない」は下限を上げる理由にならない。1.6のまま使うと、読み取り範囲の外側が
             // 一律に高く見えて経路が範囲の内側へ引き寄せられる
             case CoarseMap.NO_DATA -> lowerBound ? 1.0 : UNKNOWN_MULTIPLIER;
-            case CoarseMap.LAVA_MIXED -> lowerBound
-                    ? atLeast(bridgeMultiplier, LAVA_MIXED_CELL_MIN_FRACTION) : bridgeMultiplier;
             case CoarseMap.LAVA, CoarseMap.VOID -> bridgeMultiplier;
             default -> 1.0;
         };
 
         double heightPenalty = 0.0;
-        short fromHeight = stateHeight(map, fromX, fromZ, fromFloor);
-        short toHeight = stateHeight(map, toX, toZ, toFloor);
-        // 片方でも高さが分からなければ段差は測れない。分からないことを段差0として扱うと、
-        // 未知の領域が「平坦な近道」に見えてしまう
-        if (fromHeight != CoarseMap.UNKNOWN_HEIGHT && toHeight != CoarseMap.UNKNOWN_HEIGHT) {
-            heightPenalty = lowerBound
-                    ? Math.max(0, toHeight - fromHeight) * GUIDE_ASCEND_COST_PER_BLOCK
-                    : Math.abs(toHeight - fromHeight) * HEIGHT_COST_PER_BLOCK;
+        if (lowerBound) {
+            // 下限なので<b>セル内でいちばん低い所へ、いちばん高い所から</b>入る想定で測る。
+            // 代表高さ(チャンク平均)の差で測ると、鞍部を越えられる尾根セルが平均の高さぶん
+            // 登らされることになり、下限を破る
+            short fromTop = stateMaxHeight(map, fromX, fromZ, fromFloor);
+            short toBottom = stateMinHeight(map, toX, toZ, toFloor);
+            if (fromTop != CoarseMap.UNKNOWN_HEIGHT && toBottom != CoarseMap.UNKNOWN_HEIGHT) {
+                heightPenalty = Math.max(0, toBottom - fromTop) * GUIDE_ASCEND_COST_PER_BLOCK;
+            }
+        } else {
+            short fromHeight = stateHeight(map, fromX, fromZ, fromFloor);
+            short toHeight = stateHeight(map, toX, toZ, toFloor);
+            // 片方でも高さが分からなければ段差は測れない。分からないことを段差0として扱うと、
+            // 未知の領域が「平坦な近道」に見えてしまう
+            if (fromHeight != CoarseMap.UNKNOWN_HEIGHT && toHeight != CoarseMap.UNKNOWN_HEIGHT) {
+                heightPenalty = Math.abs(toHeight - fromHeight) * HEIGHT_COST_PER_BLOCK;
+            }
         }
         if (lowerBound) {
             return base * multiplier + heightPenalty;
         }
         return base * multiplier + heightPenalty + cliffPenalty(map, toX, toZ, toFloor)
                 + smallIslandPenalty(map, fromX, fromZ, toX, toZ);
-    }
-
-    /** セルの{@code fraction}だけがその地形だと分かっているときの、倍率の下限。 */
-    private static double atLeast(double multiplier, double fraction) {
-        return 1.0 + (multiplier - 1.0) * fraction;
     }
 
     /**

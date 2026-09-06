@@ -76,11 +76,11 @@ class PathOptimalityTest {
     private static final int MIN_ROUTE_BLOCKS = 40;
     private static final int MAX_ROUTE_BLOCKS = 90;
 
-    /** 全体の悪化を捕まえる線。実測は0.827〜1.021。 */
+    /** 全体の悪化を捕まえる線。実測は0.823〜1.014。 */
     private static final double MEAN_LIMIT = 1.05;
 
-    /** 1本でも破滅的なら落とす線。実測は1.025〜1.145。 */
-    private static final double WORST_LIMIT = 1.25;
+    /** 1本でも破滅的なら落とす線。実測は1.020〜1.067。 */
+    private static final double WORST_LIMIT = 1.15;
 
     /**
      * 無駄な上下（正味の高低差を引いた上り＋下り）が、基準の経路より何倍まで許されるか。
@@ -96,7 +96,7 @@ class PathOptimalityTest {
      * （20本中1本→3本）。実機はそのぶんを深い予算の並列探索で受けている
      * （{@code PathfindingState#QUALITY_HEURISTIC_WEIGHT}）。
      *
-     * <p>実測は地上/平原1.11・山岳1.01・サバンナ0.90・海岸1.28・森0.66・ジャングル1.02・沼地1.03・
+     * <p>実測は地上/平原1.05・山岳0.96・サバンナ0.93・海岸1.04・森0.67・ジャングル0.99・沼地1.01・
      * ネザー0.43〜1.00・エンド1.40。
      */
     private static final double WOBBLE_LIMIT = 1.50;

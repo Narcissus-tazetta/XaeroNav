@@ -44,14 +44,14 @@ class ProgressiveDiscoveryTest {
     /**
      * 全視界の最適に対して許す倍率。
      *
-     * <p>実測は地上1.08〜1.11、エンド1.01、ネザーの素直な区間1.02〜1.03、<b>ネザー2が1.30〜1.36</b>。
+     * <p>実測は地上1.05〜1.11、エンド1.02、ネザーの素直な区間1.00〜1.02、<b>ネザー2が1.29〜1.35</b>。
      * ネザー2が飛び抜けるのは3D迷路で、窓の外にある通路の有無が大局を決めてしまうため——
      * 窓の中しか見えない以上ここは原理的に詰まらない。<b>この線は「今より悪くなったら気づく」
      * ためのもの</b>で、最適の証明ではない。
      */
     private static final double WORST_LIMIT = 1.40;
 
-    /** 引き直す版がこれ以上安くなったら、継ぎ目を疑う価値がある。実測は0.95〜1.07倍。 */
+    /** 引き直す版がこれ以上安くなったら、継ぎ目を疑う価値がある。実測は0.99〜1.06倍。 */
     private static final double REPLAN_ADVANTAGE_LIMIT = 1.10;
 
     private record Route(String name, String resource, BlockPos start, BlockPos goal) {
@@ -88,10 +88,20 @@ class ProgressiveDiscoveryTest {
             BlockPos goal = TerrainFixture.onGround(all, bounds, route.goal());
             double best = ProgressiveWalk.fullVisibilityBest(all, start, goal);
             for (int radius : WINDOW_RADII) {
-                double walked = ProgressiveWalk.walkToGoal(all, start, goal, radius, true);
+                List<PathStep> steps = ProgressiveWalk.walk(all, start, goal, radius, true);
+                double walked = steps.isEmpty() ? Double.POSITIVE_INFINITY : ProgressiveWalk.cost(steps);
                 double ratio = walked / best;
-                report.add(String.format(Locale.ROOT, "%s 窓=%d 全視界=%.0f 歩いた経路=%.0f (%.3f倍)",
-                        route.name(), radius, best, walked, ratio));
+                // 1回の探索では同じセルを二度閉じないので、重なりがあれば継ぎ目で生まれたもの。
+                // 3D迷路のネザーは経路が自分の近くへ戻ってくるので、ここがいちばん出やすい
+                int overlaps = ProgressiveWalk.selfOverlaps(steps);
+                report.add(String.format(Locale.ROOT,
+                        "%s 窓=%d 全視界=%.0f 歩いた経路=%.0f (%.3f倍) 重なり%d",
+                        route.name(), radius, best, walked, ratio, overlaps));
+                if (overlaps > 0) {
+                    failures.add(String.format(Locale.ROOT,
+                            "%s 窓=%d が同じ位置を%d回踏み直している（継ぎ目で経路が重なっている）",
+                            route.name(), radius, overlaps));
+                }
                 if (!(ratio <= WORST_LIMIT)) {
                     failures.add(String.format(Locale.ROOT,
                             "%s 窓=%d が %.3f倍（読み込みながら歩くと遠回りになりすぎている）",
