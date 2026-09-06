@@ -114,6 +114,45 @@ class AStarPathfinderTest {
         assertEquals(new BlockPos(0, 61, 0), last(result).pos());
     }
 
+    /**
+     * <b>角と角だけで触れている2ブロックを、斜めに1手で渡る。</b>ユーザー報告
+     * 「ブロックの角と角がくっついていて普通に歩いて渡れそうな地形」がこれ。
+     *
+     * <p>バニラでも渡れる——プレイヤーの当たり判定は0.6マス幅なので、角を通る瞬間に
+     * はみ出す2列が空いていれば体は通るし、足元は両方のブロックに載っている。
+     * {@link #doesNotCutThroughABlockedCorner}が示すとおり、<b>その2列が塞がっているときだけ</b>
+     * 渡れない。
+     */
+    @Test
+    void walksAcrossBlocksThatTouchOnlyAtACorner() {
+        // 角の2列((1,60,0)と(0,60,1))には床も壁も置かない＝奈落
+        CellSource cells = FakeCells.empty(new SearchBounds(-2, 55, -2, 8, 75, 8))
+                .set(0, 60, 0, FakeCells.STONE)
+                .set(1, 60, 1, FakeCells.STONE);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 61, 1));
+
+        assertTrue(result.complete(), "角と角が触れていれば渡れる");
+        assertEquals(1, result.steps().size(), "斜め1手で渡るはず: "
+                + result.steps().stream().map(PathStep::pos).toList());
+        assertEquals(List.of(MovementType.TRAVERSE), movements(result));
+    }
+
+    /** 角だけで繋がった飛び石を続けて渡る。1つ渡れることと、繋げて渡れることは別。 */
+    @Test
+    void walksAlongAChainOfCornerTouchingBlocks() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-2, 55, -2, 10, 75, 10));
+        for (int i = 0; i <= 4; i++) {
+            cells.set(i, 60, i, FakeCells.STONE);
+        }
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(4, 61, 4));
+
+        assertTrue(result.complete());
+        assertEquals(4, result.steps().size(), "4回とも斜めのまま渡るはず: "
+                + result.steps().stream().map(PathStep::pos).toList());
+    }
+
     @Test
     void doesNotCutThroughABlockedCorner() {
         // 斜め昇りの角の一方(1,62,0)を石で塞ぐ。到着地点の床(1,61,1)自体は空いているので、
