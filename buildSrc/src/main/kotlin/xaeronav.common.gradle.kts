@@ -56,6 +56,10 @@ val slowTest by tasks.registering(Test::class) {
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     useJUnitPlatform { includeTags("slow") }
+    // ネザーのフィクスチャは体積のほとんどが固体で、512ブロック四方でも1690万セルになる
+    // （FakeCellsは空気を持たない疎な表なので、現世の同じ面積とは桁が違う）。既定のヒープでは
+    // 地形を読み込む途中でOutOfMemoryErrorになる
+    maxHeapSize = "3g"
 }
 
 tasks.named("check") { dependsOn(slowTest) }
