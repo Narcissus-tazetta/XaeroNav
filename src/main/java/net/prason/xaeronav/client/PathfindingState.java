@@ -549,6 +549,9 @@ public final class PathfindingState {
      */
     private final Queue<BlockPos> seamsToRepair = new ConcurrentLinkedQueue<>();
 
+    /** 直近に報告した繋ぎ目の解き直し見送りの理由。同じ理由を毎回出さないための重複除去。 */
+    private volatile String lastSeamRepairRefusal;
+
     /**
      * 直近に「立てない」と報告した探索目標。同じ目標を毎回ログに出さないための重複除去
      * （{@link #noteTargetStandability}）。
@@ -679,6 +682,7 @@ public final class PathfindingState {
         this.plainBudgetExhaustedAt = null;
         this.spliceBlockedFrom = null;
         this.seamsToRepair.clear();
+        this.lastSeamRepairRefusal = null;
         this.stalledSearches = 0;
         this.lastStalledAt = null;
         this.stuckReason = null;
@@ -2387,6 +2391,7 @@ public final class PathfindingState {
         int seamIndex = stepIndexOf(steps, seam, walkedTo);
         if (seamIndex < 0) {
             // 合流や迂回でその繋ぎ目ごと消えていた。直すものが無い
+            noteSeamRepairRefused("繋ぎ目が経路上に無い");
             return false;
         }
         // 足元は残す。ここを削ると「歩いているだけで案内が変わる」に戻る
@@ -2405,6 +2410,8 @@ public final class PathfindingState {
         }
         if (from < 1 || from >= seamIndex || to <= seamIndex || to - from < SEAM_REPAIR_MIN_STEPS) {
             // 繋ぎ目の両側が揃っていない（経路の端か、足元に寄りすぎている）
+            noteSeamRepairRefused("繋ぎ目の両側が揃っていない (手前=" + (seamIndex - from)
+                    + "ステップ, 先=" + (to - seamIndex) + "ステップ)");
             return false;
         }
 
@@ -2446,18 +2453,35 @@ public final class PathfindingState {
                 return;
             }
             if (!repaired.complete() || repaired.steps().isEmpty()) {
+                noteSeamRepairRefused("解き直しが繋ぎ目の先へ届かなかった (" + repaired.termination() + ")");
                 return;
             }
             double replacement = stepsCost(repaired.steps(), 0, repaired.steps().size() - 1);
             if (replacement >= current * SEAM_REPAIR_MIN_GAIN) {
+                noteSeamRepairRefused("解き直しても安くならない (" + Math.round(current) + "→"
+                        + Math.round(replacement) + "tick)");
                 return;
             }
+            lastSeamRepairRefusal = null;
             displayed = withSection(shown, repaired.steps(), sectionFrom, sectionTo);
             LOGGER.info("XaeroNav: 繋ぎ目を解き直しました (繋ぎ目={}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
                     seam.toShortString(), Math.round(current), Math.round(replacement),
                     sectionTo - sectionFrom + 1, repaired.steps().size(), repaired.expandedNodes());
         });
         return true;
+    }
+
+    /**
+     * 繋ぎ目を直せなかった理由を残す（診断）。ここが黙っていると、実機で
+     * 「繋ぎ目を解き直しました」が出ないときに<b>断っているのか、そもそも走っていないのか</b>が
+     * 分からない。同じ理由を毎回出さないよう、直前と違うときだけ出す。
+     */
+    private void noteSeamRepairRefused(String reason) {
+        if (reason.equals(lastSeamRepairRefusal)) {
+            return;
+        }
+        lastSeamRepairRefusal = reason;
+        LOGGER.info("XaeroNav: 繋ぎ目の解き直しを見送りました ({})", reason);
     }
 
     /** 解き直し待ちの繋ぎ目を覚える。溢れたら古い方から捨てる。 */
