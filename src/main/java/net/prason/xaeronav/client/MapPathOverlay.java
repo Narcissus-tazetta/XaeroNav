@@ -214,14 +214,42 @@ public final class MapPathOverlay {
      * <p>逆に、ルートが本当に引き返す形（始点が行き過ぎている）なら2点目は始点から遠ざかるので、
      * ここでは読み飛ばさない。
      */
+    /**
+     * 点線を引き始める中間目標。<b>経路の末端を折れ線へ射影して決める</b>。
+     *
+     * <p>添字で切ってはいけない。中間目標の列は層1の生の列と層2の精緻版が入れ替わるので、
+     * 同じ添字が別の場所を指すようになる——精緻版は間隔が狭く、生の列の添字を当てると
+     * <b>通過済みの点まで描く範囲に入る</b>。添字を張り直すのは引き直しだけで、その引き直しは
+     * 完走した経路を残すときに何も更新せずに戻る（{@code PathfindingState#pathWorthKeeping}）ので、
+     * 一度ずれると二度と直らない＝古い点線が消えないまま残る。
+     *
+     * <p>「次の点が近い間だけ進む」形でも足りない。折れ線が曲がっている所では手前で止まり、
+     * そこから末端まで<b>後ろ向きの線</b>が1本引かれる。末端に最も近い区間の終点から引けば、
+     * 曲がっていても通過済みの点は必ず落ちる。
+     */
     private static int firstAheadWaypoint(List<BlockPos> waypoints, int fromX, int fromZ) {
         int first = 0;
-        while (first + 1 < waypoints.size()
-                && distanceSq(waypoints.get(first + 1), fromX, fromZ)
-                        <= distanceSq(waypoints.get(first), fromX, fromZ)) {
-            first++;
+        double nearest = distanceSq(waypoints.get(0), fromX, fromZ);
+        for (int i = 1; i < waypoints.size(); i++) {
+            double distance = segmentDistanceSq(waypoints.get(i - 1), waypoints.get(i), fromX, fromZ);
+            if (distance < nearest) {
+                nearest = distance;
+                first = i;
+            }
         }
         return first;
+    }
+
+    /** 線分{@code a}-{@code b}と点{@code (x, z)}の距離の2乗（XZ平面）。 */
+    private static double segmentDistanceSq(BlockPos a, BlockPos b, int x, int z) {
+        double dx = b.getX() - (double) a.getX();
+        double dz = b.getZ() - (double) a.getZ();
+        double lengthSq = dx * dx + dz * dz;
+        double t = lengthSq == 0 ? 0
+                : Math.clamp(((x - (double) a.getX()) * dx + (z - (double) a.getZ()) * dz) / lengthSq, 0.0, 1.0);
+        double px = a.getX() + t * dx - x;
+        double pz = a.getZ() + t * dz - z;
+        return px * px + pz * pz;
     }
 
     private static long distanceSq(BlockPos pos, int x, int z) {
