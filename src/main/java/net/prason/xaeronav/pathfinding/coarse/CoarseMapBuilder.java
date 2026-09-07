@@ -117,6 +117,14 @@ public final class CoarseMapBuilder {
     }
 
     /**
+     * ここまでに床が1つ以上積まれたセルの数。読み出し側が<b>レイヤーごとの取り分</b>を
+     * 測るために要る（{@code XaeroMapReader#readSurface}）。
+     */
+    public int knownCells() {
+        return knownCells;
+    }
+
+    /**
      * このセルに積まれている床の数。読み出し側が「どのレイヤーからも床が得られなかったセル」を
      * 全レイヤーを読み終えてから判定するために要る。
      */

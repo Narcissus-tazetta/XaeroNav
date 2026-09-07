@@ -3343,11 +3343,12 @@ public final class PathfindingState {
         // 未知セルはCoarseRouterでほぼ最安なので、見えていなければ溶岩の海を直進するルートが
         // 引かれる。読み込み待ちのリージョンがあるときだけINFOにする（普段は静かにしておく）
         if (window.pendingRegions() > 0) {
-            LOGGER.info("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, 未読み込みリージョン={})",
-                    map.knownCells(), map.totalCells(), map.kindBreakdown(), window.pendingRegions());
+            LOGGER.info("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン={})",
+                    map.knownCells(), map.totalCells(), map.kindBreakdown(), window.layerBreakdown(),
+                    window.pendingRegions());
         } else if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, 未読み込みリージョン=0)",
-                    map.knownCells(), map.totalCells(), map.kindBreakdown());
+            LOGGER.debug("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン=0)",
+                    map.knownCells(), map.totalCells(), map.kindBreakdown(), window.layerBreakdown());
         }
         CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.AVOID);

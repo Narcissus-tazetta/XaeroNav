@@ -35,13 +35,24 @@ class LiveCoarseSamplerTest {
     @Test
     void keepsTheFloorsNearestTheReferenceYWhenACellHasTooMany() {
         // 1列あたりの走査はMAX_FLOORSで打ち切られるので、列ごとに違う階層を見せて
-        // チャンク全体では5クラスタになるようにする（ネザーでは普通に起きる形）
+        // チャンク全体では上限+1クラスタになるようにする（ネザーでは普通に起きる形）
         SearchBounds bounds = new SearchBounds(0, 0, 0, 15, 127, 15);
         FakeCells cells = FakeCells.empty(bounds);
-        // 階層の間隔はXaeroの洞窟レイヤー幅（30）に合わせる。これより詰めると同じ床として
-        // まとめられてしまう（FLOOR_CLUSTER_THRESHOLD_BLOCKS）
+        // 階層の間隔はFLOOR_CLUSTER_THRESHOLD_BLOCKS(12)より広く取る。これより詰めると
+        // 同じ床としてまとめられてしまう
+        int top = 118;
+        int spacing = 18;
+        int farthest = top - spacing * CoarseMap.MAX_FLOORS;
         for (int x = 0; x < 16; x++) {
-            int[] floorYs = x < 8 ? new int[] {28, 58, 88, 118} : new int[] {8};
+            int[] floorYs;
+            if (x < 8) {
+                floorYs = new int[CoarseMap.MAX_FLOORS];
+                for (int i = 0; i < CoarseMap.MAX_FLOORS; i++) {
+                    floorYs[i] = top - spacing * i;
+                }
+            } else {
+                floorYs = new int[] {farthest};
+            }
             for (int floorY : floorYs) {
                 for (int z = 0; z < 16; z++) {
                     cells.set(x, floorY, z, FakeCells.STONE);
@@ -49,12 +60,13 @@ class LiveCoarseSamplerTest {
             }
         }
 
-        CoarseMap map = LiveCoarseSampler.sample(cells, bounds, 118, () -> false);
+        CoarseMap map = LiveCoarseSampler.sample(cells, bounds, top, () -> false);
 
         assertEquals(CoarseMap.MAX_FLOORS, map.floorCount(0, 0));
-        assertEquals(118, map.heightAtFloor(0, 0, CoarseMap.MAX_FLOORS - 1),
+        assertEquals(top, map.heightAtFloor(0, 0, CoarseMap.MAX_FLOORS - 1),
                 "参照Yの床（プレイヤーが立っている回廊）が残っていない");
-        assertEquals(28, map.heightAtFloor(0, 0, 0), "参照Yから最も遠い床が捨てられているはず");
+        assertEquals(top - spacing * (CoarseMap.MAX_FLOORS - 1), map.heightAtFloor(0, 0, 0),
+                "参照Yから最も遠い床が捨てられているはず");
     }
 
     @Test
