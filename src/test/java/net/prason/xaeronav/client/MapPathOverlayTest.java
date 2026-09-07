@@ -137,6 +137,28 @@ class MapPathOverlayTest {
                 "経路の末端より後ろの中間目標まで点線が引き返し、黄色い点線が2本出ている");
     }
 
+    /**
+     * 経路の末端が中間目標を通り過ぎていて、次の中間目標が遠いとき。
+     *
+     * <p>「次の点が近い間だけ進む」形だと、次が遠いので通り過ぎた点で止まり、そこから末端まで
+     * <b>後ろ向きの線</b>が1本引かれる。中間目標の列は層1の生の列と層2の精緻版が入れ替わるので
+     * 添字では切れず（{@code PathfindingState#pathWorthKeeping}が経路を据え置くと張り直されない）、
+     * 切るなら折れ線への射影で切るしかない。ユーザー報告「更新されたときに黄色い点線が消えない」。
+     */
+    @Test
+    void coarseRouteDoesNotDrawBackToAWaypointTheDetailPathOvershot() {
+        BlockPos player = new BlockPos(120, Y, 0);
+        PathResult detail = path(List.of(new BlockPos(120, Y, 0), new BlockPos(150, Y, 0)));
+        List<BlockPos> waypoints = List.of(
+                new BlockPos(0, Y, 0), new BlockPos(100, Y, 0), new BlockPos(400, Y, 0));
+        MapPathOverlay.Snapshot snapshot =
+                new MapPathOverlay.Snapshot(detail, new BlockPos(400, Y, 0), true, false,
+                        player, waypoints, List.of(), 0, List.of());
+
+        assertFalse(hasDotBetween(coarseDots(snapshot), 99, 150),
+                "通り過ぎた中間目標まで点線が引き返している");
+    }
+
     /** 引き返しの読み飛ばしが、本当に後戻りするルート（始点が行き過ぎている）まで削らないこと。 */
     @Test
     void coarseRouteKeepsAGenuineBacktrack() {

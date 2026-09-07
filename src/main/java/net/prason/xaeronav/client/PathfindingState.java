@@ -4,8 +4,10 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntPredicate;
 
@@ -308,6 +310,52 @@ public final class PathfindingState {
     private static final double SPLICE_RETRY_MOVE_BLOCKS = 8.0;
 
     /**
+     * 繋ぎ目をまたいで解き直す長さ（繋ぎ目の手前・先それぞれ何ブロックか）。
+     *
+     * <p><b>繋ぎ目にだけ遠回りが溜まる</b>のは、区間Aが「{@code detailHorizon}先の人工的な
+     * 中間目標へ最適に着く」よう解かれるため——そこへ<b>どう着くか</b>と、そこから<b>どう出るか</b>は
+     * 別問題で、両側が揃うまで最適化のしようがない。オフライン実測（{@code SeamDetourTest}）では
+     * 繋ぎ目を含む64ブロックの窓が平均1.02〜1.21倍・最悪1.795倍で、繋ぎ目を含まない窓（1.00〜1.05倍）
+     * とはっきり分かれた。
+     *
+     * <p>48は「片側1区間ぶんの半分」。これより短いと角を丸める余地が無く、長くすると
+     * <b>まだ歩いていない線が大きく描き変わる</b>方の代償が勝つ。
+     */
+    private static final double SEAM_REPAIR_SPAN_BLOCKS = 48.0;
+
+    /**
+     * プレイヤーの前方これだけは解き直さない（ブロック）。
+     *
+     * <p>足元の線が描き変わるのは一度直した症状（「歩いているだけで案内が変わる」）。繋ぎ目は
+     * 継ぎ足しの根元＝ふつうは数十ブロック先にあるので、ここを残しても修復の効き目は落ちない。
+     */
+    private static final double SEAM_REPAIR_KEEP_BLOCKS = 16.0;
+
+    /** 解き直した区間がこの割合より安くならないなら、線を描き変えない。 */
+    private static final double SEAM_REPAIR_MIN_GAIN = 0.98;
+
+    /**
+     * 解き直す区間の最小のステップ数。これを割るなら繋ぎ目の両側が揃っていない
+     * （経路の端に寄りすぎている）ので、解き直しても丸める角が無い。
+     */
+    private static final int SEAM_REPAIR_MIN_STEPS = 4;
+
+    /**
+     * 繋ぎ目の修復に使う重み。<b>ここだけ1.0</b>——修復は「今より確実に安い線」が見つかったときだけ
+     * 採るもので、貪欲な重みで別の線を引き当てても交換する意味が無い。区間が96ブロックと短いので
+     * 重み1.0でも上の予算に収まる。
+     */
+    private static final double SEAM_REPAIR_HEURISTIC_WEIGHT = 1.0;
+
+    /**
+     * 解き直し待ちの繋ぎ目を覚えておく数。溢れたら古い方から捨てる。
+     *
+     * <p>捨てて構わないのは、古い繋ぎ目ほど<b>プレイヤーが既に歩き終えている</b>から——
+     * 直しても案内は変わらない。覚え続けると、経路が伸びるほど列だけが伸びていく。
+     */
+    private static final int SEAM_REPAIR_QUEUE_LIMIT = 4;
+
+    /**
      * 経路が始点→目標の直線からこれだけ外れていたら、内訳をログに出す（{@link #noteSuspiciousShape}）。
      * 大きく迂回すること自体は正常なので、閾値は「普段は黙っている」程度に高く取る。
      */
@@ -484,6 +532,21 @@ public final class PathfindingState {
     private String lastSpliceRefusal;
 
     /**
+     * まだ解き直していない繋ぎ目の座標（継ぎ足しの根元、または合流点）。
+     *
+     * <p><b>列で持つ。</b>深い先読みでは継ぎ足しが数tick続けて走るので、1つしか覚えないと
+     * 最後の繋ぎ目以外が取りこぼされる。書くのはワーカースレッド（継ぎ足し・合流の完了）、
+     * 読むのはtick——{@link #SEAM_REPAIR_QUEUE_LIMIT}で頭打ちにして古い方から捨てる。
+     *
+     * <p>添字ではなく座標で持つ。修復が走るまでに合流や迂回で添字がずれうるうえ、
+     * 見つからなければ「その繋ぎ目はもう無い」と分かって黙って捨てられる。
+     */
+    private final Queue<BlockPos> seamsToRepair = new ConcurrentLinkedQueue<>();
+
+    /** 直近に報告した繋ぎ目の解き直し見送りの理由。同じ理由を毎回出さないための重複除去。 */
+    private volatile String lastSeamRepairRefusal;
+
+    /**
      * 直近に「立てない」と報告した探索目標。同じ目標を毎回ログに出さないための重複除去
      * （{@link #noteTargetStandability}）。
      */
@@ -612,6 +675,8 @@ public final class PathfindingState {
         this.bestApproachBlocks = Double.MAX_VALUE;
         this.plainBudgetExhaustedAt = null;
         this.spliceBlockedFrom = null;
+        this.seamsToRepair.clear();
+        this.lastSeamRepairRefusal = null;
         this.stalledSearches = 0;
         this.lastStalledAt = null;
         this.stuckReason = null;
@@ -995,6 +1060,11 @@ public final class PathfindingState {
                 LOGGER.info("XaeroNav: 経路の末端に着いたので引き直します (継ぎ足せなかった理由={}, {}ステップ)",
                         extendRefusal(mc.player, shown, renderRadius), shown.result().steps().size());
                 recalculate();
+                return;
+            }
+            // 継ぎ足す先も末端への到達も無いtickでだけ、直前の繋ぎ目を解き直す。案内を先へ
+            // 伸ばす方が常に優先——修復は既に引いてある線の質の話でしかない
+            if (!seamsToRepair.isEmpty() && repairSeam(mc.level, mc.player, shown, renderRadius)) {
                 return;
             }
         }
@@ -1594,6 +1664,8 @@ public final class PathfindingState {
     private void recalculate(Escalation forced) {
         ticksSinceRecalc = 0;
         ticksSinceValidation = 0;
+        // 全部引き直すなら、手前の経路ごと繋ぎ目も消える
+        seamsToRepair.clear();
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
@@ -2224,6 +2296,7 @@ public final class PathfindingState {
             }
             spliceBlockedFrom = null;
             lastSpliceRefusal = null;
+            noteSeam(joinPos);
             displayed = spliced(shown, splice, joinIndex);
             LOGGER.info("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
                     splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
@@ -2283,6 +2356,203 @@ public final class PathfindingState {
         }
         PathResult combined = new PathResult(List.copyOf(folded.steps()), shown.result().termination(),
                 splice.expandedNodes(), splice.distinctNodes());
+        return new DisplayedPath(combined, shown.mode(), shown.waypointIndex(), List.copyOf(segments));
+    }
+
+    /**
+     * <b>繋ぎ目をまたぐ区間だけを解き直す。</b>安くなったならその区間だけ差し替える。投げたなら{@code true}。
+     *
+     * <p>継ぎ足しも合流も、後の区間は<b>前の区間がどこを通ったかを知らないまま</b>解かれる。
+     * 区間Aは人工的な中間目標へ最適に着くよう解かれるので、「そこへどう着くか」と
+     * 「そこからどう出るか」が食い違い、繋ぎ目にだけ角が残る（{@link #SEAM_REPAIR_SPAN_BLOCKS}）。
+     * 両側が揃ったここで初めて、その角を丸められる。
+     *
+     * <p><b>全部引き直すのでは代わりにならない。</b>オフライン実測（{@code SeamDetourTest}）では、
+     * 引き直しても繋ぎ目の遠回りは半分しか消えず（引き直した先にも新しい繋ぎ目ができる）、
+     * 足元の線が4〜12回描き変わった。ここは1〜3回で、しかも足元ではなく先の方が変わる。
+     *
+     * <p>1つの繋ぎ目につき一度だけ試す。断られた繋ぎ目をtickごとに測り直しても、地形も経路も
+     * 変わっていないので同じ答えしか返らない。
+     */
+    private boolean repairSeam(Level level, Player player, DisplayedPath shown, int renderRadius) {
+        BlockPos seam = seamsToRepair.poll();
+        if (seam == null) {
+            return false;
+        }
+        PathResult result = shown.result();
+        List<PathStep> steps = result.steps();
+        int walkedTo = PathProgress.INSTANCE.indexFor(result);
+        int seamIndex = stepIndexOf(steps, seam, walkedTo);
+        if (seamIndex < 0) {
+            // 合流や迂回でその繋ぎ目ごと消えていた。直すものが無い
+            noteSeamRepairRefused("繋ぎ目が経路上に無い");
+            return false;
+        }
+        // 足元は残す。ここを削ると「歩いているだけで案内が変わる」に戻る
+        int first = walkedTo + 1;
+        while (first < steps.size()
+                && pathLengthBetween(steps, walkedTo, first) < SEAM_REPAIR_KEEP_BLOCKS) {
+            first++;
+        }
+        int from = seamIndex;
+        while (from > first && pathLengthBetween(steps, from - 1, seamIndex) < SEAM_REPAIR_SPAN_BLOCKS) {
+            from--;
+        }
+        int to = seamIndex;
+        while (to < steps.size() - 1 && pathLengthBetween(steps, seamIndex, to + 1) <= SEAM_REPAIR_SPAN_BLOCKS) {
+            to++;
+        }
+        if (from < 1 || from >= seamIndex || to <= seamIndex || to - from < SEAM_REPAIR_MIN_STEPS) {
+            // 繋ぎ目の両側が揃っていない（経路の端か、足元に寄りすぎている）
+            noteSeamRepairRefused("繋ぎ目の両側が揃っていない (手前=" + (seamIndex - from)
+                    + "ステップ, 先=" + (to - seamIndex) + "ステップ)");
+            return false;
+        }
+
+        int sectionFrom = from;
+        int sectionTo = to;
+        BlockPos fromPos = steps.get(sectionFrom - 1).pos();
+        BlockPos toPos = steps.get(sectionTo).pos();
+        double current = stepsCost(steps, sectionFrom, sectionTo);
+        SearchBounds bounds = SearchBounds.around(level, fromPos, toPos,
+                XaeroNavConfig.INSTANCE.searchHorizontalMargin(), verticalSearchMargin(level, false),
+                renderRadius);
+        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
+        SearchLimits full = XaeroNavConfig.INSTANCE.searchLimits();
+        // 予算は1区間と同じ。<b>頭打ちにしてはいけない</b>——6万で切ったところ、実機ログに
+        // 「解き直しが繋ぎ目の先へ届かなかった (NODE_BUDGET)」が出て、ネザーの橋だらけの繋ぎ目が
+        // 直らないまま残った（オフラインでも局所の遠回りが最悪1.059倍→1.927倍に戻る）。
+        // 待ち時間を縛っているのは元々ノード数ではなく壁時計（既定2秒）の方
+        SearchLimits limits = new SearchLimits(full.maxExpandedNodes(), full.timeLimitMillis(),
+                SEAM_REPAIR_HEURISTIC_WEIGHT);
+        // 差し替えない区間で置くと決まっているぶんは、この区間には使えない
+        Carryover carried = new Carryover(Carryover.trailingBridgeRun(steps.subList(0, sectionFrom)),
+                Carryover.placements(steps.subList(0, sectionFrom), first)
+                        + Carryover.placements(steps, sectionTo + 1));
+
+        BlockPos currentGoal = this.goal;
+        long myGeneration = generation.incrementAndGet();
+        computing = true;
+        // 層1のガイドは掛けない。大局はこの区間が差し替える経路の側が既に決めていて、ここで要るのは
+        // <b>その両端を結ぶいちばん安い線</b>だけ。<b>掛けても効かないことは実測済み</b>——96ブロックの
+        // 区間では16ブロック解像度のガイドが幾何Heuristicを下回り、maxで常に負けるので展開ノード数が
+        // 1つも変わらなかった（5地形すべてで完全一致）
+        executor.submit(view, fromPos, toPos, limits, false, 0, carried).whenComplete((repaired, error) -> {
+            if (generation.get() != myGeneration) {
+                return;
+            }
+            computing = false;
+            if (error != null) {
+                if (!(error instanceof CancellationException)) {
+                    LOGGER.error("XaeroNav: 繋ぎ目の解き直しに失敗しました", error);
+                }
+                return;
+            }
+            if (displayed != shown || currentGoal == null || !currentGoal.equals(goal)) {
+                return;
+            }
+            if (!repaired.complete() || repaired.steps().isEmpty()) {
+                noteSeamRepairRefused("解き直しが繋ぎ目の先へ届かなかった (" + repaired.termination() + ")");
+                return;
+            }
+            double replacement = stepsCost(repaired.steps(), 0, repaired.steps().size() - 1);
+            if (replacement >= current * SEAM_REPAIR_MIN_GAIN) {
+                noteSeamRepairRefused("解き直しても安くならない (" + Math.round(current) + "→"
+                        + Math.round(replacement) + "tick)");
+                return;
+            }
+            lastSeamRepairRefusal = null;
+            displayed = withSection(shown, repaired.steps(), sectionFrom, sectionTo);
+            LOGGER.info("XaeroNav: 繋ぎ目を解き直しました (繋ぎ目={}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
+                    seam.toShortString(), Math.round(current), Math.round(replacement),
+                    sectionTo - sectionFrom + 1, repaired.steps().size(), repaired.expandedNodes());
+        });
+        return true;
+    }
+
+    /**
+     * 繋ぎ目を直せなかった理由を残す（診断）。ここが黙っていると、実機で
+     * 「繋ぎ目を解き直しました」が出ないときに<b>断っているのか、そもそも走っていないのか</b>が
+     * 分からない。同じ理由を毎回出さないよう、直前と違うときだけ出す。
+     */
+    private void noteSeamRepairRefused(String reason) {
+        if (reason.equals(lastSeamRepairRefusal)) {
+            return;
+        }
+        lastSeamRepairRefusal = reason;
+        LOGGER.info("XaeroNav: 繋ぎ目の解き直しを見送りました ({})", reason);
+    }
+
+    /** 解き直し待ちの繋ぎ目を覚える。溢れたら古い方から捨てる。 */
+    private void noteSeam(BlockPos seam) {
+        seamsToRepair.add(seam);
+        while (seamsToRepair.size() > SEAM_REPAIR_QUEUE_LIMIT) {
+            seamsToRepair.poll();
+        }
+    }
+
+    /** {@code from}以降で、この座標を踏んでいるステップの添字。無ければ{@code -1}。 */
+    private static int stepIndexOf(List<PathStep> steps, BlockPos pos, int from) {
+        for (int i = Math.max(0, from); i < steps.size(); i++) {
+            if (steps.get(i).pos().equals(pos)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 経路に沿った{@code from}から{@code to}までの長さ（ブロック）。 */
+    private static double pathLengthBetween(List<PathStep> steps, int from, int to) {
+        double length = 0;
+        for (int i = Math.max(1, from + 1); i <= to && i < steps.size(); i++) {
+            length += Math.sqrt(steps.get(i).pos().distSqr(steps.get(i - 1).pos()));
+        }
+        return length;
+    }
+
+    /** {@code from}から{@code to}まで（両端を含む）のコストの合計。 */
+    private static double stepsCost(List<PathStep> steps, int from, int to) {
+        double total = 0;
+        for (int i = from; i <= to && i < steps.size(); i++) {
+            total += steps.get(i).cost();
+        }
+        return total;
+    }
+
+    /**
+     * 経路の{@code from}から{@code to}までを差し替えた経路を組み立てる。前後はそのまま残る。
+     *
+     * <p>差し替えた中にあった区間の切れ目は落とす——その繋ぎ目はもう無い。落としたぶんの
+     * 中間目標の番号は後ろの区間が引き取る（HUDのカウンタも地図の点線もそちらを見る）。
+     */
+    static DisplayedPath withSection(DisplayedPath shown, List<PathStep> section, int from, int to) {
+        List<PathStep> steps = shown.result().steps();
+        List<PathStep> merged = new ArrayList<>(steps.subList(0, from));
+        merged.addAll(section);
+        merged.addAll(steps.subList(to + 1, steps.size()));
+        // 差し替えた区間は前後がどこを通るかを知らないので、繋ぎ目で同じ位置を踏み直しうる
+        PathLoops.Folded folded = PathLoops.fold(merged);
+        int shift = section.size() - (to - from + 1);
+        List<PathSegment> segments = new ArrayList<>();
+        int tailWaypointIndex = shown.waypointIndex();
+        for (PathSegment segment : shown.segments()) {
+            int endStep = segment.endStep();
+            if (endStep < from) {
+                segments.add(new PathSegment(folded.newIndex()[endStep], segment.waypointIndex()));
+            } else if (endStep > to) {
+                segments.add(new PathSegment(folded.newIndex()[endStep + shift], segment.waypointIndex()));
+            } else {
+                tailWaypointIndex = segment.waypointIndex();
+            }
+        }
+        int last = folded.steps().size() - 1;
+        if (segments.isEmpty() || segments.get(segments.size() - 1).endStep() < last) {
+            segments.add(new PathSegment(last, tailWaypointIndex));
+        }
+        PathResult combined = new PathResult(List.copyOf(folded.steps()), shown.result().termination(),
+                shown.result().expandedNodes(), shown.result().distinctNodes());
+        // 差し替えたのは歩いた先だけなので、いま指している位置はそのまま通用する
+        PathProgress.INSTANCE.carryOver(combined);
         return new DisplayedPath(combined, shown.mode(), shown.waypointIndex(), List.copyOf(segments));
     }
 
@@ -2398,6 +2668,8 @@ public final class PathfindingState {
             }
             // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
             // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
+            // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link #repairSeam}）
+            noteSeam(from);
             displayed = append(current, result, newWaypointIndex, reachesGoal);
             extendBlockedAt = null;
             extendBlockedFrom = null;
@@ -3153,7 +3425,7 @@ public final class PathfindingState {
     }
 
     /** 表示中の経路が向かう先の種類。 */
-    private enum PathMode {
+    enum PathMode {
         GOAL,
         TO_SURFACE,
         WAYPOINT
@@ -3174,8 +3446,8 @@ public final class PathfindingState {
      * @param segments 継ぎ足した区間の境目。先読みで1本の経路に複数の中間目標ぶんが含まれるので、
      *         HUDの進捗（プレイヤーがいま何番目に向かっているか）を出すのにこれが要る
      */
-    private record DisplayedPath(PathResult result, PathMode mode, int waypointIndex,
-                                  List<PathSegment> segments) {
+    record DisplayedPath(PathResult result, PathMode mode, int waypointIndex,
+                          List<PathSegment> segments) {
 
         DisplayedPath(PathResult result, PathMode mode, int waypointIndex) {
             this(result, mode, waypointIndex,
@@ -3199,7 +3471,7 @@ public final class PathfindingState {
      * <p>ステップの添字で持つのは、継ぎ足しが手前の添字を変えないから——座標で持つと、
      * 経路が自分の近くを通る地形で区間の切れ目を取り違える。
      */
-    private record PathSegment(int endStep, int waypointIndex) {
+    record PathSegment(int endStep, int waypointIndex) {
     }
 
     /**
