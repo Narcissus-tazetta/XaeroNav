@@ -341,12 +341,6 @@ public final class PathfindingState {
     private static final int SEAM_REPAIR_MIN_STEPS = 4;
 
     /**
-     * 繋ぎ目の修復に許す展開ノード数。実測（{@code SeamDetourTest}）で1回あたり900〜31,000ノード
-     * ——1区間の予算（{@code maxExpandedNodes}）の1〜3割で、ここを緩めても得るものは無い。
-     */
-    private static final int SEAM_REPAIR_MAX_EXPANDED_NODES = 60_000;
-
-    /**
      * 繋ぎ目の修復に使う重み。<b>ここだけ1.0</b>——修復は「今より確実に安い線」が見つかったときだけ
      * 採るもので、貪欲な重みで別の線を引き当てても交換する意味が無い。区間が96ブロックと短いので
      * 重み1.0でも上の予算に収まる。
@@ -2425,9 +2419,12 @@ public final class PathfindingState {
                 renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
         SearchLimits full = XaeroNavConfig.INSTANCE.searchLimits();
-        SearchLimits limits = new SearchLimits(
-                Math.min(full.maxExpandedNodes(), SEAM_REPAIR_MAX_EXPANDED_NODES),
-                full.timeLimitMillis(), SEAM_REPAIR_HEURISTIC_WEIGHT);
+        // 予算は1区間と同じ。<b>頭打ちにしてはいけない</b>——6万で切ったところ、実機ログに
+        // 「解き直しが繋ぎ目の先へ届かなかった (NODE_BUDGET)」が出て、ネザーの橋だらけの繋ぎ目が
+        // 直らないまま残った（オフラインでも局所の遠回りが最悪1.059倍→1.927倍に戻る）。
+        // 待ち時間を縛っているのは元々ノード数ではなく壁時計（既定2秒）の方
+        SearchLimits limits = new SearchLimits(full.maxExpandedNodes(), full.timeLimitMillis(),
+                SEAM_REPAIR_HEURISTIC_WEIGHT);
         // 差し替えない区間で置くと決まっているぶんは、この区間には使えない
         Carryover carried = new Carryover(Carryover.trailingBridgeRun(steps.subList(0, sectionFrom)),
                 Carryover.placements(steps.subList(0, sectionFrom), first)
@@ -2436,8 +2433,10 @@ public final class PathfindingState {
         BlockPos currentGoal = this.goal;
         long myGeneration = generation.incrementAndGet();
         computing = true;
-        // 層1のガイドは掛けない。大局はこの区間が差し替える経路の側が既に決めていて、
-        // ここで要るのは<b>その両端を結ぶいちばん安い線</b>だけ
+        // 層1のガイドは掛けない。大局はこの区間が差し替える経路の側が既に決めていて、ここで要るのは
+        // <b>その両端を結ぶいちばん安い線</b>だけ。<b>掛けても効かないことは実測済み</b>——96ブロックの
+        // 区間では16ブロック解像度のガイドが幾何Heuristicを下回り、maxで常に負けるので展開ノード数が
+        // 1つも変わらなかった（5地形すべてで完全一致）
         executor.submit(view, fromPos, toPos, limits, false, 0, carried).whenComplete((repaired, error) -> {
             if (generation.get() != myGeneration) {
                 return;

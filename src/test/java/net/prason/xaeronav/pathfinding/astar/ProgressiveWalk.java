@@ -151,6 +151,15 @@ final class ProgressiveWalk {
     /** {@code PathfindingState#SEAM_REPAIR_MIN_GAIN}。これより安くならないなら線を描き変えない。 */
     private static final double REPAIR_MIN_GAIN = 0.98;
 
+    /**
+     * 修復に渡す予算。{@code PathfindingState}が1区間に渡すのと同じ（既定の{@code maxExpandedNodes}）。
+     *
+     * <p><b>6万で頭打ちにすると足りない。</b>実測でネザー2の修復が3回中1回落ち、
+     * 繋ぎ目の局所の遠回りが最悪1.059倍→1.927倍に戻った（実機ログにも
+     * 「解き直しが繋ぎ目の先へ届かなかった (NODE_BUDGET)」が出ていた）。
+     */
+    private static final int REPAIR_NODE_BUDGET = 100_000;
+
     /** 「プレイヤーの近くで線が描き変わった」とみなす距離（ブロック）。 */
     private static final double NEAR_PLAYER_BLOCKS = 32.0;
 
@@ -233,8 +242,11 @@ final class ProgressiveWalk {
         BlockPos fromPos = planned.get(from - 1).pos();
         BlockPos toPos = planned.get(to).pos();
         double current = cost(planned.subList(from, to + 1));
-        PathResult result = new AStarPathfinder(view, new SearchLimits(LEG_NODE_BUDGET, 30_000, 1.0))
-                .search(fromPos, toPos, NEVER);
+        // 層1のガイドは掛けない。<b>この距離では効かないことを実測した</b>——96ブロックの区間では
+        // 16ブロック解像度のガイドが幾何Heuristicを下回り、maxで常に負けるので展開ノード数が
+        // 1つも変わらなかった（5地形すべてで完全一致）。掛ける手間だけが増える
+        PathResult result = new AStarPathfinder(view,
+                new SearchLimits(REPAIR_NODE_BUDGET, 30_000, 1.0)).search(fromPos, toPos, NEVER);
         if (!result.complete() || result.steps().isEmpty()
                 || cost(result.steps()) >= current * REPAIR_MIN_GAIN) {
             return new RepairAttempt(null, result.expandedNodes());
