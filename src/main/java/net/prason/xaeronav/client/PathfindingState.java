@@ -173,6 +173,16 @@ public final class PathfindingState {
      */
     private static final long COARSE_MAP_RETRY_INTERVAL_MILLIS = 3_000;
 
+    /**
+     * 地図の読み込みを待つ引き直しを、1つの目的地について諦めるまでの回数。
+     *
+     * <p>{@code pendingRegions}はXaeroが読み込みを終えるたびに減る（検出情報が捨てられる）ので、
+     * 普通は数回で0になる。減らないまま回り続ける事態——要求がキューで捨てられる、リージョンが
+     * 壊れていて読み込みが完了しない——に備えて上限を置く。ここが無いと、3秒ごとの全引き直しが
+     * 目的地に着くまで止まらない。
+     */
+    private static final int COARSE_MAP_RETRY_LIMIT = 10;
+
     /** 目的地へ近づけないまま終わる探索がこの回数続いたら、詰みと判断する。 */
     private static final int STUCK_SEARCH_STREAK = 4;
 
@@ -455,6 +465,8 @@ public final class PathfindingState {
     private volatile CoarseRoute refiningRoute;
     // 地図の読み込み待ちで引き直す番（COARSE_MAP_RETRY_INTERVAL_MILLIS）。クライアントスレッドだけが触る
     private long coarseMapRetryAfterMillis;
+    // 地図の読み込み待ちで引き直した回数（COARSE_MAP_RETRY_LIMIT）。クライアントスレッドだけが触る
+    private int coarseMapRetries;
     // 詳細探索が通常マージンでは届かなかった探索ゴール。次のrecalculateで範囲を広げて再挑戦する
     // 目印。本来の目的地と長距離ルートの中間目標を区別しないのは、どちらも「描画距離の内側にある
     // 詳細探索のゴール」で、壁や湖を迂回する経路が範囲の外に落ちる事情が同じだから。
@@ -667,6 +679,7 @@ public final class PathfindingState {
         this.refiningRoute = null;
         this.pendingRefinedRouteReady = false;
         this.coarseMapRetryAfterMillis = 0L;
+        this.coarseMapRetries = 0;
         this.pendingWideRetry = false;
         this.pendingCoarseGuideRetry = false;
         this.pendingDeepRetry = false;
@@ -1017,6 +1030,13 @@ public final class PathfindingState {
         if (pendingEscalation(mc.player)) {
             return;
         }
+        // 継ぎ足しより前に置く。深い先読みでは継ぎ足しが数tick続くので、後ろに置くと
+        // その間ずっと starve して、欠けた地図で引いた大局のまま歩き続けることになる。
+        // 中継区間（TO_SURFACE）は長距離ルートを使っていないので対象外
+        if ((shown == null || shown.mode() != PathMode.TO_SURFACE)
+                && redrawCoarseRouteForLoadedMap(currentGoal)) {
+            return;
+        }
 
         if (result == null || result.steps().isEmpty()) {
             retryWithoutRoute(mc.player.blockPosition());
@@ -1162,6 +1182,46 @@ public final class PathfindingState {
             return true;
         }
         return false;
+    }
+
+    /**
+     * 地図が欠けたまま引いた長距離ルートを、読み込みが進んだところで引き直す。引き直したなら{@code true}。
+     *
+     * <p>{@link #cachedOrFreshRoute}にある同じ判断は{@code playerAnchored}の枝——つまり
+     * {@link #recalculate}の中——にしか無く、<b>完走できる経路を逸脱せずに歩いている間
+     * {@code recalculate}は一度も走らない</b>（走るのは逸脱・末端への到達・打ち切り経路・経路上の
+     * 変化・エスカレーションだけで、継ぎ足しは{@code playerAnchored=false}）。実機のネザーでは、
+     * 32%がデータ無し・20リージョン未読み込みの地図で決めた大局が目的地まで残っていた——未知セルは
+     * {@link CoarseRouter}でほぼ最安なので、まだ見えていない溶岩の海を突っ切る大局が選ばれ、
+     * 層2・層3がそれを迂回して経路が膨らむ。読み込みの要求も{@link #freshRoute}の中でしか
+     * 出さないので、ここが無いと要求そのものが最初の1回で止まる。
+     *
+     * <p><b>{@link #freshRoute}だけを呼ぶのでは足りない。</b>中間目標の列が入れ替わると添字の意味が
+     * 変わり、表示中の経路の{@code waypointIndex}を下限に使う{@link #extendPath}が新しい列の
+     * 末尾＝目的地に張り付く。{@code recalculate}なら経路ごと入れ替わるので添字が食い違わない。
+     */
+    private boolean redrawCoarseRouteForLoadedMap(BlockPos currentGoal) {
+        CoarseRoute before = coarseRoute;
+        if (before == null || !before.goal().equals(currentGoal) || before.pendingRegions() == 0
+                || coarseMapRetries >= COARSE_MAP_RETRY_LIMIT) {
+            return false;
+        }
+        // 精緻化の最中に引き直すと、その結果は由来元の不一致で捨てられる（cachedOrFreshRouteと同じ条件）
+        if (refiningRoute != null || System.currentTimeMillis() < coarseMapRetryAfterMillis) {
+            return false;
+        }
+        coarseMapRetries++;
+        recalculate();
+        CoarseRoute after = coarseRoute;
+        // 引き直したこと自体より「地図が埋まって大局が変わったか」が知りたい。変わらないなら、
+        // 遠回りの原因は読み込み待ちではなく別にある
+        LOGGER.info("XaeroNav: 地図の読み込みを待って長距離ルートを引き直しました"
+                        + " (未読み込みリージョン={}→{}, 中間目標={}→{}個, {}, {}回目/{})",
+                before.pendingRegions(), after.pendingRegions(),
+                before.waypoints().size(), after.waypoints().size(),
+                after.waypoints().equals(before.waypoints()) ? "同じルート" : "変わった",
+                coarseMapRetries, COARSE_MAP_RETRY_LIMIT);
+        return true;
     }
 
     /**
