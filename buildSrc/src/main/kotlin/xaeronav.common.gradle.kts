@@ -60,6 +60,10 @@ val slowTest by tasks.registering(Test::class) {
     // （FakeCellsは空気を持たない疎な表なので、現世の同じ面積とは桁が違う）。既定のヒープでは
     // 地形を読み込む途中でOutOfMemoryErrorになる
     maxHeapSize = "3g"
+    // テストクラスごとにJVMを作り直す。1つのJVMで回すと、クラスごとに読む大きな地形が
+    // 積み上がってヒープを使い切る（実際にテスト結果を1件も残さずJVMごと落ちた）。
+    // 起動のぶんは遅くなるが、重いテストは元々1本あたり数十秒かかる
+    forkEvery = 1
 }
 
 tasks.named("check") { dependsOn(slowTest) }

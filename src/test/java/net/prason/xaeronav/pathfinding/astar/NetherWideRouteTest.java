@@ -21,6 +21,7 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.TerrainFixture;
+import net.prason.xaeronav.pathfinding.world.WindowedCells;
 
 /**
  * <b>ネザーの長距離を、ユーザーが「ルートがおかしい」と報告した実地形そのもので測る。</b>
@@ -93,24 +94,30 @@ class NetherWideRouteTest {
     /** 中間目標のYと実地形の床がこれ以上離れていたら、そこへは降りられない。 */
     private static final int STANDABLE_TOLERANCE_BLOCKS = 8;
 
-    /**
-     * <b>これは目標値ではなく、いまの実測値に置いた歯止め（ラチェット）。</b>実測は
-     * 平均2.964倍・最悪3.345倍（8本中5本が到達、ユーザー報告の座標は2.941倍）。
-     * 同じ測り方で現世（{@code LongRouteOptimalityTest}）は1.046倍なので、
-     * <b>ネザーの長距離は現世の3倍近く遠回りしている</b>——これがユーザーの言う
-     * 「ルートがおかしい」の正体で、直す対象そのもの。悪化だけは即座に捕まえたいので線を置く。
-     */
-    private static final double MEAN_LIMIT = 3.10;
+    /** 実機の描画距離10チャンク相当。{@code SearchBounds.around}はこれで箱を切る。 */
+    private static final int WINDOW_RADIUS = 160;
 
-    /** 1本でも破滅的なら落とす線。実測の最悪は3.345倍。 */
-    private static final double WORST_LIMIT = 3.50;
+    /** 継ぎ足しの回数の上限。 */
+    private static final int MAX_SEGMENTS = 24;
 
     /**
-     * 「基準は繋がっているのに層1の中間目標を辿ると行き詰まる」経路の許容数。
-     * 実測1本（{@code -474,69,629→-271,73,482}、基準1836tick、7区間中5区間で止まる）。
-     * <b>0にするのが正しい</b>——ここが1なのは、いまそういう経路が実在するという記録。
+     * 全体の悪化を捕まえる線。実測は<b>平均1.377倍</b>（基準が解けた4本すべて到達、
+     * ユーザー報告の座標は1.060倍）。
+     *
+     * <p>中間目標に立ち寄っていた頃は平均2.964倍・最悪3.345倍で、1本は行き詰まっていた。
+     * 探索のゴールを最終目的地に変えた（{@code PathfindingState#COARSE_ROUTE_DISTRUST_RATIO}）
+     * ことでここまで縮んでいる。現世の同じ測り方（{@code LongRouteOptimalityTest}）は1.046倍。
      */
-    private static final int ALLOWED_DEAD_ENDS = 1;
+    private static final double MEAN_LIMIT = 1.50;
+
+    /** 1本でも破滅的なら落とす線。実測の最悪は1.688倍（旧実装は3.345倍）。 */
+    private static final double WORST_LIMIT = 1.80;
+
+    /**
+     * 「基準は繋がっているのに行き詰まる」経路の許容数。<b>0</b>——旧実装では1本あったが、
+     * 目的地を狙うようにしてから基準が解けた4本はすべて到達している。
+     */
+    private static final int ALLOWED_DEAD_ENDS = 0;
 
     private static FakeCells terrain() throws IOException {
         // 実機の既定に合わせる（maxBridgeRunBlocks/maxVoidBridgeRunBlocks=96、落下許容6）
@@ -225,6 +232,42 @@ class NetherWideRouteTest {
         return bad;
     }
 
+    /**
+     * <b>いまの実装（{@code PathfindingState#COARSE_ROUTE_DISTRUST_RATIO}を超えた地形での動き）。</b>
+     * 探索のゴールは常に最終目的地で、層1は{@code cost-to-go}ガイドとしてだけ使う。箱で切られた
+     * 部分経路を末端から継ぎ足していく。
+     */
+    private static Walk followGoalAimed(FakeCells cells, BlockPos start, BlockPos goal, CoarseMap map) {
+        CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE);
+        BlockPos from = start;
+        double cost = 0;
+        int steps = 0;
+        int segments = 0;
+        for (int segment = 0; segment < MAX_SEGMENTS; segment++) {
+            PathResult result = new AStarPathfinder(new WindowedCells(cells, from, WINDOW_RADIUS),
+                    LEG_LIMITS, guide).search(from, goal, () -> false);
+            if (result.steps().isEmpty()) {
+                // 実機と同じエスカレーション（PathfindingState#DEEP_SEARCH_BUDGET_FACTOR）
+                result = new AStarPathfinder(new WindowedCells(cells, from, WINDOW_RADIUS),
+                        DEEP_LEG_LIMITS, guide).search(from, goal, () -> false);
+            }
+            if (result.steps().isEmpty()
+                    || result.steps().get(result.steps().size() - 1).pos().equals(from)) {
+                return new Walk(cost, steps, segments, false);
+            }
+            for (PathStep step : result.steps()) {
+                cost += step.cost();
+            }
+            steps += result.steps().size();
+            segments++;
+            from = result.steps().get(result.steps().size() - 1).pos();
+            if (result.complete()) {
+                return new Walk(cost, steps, segments, true);
+            }
+        }
+        return new Walk(cost, steps, segments, false);
+    }
+
     /** 中間目標を順に辿って組み立てた経路。実機の区間分割・継ぎ足しと同じ形。 */
     private record Walk(double cost, int steps, int reachedLegs, boolean arrived) {
     }
@@ -276,9 +319,10 @@ class NetherWideRouteTest {
             CoarseMap map = LiveCoarseSampler.sample(cells, cells.bounds(), start.getY(), () -> false);
             Attempt attempt = ladder(map, start, goal);
             int unstandable = unstandableWaypoints(cells, attempt.route());
-            Walk walk = follow(cells, start, attempt.route());
+            Walk viaWaypoints = follow(cells, start, attempt.route());
+            Walk walk = followGoalAimed(cells, start, goal, map);
             report.add(String.format(Locale.ROOT,
-                    "%3.0fブロック 基準%s 層1=%s 立てない中間目標%d個 到達区間%d/%d 経路%s %s",
+                    "%3.0fブロック 基準%s 層1=%s 立てない中間目標%d個 継ぎ足し%d回(中間目標%d個) 経路%s %s",
                     ProgressiveWalk.horizontal(start, goal),
                     Double.isFinite(best) ? String.format(Locale.ROOT, "%6.0f", best) : "解けず",
                     attempt.describe(), unstandable, walk.reachedLegs(),

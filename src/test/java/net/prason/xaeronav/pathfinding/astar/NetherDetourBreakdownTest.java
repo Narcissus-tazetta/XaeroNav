@@ -11,12 +11,12 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
-import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
-import net.prason.xaeronav.pathfinding.world.WindowedCells;
+import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.TerrainFixture;
 
 /**
@@ -30,8 +30,13 @@ import net.prason.xaeronav.pathfinding.world.TerrainFixture;
  * <li><b>ガイドだけ</b> — 層1のcost-to-goガイドあり・重み1.0。ガイドが下限を破っていれば、
  *     重み1.0でも最適から外れる</li>
  * <li><b>重み＋ガイド</b> — 実機の1区間と同じ設定を、区間に切らずに通しで</li>
- * <li><b>実機の組み立て</b> — 中間目標ごとに区間へ切る（{@link NetherWideRouteTest}の測定）</li>
+ * <li><b>中間目標に立ち寄る（旧実装）と目的地を狙う（いまの実装）</b>の比較。質だけでなく
+ *     展開ノード数も出す——現世では入れ替えが損になるので、そこも同じ物差しで測る</li>
  * </ol>
+ *
+ * <p>ここで採らなかった案（進めないときだけ中間目標へ退避する／箱を切る／中間目標の周りに
+ * 廊下を置く／狙う半径を緩める）も一度は測った。半径を緩めるのは逆効果（未到達が増える）で、
+ * 他は目的地を狙うのと同等以下だった。経緯は[[xaeronav-architecture]]。
  *
  * <p>あわせて<b>ガイドが最適経路の各点で残りコストを超えていないか</b>（下限違反）も測る。
  * {@code GuideAdmissibilityTest}はネザーを荒地224ブロック四方・60〜160ブロックでしか見ておらず、
@@ -275,87 +280,7 @@ class NetherDetourBreakdownTest {
         };
     }
 
-    /**
-     * <b>ハイブリッド案。</b>探索のゴールは常に最終目的地（層1ガイドで方向づけ、予算で
-     * 打ち切られた部分経路を採って末端から継ぎ足す）。<b>前進しなくなったときだけ</b>、
-     * 従来どおり層1の中間目標をゴールにして脱出する。
-     *
-     * <p>中間目標を「必ず立ち寄る点」にすると3倍になり（本テストの測定）、目的地だけを
-     * 狙うと安いが袋小路で止まる（同）。両者の良いところを取る。
-     */
-    private static GuidedWalk followHybrid(FakeCells cells, BlockPos start, BlockPos goal,
-                                            CostToGo guide, SearchLimits limits,
-                                            CoarseRouter.Route coarse) throws Exception {
-        PathfindingExecutor executor = new PathfindingExecutor();
-        List<BlockPos> waypoints = new ArrayList<>(coarse.waypoints());
-        BlockPos from = start;
-        double cost = 0;
-        int rescues = 0;
-        for (int segment = 0; segment < MAX_SEGMENTS; segment++) {
-            PathResult result = new AStarPathfinder(cells, limits, guide).search(from, goal, () -> false);
-            boolean progressed = !result.steps().isEmpty()
-                    && !result.steps().get(result.steps().size() - 1).pos().equals(from);
-            if (progressed) {
-                cost += result.steps().stream().mapToDouble(PathStep::cost).sum();
-                from = result.steps().get(result.steps().size() - 1).pos();
-                if (result.complete()) {
-                    return new GuidedWalk(cost, true, "中間目標への退避" + rescues + "回", 0);
-                }
-                continue;
-            }
-            // 前進しなかった。層1の中間目標のうち、まだ先にあるものを1つ選んで脱出する
-            BlockPos rescue = null;
-            for (BlockPos waypoint : waypoints) {
-                if (Math.sqrt(waypoint.distSqr(goal)) < Math.sqrt(from.distSqr(goal))) {
-                    rescue = waypoint;
-                    break;
-                }
-            }
-            if (rescue == null) {
-                return new GuidedWalk(cost, false, "退避先の中間目標が無い（退避" + rescues + "回）", 0);
-            }
-            waypoints.remove(rescue);
-            rescues++;
-            PathResult leg = executor.submit(cells, from, rescue,
-                    new SearchLimits(800_000, 16_000, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT),
-                    true, LEG_GOAL_RADIUS).get();
-            if (leg.steps().isEmpty()) {
-                return new GuidedWalk(cost, false, "退避もできない（退避" + rescues + "回）", 0);
-            }
-            cost += leg.steps().stream().mapToDouble(PathStep::cost).sum();
-            from = leg.steps().get(leg.steps().size() - 1).pos();
-        }
-        return new GuidedWalk(cost, false, "継ぎ足し" + MAX_SEGMENTS + "回で届かず", 0);
-    }
 
-    /** 実機の描画距離10チャンク相当。探索の箱はこれで切られる。 */
-    private static final int WINDOW_RADIUS = 160;
-
-    /**
-     * <b>案3。</b>案2と同じくゴールは最終目的地だが、<b>探索の箱を現在地の周りで切る</b>
-     * （実機は{@code SearchBounds.around}が描画距離で切っている）。案2が1本で詰んだのは、
-     * 箱を切らずに遠い目的地を狙わせたせいで<b>行き止まりの奥深くまで入り込んだ</b>ため——
-     * 箱を切れば、そこから出られなくなる前に縁で最良の点が選ばれる。
-     */
-    private static GuidedWalk followWindowed(FakeCells cells, BlockPos start, BlockPos goal,
-                                              CostToGo guide, SearchLimits limits) {
-        BlockPos from = start;
-        double cost = 0;
-        for (int segment = 0; segment < MAX_SEGMENTS; segment++) {
-            PathResult result = new AStarPathfinder(new WindowedCells(cells, from, WINDOW_RADIUS),
-                    limits, guide).search(from, goal, () -> false);
-            if (result.steps().isEmpty()
-                    || result.steps().get(result.steps().size() - 1).pos().equals(from)) {
-                return new GuidedWalk(cost, false, "セグメント" + segment + "で前進しない", 0);
-            }
-            cost += result.steps().stream().mapToDouble(PathStep::cost).sum();
-            from = result.steps().get(result.steps().size() - 1).pos();
-            if (result.complete()) {
-                return new GuidedWalk(cost, true, "セグメント" + (segment + 1) + "本", 0);
-            }
-        }
-        return new GuidedWalk(cost, false, "継ぎ足し" + MAX_SEGMENTS + "回で届かず", 0);
-    }
 
     /**
      * <b>案4。</b>中間目標は使うが、<b>狙う半径を緩める</b>。いまは16ブロック（セルの半幅）で
@@ -384,58 +309,6 @@ class NetherDetourBreakdownTest {
         return new GuidedWalk(cost, true, "", nodes);
     }
 
-    /** 廊下の水平マージン（ブロック）。層2（{@code CorridorLegSolver}）と同じ値。 */
-    private static final int CORRIDOR_MARGIN_BLOCKS = 48;
-
-    /**
-     * <b>案5（本命）。</b>層1の中間目標は<b>箱の置き場所</b>としてだけ使い、探索のゴールは
-     * 常に最終目的地にする。
-     *
-     * <ul>
-     * <li>中間目標に<b>立ち寄らない</b>ので、層1が選んだ「短いが高くつく道」に縛られない</li>
-     * <li>箱が中間目標の周りに限られるので、目的地だけを狙ったときのように
-     *     <b>行き止まりの奥へ入り込まない</b>（案・案3が1本で詰んだ原因）</li>
-     * </ul>
-     */
-    private static GuidedWalk followCorridor(FakeCells cells, BlockPos start, BlockPos goal,
-                                              CostToGo guide, SearchLimits limits,
-                                              CoarseRouter.Route coarse) {
-        List<BlockPos> waypoints = new ArrayList<>(coarse.waypoints());
-        waypoints.add(goal);
-        BlockPos from = start;
-        double cost = 0;
-        int at = 0;
-        for (int segment = 0; segment < MAX_SEGMENTS; segment++) {
-            // もう通り過ぎた中間目標は飛ばす（目的地に近いものが先）
-            while (at < waypoints.size() - 1
-                    && waypoints.get(at).distSqr(goal) >= from.distSqr(goal)) {
-                at++;
-            }
-            BlockPos ahead = waypoints.get(at);
-            BlockPos center = new BlockPos((from.getX() + ahead.getX()) / 2, from.getY(),
-                    (from.getZ() + ahead.getZ()) / 2);
-            int radius = Math.max(Math.abs(from.getX() - ahead.getX()),
-                    Math.abs(from.getZ() - ahead.getZ())) / 2 + CORRIDOR_MARGIN_BLOCKS;
-            PathResult result = new AStarPathfinder(new WindowedCells(cells, center, radius),
-                    limits, guide).search(from, goal, () -> false);
-            boolean progressed = !result.steps().isEmpty()
-                    && !result.steps().get(result.steps().size() - 1).pos().equals(from);
-            if (!progressed) {
-                if (at < waypoints.size() - 1) {
-                    // この箱では進めない。次の中間目標まで箱を伸ばして試す
-                    at++;
-                    continue;
-                }
-                return new GuidedWalk(cost, false, "セグメント" + segment + "で前進しない", 0);
-            }
-            cost += result.steps().stream().mapToDouble(PathStep::cost).sum();
-            from = result.steps().get(result.steps().size() - 1).pos();
-            if (result.complete()) {
-                return new GuidedWalk(cost, true, "セグメント" + (segment + 1) + "本", 0);
-            }
-        }
-        return new GuidedWalk(cost, false, "継ぎ足し" + MAX_SEGMENTS + "回で届かず", 0);
-    }
 
     /**
      * <b>層1が選んだ道のセルと、最適経路が通ったセルを、層1が持っている情報だけで比べる。</b>
@@ -556,6 +429,23 @@ class NetherDetourBreakdownTest {
         assertTrue(!report.isEmpty(), "1本も測れていない");
     }
 
+    /** 実機の描画距離10チャンク相当。{@code SearchBounds.around}はこれで箱を切る。 */
+    private static final int WINDOW_RADIUS = 160;
+
+    /**
+     * <b>実機の{@code PathfindingExecutor#buildCostToGoGuide}と同じ作り方のガイド。</b>
+     * 層1の地図を<b>探索の箱の中だけ</b>から組む。目的地が箱の外にあると、
+     * {@code CoarseRouter#costToGo}は目的地セルを地図に含まないので全コストが無限になり、
+     * {@code estimate()}はどこでも0を返す——<b>ガイドが消える</b>。
+     */
+    private static CostToGo guideFromSearchBox(FakeCells cells, BlockPos start, BlockPos goal) {
+        SearchBounds box = new SearchBounds(
+                start.getX() - WINDOW_RADIUS, cells.bounds().minY(), start.getZ() - WINDOW_RADIUS,
+                start.getX() + WINDOW_RADIUS, cells.bounds().maxY(), start.getZ() + WINDOW_RADIUS);
+        CoarseMap boxMap = LiveCoarseSampler.sample(cells, box, start.getY(), () -> false);
+        return CoarseRouter.costToGo(boxMap, goal, false, CoarseRouter.BridgePolicy.BRIDGE);
+    }
+
     @Test
     void showsWhichLayerTheNetherDetourComesFrom() throws Exception {
         FakeCells cells = terrain();
@@ -625,6 +515,12 @@ class NetherDetourBreakdownTest {
             report.add(compareCells(map, cells, best, start, coarse));
             double asWaypoints = followOptimalAsWaypoints(cells, best, start, goal);
             report.add("  【対照】最適経路を中間目標に間引いて辿り直す " + ratio(asWaypoints, bestCost));
+            CostToGo boxGuide = guideFromSearchBox(cells, start, goal);
+            GuidedWalk boxed = followGuidedToGoal(cells, start, goal, boxGuide, liveLimits);
+            report.add(String.format(Locale.ROOT,
+                    "  【実装のいまの姿】箱の中だけからガイドを作る %s 展開%,d（始点でのガイド値=%.0f）",
+                    ratio(boxed.arrived() ? boxed.cost() : Double.POSITIVE_INFINITY, bestCost),
+                    boxed.nodes(), boxGuide.estimate(start.getX(), start.getY(), start.getZ())));
             GuidedWalk toGoal = followGuidedToGoal(cells, start, goal, guide, liveLimits);
             report.add(String.format(Locale.ROOT, "  【案】目的地を狙って継ぎ足す %s 展開%,d",
                     ratio(toGoal.arrived() ? toGoal.cost() : Double.POSITIVE_INFINITY, bestCost),
@@ -632,23 +528,11 @@ class NetherDetourBreakdownTest {
             if (!toGoal.arrived()) {
                 report.add("    " + toGoal.trace());
             }
-            GuidedWalk corridor = followCorridor(cells, start, goal, guide, liveLimits, coarse);
-            report.add("  【案5】中間目標の周りに箱を置き、目的地を狙う "
-                    + ratio(corridor.arrived() ? corridor.cost() : Double.POSITIVE_INFINITY, bestCost)
-                    + " " + corridor.trace());
             GuidedWalk viaWaypoints = followWithRadius(cells, start, coarse, 16);
             report.add(String.format(Locale.ROOT, "  【現行】中間目標に立ち寄る %s 展開%,d",
                     ratio(viaWaypoints.arrived() ? viaWaypoints.cost() : Double.POSITIVE_INFINITY,
                             bestCost),
                     viaWaypoints.nodes()));
-            GuidedWalk windowed = followWindowed(cells, start, goal, guide, liveLimits);
-            report.add("  【案3】箱を切って目的地を狙う "
-                    + ratio(windowed.arrived() ? windowed.cost() : Double.POSITIVE_INFINITY, bestCost)
-                    + " " + windowed.trace());
-            GuidedWalk hybrid = followHybrid(cells, start, goal, guide, liveLimits, coarse);
-            report.add("  【案2】目的地を狙い、進めないときだけ中間目標へ退避 "
-                    + ratio(hybrid.arrived() ? hybrid.cost() : Double.POSITIVE_INFINITY, bestCost)
-                    + " " + hybrid.trace());
         }
 
         report.add(String.format(Locale.ROOT, "ガイドの下限違反の最悪: %.3f倍 %s",
