@@ -132,6 +132,42 @@ final class ProgressiveWalk {
         return overlaps;
     }
 
+    /** 経路の組み立て方。{@link #trace}が測り分ける3通り。 */
+    enum Mode {
+        /** 実装どおり。末端から継ぎ足し、手前は二度と見直さない。 */
+        EXTEND,
+        /** 計画のたびに手前を捨ててプレイヤーから引き直す（ユーザー要望の「全部引き直す」）。 */
+        REPLAN,
+        /** 継ぎ足したあと、繋ぎ目をまたぐ区間だけを解き直して安ければ差し替える。 */
+        REPAIR
+    }
+
+    /** {@code PathfindingState#SEAM_REPAIR_SPAN_BLOCKS}。繋ぎ目の手前・先をそれぞれ何ブロック見るか。 */
+    private static final double REPAIR_SPAN_BLOCKS = 48.0;
+
+    /** {@code PathfindingState#SEAM_REPAIR_KEEP_BLOCKS}。プレイヤーの前方これだけは描き変えない。 */
+    private static final double REPAIR_KEEP_BLOCKS = 16.0;
+
+    /** {@code PathfindingState#SEAM_REPAIR_MIN_GAIN}。これより安くならないなら線を描き変えない。 */
+    private static final double REPAIR_MIN_GAIN = 0.98;
+
+    /** 「プレイヤーの近くで線が描き変わった」とみなす距離（ブロック）。 */
+    private static final double NEAR_PLAYER_BLOCKS = 32.0;
+
+    /**
+     * 歩いた経路と、その上で<b>区間が切り替わった位置</b>（＝繋ぎ目）、そして
+     * <b>線がどれだけ描き変わったか</b>。
+     *
+     * @param joints         {@code steps}の添字。そのステップから新しい区間が始まっている
+     * @param redraws        すでに引いてある線が描き変わった回数
+     * @param redrawnBlocks  描き変わった区間の長さの合計（ブロック）
+     * @param nearRedraws    そのうち、描き変わりの起点がプレイヤーから
+     *                       {@link #NEAR_PLAYER_BLOCKS}以内だった回数
+     */
+    record Trace(List<PathStep> steps, List<Integer> joints, int redraws, double redrawnBlocks,
+                 int nearRedraws, int repairAttempts, int repairsTaken, long repairNodes) {
+    }
+
     /**
      * 窓を動かしながら目的地まで歩き通し、実際に歩いた経路を返す。届かなければ空。
      *
@@ -141,13 +177,97 @@ final class ProgressiveWalk {
      */
     static List<PathStep> walk(FakeCells all, BlockPos start, BlockPos goal, int radius,
                                boolean extending) {
+        return trace(all, start, goal, radius, extending ? Mode.EXTEND : Mode.REPLAN).steps();
+    }
+
+    /** 線が描き変わった最初の添字。同じなら{@code -1}。 */
+    private static int firstDifference(List<PathStep> before, List<PathStep> after) {
+        int shared = Math.min(before.size(), after.size());
+        for (int i = 0; i < shared; i++) {
+            if (!before.get(i).pos().equals(after.get(i).pos())) {
+                return i;
+            }
+        }
+        // 後ろへ伸びただけ（継ぎ足し）は描き変わりではない
+        return before.size() > after.size() ? shared : -1;
+    }
+
+    /** {@code steps}の{@code from}から{@code to}までの、経路に沿った長さ（ブロック）。 */
+    private static double lengthBetween(List<PathStep> steps, int from, int to) {
+        double length = 0;
+        for (int i = from + 1; i <= to && i < steps.size(); i++) {
+            length += Math.sqrt(steps.get(i).pos().distSqr(steps.get(i - 1).pos()));
+        }
+        return length;
+    }
+
+    /** 差し替えた線と、差し替えた区間（{@code from}以降が{@code length}ステップになった）。 */
+    private record Repair(List<PathStep> steps, int from, int replaced, int length) {
+    }
+
+    /** 繋ぎ目の修復を1回試したときの値段。{@code repair}がnullなら採らなかった。 */
+    private record RepairAttempt(Repair repair, long expandedNodes) {
+    }
+
+    /**
+     * 繋ぎ目をまたぐ区間だけを解き直す。安くなったなら差し替えた線を、そうでなければ{@code null}。
+     */
+    private static RepairAttempt repairSeam(CellSource view, BlockPos player, List<PathStep> planned,
+                                            int seam) {
+        int first = 0;
+        while (first < planned.size() && distance(player, planned.get(first).pos()) < REPAIR_KEEP_BLOCKS) {
+            first++;
+        }
+        int from = seam;
+        while (from > first && lengthBetween(planned, from - 1, seam) < REPAIR_SPAN_BLOCKS) {
+            from--;
+        }
+        int to = seam;
+        while (to < planned.size() - 1 && lengthBetween(planned, seam, to + 1) <= REPAIR_SPAN_BLOCKS) {
+            to++;
+        }
+        if (from < 1 || from >= seam || to <= seam || to - from < 4) {
+            return new RepairAttempt(null, 0);
+        }
+        // fromは差し替える区間の先頭なので、探索の始点はその1つ手前
+        BlockPos fromPos = planned.get(from - 1).pos();
+        BlockPos toPos = planned.get(to).pos();
+        double current = cost(planned.subList(from, to + 1));
+        PathResult result = new AStarPathfinder(view, new SearchLimits(LEG_NODE_BUDGET, 30_000, 1.0))
+                .search(fromPos, toPos, NEVER);
+        if (!result.complete() || result.steps().isEmpty()
+                || cost(result.steps()) >= current * REPAIR_MIN_GAIN) {
+            return new RepairAttempt(null, result.expandedNodes());
+        }
+        List<PathStep> repaired = new ArrayList<>(planned.subList(0, from));
+        repaired.addAll(result.steps());
+        repaired.addAll(planned.subList(to + 1, planned.size()));
+        return new RepairAttempt(new Repair(repaired, from, to + 1 - from, result.steps().size()),
+                result.expandedNodes());
+    }
+
+    /** {@link #walk}と同じものを、繋ぎ目の位置と描き変わりの量つきで返す。 */
+    static Trace trace(FakeCells all, BlockPos start, BlockPos goal, int radius, Mode mode) {
         List<PathStep> walked = new ArrayList<>();
         List<PathStep> planned = new ArrayList<>();
+        // plannedの中で新しい区間が始まる位置。歩いた分だけ手前へ詰める
+        List<Integer> plannedJoints = new ArrayList<>();
+        List<Integer> joints = new ArrayList<>();
+        int redraws = 0;
+        int nearRedraws = 0;
+        double redrawnBlocks = 0;
+        int repairAttempts = 0;
+        int repairsTaken = 0;
+        long repairNodes = 0;
         BlockPos player = start;
         for (int tick = 0; tick < 400; tick++) {
             CellSource view = new WindowedCells(all, player, radius);
-            if (!extending) {
+            List<PathStep> before = planned;
+            if (mode == Mode.REPLAN) {
                 planned = new ArrayList<>();
+                plannedJoints = new ArrayList<>();
+                // 引き直しでは、これから足す区間の先頭がそのまま繋ぎ目になる（手前は捨てた）
+                plannedJoints.add(0);
             }
             BlockPos end = planned.isEmpty() ? player : planned.get(planned.size() - 1).pos();
             while (horizontal(player, end) <= radius - MIN_DETAIL_REACH && horizontal(end, goal) > 1) {
@@ -155,15 +275,38 @@ final class ProgressiveWalk {
                 if (result.steps().isEmpty()) {
                     break;
                 }
+                int seam = planned.size();
+                if (!planned.isEmpty() || !plannedJoints.contains(0)) {
+                    plannedJoints.add(seam);
+                }
                 planned.addAll(result.steps());
                 BlockPos next = planned.get(planned.size() - 1).pos();
+                if (mode == Mode.REPAIR && seam > 0) {
+                    RepairAttempt attempt = repairSeam(view, player, planned, seam);
+                    repairAttempts++;
+                    repairNodes += attempt.expandedNodes();
+                    if (attempt.repair() != null) {
+                        repairsTaken++;
+                        planned = attempt.repair().steps();
+                        plannedJoints = shifted(plannedJoints, attempt.repair());
+                    }
+                }
                 if (next.equals(end)) {
                     break;
                 }
                 end = next;
             }
             if (planned.isEmpty()) {
-                return List.of();
+                return new Trace(List.of(), List.of(), 0, 0, 0, 0, 0, 0);
+            }
+            int changed = firstDifference(before, planned);
+            if (changed >= 0) {
+                redraws++;
+                redrawnBlocks += lengthBetween(before, changed, before.size() - 1);
+                if (changed < before.size()
+                        && distance(player, before.get(changed).pos()) <= NEAR_PLAYER_BLOCKS) {
+                    nearRedraws++;
+                }
             }
             int walkTo = 0;
             while (walkTo < planned.size()
@@ -171,14 +314,55 @@ final class ProgressiveWalk {
                 walkTo++;
             }
             walkTo = Math.max(1, Math.min(walkTo, planned.size()));
+            int walkedBefore = walked.size();
+            for (int offset : plannedJoints) {
+                if (offset < walkTo) {
+                    joints.add(walkedBefore + offset);
+                }
+            }
+            int consumed = walkTo;
+            List<Integer> remaining = new ArrayList<>();
+            for (int offset : plannedJoints) {
+                if (offset >= consumed) {
+                    remaining.add(offset - consumed);
+                }
+            }
+            plannedJoints = remaining;
             walked.addAll(planned.subList(0, walkTo));
             planned = new ArrayList<>(planned.subList(walkTo, planned.size()));
             player = walked.get(walked.size() - 1).pos();
             if (horizontal(player, goal) <= 1) {
-                return walked;
+                return new Trace(walked, joints, redraws, redrawnBlocks, nearRedraws,
+                        repairAttempts, repairsTaken, repairNodes);
             }
         }
-        return List.of();
+        return new Trace(List.of(), List.of(), 0, 0, 0, 0, 0, 0);
+    }
+
+    /** 差し替えで動いた繋ぎ目の添字を付け直す。差し替えた区間の中の繋ぎ目はその先頭にまとめる。 */
+    private static List<Integer> shifted(List<Integer> joints, Repair repair) {
+        int after = repair.from() + repair.replaced();
+        int shift = repair.length() - repair.replaced();
+        List<Integer> moved = new ArrayList<>();
+        boolean inside = false;
+        for (int joint : joints) {
+            if (joint < repair.from()) {
+                moved.add(joint);
+            } else if (joint >= after) {
+                moved.add(joint + shift);
+            } else {
+                inside = true;
+            }
+        }
+        if (inside) {
+            moved.add(repair.from());
+        }
+        moved.sort(Integer::compareTo);
+        return moved;
+    }
+
+    private static double distance(BlockPos a, BlockPos b) {
+        return Math.sqrt(a.distSqr(b));
     }
 
     /** 全視界・重み1.0・ガイド無しの1回の探索。届かなければ{@link Double#POSITIVE_INFINITY}。 */
