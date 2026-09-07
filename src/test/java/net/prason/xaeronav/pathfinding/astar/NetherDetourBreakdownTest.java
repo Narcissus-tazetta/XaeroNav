@@ -507,6 +507,55 @@ class NetherDetourBreakdownTest {
                 lava * 100 / total);
     }
 
+    /**
+     * <b>現世でも同じ入れ替えが得か。</b>ネザーでは目的地を狙う方が質も展開ノード数も良かったが、
+     * 現世は中間目標が近いぶん探索が早く終わる——入れ替えると毎回箱を舐め切ることになり、
+     * 質は変わらないのに計算量だけ増えるおそれがある。全体に適用してよいかはここで決まる。
+     */
+    @Test
+    void comparesTheSameSwapInTheOverworld() throws Exception {
+        FakeCells cells = TerrainFixture.load("/overworld_wide.txt.gz",
+                bounds -> FakeCells.empty(bounds).canPlaceBlocks(true).maxBridgeRunBlocks(96)
+                        .maxFallDamagePoints(6));
+        List<String> report = new ArrayList<>();
+        for (BlockPos[] route : TerrainFixture.randomRoutes(cells, cells.bounds(), 20260907L, 4,
+                200, 400)) {
+            BlockPos start = route[0];
+            BlockPos goal = route[1];
+            PathResult best = solve(cells, start, goal, null, 1.0);
+            if (!best.complete()) {
+                continue;
+            }
+            double bestCost = cost(best);
+            CoarseMap map = LiveCoarseSampler.sample(cells, cells.bounds(), start.getY(), () -> false);
+            CostToGo guide = CoarseRouter.costToGo(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE);
+            CoarseRouter.Route coarse = null;
+            for (CoarseRouter.BridgePolicy policy : CoarseRouter.BridgePolicy.values()) {
+                CoarseRouter.Route candidate = CoarseRouter.findRoute(map, start, goal, false, policy);
+                if (candidate.reachedGoal()) {
+                    coarse = candidate;
+                    break;
+                }
+            }
+            if (coarse == null) {
+                continue;
+            }
+            GuidedWalk viaWaypoints = followWithRadius(cells, start, coarse, 16);
+            GuidedWalk toGoal = followGuidedToGoal(cells, start, goal, guide,
+                    new SearchLimits(100_000, 2_000, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT));
+            report.add(String.format(Locale.ROOT,
+                    "%s→%s 基準%6.0f 現行%s 展開%,d / 目的地狙い%s 展開%,d",
+                    start.toShortString(), goal.toShortString(), bestCost,
+                    ratio(viaWaypoints.arrived() ? viaWaypoints.cost() : Double.POSITIVE_INFINITY,
+                            bestCost),
+                    viaWaypoints.nodes(),
+                    ratio(toGoal.arrived() ? toGoal.cost() : Double.POSITIVE_INFINITY, bestCost),
+                    toGoal.nodes()));
+        }
+        System.out.println("=== 現世 ===\n" + String.join("\n", report));
+        assertTrue(!report.isEmpty(), "1本も測れていない");
+    }
+
     @Test
     void showsWhichLayerTheNetherDetourComesFrom() throws Exception {
         FakeCells cells = terrain();
