@@ -501,7 +501,7 @@ final class FlightNavState {
      * 置いてあるのと同じ理由）。
      */
     static CoarseRouter.Route solveCoarseRoute(Level level, BlockPos from, BlockPos goal, boolean rockets) {
-        CoarseMap map = CoarseMapWindow.read(from, goal, CoarseAirMap.MAX_BANDS);
+        CoarseMap map = CoarseMapWindow.read(from, goal, CoarseAirMap.MAX_BANDS).map();
         if (map == null) {
             return new CoarseRouter.Route(List.of(), false);
         }

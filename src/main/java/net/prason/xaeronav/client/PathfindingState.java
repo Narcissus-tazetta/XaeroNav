@@ -162,6 +162,15 @@ public final class PathfindingState {
      */
     private static final double COARSE_ROUTE_RETRY_MOVE_BLOCKS = 32.0;
 
+    /**
+     * 地図が欠けたまま引いた長距離ルートを、引き直すまでの間隔（ミリ秒）。
+     *
+     * <p>読み込みは非同期なので、要求した直後に引き直しても同じ地図しか読めない。一方で
+     * {@code XaeroMapReader#readSurface}はメインスレッドで重いので、毎tick投げてはいけない。
+     * 引き直すたびに層2の精緻化もやり直されるため、短くすると黄色い線が生の層1へ戻る瞬間が増える。
+     */
+    private static final long COARSE_MAP_RETRY_INTERVAL_MILLIS = 3_000;
+
     /** 目的地へ近づけないまま終わる探索がこの回数続いたら、詰みと判断する。 */
     private static final int STUCK_SEARCH_STREAK = 4;
 
@@ -396,6 +405,8 @@ public final class PathfindingState {
     // 捨てられる——引き直しの間隔（最短0.5秒）は精緻化（区間ごとに最大300ms）より短くなりうるので、
     // 素通しにすると精緻版が一度も完成しないまま、メインスレッドの地図読みだけを回し続けることになる
     private volatile CoarseRoute refiningRoute;
+    // 地図の読み込み待ちで引き直す番（COARSE_MAP_RETRY_INTERVAL_MILLIS）。クライアントスレッドだけが触る
+    private long coarseMapRetryAfterMillis;
     // 詳細探索が通常マージンでは届かなかった探索ゴール。次のrecalculateで範囲を広げて再挑戦する
     // 目印。本来の目的地と長距離ルートの中間目標を区別しないのは、どちらも「描画距離の内側にある
     // 詳細探索のゴール」で、壁や湖を迂回する経路が範囲の外に落ちる事情が同じだから。
@@ -592,6 +603,7 @@ public final class PathfindingState {
         this.refinedRoute = null;
         this.refiningRoute = null;
         this.pendingRefinedRouteReady = false;
+        this.coarseMapRetryAfterMillis = 0L;
         this.pendingWideRetry = false;
         this.pendingCoarseGuideRetry = false;
         this.pendingDeepRetry = false;
@@ -2452,7 +2464,8 @@ public final class PathfindingState {
             return goalOrPointToward(start, currentGoal, reach);
         }
         DetailTarget target = reachableWaypointTarget(start, currentGoal,
-                cachedOrFreshRoute(start, currentGoal, boatAvailable), renderRadius, reach, playerAnchored,
+                cachedOrFreshRoute(start, currentGoal, boatAvailable, playerAnchored),
+                renderRadius, reach, playerAnchored,
                 minWaypointIndex);
         if (target != null) {
             return target;
@@ -2656,9 +2669,22 @@ public final class PathfindingState {
      * {@link #reachableWaypointTarget}の「renderRadius以内」を1つも満たせず長距離ルートごと
      * 空振りする。精緻版は{@link #REFINED_WAYPOINT_MIN_SPACING_BLOCKS}間隔なのでここを埋められる。
      */
-    private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable) {
+    private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
+                                               boolean playerAnchored) {
         CoarseRoute cached = coarseRoute;
         if (cached == null || !cached.goal().equals(currentGoal)) {
+            return freshRoute(start, currentGoal, boatAvailable);
+        }
+        // 地図が欠けたまま引いたルートは、届いてから引き直す。未知セルはほぼ最安なので、まだ
+        // 読み込まれていない溶岩の海があるとそこを直進するルートが引かれる。しかも「届く中間目標が
+        // 1つでもあれば引き直さない」ので、歩いても直らないままになる（ユーザー報告
+        // 「黄色い線がずっとマグマを直線で進もうとしている」）。引き直せば層2の精緻化も
+        // やり直されるので、黄色い線は歩くほど詳細になる。
+        //
+        // 継ぎ足しの側からは引き直さない。あちらの始点は経路の末端なので、そこを起点に長距離ルートを
+        // 引き直すと手前の案内まで入れ替わる（下のgoalOrPointTowardの分岐と同じ理由）
+        if (playerAnchored && cached.pendingRegions() > 0 && refiningRoute == null
+                && System.currentTimeMillis() >= coarseMapRetryAfterMillis) {
             return freshRoute(start, currentGoal, boatAvailable);
         }
         RefinedRoute refined = refinedRoute;
@@ -2666,14 +2692,17 @@ public final class PathfindingState {
     }
 
     private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable) {
-        CoarseRouter.Route route = computeCoarseRoute(start, currentGoal, boatAvailable);
+        CoarseAttempt attempt = computeCoarseRoute(start, currentGoal, boatAvailable);
+        CoarseRouter.Route route = attempt.route();
+        coarseMapRetryAfterMillis = System.currentTimeMillis() + COARSE_MAP_RETRY_INTERVAL_MILLIS;
         List<BlockPos> waypoints = route.waypoints();
         if (!waypoints.isEmpty() && route.reachedGoal()) {
             // 粗い終点はチャンク中心±8ブロックで高さも代表値なので、そのままでは到着できない。
             // 最後だけ本来の目的地に差し替える
             waypoints = replaceLast(waypoints, currentGoal);
         }
-        CoarseRoute thisRoute = new CoarseRoute(currentGoal, start, route.reachedGoal(), waypoints);
+        CoarseRoute thisRoute = new CoarseRoute(currentGoal, start, route.reachedGoal(),
+                attempt.pendingRegions(), waypoints);
         coarseRoute = thisRoute;
         // 新しい列では添字の意味が変わる。引き直しは今の位置を始点にするので、先頭が通過済みに
         // なることはない
@@ -2971,15 +3000,27 @@ public final class PathfindingState {
      * 複数の床を同時に持てるようになったので、1回の{@code readSurface}で参照Y付近の全レイヤーが
      * 床として揃い、梯子は不要になった。
      */
-    private static CoarseRouter.Route computeCoarseRoute(BlockPos start, BlockPos goal, boolean boatAvailable) {
-        CoarseMap map = CoarseMapWindow.read(start, goal, CoarseMap.MAX_FLOORS);
+    private static CoarseAttempt computeCoarseRoute(BlockPos start, BlockPos goal, boolean boatAvailable) {
+        CoarseMapWindow.Window window = CoarseMapWindow.read(start, goal, CoarseMap.MAX_FLOORS);
+        CoarseMap map = window.map();
         if (map == null) {
-            return new CoarseRouter.Route(List.of(), false);
+            return new CoarseAttempt(new CoarseRouter.Route(List.of(), false), 0);
+        }
+        // 地図がどれだけ見えていたかを残す。「溶岩をLAVAとして見たうえで通した」のか「まだ
+        // NO_DATAで見えていなかった」のかは、ここが黙っていると実機ログから区別できない——
+        // 未知セルはCoarseRouterでほぼ最安なので、見えていなければ溶岩の海を直進するルートが
+        // 引かれる。読み込み待ちのリージョンがあるときだけINFOにする（普段は静かにしておく）
+        if (window.pendingRegions() > 0) {
+            LOGGER.info("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, 未読み込みリージョン={})",
+                    map.knownCells(), map.totalCells(), map.kindBreakdown(), window.pendingRegions());
+        } else if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, 未読み込みリージョン=0)",
+                    map.knownCells(), map.totalCells(), map.kindBreakdown());
         }
         CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.AVOID);
         if (avoided.reachedGoal()) {
-            return avoided;
+            return new CoarseAttempt(avoided, window.pendingRegions());
         }
 
         // <b>ALLOWを飛ばしてはいけない。</b>奈落は{@link CoarseRouter.BridgePolicy#ALLOW}で開き、
@@ -2992,16 +3033,24 @@ public final class PathfindingState {
                 CoarseRouter.BridgePolicy.ALLOW);
         if (allowed.reachedGoal()) {
             LOGGER.info("XaeroNav: 奈落・溶岩混じりを避ける道が見つからないため、そこを通る長距離ルートに切り替えました");
-            return allowed;
+            return new CoarseAttempt(allowed, window.pendingRegions());
         }
 
         CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.BRIDGE);
         if (bridged.reachedGoal()) {
             LOGGER.info("XaeroNav: 溶岩を避ける道が見つからないため、橋を架けて渡る長距離ルートに切り替えました");
-            return bridged;
+            return new CoarseAttempt(bridged, window.pendingRegions());
         }
-        return furtherRoute(furtherRoute(avoided, allowed), bridged);
+        return new CoarseAttempt(furtherRoute(furtherRoute(avoided, allowed), bridged),
+                window.pendingRegions());
+    }
+
+    /**
+     * {@link #computeCoarseRoute}の結果と、それを引いたときに<b>まだ読み込まれていなかった</b>
+     * リージョンの数。0より大きければ、待って引き直すと違うルートになりうる。
+     */
+    private record CoarseAttempt(CoarseRouter.Route route, int pendingRegions) {
     }
 
     /** 目的地まで届かなかったルート同士の比較。中間目標が多い方＝より遠くまで進めた方を採る。 */
@@ -3161,8 +3210,11 @@ public final class PathfindingState {
      * @param reachedGoal 粗い地図の上で目的地まで届いたか。届いていないなら、詳細探索を
      *         いくら回しても届かない（粗い地図で通行不能になるのは溶岩だけで、未探索セルは
      *         通行可能として扱われる）ので、詰みの理由を言い当てる材料になる
+     * @param pendingRegions このルートを引いたとき、ディスクにはあるのにまだメモリへ載って
+     *         いなかったリージョンの数。0より大きければ<b>このルートは欠けた地図の上で引かれた</b>
+     *         ということで、読み込みを待って引き直す（{@link #cachedOrFreshRoute}）
      */
-    private record CoarseRoute(BlockPos goal, BlockPos computedFrom, boolean reachedGoal,
+    private record CoarseRoute(BlockPos goal, BlockPos computedFrom, boolean reachedGoal, int pendingRegions,
                                 List<BlockPos> waypoints) {
     }
 
