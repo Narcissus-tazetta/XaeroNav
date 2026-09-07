@@ -32,15 +32,30 @@ final class CoarseMapWindow {
     }
 
     /**
-     * 2点を含む範囲の地図を読む。確保量が上限を超えるなら{@code null}——呼び出し側は
-     * 「長距離ルート無し」として扱うこと。
+     * 読んだ地図と、この範囲で<b>ディスクにはあるのにまだメモリへ載っていない</b>リージョンの数。
+     *
+     * @param map            範囲が広すぎて読めなかったときは{@code null}
+     * @param pendingRegions 0より大きければ、少し待って読み直せば地図が増えるということ
+     */
+    record Window(CoarseMap map, int pendingRegions) {
+    }
+
+    /**
+     * 2点を含む範囲の地図を読む。確保量が上限を超えるなら{@link Window#map()}が{@code null}——
+     * 呼び出し側は「長距離ルート無し」として扱うこと。
+     *
+     * <p><b>読み込みも要求する。</b>{@link XaeroMapReader#readSurface}は<b>Xaeroが既にメモリへ
+     * 載せているリージョンしか読まない</b>ので、要求しないと遠くの地形は永久に
+     * {@link CoarseMap#NO_DATA}のまま——そして未知セルは{@code CoarseRouter}でほぼ最安なので、
+     * <b>まだ見えていない溶岩の海を直進するルートが引かれる</b>（実機で踏んだ）。
+     * 層2（{@code CorridorLegSolver#prepare}）は元から同じことをしている。
      *
      * <p><b>メインスレッド専用</b>（{@link XaeroMapReader#readSurface}がXaeroの書き込みスレッドと
      * 同じ構造を触るため）。
      *
      * @param statesPerCell 1セルあたりに確保される状態数（床・高度帯の最大数）
      */
-    static CoarseMap read(BlockPos from, BlockPos to, int statesPerCell) {
+    static Window read(BlockPos from, BlockPos to, int statesPerCell) {
         int minChunkX = (Math.min(from.getX(), to.getX()) >> 4) - PADDING_CHUNKS;
         int maxChunkX = (Math.max(from.getX(), to.getX()) >> 4) + PADDING_CHUNKS;
         int minChunkZ = (Math.min(from.getZ(), to.getZ()) >> 4) - PADDING_CHUNKS;
@@ -49,9 +64,17 @@ final class CoarseMapWindow {
         int chunksZ = maxChunkZ - minChunkZ + 1;
         if (chunksX > MAX_SPAN_CHUNKS || chunksZ > MAX_SPAN_CHUNKS
                 || (long) chunksX * chunksZ * statesPerCell > MAX_STATES) {
-            return null;
+            return new Window(null, 0);
         }
         int referenceY = (from.getY() + to.getY()) / 2;
-        return XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
+        int pending = XaeroMapReader
+                .surveyRegions(minChunkX, minChunkZ, chunksX, chunksZ, referenceY).pendingLoad();
+        if (pending > 0) {
+            // 要求は非同期なのでこの回の読み取りには間に合わない。呼び出し側が
+            // pendingRegionsを見て引き直す（PathfindingState#cachedOrFreshRoute）
+            XaeroMapReader.requestLoad(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
+        }
+        return new Window(
+                XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY), pending);
     }
 }
