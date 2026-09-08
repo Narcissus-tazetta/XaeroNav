@@ -595,18 +595,36 @@ public final class AStarPathfinder {
      * ゴールに届かなかったときの到達点を選ぶ。係数の小さい（＝実際に進んだ距離を重く見る）ものから順に、
      * 始点から{@link #MIN_DIST_PATH}以上離れている候補を採用する。どれも届かない場合は始点自身を返し、
      * 空の経路＝「提示できる経路なし」として扱う。
+     *
+     * <p><b>距離は{@link #trimUnfinishedPlacements}で切り落とした後で測る。</b>候補そのものは
+     * 架けかけの橋の上にいることがあり、その橋は渡り切れると証明できていないので提示できない
+     * ——切る前の距離で選ぶと、<b>切った後には何も残らない候補</b>を掴んで空の経路を返してしまう。
+     * 実測（{@code nether_wide}、溶岩の海の岸）: 7つの候補が全部30手ぶんの橋の上に乗っていて、
+     * 10万ノードを使ったうえで<b>線が1本も出ない</b>——実機の「展開47万・ステップ数0」がこれ。
+     * 岸まで戻して測れば、次の候補（徒歩で進める向き）へ移れる。
      */
     private PathNode selectFallback(PathNode startNode) {
         double threshold = MIN_DIST_PATH * MIN_DIST_PATH;
         for (PathNode candidate : bestSoFar) {
-            double dx = candidate.x - startNode.x;
-            double dy = candidate.y - startNode.y;
-            double dz = candidate.z - startNode.z;
+            PathNode landed = backOffUnfinishedBridge(candidate);
+            double dx = landed.x - startNode.x;
+            double dy = landed.y - startNode.y;
+            double dz = landed.z - startNode.z;
             if (dx * dx + dy * dy + dz * dz > threshold) {
-                return candidate;
+                return landed;
             }
         }
         return startNode;
+    }
+
+    /** 末尾で自分が置いた足場に乗っている間、手前へ戻る（{@link #trimUnfinishedPlacements}と同じ範囲）。 */
+    private static PathNode backOffUnfinishedBridge(PathNode node) {
+        PathNode cursor = node;
+        while (cursor.previous != null
+                && cursor.kind.placedBlockPos(cursor.x, cursor.y, cursor.z) != null) {
+            cursor = cursor.previous;
+        }
+        return cursor;
     }
 
     private PathResult buildResult(PathNode startNode, PathNode end, PathResult.Termination termination,
