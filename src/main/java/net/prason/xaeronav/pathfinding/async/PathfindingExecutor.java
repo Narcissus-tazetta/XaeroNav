@@ -233,13 +233,21 @@ public final class PathfindingExecutor {
      */
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
                                                  boolean costToGoGuideEnabled, int goalRadius, Carryover carried) {
+        return submit(view, start, goal, limits, costToGoGuideEnabled, goalRadius, carried, null);
+    }
+
+    /** 作り済みのガイドを渡す版（実験）。 */
+    public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
+                                                 boolean costToGoGuideEnabled, int goalRadius, Carryover carried,
+                                                 CostToGo prepared) {
         boolean goalInsideBounds = goalInsideBounds(view, goal, goalRadius);
         return submit(cancelled -> {
             // ゴールが箱の外なら層1ガイドは組まない。組んでも{@code CoarseRouter#costToGo}が
             // ゴールのセルを持たず<b>どこでも0を返す表</b>にしかならないのに、
             // {@link LiveCoarseSampler}は箱を丸ごと舐める（天井のある次元では全高ぶん）
-            CostToGo costToGo = costToGoGuideEnabled && goalInsideBounds
-                    ? buildCostToGoGuide(view, start, goal, cancelled) : null;
+            CostToGo costToGo = prepared != null ? prepared
+                    : costToGoGuideEnabled && goalInsideBounds
+                            ? buildCostToGoGuide(view, start, goal, cancelled) : null;
             return search(view, limits, System.currentTimeMillis() + limits.timeLimitMillis(), cancelled,
                     costToGo, (pathfinder, c) ->
                     // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での

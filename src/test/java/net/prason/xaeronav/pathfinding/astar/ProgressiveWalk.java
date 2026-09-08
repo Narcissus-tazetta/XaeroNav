@@ -140,7 +140,9 @@ final class ProgressiveWalk {
          * 常に最終目的地を狙い、箱で切られた部分経路を継ぎ足す
          * （{@code PathfindingState#COARSE_ROUTE_DISTRUST_RATIO}を超えた地形での動き）。
          */
-        GOAL
+        GOAL,
+        /** {@link #GOAL}と同じだが、経路全体を覆う3D地図から作ったガイドを掛ける（実験）。 */
+        WIDE_VOXEL
     }
 
     /** {@code XaeroNavConfig#searchHorizontalMargin}の既定。 */
@@ -185,15 +187,17 @@ final class ProgressiveWalk {
      * 引き直す（その部分経路は捨てられる）という梯子まで含めて再現するため。
      */
     private static PathResult legToGoal(PathfindingExecutor executor, FakeCells all, BlockPos player,
-                                        int radius, BlockPos from, BlockPos goal, List<PathStep> planned) {
+                                        int radius, BlockPos from, BlockPos goal, List<PathStep> planned,
+                                        CostToGo wide) {
         CellSource view = boxedView(all, player, radius, from, goal);
         Carryover carried = Carryover.after(planned);
         try {
-            PathResult result = executor.submit(view, from, goal, LIVE_LIMITS, true, 0, carried).get();
+            PathResult result =
+                    executor.submit(view, from, goal, LIVE_LIMITS, true, 0, carried, wide).get();
             if (!result.steps().isEmpty()) {
                 return result;
             }
-            return executor.submit(view, from, goal, DEEP_LIVE_LIMITS, true, 0, carried).get();
+            return executor.submit(view, from, goal, DEEP_LIVE_LIMITS, true, 0, carried, wide).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
@@ -375,6 +379,8 @@ final class ProgressiveWalk {
     /** 狙い方を指定する版。{@link Aim#GOAL}は実機の{@link PathfindingExecutor}をそのまま通す。 */
     static Trace trace(FakeCells all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim) {
         PathfindingExecutor executor = new PathfindingExecutor();
+        CostToGo wide = aim == Aim.WIDE_VOXEL
+                ? WideVoxelGuide.build(all, all.bounds(), goal) : null;
         List<PathStep> walked = new ArrayList<>();
         List<PathStep> planned = new ArrayList<>();
         // plannedの中で新しい区間が始まる位置。歩いた分だけ手前へ詰める
@@ -411,7 +417,7 @@ final class ProgressiveWalk {
                 }
                 PathResult result = aim == Aim.HORIZON
                         ? leg(view, end, goal)
-                        : legToGoal(executor, all, player, radius, end, goal, planned);
+                        : legToGoal(executor, all, player, radius, end, goal, planned, wide);
                 if (result.steps().isEmpty()) {
                     break;
                 }
