@@ -11,11 +11,26 @@ import net.minecraft.core.BlockPos;
  *
  * <p>窓は正方形。バニラの描画距離が正方形にチャンクを読むのに合わせてある。
  */
-public record WindowedCells(FakeCells all, BlockPos player, int radius) implements CellSource {
+public record WindowedCells(FakeCells all, BlockPos player, int radius, SearchBounds box)
+        implements CellSource {
 
+    /** 箱を切らない版（世界全体が探索範囲）。 */
+    public WindowedCells(FakeCells all, BlockPos player, int radius) {
+        this(all, player, radius, all.bounds());
+    }
+
+    /**
+     * 窓の外に加えて<b>探索の箱の外</b>も未ロードとして返す。実機の{@code ChunkView.capture}は
+     * {@code SearchBounds}の中のチャンクしか掴まないので、箱を渡さずに測ると、遠い目的地を
+     * 狙う探索が実機より広い世界を見ることになる。
+     */
     @Override
     public long cell(int x, int y, int z) {
         if (Math.abs(x - player.getX()) > radius || Math.abs(z - player.getZ()) > radius) {
+            return CellData.ABSENT;
+        }
+        if (x < box.minX() || x > box.maxX() || z < box.minZ() || z > box.maxZ()
+                || y < box.minY() || y > box.maxY()) {
             return CellData.ABSENT;
         }
         return all.cell(x, y, z);
@@ -33,7 +48,7 @@ public record WindowedCells(FakeCells all, BlockPos player, int radius) implemen
 
     @Override
     public SearchBounds bounds() {
-        return all.bounds();
+        return box;
     }
 
     @Override
