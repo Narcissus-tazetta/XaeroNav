@@ -233,13 +233,20 @@ public final class PathfindingExecutor {
      */
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
                                                  boolean costToGoGuideEnabled, int goalRadius, Carryover carried) {
+        boolean goalInsideBounds = goalInsideBounds(view, goal, goalRadius);
         return submit(cancelled -> {
-            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, start, goal, cancelled) : null;
-            return search(view, limits, cancelled, costToGo, (pathfinder, c) ->
+            // ゴールが箱の外なら層1ガイドは組まない。組んでも{@code CoarseRouter#costToGo}が
+            // ゴールのセルを持たず<b>どこでも0を返す表</b>にしかならないのに、
+            // {@link LiveCoarseSampler}は箱を丸ごと舐める（天井のある次元では全高ぶん）
+            CostToGo costToGo = costToGoGuideEnabled && goalInsideBounds
+                    ? buildCostToGoGuide(view, start, goal, cancelled) : null;
+            return search(view, limits, System.currentTimeMillis() + limits.timeLimitMillis(), cancelled,
+                    costToGo, (pathfinder, c) ->
                     // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
                     // 寄せ直しなので、メインスレッドへ戻さずここで行う
                     pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
-                            c, carried, goalRadius));
+                            c, carried, goalRadius),
+                    goalInsideBounds);
         });
     }
 
@@ -326,6 +333,12 @@ public final class PathfindingExecutor {
      * <p>ボート所持の有無は見ない（{@code false}固定）。ガイドは{@code AStarPathfinder}側で
      * 幾何学的なヒューリスティックとのmaxを取って使うだけなので、多少粗くても実害が無い——
      * 損をするのは「ボートがあるのに引き締めが甘くなる」程度で、非許容にはならない。
+     *
+     * <p><b>ゴールが箱の外にあるとガイドは丸ごと無効になる。</b>{@code CoarseRouter#costToGo}は
+     * ゴールのセルを地図に含まないと全コストを無限にし、{@code estimate}はどこでも0を返す。
+     * 箱は始点を中心に描画距離で切られる（{@code SearchBounds#around}）ので、遠い目的地を
+     * そのまま狙う設計（{@code PathfindingState#COARSE_ROUTE_DISTRUST_RATIO}）では常にこの形になる
+     * ——<b>意図的にそうしている</b>（測定は{@code NetherDetourBreakdownTest}）。
      */
     private static CostToGo buildCostToGoGuide(CellSource view, BlockPos start, BlockPos goal,
                                                 BooleanSupplier cancelled) {
@@ -333,6 +346,20 @@ public final class PathfindingExecutor {
         CoarseRouter.BridgePolicy bridgePolicy = view.lavaBridgingEnabled()
                 ? CoarseRouter.BridgePolicy.BRIDGE : CoarseRouter.BridgePolicy.ALLOW;
         return CoarseRouter.costToGo(coarseMap, goal, false, bridgePolicy);
+    }
+
+    /**
+     * ゴール（半径ぶん緩めたもの）が探索範囲に掛かっているか。掛かっていなければ、この探索は
+     * どれだけ予算を積んでも完走しない——範囲の外は未ロード扱いのセルで、そこへ入る手が無い。
+     *
+     * <p>{@code SearchBounds#around}は始点を中心に描画距離で切るので、遠い目的地をそのまま
+     * 狙う設計（{@code PathfindingState#COARSE_ROUTE_DISTRUST_RATIO}）では常にこちら側になる。
+     */
+    private static boolean goalInsideBounds(CellSource view, BlockPos goal, int goalRadius) {
+        SearchBounds bounds = view.bounds();
+        return goal.getX() + goalRadius >= bounds.minX() && goal.getX() - goalRadius <= bounds.maxX()
+                && goal.getZ() + goalRadius >= bounds.minZ() && goal.getZ() - goalRadius <= bounds.maxZ()
+                && goal.getY() >= bounds.minY() && goal.getY() <= bounds.maxY();
     }
 
     /**
@@ -584,6 +611,28 @@ public final class PathfindingExecutor {
      */
     private static PathResult search(CellSource view, SearchLimits limits, long looseningDeadline,
                                      BooleanSupplier cancelled, CostToGo costToGo, SearchCall run) {
+        return search(view, limits, looseningDeadline, cancelled, costToGo, run, true);
+    }
+
+    /**
+     * <b>ゴールが探索範囲の外にあると分かっている探索</b>は、下の梯子（貪欲さを上げる・上限を
+     * 緩める・質を問い直す）が1つも効かない——どれも「届かせる」ための仕掛けで、届いた経路にしか
+     * 出番が無いのに対し、範囲外のゴールへは<b>原理的に届かない</b>からだ。
+     *
+     * <p>それでも梯子を回すと、最初の探索は{@link #FIRST_PASS_PERCENT}しか使えないまま
+     * 残りを2回の空振りに使う。返るのは40%の予算で引けた短い部分経路で、
+     * <b>末端から継ぎ足す回数がそのぶん増える</b>——繋ぎ目こそが遠回りの出どころなので、
+     * 短い部分経路は質にも効く。ここは満額の予算で1回だけ解く。
+     *
+     * @param goalInsideBounds ゴールが探索範囲の中にあるか（{@link #goalInsideBounds}）
+     */
+    private static PathResult search(CellSource view, SearchLimits limits, long looseningDeadline,
+                                     BooleanSupplier cancelled, CostToGo costToGo, SearchCall run,
+                                     boolean goalInsideBounds) {
+        if (!goalInsideBounds) {
+            return PathSafetyChecker.annotate(view,
+                    run.search(new AStarPathfinder(view, limits, costToGo), cancelled));
+        }
         AStarPathfinder pathfinder = new AStarPathfinder(view, firstPassLimits(limits), costToGo);
         PathResult result = run.search(pathfinder, cancelled);
         boolean capBlocked = pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()

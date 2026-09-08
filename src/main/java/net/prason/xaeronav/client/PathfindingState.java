@@ -2907,8 +2907,17 @@ public final class PathfindingState {
         }
         if (coarseRouteDistrusted) {
             // 中間目標へ立ち寄ること自体が遠回りになる地形（COARSE_ROUTE_DISTRUST_RATIO）。
-            // 目的地をそのまま狙い、箱で切られた部分経路を継ぎ足していく。層1は捨てない——
-            // cost-to-goガイド（下限を破らないので方向づけは正しい）と、地図・HUDの表示に使う
+            // 目的地をそのまま狙い、箱で切られた部分経路を継ぎ足していく。層1は地図とHUDの
+            // 表示に使い続ける。
+            //
+            // <b>ここでは層1のcost-to-goガイドは効かない。</b>ガイドは探索の箱の中だけから
+            // 組まれる（PathfindingExecutor#buildCostToGoGuide）ので、箱の外にある目的地の
+            // セルを地図に含まず、全コストが無限＝どこでも0を返す。つまりこの経路は
+            // <b>ガイド無しの重み付きA*</b>で引かれている。それでよいことは測ってある——
+            // 実地形のネザー4本で、箱のガイド（＝いまの姿）1.257倍に対し、経路全域から
+            // 組んだガイドを渡すと1.356倍と<b>悪くなった</b>（NetherDetourBreakdownTest）。
+            // 16ブロック解像度の層1はネザーの3D迷路では実コストとかけ離れていて、
+            // 幾何ヒューリスティックの正確な下限より当てにならない
             return new DetailTarget(currentGoal, -1, 0);
         }
         DetailTarget target = reachableWaypointTarget(start, currentGoal,
@@ -2959,6 +2968,11 @@ public final class PathfindingState {
      * <p>そこで{@code reach}ぶんだけ目的地の方向へ進んだ点を狙う。中間目標に対して
      * {@link #pointAlongRoute}がやっているのと同じことを、ルートが無い場合にも適用する。
      * 到着判定は目的地そのものを見ている（{@code checkArrival}）ので、手前で切っても着けなくならない。
+     *
+     * <p><b>例外が1つだけある。</b>{@link #coarseRouteDistrusted}な地形では、箱の外の目的地を
+     * わざとそのまま狙う——「フル予算を焼いて部分経路を返すだけ」がそこでは望ましい動きで、
+     * 中間目標へ立ち寄るより安く着く（実測2.599倍→1.257倍）。空振りと分かっている再挑戦の梯子は
+     * {@code PathfindingExecutor}側が畳む（{@code goalInsideBounds}）。
      */
     private DetailTarget goalOrPointToward(BlockPos start, BlockPos currentGoal, int reach) {
         BlockPos aim = aimTowardGoal(start, currentGoal, reach);
