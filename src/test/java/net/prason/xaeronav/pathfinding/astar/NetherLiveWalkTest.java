@@ -1,33 +1,46 @@
 package net.prason.xaeronav.pathfinding.astar;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
+import net.prason.xaeronav.pathfinding.coarse.XaeroMapModel;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
+import net.prason.xaeronav.pathfinding.world.WindowedCells;
 import net.prason.xaeronav.pathfinding.world.TerrainFixture;
 
 /**
- * <b>ネザーの長距離を、実機と同じ組み立てで歩き通して測る。</b>探索の箱・持ち越し・
- * 繋ぎ目の解き直し・深い予算までそのまま通すので、{@code NetherWideRouteTest}のように
- * 箱を渡さずに測った数字より厳しい（そちらは実機より甘い）。
+ * ネザーの長距離を、読み込み窓・持ち越し・継ぎ足し・繋ぎ目の解き直し込みで測る。
+ * 3D粗層（{@code VoxelCostToGo}）を掛けた場合と、掛けない場合を比較する。
  *
- * <p>あわせて<b>伸びしろ</b>を出す——経路全体を覆う3次元の地図（{@link WideVoxelGuide}）を
- * ガイドに掛けた場合と並べる。実測ではネザーが現世並み（平均1.042倍）まで縮み、
- * いまの実装で1本も出なかった経路も1.030倍で通る。<b>ここが層1を3Dにする根拠</b>で、
- * この差が縮んだら層1の作り直しは要らなくなったということ。
+ * <p>3D粗層へ渡す床は{@link XaeroMapModel}が作る——<b>Xaeroが持つのと同じ「柱ごと・
+ * レイヤーごとの床Y」だけ</b>で、天井や岩の形は渡さない。完全な3次元地形から作った理想の
+ * ガイド（{@code measuresTheIdealFloorOnlyGuide}）とは別物で、そちらは伸びしろの上限。
+ *
+ * <p>窓の中でも保存地形を完全に知るオフライン検証であり、実機のtick・描画は再現しない。
+ * 通常の区間探索は重み1.5で、実機の初回並列探索（通常重み1.2）とは異なる。
+ * 初回APIは別メソッドで直接検査する。落下許容6の比較設定を使用し、
+ * ユーザーの2026-09-08保存時の落下許容0とは異なる。
+ * ProgressiveWalkの継ぎ足し予算には本体との違いが残る。
  */
 @Tag("slow")
 class NetherLiveWalkTest {
 
     private static final int WINDOW_RADIUS = 160;
+
+    /** ネザーの実際の高さ。フィクスチャの書き出し範囲は天井の上まで含むので、そのままは使えない。 */
+    static final int NETHER_MIN_Y = 0;
+    static final int NETHER_MAX_Y = 127;
 
     private static List<BlockPos[]> routes() {
         return List.of(
@@ -61,21 +74,72 @@ class NetherLiveWalkTest {
             long began = System.currentTimeMillis();
             double best = ProgressiveWalk.fullVisibilityBest(cells, route[0], route[1]);
             long mapBegan = System.currentTimeMillis();
-            WideVoxelGuide.build(cells, cells.bounds(), route[1]);
-            System.out.printf(Locale.ROOT, "  3D地図(%dブロック四方)を組むのに%dms%n",
-                    cells.bounds().maxX() - cells.bounds().minX(),
+            CostToGo guide = XaeroMapModel.guide(cells, route[0], route[1],
+                    NETHER_MIN_Y, NETHER_MAX_Y, 1.0, 0L);
+            System.out.printf(Locale.ROOT, "  3D粗層を組むのに%dms%n",
                     System.currentTimeMillis() - mapBegan);
-            ProgressiveWalk.Trace extend = ProgressiveWalk.trace(cells, route[0], route[1],
-                    WINDOW_RADIUS, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.WIDE_VOXEL);
-            ProgressiveWalk.Trace repair = ProgressiveWalk.trace(cells, route[0], route[1],
+            ProgressiveWalk.Trace voxel = ProgressiveWalk.trace(cells, route[0], route[1],
+                    WINDOW_RADIUS, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, guide);
+            ProgressiveWalk.Trace plain = ProgressiveWalk.trace(cells, route[0], route[1],
                     WINDOW_RADIUS, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL);
             report.add(String.format(Locale.ROOT,
-                    "%s→%s 基準%6.0f%n  全体を覆う3D地図 %s%n  いまの実装 %s%n  (%.0f秒)",
+                    "%s→%s 基準%6.0f%n  3D粗層 %s%n  ガイド無し %s%n  (%.0f秒)",
                     route[0].toShortString(), route[1].toShortString(), best,
-                    ratio(extend, best), ratio(repair, best),
+                    ratio(voxel, best), ratio(plain, best),
                     (System.currentTimeMillis() - began) / 1000.0));
             System.out.println(report.get(report.size() - 1));
+            assertTrue(Double.isFinite(best), "基準の探索が完走していない");
+            assertTrue(!voxel.steps().isEmpty(), "3D粗層で到達できなくなった: " + report.getLast());
         }
         assertTrue(!report.isEmpty(), "1本も測れていない");
+    }
+
+    /** 初回検索の実機APIを直接通す。継ぎ足しを測るtraceとは重み・呼び出しが異なる。 */
+    @Test
+    void usesFullInitialBudgetOnRecordedNetherTerrain() throws Exception {
+        FakeCells cells = terrain();
+        SearchLimits normal = new SearchLimits(100_000, 30_000, 1.2);
+        SearchLimits deep = new SearchLimits(800_000, 30_000, 1.5);
+        for (BlockPos[] route : routes()) {
+            var box = ProgressiveWalk.searchBox(cells, route[0], route[1], WINDOW_RADIUS);
+            WindowedCells view = new WindowedCells(cells, route[0], WINDOW_RADIUS, box);
+            assertTrue(!box.contains(route[1].getX(), route[1].getY(), route[1].getZ()));
+            // Before the fix, the returned normal pass was limited to 40%. The
+            // subsequent retries could not finish and their partial paths were discarded.
+            PathResult oldPass = new AStarPathfinder(view, new SearchLimits(40_000, 30_000, 1.2))
+                    .search(route[0], route[1], () -> false);
+            PathResult fullPass = new AStarPathfinder(view, normal)
+                    .search(route[0], route[1], () -> false);
+            long began = System.currentTimeMillis();
+            PathResult actual = new PathfindingExecutor().submitWithDeepFallback(view,
+                    new WindowedCells(cells, route[0], WINDOW_RADIUS, box),
+                    route[0], route[1], normal, deep, true, 0).get(40, TimeUnit.SECONDS);
+            assertEquals(fullPass.termination(), actual.termination());
+            assertEquals(fullPass.steps().stream().map(PathStep::pos).toList(),
+                    actual.steps().stream().map(PathStep::pos).toList());
+            System.out.printf(Locale.ROOT,
+                    "初回 %s→%s: 旧40%%=%d steps / %d nodes, 修正後=%d steps / %d nodes (%dms)%n",
+                    route[0].toShortString(), route[1].toShortString(),
+                    oldPass.steps().size(), oldPass.expandedNodes(),
+                    actual.steps().size(), actual.expandedNodes(), System.currentTimeMillis() - began);
+        }
+    }
+
+    /**
+     * 3D粗層の<b>伸びしろの上限</b>。地形を完全に知り、床の位置だけを渡した理想のガイド。
+     * Xaeroの実データはこれより疎なので、この値を本番の保証値として読まないこと。
+     */
+    @Test
+    void measuresTheIdealFloorOnlyGuide() throws Exception {
+        FakeCells cells = terrain();
+        for (BlockPos[] route : routes()) {
+            double best = ProgressiveWalk.fullVisibilityBest(cells, route[0], route[1]);
+            assertTrue(Double.isFinite(best), "The reference route must finish");
+            CostToGo guide = WideVoxelGuide.build(cells, cells.bounds(), route[1], true);
+            ProgressiveWalk.Trace trace = ProgressiveWalk.trace(cells, route[0], route[1],
+                    WINDOW_RADIUS, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, guide);
+            System.out.printf(Locale.ROOT, "床の位置だけ %s→%s: %s%n",
+                    route[0].toShortString(), route[1].toShortString(), ratio(trace, best));
+        }
     }
 }

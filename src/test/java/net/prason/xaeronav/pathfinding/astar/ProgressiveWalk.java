@@ -13,17 +13,20 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
 import net.prason.xaeronav.pathfinding.world.CellSource;
-import net.prason.xaeronav.pathfinding.world.FakeCells;
+import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
+import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.WindowedCells;
 
 /**
- * <b>実機と同じ組み立て方で経路を作る</b>——層1のcost-to-goガイド・{@link #DETAIL_HORIZON}
- * ごとの区間分割・末端からの継ぎ足し。オフラインで「実運用の経路」を再現する唯一の手段で、
- * 1回のA*で全区間を解いた経路とは別物になる。
+ * 層1ガイド・区間分割・末端からの継ぎ足しを、保存地形と移動する読み込み窓で検証する。
+ * 1回のA*で全区間を解く測定とは異なる。実機の初回並列探索やtick・描画、
+ * Xaero地図の欠損は再現しないので、ゲーム全体と完全に同じ経路を保証するものではない。
+ * 歩行後と継ぎ足し前の掘削・設置は反映するが、継ぎ足しでも空なら深い予算を使う差がある。
+ * 本体のPlannedCellSourceの統合検証として使ってはならない。
+ * 停止位置で地形変更も反映する対照実験はNetherStallReproTestを参照。
  *
- * <p>{@code ProgressiveDiscoveryTest}（窓を動かして歩く）と{@code LongRouteOptimalityTest}
- * （全視界と窓の取り分を分ける）の両方が使う。定数は{@code PathfindingState}の既定値と揃える。
+ * <p>{@code ProgressiveDiscoveryTest}と{@code LongRouteOptimalityTest}などで共有する。
  */
 final class ProgressiveWalk {
 
@@ -137,12 +140,10 @@ final class ProgressiveWalk {
         /** 遠い目的地は{@link #DETAIL_HORIZON}ぶん手前で切って狙う（{@code goalOrPointToward}）。 */
         HORIZON,
         /**
-         * 常に最終目的地を狙い、箱で切られた部分経路を継ぎ足す
-         * （{@code PathfindingState#COARSE_ROUTE_DISTRUST_RATIO}を超えた地形での動き）。
+         * 常に最終目的地を狙い、箱で切られた部分経路を継ぎ足す（天井のある次元での動き）。
+         * 3D粗層を掛けて測るときも、狙い方はこちら。
          */
-        GOAL,
-        /** {@link #GOAL}と同じだが、経路全体を覆う3D地図から作ったガイドを掛ける（実験）。 */
-        WIDE_VOXEL
+        GOAL
     }
 
     /** {@code XaeroNavConfig#searchHorizontalMargin}の既定。 */
@@ -154,8 +155,8 @@ final class ProgressiveWalk {
 
     /**
      * 1手も返らなかったときに積む予算（{@code PathfindingState#DEEP_SEARCH_BUDGET_FACTOR}=8）。
-     * <b>これを入れないと実機より厳しいモデルになる</b>——実機は通常予算の探索が空で返った回を
-     * 詰みとは扱わず、深い予算で解き直す。
+     * このモデルでは継ぎ足しにも適用する。本体のextendPathは通常予算のみであり、
+     * 深い再検索をするrecalculateとは異なるため、この結果は実機の到達保証ではない。
      */
     private static final SearchLimits DEEP_LIVE_LIMITS =
             new SearchLimits(LEG_NODE_BUDGET * 8, 30_000, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
@@ -164,7 +165,7 @@ final class ProgressiveWalk {
      * 実機の探索の箱（{@code SearchBounds#around}と同じ切り方）。<b>これを渡さないと測れない</b>——
      * 目的地が箱の外にあることで層1ガイドが無効になるのが、目的地を狙う設計の実際の姿だから。
      */
-    private static SearchBounds searchBox(FakeCells all, BlockPos from, BlockPos to, int radius) {
+    static SearchBounds searchBox(CellSource all, BlockPos from, BlockPos to, int radius) {
         SearchBounds world = all.bounds();
         return new SearchBounds(
                 Math.max(from.getX() - radius, Math.min(from.getX(), to.getX()) - SEARCH_HORIZONTAL_MARGIN),
@@ -176,7 +177,7 @@ final class ProgressiveWalk {
     }
 
     /** 実機と同じ箱・同じ緩和の梯子で1区間を解く。窓はプレイヤー周り＝読み込み済みチャンク。 */
-    private static CellSource boxedView(FakeCells all, BlockPos player, int radius, BlockPos from,
+    private static CellSource boxedView(CellSource all, BlockPos player, int radius, BlockPos from,
                                         BlockPos to) {
         return new WindowedCells(all, player, radius, searchBox(all, from, to, radius));
     }
@@ -186,10 +187,10 @@ final class ProgressiveWalk {
      * 最初の探索は予算の{@code FIRST_PASS_PERCENT}しか使わず、届かなければ重みを上げて
      * 引き直す（その部分経路は捨てられる）という梯子まで含めて再現するため。
      */
-    private static PathResult legToGoal(PathfindingExecutor executor, FakeCells all, BlockPos player,
+    private static PathResult legToGoal(PathfindingExecutor executor, CellSource all, BlockPos player,
                                         int radius, BlockPos from, BlockPos goal, List<PathStep> planned,
                                         CostToGo wide) {
-        CellSource view = boxedView(all, player, radius, from, goal);
+        CellSource view = new PlannedCellSource(boxedView(all, player, radius, from, goal), planned, 0);
         Carryover carried = Carryover.after(planned);
         try {
             PathResult result =
@@ -207,7 +208,7 @@ final class ProgressiveWalk {
     }
 
     /** {@link #walk}のコストだけを見る版。届かなければ{@link Double#POSITIVE_INFINITY}。 */
-    static double walkToGoal(FakeCells all, BlockPos start, BlockPos goal, int radius,
+    static double walkToGoal(CellSource all, BlockPos start, BlockPos goal, int radius,
                              boolean extending) {
         List<PathStep> walked = walk(all, start, goal, radius, extending);
         return walked.isEmpty() ? Double.POSITIVE_INFINITY : cost(walked);
@@ -286,7 +287,7 @@ final class ProgressiveWalk {
      * @param extending trueなら実装どおり末端から継ぎ足す。falseなら計画のたびに手前を捨てて
      *                  プレイヤーから引き直す。<b>歩き方は両方で同じ</b>にしてある
      */
-    static List<PathStep> walk(FakeCells all, BlockPos start, BlockPos goal, int radius,
+    static List<PathStep> walk(CellSource all, BlockPos start, BlockPos goal, int radius,
                                boolean extending) {
         return trace(all, start, goal, radius, extending ? Mode.EXTEND : Mode.REPLAN).steps();
     }
@@ -347,9 +348,11 @@ final class ProgressiveWalk {
         // 層1のガイドは掛けない。<b>この距離では効かないことを実測した</b>——96ブロックの区間では
         // 16ブロック解像度のガイドが幾何Heuristicを下回り、maxで常に負けるので展開ノード数が
         // 1つも変わらなかった（5地形すべてで完全一致）。掛ける手間だけが増える
-        PathResult result = new AStarPathfinder(view,
+        CellSource future = new PlannedCellSource(view, planned.subList(0, from), 0);
+        PathResult result = new AStarPathfinder(future,
                 new SearchLimits(REPAIR_NODE_BUDGET, 30_000, 1.0)).search(fromPos, toPos, NEVER);
         if (!result.complete() || result.steps().isEmpty()
+                || !result.steps().getLast().pos().equals(toPos)
                 || cost(result.steps()) >= current * REPAIR_MIN_GAIN) {
             return new RepairAttempt(null, result.expandedNodes());
         }
@@ -364,7 +367,7 @@ final class ProgressiveWalk {
      * 繋ぎ目の解き直しに渡す視界。実機は差し替える区間の両端で箱を切る（{@code repairSeam}）ので、
      * ここも繋ぎ目の周り{@link #REPAIR_SPAN_BLOCKS}＋マージンに絞る。
      */
-    private static CellSource repairView(FakeCells all, BlockPos player, int radius,
+    private static CellSource repairView(CellSource all, BlockPos player, int radius,
                                           List<PathStep> planned, int seam) {
         BlockPos at = planned.get(seam).pos();
         int reach = (int) REPAIR_SPAN_BLOCKS + SEARCH_HORIZONTAL_MARGIN;
@@ -372,15 +375,21 @@ final class ProgressiveWalk {
     }
 
     /** {@link #walk}と同じものを、繋ぎ目の位置と描き変わりの量つきで返す。 */
-    static Trace trace(FakeCells all, BlockPos start, BlockPos goal, int radius, Mode mode) {
+    static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode) {
         return trace(all, start, goal, radius, mode, Aim.HORIZON);
     }
 
     /** 狙い方を指定する版。{@link Aim#GOAL}は実機の{@link PathfindingExecutor}をそのまま通す。 */
-    static Trace trace(FakeCells all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim) {
+    static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim) {
+        return trace(all, start, goal, radius, mode, aim, null);
+    }
+
+    /** ガイドのデータ源だけを差し替え、箱・予算・継ぎ足しを揃えて比較する。 */
+    static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim,
+                       CostToGo wide) {
+        CellSource original = all;
+        goal = StanceFinder.resolveGoal(all, goal);
         PathfindingExecutor executor = new PathfindingExecutor();
-        CostToGo wide = aim == Aim.WIDE_VOXEL
-                ? WideVoxelGuide.build(all, all.bounds(), goal) : null;
         List<PathStep> walked = new ArrayList<>();
         List<PathStep> planned = new ArrayList<>();
         // plannedの中で新しい区間が始まる位置。歩いた分だけ手前へ詰める
@@ -401,6 +410,8 @@ final class ProgressiveWalk {
                         TRACE_BUDGET_MILLIS / 1000, player.toShortString(),
                         horizontal(player, goal), legs));
             }
+            // Each trace owns its edits; comparisons never alter the shared fixture.
+            all = new PlannedCellSource(original, walked, 0);
             CellSource view = new WindowedCells(all, player, radius);
             List<PathStep> before = planned;
             if (mode == Mode.REPLAN) {
@@ -410,13 +421,13 @@ final class ProgressiveWalk {
                 plannedJoints.add(0);
             }
             BlockPos end = planned.isEmpty() ? player : planned.get(planned.size() - 1).pos();
-            while (horizontal(player, end) <= radius - MIN_DETAIL_REACH && horizontal(end, goal) > 1) {
+            while (horizontal(player, end) <= radius - MIN_DETAIL_REACH && !end.equals(goal)) {
                 if (++legs > MAX_LEGS) {
                     return Trace.failed(String.format("区間%d本を超えた（%s、目的地まで%.0f）",
                             MAX_LEGS, player.toShortString(), horizontal(player, goal)));
                 }
                 PathResult result = aim == Aim.HORIZON
-                        ? leg(view, end, goal)
+                        ? leg(new PlannedCellSource(view, planned, 0), end, goal)
                         : legToGoal(executor, all, player, radius, end, goal, planned, wide);
                 if (result.steps().isEmpty()) {
                     break;
@@ -490,7 +501,7 @@ final class ProgressiveWalk {
             walked.addAll(planned.subList(0, walkTo));
             planned = new ArrayList<>(planned.subList(walkTo, planned.size()));
             player = walked.get(walked.size() - 1).pos();
-            if (horizontal(player, goal) <= 1) {
+            if (player.equals(goal)) {
                 return new Trace(walked, joints, redraws, redrawnBlocks, nearRedraws,
                         repairAttempts, repairsTaken, repairNodes, "");
             }
@@ -526,7 +537,7 @@ final class ProgressiveWalk {
     }
 
     /** 全視界・重み1.0・ガイド無しの1回の探索。届かなければ{@link Double#POSITIVE_INFINITY}。 */
-    static double fullVisibilityBest(FakeCells all, BlockPos start, BlockPos goal) {
+    static double fullVisibilityBest(CellSource all, BlockPos start, BlockPos goal) {
         PathResult result = new AStarPathfinder(all,
                 new SearchLimits(UNLIMITED_NODE_BUDGET, 120_000, 1.0)).search(start, goal, NEVER);
         return result.complete() ? cost(result.steps()) : Double.POSITIVE_INFINITY;

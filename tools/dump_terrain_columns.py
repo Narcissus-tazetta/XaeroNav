@@ -66,6 +66,8 @@ def classify(name):
     第2の値は`--depth`がどこから深さを測るかにだけ効く。木・ツタ・竹は地面の上に生えている
     ものなので基準にできず、水と溶岩は液面ではなくその下の地形から測らないと海底が削れる。
     """
+    if name in {'minecraft:bedrock', 'minecraft:barrier'}:
+        return WALL, False
     if name in PASSABLE_EXACT:
         return None, False
     short = name.split(':', 1)[1] if ':' in name else name

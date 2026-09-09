@@ -105,7 +105,7 @@ class NetherWideRouteTest {
      * ユーザー報告の座標は1.060倍）。
      *
      * <p>中間目標に立ち寄っていた頃は平均2.964倍・最悪3.345倍で、1本は行き詰まっていた。
-     * 探索のゴールを最終目的地に変えた（{@code PathfindingState#COARSE_ROUTE_DISTRUST_RATIO}）
+     * 探索のゴールを最終目的地に変えた（天井のある次元）
      * ことでここまで縮んでいる。現世の同じ測り方（{@code LongRouteOptimalityTest}）は1.046倍。
      */
     private static final double MEAN_LIMIT = 1.50;
@@ -233,7 +233,7 @@ class NetherWideRouteTest {
     }
 
     /**
-     * <b>いまの実装（{@code PathfindingState#COARSE_ROUTE_DISTRUST_RATIO}を超えた地形での動き）。</b>
+     * <b>いまの実装（天井のある次元での動き）。</b>
      * 探索のゴールは常に最終目的地で、層1は{@code cost-to-go}ガイドとしてだけ使う。箱で切られた
      * 部分経路を末端から継ぎ足していく。
      */

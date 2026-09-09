@@ -41,6 +41,11 @@ final class WideVoxelGuide implements CostToGo {
     private static final double DIG_PER_BLOCK =
             ActionCosts.DIG_OVERHEAD_TICKS + ActionCosts.SPRINT_ONE_BLOCK;
 
+    // Queue keys must stay fixed after insertion. Comparing through cost[] lets a
+    // later relaxation change an entry's priority without restoring heap order.
+    private record Entry(int index, double cost) {
+    }
+
     private final SearchBounds box;
     private final int nx;
     private final int ny;
@@ -58,10 +63,21 @@ final class WideVoxelGuide implements CostToGo {
     }
 
     static WideVoxelGuide build(CellSource view, SearchBounds box, BlockPos goal) {
+        return build(view, box, goal, false);
+    }
+
+    /**
+     * 床の位置だけが完全に分かる理想化モデル。床以外は岩か空洞かを区別せず、
+     * 空洞と同じ値段にする。Xaeroの疎な実データを再現したものではない。
+     */
+    static WideVoxelGuide build(CellSource view, SearchBounds box, BlockPos goal, boolean floorsOnly) {
         int nx = (box.maxX() - box.minX()) / CELL + 1;
         int ny = (box.maxY() - box.minY()) / CELL + 1;
         int nz = (box.maxZ() - box.minZ()) / CELL + 1;
         byte[] kind = new byte[nx * ny * nz];
+        if (floorsOnly) {
+            Arrays.fill(kind, OPEN);
+        }
         for (int x = box.minX(); x <= box.maxX(); x += COLUMN_STEP) {
             for (int z = box.minZ(); z <= box.maxZ(); z += COLUMN_STEP) {
                 for (int y = box.minY() + 1; y < box.maxY(); y++) {
@@ -70,7 +86,8 @@ final class WideVoxelGuide implements CostToGo {
                     if (kind[index] == STANDABLE) {
                         continue;
                     }
-                    boolean head = CellData.occupiableWithoutDigging(view.cell(x, y, z))
+                    long feet = view.cell(x, y, z);
+                    boolean head = CellData.occupiableWithoutDigging(feet)
                             && CellData.occupiableWithoutDigging(view.cell(x, y + 1, z));
                     if (head && CellData.standable(view.cell(x, y - 1, z))) {
                         kind[index] = STANDABLE;
@@ -89,11 +106,12 @@ final class WideVoxelGuide implements CostToGo {
         }
         cost[goalIndex] = 0.0;
         boolean[] closed = new boolean[cost.length];
-        PriorityQueue<Integer> open = new PriorityQueue<>(Comparator.comparingDouble(i -> cost[i]));
-        open.add(goalIndex);
+        PriorityQueue<Entry> open = new PriorityQueue<>(Comparator.comparingDouble(Entry::cost));
+        open.add(new Entry(goalIndex, 0.0));
         while (!open.isEmpty()) {
-            int current = open.poll();
-            if (closed[current]) {
+            Entry entry = open.poll();
+            int current = entry.index();
+            if (closed[current] || entry.cost() != cost[current]) {
                 continue;
             }
             closed[current] = true;
@@ -125,7 +143,7 @@ final class WideVoxelGuide implements CostToGo {
                         double next = cost[current] + blocks * rate;
                         if (next < cost[neighbor]) {
                             cost[neighbor] = next;
-                            open.add(neighbor);
+                            open.add(new Entry(neighbor, next));
                         }
                     }
                 }

@@ -26,6 +26,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.Carryover;
+import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.Heuristic;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathLoops;
@@ -42,6 +43,7 @@ import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.xaero.XaeroMapReader;
@@ -182,50 +184,6 @@ public final class PathfindingState {
      * 目的地に着くまで止まらない。
      */
     private static final int COARSE_MAP_RETRY_LIMIT = 10;
-
-    /**
-     * <b>層1の中間目標を経由地として信用しなくなる境目。</b>直近の探索が「直線距離を平坦に走った
-     * ときの何倍のコストだったか」がこれを超えたら、中間目標へ立ち寄ること自体が遠回りになる地形
-     * だと見なして、目的地をそのまま狙う。
-     *
-     * <p><b>天井のある次元でしか立てない</b>（{@link #noteTerrainDifficulty}）。理由は地形の性質そのもの:
-     * 天井のある次元ではXaeroの地図が洞窟レイヤー（Yのスラブ）に分かれ、同じXZに上下に重なる
-     * 通路が並ぶ——それをチャンク解像度で表現できないので、層1は<b>「短いが4倍高くつく道」</b>を
-     * 選ぶ。実地形の測定（{@code NetherDetourBreakdownTest}）:
-     *
-     * <pre>
-     * ネザー 中間目標に立ち寄る 2.599倍 / 展開750,651   目的地を狙う 1.356倍 / 展開431,277
-     * 現世   中間目標に立ち寄る 1.069倍 / 展開  9,700   目的地を狙う 1.032倍 / 展開115,786
-     * </pre>
-     *
-     * <p><b>難しさの比だけでは分けられない。</b>同じ物差しで測ると（{@code TerrainDifficultyTest}）
-     * ジ・エンドの島渡りが4.61倍でネザーの2.66倍より高く、「目的地を狙う方が単位距離あたり安い」
-     * 比もエンド1.70倍 &gt; ネザー1.37倍だった。それでも<b>エンドで中間目標を捨ててはいけない</b>——
-     * あそこの中間目標は「どの島を経由するか」を決めていて、{@code CoarseRouter}の
-     * {@code SMALL_ISLAND_PENALTY}がユーザー要望「大きい島を渡りながらのルートにしたい」を
-     * 実現している。奈落の橋でコストが跳ねるのは<b>地形が本質的に高い</b>からで、
-     * 層1が間違った道を指しているわけではない。
-     *
-     * <p>ネザーの実測は2.66倍。天井のある次元だけを見るので、閾値は他の次元と競合しない。
-     */
-    private static final double COARSE_ROUTE_DISTRUST_RATIO = 2.0;
-
-    /**
-     * 中間目標を<b>使い直す</b>側の境目。切り替えの境目を上下で分ける（ヒステリシス）のは、
-     * 難しさが閾値のあたりを往復すると案内の作り方が毎回入れ替わり、そのたびに線が
-     * 描き変わるため。片側だけの閾値では、地形が閾値前後の場所でちらつく。
-     */
-    private static final double COARSE_ROUTE_TRUST_RATIO = 1.5;
-
-    /**
-     * 地形の難しさを測るのに要る最小の区間長（ブロック）。短い区間は階段1つで比が跳ねる。
-     */
-    private static final double DIFFICULTY_MIN_SPAN_BLOCKS = 32.0;
-
-    /**
-     * 難しさの移動平均の重み。1本の異常値で案内の作り方が切り替わらないよう鈍くする。
-     */
-    private static final double DIFFICULTY_SMOOTHING = 0.3;
 
     /** 目的地へ近づけないまま終わる探索がこの回数続いたら、詰みと判断する。 */
     private static final int STUCK_SEARCH_STREAK = 4;
@@ -511,14 +469,11 @@ public final class PathfindingState {
     private long coarseMapRetryAfterMillis;
     // 地図の読み込み待ちで引き直した回数（COARSE_MAP_RETRY_LIMIT）。クライアントスレッドだけが触る
     private int coarseMapRetries;
-    // 直近の探索の「実コスト ÷ 直線距離を平坦に走ったコスト」の移動平均。1.0が平地の直線。
-    // whenComplete（ワーカースレッド）で書き、selectDetailTarget（クライアントスレッド）で読む。
-    // 読んで書くまでが原子的でないので、並列に返った探索の更新は片方が失われうる——移動平均で
-    // しかないので実害は無い（ロックを取る価値がない）
-    private volatile double terrainDifficulty = 1.0;
-    // 中間目標を経由地として使うのをやめているか（COARSE_ROUTE_DISTRUST_RATIO）。
-    // terrainDifficultyと次元の条件から決まる。selectDetailTargetとHUDが読む
-    private volatile boolean coarseRouteDistrusted;
+    // 天井のある次元で、中間目標へ立ち寄らず目的地をそのまま狙っているか。
+    // selectDetailTargetが書き、HUDが読む（経路に中間目標の添字が付かないため）
+    private volatile boolean aimingPastWaypoints;
+    // 天井のある次元の3D粗層。目的地ごとに1つ組み、継ぎ足しにも使い回す
+    private final NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
     // 詳細探索が通常マージンでは届かなかった探索ゴール。次のrecalculateで範囲を広げて再挑戦する
     // 目印。本来の目的地と長距離ルートの中間目標を区別しないのは、どちらも「描画距離の内側にある
     // 詳細探索のゴール」で、壁や湖を迂回する経路が範囲の外に落ちる事情が同じだから。
@@ -732,8 +687,8 @@ public final class PathfindingState {
         this.pendingRefinedRouteReady = false;
         this.coarseMapRetryAfterMillis = 0L;
         this.coarseMapRetries = 0;
-        this.terrainDifficulty = 1.0;
-        this.coarseRouteDistrusted = false;
+        this.aimingPastWaypoints = false;
+        this.voxelGuide.clear();
         this.pendingWideRetry = false;
         this.pendingCoarseGuideRetry = false;
         this.pendingDeepRetry = false;
@@ -913,8 +868,8 @@ public final class PathfindingState {
             int here = shown.waypointIndexAtStep(PathProgress.INSTANCE.indexFor(shown.result()));
             return here >= 0 ? here + 1 : 0;
         }
-        // 中間目標を経由地として使っていない間（COARSE_ROUTE_DISTRUST_RATIO）は、経路に添字が
-        // 付いていない。それでも「長距離ルートのどのあたりか」は答えられる——折れ線への射影で出す
+        // 中間目標を経由地として使っていない間（天井のある次元）は、経路に添字が付いていない。
+        // それでも「長距離ルートのどのあたりか」は答えられる——折れ線への射影で出す
         List<BlockPos> all = followingCoarseRoute(shown) ? currentRouteWaypoints() : List.of();
         if (all.isEmpty()) {
             return 0;
@@ -938,10 +893,10 @@ public final class PathfindingState {
 
     /**
      * 経路に添字は無いが長距離ルートの途中にいる、という状態か。目的地をそのまま狙っていて
-     * （{@link #COARSE_ROUTE_DISTRUST_RATIO}）、まだ目的地まで届いていないとき。
+     * （{@link #aimingPastWaypoints}）、まだ目的地まで届いていないとき。
      */
     private boolean followingCoarseRoute(DisplayedPath shown) {
-        return shown.mode() == PathMode.GOAL && !shown.result().complete() && coarseRouteDistrusted;
+        return shown.mode() == PathMode.GOAL && !shown.result().complete() && aimingPastWaypoints;
     }
 
     /**
@@ -1500,6 +1455,10 @@ public final class PathfindingState {
             stuckReason = null;
             return;
         }
+        // 薄い地図で組んだ3D粗層が、詰まったまま更新されずに残るのを防ぐ。ここを通るのは
+        // 「狙った先へ届きも目的地へ近づきもしなかった」探索だけなので、組み直しの引き金として
+        // ちょうどよい（実際に組み直すかはNetherVoxelGuide側が間引く）
+        voxelGuide.noteStalled();
         BlockPos previouslyStalledAt = lastStalledAt;
         boolean sameSpot = previouslyStalledAt != null
                 && previouslyStalledAt.distSqr(start) < STUCK_RETRY_MOVE_BLOCKS * STUCK_RETRY_MOVE_BLOCKS;
@@ -1859,7 +1818,8 @@ public final class PathfindingState {
             goalRadius = 0;
         } else {
             DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius,
-                    detailHorizon(renderRadius), boatAvailable, true, -1);
+                    detailHorizon(renderRadius), boatAvailable, true, -1,
+                    level.dimensionType().hasCeiling());
             target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
             waypointIndex = detail.waypointIndex();
@@ -1952,10 +1912,11 @@ public final class PathfindingState {
         // 次元はメインスレッドで確定させる。whenCompleteはワーカースレッドで走るうえ、
         // そこではプレイヤーが既に別次元へ移動している可能性がある
         ResourceKey<Level> searchDimension = level.dimension();
-        // 天井のある次元か（COARSE_ROUTE_DISTRUST_RATIO）。同じ理由でここで写し取る
-        boolean ceilingDimension = level.dimensionType().hasCeiling();
         CompletableFuture<PathResult> future;
         boolean costToGoGuideEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
+        // 3D粗層は最終目的地に対して1つだけ組む。中間目標を狙う探索には掛けない——
+        // 起点が目的地に固定された表なので、別の点を狙う探索では方向がずれる
+        CostToGo prepared = preparedVoxelGuide(level, start, currentGoal, finalTarget, climbing);
         if (climbing) {
             future = executor.submitToSurface(view.withoutDigging(), view, start, groundLevel, limits);
         } else if (coarseGuided) {
@@ -1964,9 +1925,10 @@ public final class PathfindingState {
         } else if (deepBudgetInParallel) {
             // 深い予算は別スレッドで同時に走るので、セルのキャッシュを共有させない
             future = executor.submitWithDeepFallback(view, view.forParallelSearch(), start, finalTarget,
-                    qualityLimits(limits), deepLimits, costToGoGuideEnabled, goalRadius);
+                    qualityLimits(limits), deepLimits, costToGoGuideEnabled, goalRadius, prepared);
         } else {
-            future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius);
+            future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius,
+                    Carryover.NONE, prepared);
         }
         future.whenComplete((result, error) -> {
             if (generation.get() != myGeneration) {
@@ -2097,12 +2059,6 @@ public final class PathfindingState {
             }
             // 新しい経路に対する合流可否は測り直しになる。前の経路で失敗した記録は持ち越さない
             spliceBlockedFrom = null;
-            if (finalMode != PathMode.TO_SURFACE) {
-                // 中継区間（地上へ出るまで）は測らない。ゴールが1点ではなく「空の下ならどこでも」で、
-                // しかも掘って登るぶん水平距離あたりのコストが跳ね上がる——地形の難しさの標本に
-                // 混ぜると、地下から地上へ出ただけで中間目標を信用しなくなる
-                noteTerrainDifficulty(start, result, ceilingDimension);
-            }
             noteSuspiciousShape(start, finalTarget, result);
             displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
         });
@@ -2602,7 +2558,9 @@ public final class PathfindingState {
         // <b>その両端を結ぶいちばん安い線</b>だけ。<b>掛けても効かないことは実測済み</b>——96ブロックの
         // 区間では16ブロック解像度のガイドが幾何Heuristicを下回り、maxで常に負けるので展開ノード数が
         // 1つも変わらなかった（5地形すべてで完全一致）
-        executor.submit(view, fromPos, toPos, limits, false, 0, carried).whenComplete((repaired, error) -> {
+        PlannedCellSource repairTerrain = new PlannedCellSource(view, steps.subList(0, sectionFrom),
+                walkedTo + 1);
+        executor.submit(repairTerrain, fromPos, toPos, limits, false, 0, carried).whenComplete((repaired, error) -> {
             if (generation.get() != myGeneration) {
                 return;
             }
@@ -2616,7 +2574,8 @@ public final class PathfindingState {
             if (displayed != shown || currentGoal == null || !currentGoal.equals(goal)) {
                 return;
             }
-            if (!repaired.complete() || repaired.steps().isEmpty()) {
+            if (!repaired.complete() || repaired.steps().isEmpty()
+                    || !endOf(repaired, fromPos).equals(toPos)) {
                 noteSeamRepairRefused("解き直しが繋ぎ目の先へ届かなかった (" + repaired.termination() + ")");
                 return;
             }
@@ -2762,7 +2721,7 @@ public final class PathfindingState {
         // かつての detailReach のように成功／失敗で振動することがない
         int reach = Math.min(detailHorizon(renderRadius), lead);
         DetailTarget detail = selectDetailTarget(from, currentGoal, lead, reach, boatAvailable, false,
-                shown.waypointIndex());
+                shown.waypointIndex(), ceilingDimension);
         BlockPos target = detail.target();
         // 目的地をそのまま狙っているときは、遠くても止めない（箱が切るので探索は有限）。
         // 中間目標を狙うときだけ「伸ばす先が読み込み済みチャンクの外」を歯止めにする
@@ -2791,7 +2750,11 @@ public final class PathfindingState {
         // だけ——通り過ぎたぶんは既に置き終わっていて、手持ちの枚数からも減っている
         Carryover carried = new Carryover(Carryover.trailingBridgeRun(steps),
                 Carryover.placements(steps, PathProgress.INSTANCE.indexFor(shown.result()) + 1));
-        executor.submit(view, from, target, limits, costToGoGuideEnabled, detail.goalRadius(), carried)
+        PlannedCellSource futureTerrain = new PlannedCellSource(view, steps,
+                PathProgress.INSTANCE.indexFor(shown.result()) + 1);
+        CostToGo prepared = preparedVoxelGuide(level, playerAt, currentGoal, target, false);
+        executor.submit(futureTerrain, from, target, limits, costToGoGuideEnabled, detail.goalRadius(), carried,
+                        prepared)
                 .whenComplete((result, error) -> {
             if (generation.get() != myGeneration) {
                 return;
@@ -2810,7 +2773,6 @@ public final class PathfindingState {
                 return;
             }
             logSearchReach(from, target, result);
-            noteTerrainDifficulty(from, result, ceilingDimension);
             List<PathStep> tail = result.steps();
             if (result.complete()) {
                 // 継ぎ足しが狙った先まで届いた＝前へ出られている。詰みの目印はここで落とす。
@@ -2898,30 +2860,32 @@ public final class PathfindingState {
      */
     private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
                                              int reach, boolean boatAvailable, boolean playerAnchored,
-                                             int minWaypointIndex) {
+                                             int minWaypointIndex, boolean ceilingDimension) {
         if (horizontalDistance(start, currentGoal) <= reach) {
+            aimingPastWaypoints = false;
             return new DetailTarget(currentGoal, -1, 0);
         }
         if (!XaeroPresence.mapPresent()) {
+            aimingPastWaypoints = false;
             return goalOrPointToward(start, currentGoal, reach);
         }
-        if (coarseRouteDistrusted) {
-            // 中間目標へ立ち寄ること自体が遠回りになる地形（COARSE_ROUTE_DISTRUST_RATIO）。
-            // 目的地をそのまま狙い、箱で切られた部分経路を継ぎ足していく。層1は地図とHUDの
-            // 表示に使い続ける。
+        if (ceilingDimension) {
+            // <b>天井のある次元では中間目標へ立ち寄らない。</b>目的地をそのまま狙い、箱で
+            // 切られた部分経路を継ぎ足していく。方向は3D粗層（{@link NetherVoxelGuide}）が出す。
             //
-            // <b>ここでは層1のcost-to-goガイドは効かない。</b>ガイドは探索の箱の中だけから
-            // 組まれる（PathfindingExecutor#buildCostToGoGuide）ので、箱の外にある目的地の
-            // セルを地図に含まず、全コストが無限＝どこでも0を返す。つまりこの経路は
-            // <b>ガイド無しの重み付きA*</b>で引かれている。それでよいことは測ってある——
-            // 実地形のネザー4本で、箱のガイド（＝いまの姿）1.257倍に対し、経路全域から
-            // 組んだガイドを渡すと1.356倍と<b>悪くなった</b>（NetherDetourBreakdownTest）。
-            // 16ブロック解像度の層1はネザーの3D迷路では実コストとかけ離れていて、
-            // 幾何ヒューリスティックの正確な下限より当てにならない
+            // 立ち寄る側は実測で基準の2.175〜3.100倍。層1はチャンクごとに床を数枚持つだけで
+            // ネザーの縦に積まれた通路を表せず、その中間目標へ寄り道すること自体が遠回りになる。
+            // <b>地形を測って切り替える必要は無い</b>——天井のある次元では答えが常に同じで、
+            // 測る側（探索の実コスト比）は現世の山岳でも同じ値に達するので分けられない。
+            //
+            // 層1は引き続き引く（HUDと地図の点線）。ここで結果を使わないだけ。
+            cachedOrFreshRoute(start, currentGoal, boatAvailable, playerAnchored, true);
+            aimingPastWaypoints = true;
             return new DetailTarget(currentGoal, -1, 0);
         }
+        aimingPastWaypoints = false;
         DetailTarget target = reachableWaypointTarget(start, currentGoal,
-                cachedOrFreshRoute(start, currentGoal, boatAvailable, playerAnchored),
+                cachedOrFreshRoute(start, currentGoal, boatAvailable, playerAnchored, false),
                 renderRadius, reach, playerAnchored,
                 minWaypointIndex);
         if (target != null) {
@@ -2952,9 +2916,31 @@ public final class PathfindingState {
         // キャッシュ済みのwaypointが1つも描画距離内に届かない＝大きく迂回して経路から外れた。
         // 目的地は変わっていないのでキャッシュは効くはずだが、地形は不変でも自分の位置は変わるので、
         // 今の位置を始点に引き直す（地形が変わらない限り引き直さない、という原則の唯一の例外）
-        target = reachableWaypointTarget(start, currentGoal, freshRoute(start, currentGoal, boatAvailable),
+        target = reachableWaypointTarget(start, currentGoal,
+                freshRoute(start, currentGoal, boatAvailable, false),
                 renderRadius, reach, true, minWaypointIndex);
         return target != null ? target : goalOrPointToward(start, currentGoal, reach);
+    }
+
+    /**
+     * この探索へ渡す3D粗層。天井のある次元で、<b>最終目的地をそのまま狙っている</b>探索にだけ
+     * 掛ける。
+     *
+     * <p>中間目標を狙う探索に掛けてはいけない——表の起点は最終目的地に固定されているので、
+     * 別の点を狙う探索では見積もりが「そちらへ寄り道してから目的地へ」の形になり、
+     * 幾何ヒューリスティックとのmaxで単に大きすぎる値になる。
+     *
+     * <p>組み上がるまでは{@code null}が返り、その回は従来どおりガイド無しで探す。
+     * <b>メインスレッドから呼ぶこと</b>（Xaeroの地図を読む）。
+     */
+    private CostToGo preparedVoxelGuide(Level level, BlockPos player, BlockPos currentGoal,
+                                         BlockPos target, boolean climbing) {
+        if (climbing || !level.dimensionType().hasCeiling() || !target.equals(currentGoal)
+                || !XaeroPresence.mapPresent()) {
+            return null;
+        }
+        return voxelGuide.forGoal(level, level.dimension(), player, currentGoal,
+                XaeroNavConfig.INSTANCE.movementOptions().lavaBridgingEnabled());
     }
 
     /**
@@ -2969,10 +2955,10 @@ public final class PathfindingState {
      * {@link #pointAlongRoute}がやっているのと同じことを、ルートが無い場合にも適用する。
      * 到着判定は目的地そのものを見ている（{@code checkArrival}）ので、手前で切っても着けなくならない。
      *
-     * <p><b>例外が1つだけある。</b>{@link #coarseRouteDistrusted}な地形では、箱の外の目的地を
-     * わざとそのまま狙う——「フル予算を焼いて部分経路を返すだけ」がそこでは望ましい動きで、
-     * 中間目標へ立ち寄るより安く着く（実測2.599倍→1.257倍）。空振りと分かっている再挑戦の梯子は
-     * {@code PathfindingExecutor}側が畳む（{@code goalInsideBounds}）。
+     * <p><b>例外が1つだけある。</b>天井のある次元では、箱の外の目的地をわざとそのまま狙う
+     * ——「フル予算を焼いて部分経路を返すだけ」がそこでは望ましい動きで、中間目標へ立ち寄るより
+     * 安く着く（実測2.599倍→1.257倍、3D粗層を掛けるとさらに1.02〜1.13倍）。空振りと分かっている
+     * 再挑戦の梯子は{@code PathfindingExecutor}側が畳む（{@code goalInsideBounds}）。
      */
     private DetailTarget goalOrPointToward(BlockPos start, BlockPos currentGoal, int reach) {
         BlockPos aim = aimTowardGoal(start, currentGoal, reach);
@@ -3033,52 +3019,6 @@ public final class PathfindingState {
         LOGGER.info("XaeroNav: 探索目標に立てません (目標={}, 種別={}, 中間目標#{}, 層2の精緻版={})",
                 target.toShortString(), mode, waypointIndex,
                 refinedRouteInUse() ? "使用中" : "無し");
-    }
-
-    /**
-     * この探索が「直線距離を平坦に走ったときの何倍のコストだったか」を覚える
-     * （{@link #COARSE_ROUTE_DISTRUST_RATIO}）。
-     *
-     * <p>測るのは<b>引けた経路そのもの</b>で、目標に届いたかは問わない——打ち切られた経路も
-     * その地形を実際に歩くコストの標本になる。短い区間は階段1つで比が跳ねるので捨てる。
-     *
-     * <p><b>中継区間（{@link PathMode#TO_SURFACE}）は呼び出し側で除いてある。</b>掘って登る
-     * 区間は水平距離あたりのコストが桁違いで、混ぜると地下にいるだけで切り替わる。
-     *
-     * <p>{@code ceilingDimension}を引数で受けるのは、ここが<b>ワーカースレッド</b>で走るため
-     * （{@code whenComplete}）。次元はメインスレッドで写し取ること——結果が返る頃には
-     * プレイヤーが別の次元へ移っていることがある（{@code searchDimension}と同じ理由）。
-     */
-    private void noteTerrainDifficulty(BlockPos start, PathResult result, boolean ceilingDimension) {
-        List<PathStep> steps = result.steps();
-        if (steps.isEmpty()) {
-            return;
-        }
-        double span = horizontalDistance(start, steps.get(steps.size() - 1).pos());
-        if (span < DIFFICULTY_MIN_SPAN_BLOCKS) {
-            return;
-        }
-        double cost = 0;
-        for (PathStep step : steps) {
-            cost += step.cost();
-        }
-        double ratio = cost / (span * ActionCosts.SPRINT_ONE_BLOCK);
-        terrainDifficulty =
-                terrainDifficulty * (1.0 - DIFFICULTY_SMOOTHING) + ratio * DIFFICULTY_SMOOTHING;
-        boolean was = coarseRouteDistrusted;
-        // 次元の条件もここで見る。使う側だけで見ると、現世の山岳（実測2.07倍）でフラグだけが
-        // 立って「経由地として使うのをやめます」がログに出るのに、実際には何も変わらない
-        boolean now = ceilingDimension && (was
-                ? terrainDifficulty > COARSE_ROUTE_TRUST_RATIO
-                : terrainDifficulty > COARSE_ROUTE_DISTRUST_RATIO);
-        if (was != now) {
-            // 案内の作り方が変わる瞬間なので、実機ログから理由を追えるようにしておく
-            LOGGER.info("XaeroNav: 長距離ルートの中間目標を{}（地形の難しさ={}倍, 直近の区間={}倍, {}ブロック）",
-                    now ? "経由地として使うのをやめます" : "経由地として使い直します",
-                    Math.round(terrainDifficulty * 100) / 100.0, Math.round(ratio * 100) / 100.0,
-                    Math.round(span));
-        }
-        coarseRouteDistrusted = now;
     }
 
     /** いま{@link #currentRouteWaypoints}が層2の精緻版を返しているか（上のログの内訳用）。 */
@@ -3162,10 +3102,16 @@ public final class PathfindingState {
      * 案内に使う（打ち切り時も最良の部分経路が返る）。当てにいく数値そのものが無くなった。
      */
     private static void logSearchReach(BlockPos start, BlockPos target, PathResult result) {
-        if (!LOGGER.isDebugEnabled() || result.steps().isEmpty()) {
+        BlockPos end = endOf(result, start);
+        if (!result.complete() && (result.steps().isEmpty()
+                || horizontalDistance(start, end) < MIN_EXTEND_PROGRESS_BLOCKS)) {
+            LOGGER.info("XaeroNav: 詳細探索が十分に前進できません (始点={}, 目標={}, 末端={}, {}, 展開={}, ステップ={})",
+                    start.toShortString(), target.toShortString(), end.toShortString(),
+                    result.termination(), result.expandedNodes(), result.steps().size());
+        }
+        if (!LOGGER.isDebugEnabled()) {
             return;
         }
-        BlockPos end = result.steps().get(result.steps().size() - 1).pos();
         LOGGER.debug("XaeroNav: 詳細探索 (目標 {} ({} ブロック先), 実到達 {} ブロック, {}, 展開 {})",
                 target.toShortString(), Math.round(horizontalDistance(start, target)),
                 Math.round(horizontalDistance(start, end)), result.termination(), result.expandedNodes());
@@ -3178,10 +3124,10 @@ public final class PathfindingState {
      * 空振りする。精緻版は{@link #REFINED_WAYPOINT_MIN_SPACING_BLOCKS}間隔なのでここを埋められる。
      */
     private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
-                                               boolean playerAnchored) {
+                                               boolean playerAnchored, boolean ceilingDimension) {
         CoarseRoute cached = coarseRoute;
         if (cached == null || !cached.goal().equals(currentGoal)) {
-            return freshRoute(start, currentGoal, boatAvailable);
+            return freshRoute(start, currentGoal, boatAvailable, ceilingDimension);
         }
         // 地図が欠けたまま引いたルートは、届いてから引き直す。未知セルはほぼ最安なので、まだ
         // 読み込まれていない溶岩の海があるとそこを直進するルートが引かれる。しかも「届く中間目標が
@@ -3193,13 +3139,14 @@ public final class PathfindingState {
         // 引き直すと手前の案内まで入れ替わる（下のgoalOrPointTowardの分岐と同じ理由）
         if (playerAnchored && cached.pendingRegions() > 0 && refiningRoute == null
                 && System.currentTimeMillis() >= coarseMapRetryAfterMillis) {
-            return freshRoute(start, currentGoal, boatAvailable);
+            return freshRoute(start, currentGoal, boatAvailable, ceilingDimension);
         }
         RefinedRoute refined = refinedRoute;
         return refined != null && refined.source() == cached ? refined.waypoints() : cached.waypoints();
     }
 
-    private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable) {
+    private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
+                                       boolean ceilingDimension) {
         CoarseAttempt attempt = computeCoarseRoute(start, currentGoal, boatAvailable);
         CoarseRouter.Route route = attempt.route();
         coarseMapRetryAfterMillis = System.currentTimeMillis() + COARSE_MAP_RETRY_INTERVAL_MILLIS;
@@ -3220,8 +3167,12 @@ public final class PathfindingState {
         // 精緻版まで一緒に落ちる
         // 経路が引けなかった世代でも必ず入れ替える。ここを条件付きにすると、前の世代の目印が
         // 残ったままになって「精緻化が進行中」の判定が永久に真になる
-        refiningRoute = waypoints.isEmpty() ? null : thisRoute;
-        if (!waypoints.isEmpty()) {
+        // 天井のある次元では層2の精緻化を掛けない。あそこの中間目標は探索の目標として使わず
+        // （selectDetailTarget）、地図とHUDの点線を細かくするためだけにメインスレッドで
+        // Xaeroを読み直すことになる。層2も2.5Dなので、ネザーの縦に積まれた通路は直せない
+        boolean refinable = !waypoints.isEmpty() && !ceilingDimension;
+        refiningRoute = refinable ? thisRoute : null;
+        if (refinable) {
             refineRouteAsync(start, currentGoal, waypoints, thisRoute);
         }
         return waypoints;

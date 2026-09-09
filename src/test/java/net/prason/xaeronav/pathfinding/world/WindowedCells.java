@@ -11,11 +11,11 @@ import net.minecraft.core.BlockPos;
  *
  * <p>窓は正方形。バニラの描画距離が正方形にチャンクを読むのに合わせてある。
  */
-public record WindowedCells(FakeCells all, BlockPos player, int radius, SearchBounds box)
+public record WindowedCells(CellSource all, BlockPos player, int radius, SearchBounds box)
         implements CellSource {
 
     /** 箱を切らない版（世界全体が探索範囲）。 */
-    public WindowedCells(FakeCells all, BlockPos player, int radius) {
+    public WindowedCells(CellSource all, BlockPos player, int radius) {
         this(all, player, radius, all.bounds());
     }
 

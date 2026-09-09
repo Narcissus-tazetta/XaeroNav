@@ -24,3 +24,6 @@ versions/
 
 # Pythonツール（tools/）のバイトコード
 __pycache__/
+
+# Claude Code のローカルメモリ
+.claude/memory/

@@ -572,6 +572,11 @@ public final class AStarPathfinder {
         return buildResult(startNode, selectFallback(startNode), termination, expanded);
     }
 
+    /** ゴール判定と、スナップショットへの到達可能性の判定とで共有する垂直の許容幅。 */
+    public static int goalVerticalRadius(int goalRadius) {
+        return goalRadius <= 0 ? 0 : Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
+    }
+
     private boolean reachedGoal(PathNode node) {
         // 高さだけでは天井の下も地上に数えてしまう。深い洞窟の坑道は水平に長く、
         // 既定の地上高より上を通ることが珍しくない。そこで中継を終えると、洞窟の中から
@@ -588,7 +593,7 @@ public final class AStarPathfinder {
         int dx = node.x - goalX;
         int dz = node.z - goalZ;
         return dx * dx + dz * dz <= goalRadius * goalRadius
-                && Math.abs(node.y - goalY) <= Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
+                && Math.abs(node.y - goalY) <= goalVerticalRadius(goalRadius);
     }
 
     /**

@@ -362,6 +362,86 @@ public final class XaeroMapReader {
         return builder.build();
     }
 
+    /** {@link #forEachCaveFloor}が1本の柱について報告する床。 */
+    @FunctionalInterface
+    public interface FloorVisitor {
+
+        /**
+         * @param floorTopY このレイヤーで見つかった、いちばん上の固体ブロックのY。立つのは1つ上
+         * @param lava      その面が溶岩か
+         */
+        void floor(int x, int z, int floorTopY, boolean lava);
+    }
+
+    /**
+     * 洞窟レイヤーが持つ床を<b>ブロック解像度・レイヤーごと</b>に1つずつ報告する。
+     * 3D粗層（{@code VoxelTerrain}）の唯一のデータ源。
+     *
+     * <p>{@link #readSurfaceDetailed}と違い<b>レイヤーを1枚に潰さない</b>。潰すとネザーで
+     * 上下に重なる通路のうち1枚しか残らず、3次元にした意味が消える。{@link #readSurface}と違い
+     * <b>チャンク平均にもしない</b>——実測で、チャンク平均の床では歩ける格子が全体の6%にしか
+     * ならず、ガイドが「知らない場所をまっすぐ橋で渡る方が安い」と答えるようになる。
+     *
+     * <p>{@link #MAX_CAVE_LAYERS}の枠も掛けない。あれは{@link CoarseMap#MAX_FLOORS}に収める
+     * ための制限で、こちらの格子には効かない（同じ柱に何枚の床があってもセルが別なら別に入る）。
+     *
+     * <p><b>メインスレッド専用。</b>Xaeroのリージョン構造を触る。
+     *
+     * @param step 何ブロックおきに見るか。格子のセル辺の半分にすると、1セルにつき数点が入る
+     * @return 報告した床の数。0なら、この範囲の地図をXaeroがまだ持っていない
+     */
+    public static int forEachCaveFloor(int minBlockX, int minBlockZ, int sizeX, int sizeZ,
+                                        int referenceY, int step, FloorVisitor visitor) {
+        MapProcessor processor = processor();
+        if (processor == null) {
+            return 0;
+        }
+        int minRegionX = (minBlockX >> 4) >> CHUNKS_PER_REGION_SHIFT;
+        int maxRegionX = ((minBlockX + sizeX - 1) >> 4) >> CHUNKS_PER_REGION_SHIFT;
+        int minRegionZ = (minBlockZ >> 4) >> CHUNKS_PER_REGION_SHIFT;
+        int maxRegionZ = ((minBlockZ + sizeZ - 1) >> 4) >> CHUNKS_PER_REGION_SHIFT;
+        int[] reported = {0};
+        for (int caveLayer : allLayers(processor, referenceY)) {
+            for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
+                for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
+                    forEachLoadedTile(processor, caveLayer, regionX, regionZ, tile -> {
+                        int blockX = tile.getChunkX() * 16;
+                        int blockZ = tile.getChunkZ() * 16;
+                        for (int x = 0; x < 16; x += step) {
+                            for (int z = 0; z < 16; z += step) {
+                                if (blockX + x < minBlockX || blockX + x >= minBlockX + sizeX
+                                        || blockZ + z < minBlockZ || blockZ + z >= minBlockZ + sizeZ) {
+                                    continue;
+                                }
+                                MapBlock block = tile.getBlock(x, z);
+                                if (block == null || isEmpty(block)) {
+                                    continue;
+                                }
+                                boolean lava = isLava(block);
+                                // 水は水面が通れる高さ。水底の高さを渡すと立てない所を床にしてしまう
+                                int height = !lava && isWater(block) ? block.getTopHeight() : block.getHeight();
+                                visitor.floor(blockX + x, blockZ + z, height, lava);
+                                reported[0]++;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        return reported[0];
+    }
+
+    /**
+     * メモリに載っている全レイヤー。{@link #layersFor}と違って枚数を絞らない
+     * （{@link #forEachCaveFloor}専用）。参照Yに近い順に並べるのは、途中で打ち切られたときに
+     * 手前の高さ帯が残るようにするため。
+     */
+    private static int[] allLayers(MapProcessor processor, int referenceY) {
+        List<Integer> layers = new ArrayList<>(loadedLayers(processor));
+        layers.sort(Comparator.comparingInt(layer -> Math.abs(layerCenterY(layer) - referenceY)));
+        return layers.stream().mapToInt(Integer::intValue).toArray();
+    }
+
     /**
      * 範囲内のリージョンの状態。読めたセルが少ないとき、原因は2つに割れる。
      * 訪れてはいるがまだメモリに無い（{@code pendingLoad}）のか、そもそも訪れていない
