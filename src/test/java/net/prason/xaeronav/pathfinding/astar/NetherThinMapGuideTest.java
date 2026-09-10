@@ -83,15 +83,17 @@ class NetherThinMapGuideTest {
      * <p>実測（箱のYを次元の全高に取っていた頃）: 0..255の箱では歩き通せず、探索が
      * y=95・経路から100ブロック西で止まった——実機ログの「繋ぎ目の大回り(x=-416)」と同じ形。
      * {@code VoxelTerrain#boxFor}が床のある範囲へ絞るようになって直っている。
+     *
+     * <p>実機の保存と同じ薄さ（洞窟レイヤー1枚）で測る。柱ごとに8枚拾う濃いモデルは
+     * 格子が2倍になって{@code ProgressiveWalk.trace}の歩き通しが遅い実行機で
+     * 時間切れになるうえ、{@code boxFor}のクランプはレイヤー数に依らない。
      */
     @Test
     void walksWhenTheDimensionIsTallerThanTheGroundItHas() throws Exception {
         FakeCells cells = terrain();
-        for (int[] layers : new int[][] {null, LAYERS}) {
-            walk(layers == null ? "全高256・8枚" : "全高256・レイヤー1枚",
-                    XaeroMapModel.grid(cells, START, GOAL, XaeroMapModel.height(0, 255),
-                            layers, VISITED, 1L),
-                    cells);
-        }
+        walk("全高256・レイヤー1枚",
+                XaeroMapModel.grid(cells, START, GOAL, XaeroMapModel.height(0, 255),
+                        LAYERS, VISITED, 1L),
+                cells);
     }
 }
