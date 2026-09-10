@@ -1156,9 +1156,11 @@ public final class PathfindingState {
             // （実際にユーザーからその報告が出て、この行で裏が取れた）
             //
             // 見るのは<b>いま居るステップから先</b>だけ。もう歩き終えた区間の変化はこれから通る道に
-            // 関係が無いうえ、そこから走査すると背後の変化で止まって先の変化を見落とす
+            // 関係が無いうえ、そこから走査すると背後の変化で止まって先の変化を見落とす。
+            // 描画距離より先は goto 直後のストリーミング中に誤爆するので見ない（PathValidator参照）
+            int validationHorizon = mc.options.getEffectiveRenderDistance() * 16;
             PathValidator.Failure failure = PathValidator.firstFailureFrom(mc.level, result,
-                    PathProgress.INSTANCE.indexFor(result));
+                    PathProgress.INSTANCE.indexFor(result), mc.player.blockPosition(), validationHorizon);
             if (failure != null) {
                 handleBlockedPath(mc.level, mc.player, shown, failure);
             }
@@ -2106,7 +2108,8 @@ public final class PathfindingState {
         } else if (reachedPathEnd(player, shown)) {
             dropped = "終端に到着";
         } else if ((validationFailure = PathValidator.firstFailureFrom(level, result,
-                PathProgress.INSTANCE.indexFor(result))) != null) {
+                PathProgress.INSTANCE.indexFor(result), player.blockPosition(),
+                Minecraft.getInstance().options.getEffectiveRenderDistance() * 16)) != null) {
             // もう歩き終えた区間の変化では手放さない。渡ってきた橋を後ろから壊しても、
             // これから通る道が使えることの証明は失われない
             dropped = "地形が変わった";
@@ -2363,7 +2366,8 @@ public final class PathfindingState {
         // 見るのは合流点から先だけ。手前は捨てる区間なので、そこの変化を理由に諦めると、
         // 迂回すれば繋がる経路まで呼び出し側の全引き直しへ落ちる。
         // ここで無効と分かって黙ってfalseを返すと、なぜ合流を諦めたのかがどこにも残らない
-        PathValidator.Failure failure = PathValidator.firstFailureFrom(level, result, joinIndex);
+        PathValidator.Failure failure = PathValidator.firstFailureFrom(level, result, joinIndex,
+                playerAt, renderRadius);
         if (failure != null) {
             LOGGER.info("XaeroNav: 経路上のセルが変化していたため合流を諦めました ({})", failure.reason());
             return false;

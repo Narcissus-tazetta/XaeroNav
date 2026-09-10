@@ -42,8 +42,28 @@ final class PathValidator {
      * 数えてしまうと、迂回できるはずの経路まで全引き直しへ落ちるため。
      */
     static Failure firstFailureFrom(Level level, PathResult result, int fromIndex) {
+        return firstFailureFrom(level, result, fromIndex, null, 0);
+    }
+
+    /**
+     * {@code near}から水平{@code horizonBlocks}より先のステップを検証対象から外した{@link
+     * #firstFailureFrom}。{@code near}が{@code null}なら距離で切らない。
+     *
+     * <p><b>ストリーミング中のチャンクを「地形が消えた」と取り違えないための門番。</b>
+     * goto直後は描画距離いっぱいのリージョンが数秒かけて届く。その間、遠いチャンクは
+     * {@link Level#hasChunkAt}が{@code true}を返しつつセクションは未populateで、
+     * {@code getBlockState}が空気を返す——{@link #readable}をすり抜けて「足場が無い」が
+     * 数百ブロック先で誤爆し、{@code handleBlockedPath}はそこまでspliceできず全引き直しになる。
+     * 経路は継ぎ足しで伸び続けるので、伸びる→誤爆→全引き直し→また伸びる、が20〜25秒続いた。
+     *
+     * <p>近傍だけ見れば「ユーザーが前方の道にブロックを置いた」検出は保てる。遠いステップの
+     * 変化は{@code extendPath}が近づいたときに引き直すので、いま拾えなくても案内は追従する。
+     */
+    static Failure firstFailureFrom(Level level, PathResult result, int fromIndex, BlockPos near,
+                                    double horizonBlocks) {
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         List<PathStep> steps = result.steps();
+        double horizonSq = horizonBlocks * horizonBlocks;
         // 掘削は経路全体で積み上げる。<b>手前のステップで掘るセルは、その先のステップにとっても
         // 「通れる前提」</b>——掘るのはプレイヤーがそこへ着いてからなので、いま塞がっているのは
         // 当たり前で、変化ではない。ステップ自身の掘削しか見ていなかった頃は、砂利を掘って登る
@@ -55,6 +75,11 @@ final class PathValidator {
             PathStep step = steps.get(i);
             plannedDigs.addAll(step.digCells());
             if (i < fromIndex) {
+                continue;
+            }
+            if (near != null && horizonSq > 0 && horizontalDistSq(near, step.pos()) > horizonSq) {
+                // 経路は手前から順に遠ざかるとは限らない（岬を回り込む・戻る）ので、ここで打ち切らず
+                // 先のステップも見る。近傍へ戻ってくる経路ならそこは検証される
                 continue;
             }
             String reason = stepFailure(level, step, i, cursor, plannedDigs);
@@ -92,6 +117,12 @@ final class PathValidator {
      */
     private static boolean readable(Level level, BlockPos pos) {
         return level.hasChunkAt(pos);
+    }
+
+    private static double horizontalDistSq(BlockPos a, BlockPos b) {
+        double dx = a.getX() - b.getX();
+        double dz = a.getZ() - b.getZ();
+        return dx * dx + dz * dz;
     }
 
     /**
