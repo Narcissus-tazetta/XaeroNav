@@ -101,21 +101,15 @@ public final class NavHud {
                 // 出さないと、なぜ目的地と違う方向へ案内されるのか分からなくなる
                 add(Component.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
             }
-            int waypointNumber = PathfindingState.INSTANCE.coarseRouteWaypointNumber();
-            if (waypointNumber > 0) {
-                // 表示中の経路が本来の目的地ではなく長距離ルートの中間目標であることを示す。
-                // 出さないと、なぜ目的地よりずっと手前で「まもなく到着」になるのか分からなくなる
-                add(Component.translatable("hud.xaeronav.coarse_route_progress",
-                        waypointNumber, PathfindingState.INSTANCE.coarseRouteWaypointCount()), SECONDARY_COLOR);
-            }
             if (PathfindingState.INSTANCE.rerouted()) {
                 // 案内が急に変わった理由を出す。出さないと、それまで歩いていた道が
                 // 突然消えたようにしか見えない
                 add(Component.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
             }
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
-            add(instruction(guidance, climbing, waypointNumber > 0), PRIMARY_COLOR);
-            add(Component.translatable("hud.xaeronav.remaining",
+            boolean endsAtDestination = PathfindingState.INSTANCE.currentPathEndsAtDestination();
+            add(instruction(guidance, climbing, endsAtDestination), PRIMARY_COLOR);
+            add(Component.translatable(remainingKey(endsAtDestination),
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
             // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
             // 気付いたのでは、そこまでの案内が前提ごと成立していない。
@@ -207,16 +201,29 @@ public final class NavHud {
         return usesBoat.get(result, path -> path.steps().stream().anyMatch(PathStep::boating));
     }
 
-    private static Component instruction(NavGuidance guidance, boolean climbing, boolean onWaypoint) {
-        return switch (guidance.turn) {
-            // 中継区間・中間目標の終わりは地上への出口や通過点であって本来の目的地ではない。
-            // ここで「まもなく到着」と出すと、目的地はまだ遠いのに着いたと思わせてしまう
-            case ARRIVE -> Component.translatable(climbing
+    private static Component instruction(NavGuidance guidance, boolean climbing, boolean endsAtDestination) {
+        String key = instructionKey(guidance.turn, climbing, endsAtDestination);
+        return guidance.turn == NavGuidance.Turn.LEFT || guidance.turn == NavGuidance.Turn.RIGHT
+                ? Component.translatable(key, guidance.turnDistance)
+                : Component.translatable(key);
+    }
+
+    /** 表示中の実線が本来の目的地まで届くときだけ、距離を単に「残り」と呼べる。 */
+    static String remainingKey(boolean endsAtDestination) {
+        return endsAtDestination ? "hud.xaeronav.remaining" : "hud.xaeronav.path_remaining";
+    }
+
+    /**
+     * 経路末端の意味を取り違えない案内文を選ぶ。到達済みの中継経路でも、その末端は目的地ではない。
+     */
+    static String instructionKey(NavGuidance.Turn turn, boolean climbing, boolean endsAtDestination) {
+        return switch (turn) {
+            case ARRIVE -> climbing
                     ? "hud.xaeronav.surface_ahead"
-                    : onWaypoint ? "hud.xaeronav.waypoint_ahead" : "hud.xaeronav.arriving");
-            case STRAIGHT -> Component.translatable("hud.xaeronav.straight");
-            case LEFT -> Component.translatable("hud.xaeronav.turn_left", guidance.turnDistance);
-            case RIGHT -> Component.translatable("hud.xaeronav.turn_right", guidance.turnDistance);
+                    : endsAtDestination ? "hud.xaeronav.arriving" : "hud.xaeronav.route_continues";
+            case STRAIGHT -> "hud.xaeronav.straight";
+            case LEFT -> "hud.xaeronav.turn_left";
+            case RIGHT -> "hud.xaeronav.turn_right";
         };
     }
 

@@ -856,71 +856,10 @@ public final class PathfindingState {
         return shown != null && shown.mode() == PathMode.TO_SURFACE;
     }
 
-    /**
-     * 長距離ルート中、現在向かっている中間目標の番号（1始まり）。長距離ルート中でなければ0。
-     *
-     * <p>経路の末端ではなく<b>プレイヤーがいる区間</b>を答える。先読みで経路が数区間先まで
-     * 伸びていると両者はずれ、末端を答えると歩いてもいない先の番号が出る。
-     */
-    public int coarseRouteWaypointNumber() {
+    /** 表示中の実線が中継地点や探索の末端ではなく、本来の目的地まで届いているか。 */
+    public boolean currentPathEndsAtDestination() {
         DisplayedPath shown = displayed;
-        if (shown == null) {
-            return 0;
-        }
-        if (shown.mode() == PathMode.WAYPOINT) {
-            int here = shown.waypointIndexAtStep(PathProgress.INSTANCE.indexFor(shown.result()));
-            return here >= 0 ? here + 1 : 0;
-        }
-        // 中間目標を経由地として使っていない間（天井のある次元）は、経路に添字が付いていない。
-        // それでも「長距離ルートのどのあたりか」は答えられる——折れ線への射影で出す
-        List<BlockPos> all = followingCoarseRoute(shown) ? currentRouteWaypoints() : List.of();
-        if (all.isEmpty()) {
-            return 0;
-        }
-        Player player = Minecraft.getInstance().player;
-        return player == null ? 0
-                : nearestWaypoint(all, player.blockPosition()) + 1;
-    }
-
-    /** 長距離ルートの中間目標の総数。長距離ルート中でなければ0。 */
-    public int coarseRouteWaypointCount() {
-        DisplayedPath shown = displayed;
-        if (shown == null) {
-            return 0;
-        }
-        if (shown.mode() != PathMode.WAYPOINT && !followingCoarseRoute(shown)) {
-            return 0;
-        }
-        return currentRouteWaypoints().size();
-    }
-
-    /**
-     * 経路に添字は無いが長距離ルートの途中にいる、という状態か。目的地をそのまま狙っていて
-     * （{@link #aimingPastWaypoints}）、まだ目的地まで届いていないとき。
-     */
-    private boolean followingCoarseRoute(DisplayedPath shown) {
-        return shown.mode() == PathMode.GOAL && !shown.result().complete() && aimingPastWaypoints;
-    }
-
-    /**
-     * この地点にいちばん近い中間目標の添字。中間目標の列は引き直しで入れ替わるので、
-     * 経路の添字ではなく<b>いまの位置から</b>数える。
-     *
-     * <p>地図の点線（{@code MapPathOverlay#firstAheadWaypoint}）が使う<b>線分への射影</b>とは
-     * 別物で、通り過ぎた直後は1つ手前を答えうる。HUDのカウンタが1つ前後するだけなので、
-     * 点線と同じ厳密さは要らない。
-     */
-    private static int nearestWaypoint(List<BlockPos> waypoints, BlockPos at) {
-        int nearest = 0;
-        double best = waypoints.get(0).distSqr(at);
-        for (int i = 1; i < waypoints.size(); i++) {
-            double distance = waypoints.get(i).distSqr(at);
-            if (distance < best) {
-                best = distance;
-                nearest = i;
-            }
-        }
-        return nearest;
+        return shown != null && shown.mode() == PathMode.GOAL && shown.result().complete();
     }
 
     /**
