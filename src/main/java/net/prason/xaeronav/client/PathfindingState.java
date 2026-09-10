@@ -469,6 +469,8 @@ public final class PathfindingState {
     private long coarseMapRetryAfterMillis;
     // 地図の読み込み待ちで引き直した回数（COARSE_MAP_RETRY_LIMIT）。クライアントスレッドだけが触る
     private int coarseMapRetries;
+    // goto直後、地図の読み込み待ちで継ぎ足しの先を1レグに留めている間だけ真。ログを1回だけ出す印
+    private boolean extendHeldForStreaming;
     // 天井のある次元で、中間目標へ立ち寄らず目的地をそのまま狙っているか。
     // selectDetailTargetが書き、HUDが読む（経路に中間目標の添字が付かないため）
     private volatile boolean aimingPastWaypoints;
@@ -687,6 +689,7 @@ public final class PathfindingState {
         this.pendingRefinedRouteReady = false;
         this.coarseMapRetryAfterMillis = 0L;
         this.coarseMapRetries = 0;
+        this.extendHeldForStreaming = false;
         this.aimingPastWaypoints = false;
         this.voxelGuide.clear();
         this.pendingWideRetry = false;
@@ -1526,6 +1529,27 @@ public final class PathfindingState {
         if (end.equals(goal) || extendBlocked(player, end)) {
             return false;
         }
+        CoarseRoute route = coarseRoute;
+        boolean streaming = route != null && route.goal().equals(goal) && route.pendingRegions() > 0;
+        if (extendHeldForStreaming && !streaming) {
+            extendHeldForStreaming = false;
+            LOGGER.info("XaeroNav: 地図が揃ったので通常の継ぎ足しに戻します");
+        }
+        if (streaming && horizontalDistance(player.blockPosition(), end) > detailHorizon(renderRadius)) {
+            // goto直後、地図がまだストリーミングで届いている間は末端を1レグ先までに留める。
+            // extendLeadは読み込み済みの余地しか見ないので、放っておくとチャンクが届くたびに継ぎ足しが
+            // 連鎖し、末端が数百手先まで伸びて繋ぎ目が毎tick動く（実機ログ「101→334→467手」・
+            // 「完走した経路を手放しました」）。プレイヤーは常にdetailHorizonぶんの案内を持っているので
+            // 途切れない。pendingRegionsが0になれば通常の先読みへ戻る
+            if (!extendHeldForStreaming) {
+                extendHeldForStreaming = true;
+                LOGGER.info("XaeroNav: 地図の読み込み中は継ぎ足しの先を{}ブロックに留めます"
+                                + " (未読み込みリージョン={}, 末端まで{}ブロック, {}ステップ)",
+                        detailHorizon(renderRadius), route.pendingRegions(),
+                        Math.round(horizontalDistance(player.blockPosition(), end)), steps.size());
+            }
+            return false;
+        }
         if (XaeroNavConfig.INSTANCE.deepLookAheadEnabled()) {
             // 案内として意味のある長さぶん読み込み済みの土地が残っているときだけ伸ばす。
             // renderRadiusぎりぎりまで許すと、目標が読み込み済み正方形の外へ出る（extendLeadを参照）
@@ -1551,6 +1575,11 @@ public final class PathfindingState {
         }
         if (extendBlocked(player, end)) {
             return "直前の継ぎ足しが失敗した末端";
+        }
+        CoarseRoute route = coarseRoute;
+        if (route != null && route.goal().equals(goal) && route.pendingRegions() > 0
+                && horizontalDistance(player.blockPosition(), end) > detailHorizon(renderRadius)) {
+            return "地図の読み込み待ち (未読み込みリージョン" + route.pendingRegions() + ")";
         }
         if (XaeroNavConfig.INSTANCE.deepLookAheadEnabled()) {
             return "読み込み済みの余地が足りない (残り" + extendLead(player, end, renderRadius)
