@@ -76,7 +76,7 @@ class PlayerAreaEndReproTest {
     /**
      * 近隣の島へ、実機の深い探索と同じ条件で渡れること。
      *
-     * <p>{@link #NEAREST_ISLAND}はここに含めない——下の実機相当の時間枠のテストが<b>より短い枠で
+     * <p>{@link #NEAREST_ISLAND}はここに含めない——下の絞った予算のテストが<b>より厳しい予算で
      * 同じ探索</b>を回すので、こちらに置くと同じ経路を2回払うだけになる。
      */
     @Test
@@ -96,24 +96,24 @@ class PlayerAreaEndReproTest {
     }
 
     /**
-     * <b>実機の速度を織り込んでも届くこと。</b>実機は測定環境より2〜3倍遅い
-     * （[[xaeronav-realdevice-debug-loop]]の実測）ので、深い探索の枠12秒は実効5秒程度に相当する。
-     * ここが落ちるなら、オフラインで解けても実機では時間切れになる。
+     * <b>深い探索より絞った予算でも届くこと。</b>{@link #DEEP}の3分の2のノード予算で
+     * {@link #NEAREST_ISLAND}へ橋を架けて渡れる——余裕を持って解けているかを見る番人。
+     * ここが落ちるなら、実機で予算や時間が削られたときに真っ先に詰む。
      *
-     * <p>{@link #NEAREST_ISLAND}へ橋を架けて渡っていることもここで見る（上の島渡りより枠が
-     * 厳しいので、こちらが通れば深い枠でも通る）。
+     * <p>絞るのは<b>ノード数</b>で、壁時計ではない。{@code retryGreedier}の各再挑戦は残り時間で
+     * 区切られるので、時間で絞るとCIの実行機の速さで結果が変わる（実際にそれでCIが落ちていた）。
      */
     @Test
-    void crossesWithinTheEffectiveRealDeviceTimeBudget() throws Exception {
+    void crossesUnderABudgetTighterThanTheDeepSearch() throws Exception {
         FakeCells terrain = terrain();
         BlockPos goal = onGround(terrain, NEAREST_ISLAND);
-        SearchLimits tight = new SearchLimits(600_000, 4_800, 1.5);
+        SearchLimits tight = new SearchLimits(400_000, 15_000, 1.5);
 
         long began = System.currentTimeMillis();
         PathResult r = new PathfindingExecutor().submit(terrain, PLAYER, goal, tight, true, 0).get();
-        System.out.printf("%n=== 実機相当の時間枠(4.8秒) ===%n  %s (%dms)%n",
+        System.out.printf("%n=== 絞った予算(40万ノード) ===%n  %s (%dms)%n",
                 describe(r), System.currentTimeMillis() - began);
-        assertTrue(r.complete(), "実機相当の時間では届かない: " + describe(r));
+        assertTrue(r.complete(), "絞った予算では届かない: " + describe(r));
         assertTrue(r.steps().stream().anyMatch(PathStep::bridging),
                 "橋を架けずに渡っている＝地形が対照になっていない: " + describe(r));
     }
