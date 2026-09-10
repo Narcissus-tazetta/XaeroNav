@@ -112,10 +112,18 @@ jobs:
               sleep 15
               LOG=run/logs/latest.log
               [ -f "$LOG" ] || continue
-              [ $(( $(date +%s) - $(stat -c %Y "$LOG") )) -ge "$STALL" ] || continue
+              IDLE=$(( $(date +%s) - $(stat -c %Y "$LOG") ))
+              THRESHOLD=$STALL
+              # ゲーム内テストが成功したあとの終了処理だけが固まる既知ケースは、
+              # 5分待たずに30秒の猶予で診断・終了する。
+              if grep -Fq "No tests found, Successfully finished." "$LOG" \
+                  && grep -Fq "All dimensions are saved" "$LOG"; then
+                THRESHOLD=30
+              fi
+              [ "$IDLE" -ge "$THRESHOLD" ] || continue
               PIDS=$(fuser "$LOG" 2>/dev/null || true)
               {
-                echo "=== ログが ${STALL}秒 伸びていない。スタックを取る ($(date -u)) ==="
+                echo "=== ログが ${THRESHOLD}秒 伸びていない。スタックを取る ($(date -u)) ==="
                 for PID in ${PIDS:-$(pgrep -f java || true)}; do
                   echo "--- pid=$PID"
                   tr "\0" " " < "/proc/$PID/cmdline" 2>/dev/null; echo
@@ -132,7 +140,9 @@ jobs:
       # 上のウォッチが効かなかったときの最後の砦。ここで打ち切っても後続の
       # ログ出力・アップロードは `if: always()` で走るので、原因を追う材料は残る
       - name: Run the client
+        id: client
         timeout-minutes: 20
+        continue-on-error: true
         uses: headlesshq/mc-runtime-test@4.5.1
         with:
           mc: ${{ matrix.node.minecraft }}
@@ -161,9 +171,33 @@ jobs:
             ls -la run/ 2>/dev/null || true
           fi
 
+      # mc-runtime-testはゲーム内テストが完了していても、Minecraftの終了ハングを
+      # watchdogがkillするとexit 137を失敗として返す。本当の失敗は隠さず、テスト成功と
+      # ワールド保存完了の両方が記録された終了ハングだけを救済する。
+      - name: Validate the runtime result
+        if: always()
+        env:
+          CLIENT_OUTCOME: ${{ steps.client.outcome }}
+        run: |
+          if [ "$CLIENT_OUTCOME" = success ]; then
+            exit 0
+          fi
+
+          LOG=run/logs/latest.log
+          if [ -f "$LOG" ] \
+              && grep -Fq "No tests found, Successfully finished." "$LOG" \
+              && grep -Fq "All dimensions are saved" "$LOG"; then
+            echo "::warning::ゲーム内テストと保存は完了。終了処理のハングだけを成功扱いにする"
+            exit 0
+          fi
+
+          echo "::error::Minecraftの起動テストが完了していない (outcome=$CLIENT_OUTCOME)"
+          exit 1
+
       # mixinが当たらなかったこと自体はログにしか出ない（configがrequired=falseなので落ちない）。
       # 誰も読まないログは無いのと同じなので、ここで見つけたらCIを落とす
       - name: Check that the Xaero hooks applied
+        if: always()
         run: |
           LOG=run/logs/latest.log
           if [ ! -f "$LOG" ]; then
