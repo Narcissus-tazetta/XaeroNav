@@ -56,22 +56,20 @@ class CoarseMapBuilderTest {
     }
 
     @Test
-    void aFifthFloorFartherFromThePreviousOnesIsDropped() {
+    void aFloorBeyondTheLimitIsDropped() {
         CoarseMapBuilder builder = oneCell();
         // 参照Yに近い順に渡す想定（XaeroMapReader#layersForの並びに合わせる）。
-        // 5番目（最も遠い）は捨てられ、MAX_FLOORS(4)を超えない
-        builder.putFloor(0, 0, CoarseMap.LAND, 50);
-        builder.putFloor(0, 0, CoarseMap.LAND, 40);
-        builder.putFloor(0, 0, CoarseMap.LAND, 60);
-        builder.putFloor(0, 0, CoarseMap.LAND, 30);
+        // 上限ちょうどまで埋めてから、いちばん高い床を1枚足す
+        for (int i = 0; i < CoarseMap.MAX_FLOORS; i++) {
+            builder.putFloor(0, 0, CoarseMap.LAND, 30 + i * 10);
+        }
         builder.putFloor(0, 0, CoarseMap.LAND, 200);
         CoarseMap map = builder.build();
 
         assertEquals(CoarseMap.MAX_FLOORS, map.floorCount(0, 0));
-        assertEquals(30, map.heightAtFloor(0, 0, 0));
-        assertEquals(40, map.heightAtFloor(0, 0, 1));
-        assertEquals(50, map.heightAtFloor(0, 0, 2));
-        assertEquals(60, map.heightAtFloor(0, 0, 3));
+        for (int i = 0; i < CoarseMap.MAX_FLOORS; i++) {
+            assertEquals(30 + i * 10, map.heightAtFloor(0, 0, i));
+        }
     }
 
     @Test

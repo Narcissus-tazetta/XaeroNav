@@ -78,11 +78,27 @@ public final class XaeroMapReader {
     private static final int MAX_LOAD_REQUESTS = 64;
 
     /**
-     * 1回の読み取りで見る洞窟レイヤーの数の上限。ネザーのように地表レイヤーが空の次元では、
-     * 訪れたY帯の数だけレイヤーが増える。全部読むと範囲×レイヤー数だけメインスレッドが止まるので、
-     * 参照Yに近い順に絞る。
+     * 1回の読み取りで見る洞窟レイヤーの数の上限。参照Yに近い順に絞る。
+     *
+     * <p><b>ネザーの高さ({@code 0..127})を{@link #CAVE_MODE_DEPTH}のスライスで刻むと8枚になる。
+     * ここを4枚にしていたせいで、歩ける階のレイヤーが丸ごと落ちていた。</b>実機（2026-09-07）:
+     * 始点y33・目的地y64で参照Yが48になり、選ばれたのはレイヤー4・3・5・2——歩けるクリムゾンの森
+     * (y65〜97)を持つレイヤー6が枠から外れた。落としたレイヤーは{@link #surveyRegions}・
+     * {@link #requestLoad}の対象にもならないので、<b>読み込み要求すら出ない</b>（未読み込み
+     * リージョンが0になっても「全部見えた」ことにならない）。結果、層1にはそのセルに溶岩の床しか
+     * 無いと「見えて」しまい、溶岩を避ける道が地図の上に存在しなくなる
+     * （{@code NetherCaveLayerSlabReproTest}）。
+     *
+     * <p>読む枚数はメインスレッドの地図読みに直接効くが、読むのは<b>メモリに載っているタイルだけ</b>で、
+     * データの無いレイヤーはほぼ0コストで終わる。
+     *
+     * <p><b>{@link CoarseMap#MAX_FLOORS}を超えてはいけない</b>（{@link #layersFor}の「合計を
+     * MAX_FLOORS以内に収めること」）。天井の無い次元では地表レイヤーが1枚を占めるので、
+     * ここは洞窟レイヤーの枠として{@code MAX_FLOORS}ちょうどに置く——地表を足す側は
+     * {@link #layersFor}が1枚ぶん枠を空ける。ネザーの高さを刻んだ8枚のうち2枚は落ちるが、
+     * 落ちるのは参照Yから最も遠い2枚で、実機の症例（参照Y=48でレイヤー6が落ちる）は入る。
      */
-    private static final int MAX_CAVE_LAYERS = 4;
+    private static final int MAX_CAVE_LAYERS = CoarseMap.MAX_FLOORS;
 
     /**
      * 1つの洞窟レイヤーが持つスライスの厚さ（ブロック）。Xaeroの{@code CAVE_MODE_DEPTH}既定値で、
@@ -124,7 +140,8 @@ public final class XaeroMapReader {
      *
      * <p><b>合計を{@link CoarseMap#MAX_FLOORS}以内に収めること。</b>{@code CoarseMapBuilder.putFloor}は
      * 上限を超えたとき<b>最も高い床</b>を捨てる（呼び出し側が絞る前提の実装）。現世では地表の床が
-     * まさに最も高いので、地表＋洞窟4枚を渡すと地表が捨てられ、地上のナビが壊れる。
+     * まさに最も高いので、地表＋洞窟レイヤーで上限を超えると地表が捨てられ、地上のナビが壊れる。
+     * {@link #MAX_CAVE_LAYERS}がその上限に等しいので、地表を足す側では洞窟の枠を1つ減らす。
      *
      * <p>レイヤー番号を{@code caveStart}の計算式から予測しないのは、{@code caveStart}が
      * プレイヤーの頭上の地形次第で決まるため。実際にメモリに載っているものだけを見る。
@@ -231,17 +248,43 @@ public final class XaeroMapReader {
      * 1回の読み取りで全レイヤーぶんの床が揃うので不要になった。
      */
     public static CoarseMap readSurface(int minChunkX, int minChunkZ, int chunksX, int chunksZ, int referenceY) {
+        return readSurfaceReporting(minChunkX, minChunkZ, chunksX, chunksZ, referenceY).map();
+    }
+
+    /**
+     * {@link #readSurface}に<b>レイヤーごとの取り分</b>を添えた版。
+     *
+     * <p>「地図が見えていない」の内訳は、どのレイヤーからセルが取れたかを出さないと分からない——
+     * 歩ける階のレイヤーが空なのか、そもそも読む対象から外れていたのかで打つ手が違う
+     * （{@link #MAX_CAVE_LAYERS}参照）。
+     */
+    public static SurfaceRead readSurfaceReporting(int minChunkX, int minChunkZ, int chunksX, int chunksZ,
+                                                    int referenceY) {
         CoarseMapBuilder builder = new CoarseMapBuilder(minChunkX, minChunkZ, chunksX, chunksZ);
         MapProcessor processor = processor();
         if (processor == null) {
-            return builder.build();
+            return new SurfaceRead(builder.build(), "レイヤー無し");
         }
         LongSet voidCandidates = new LongOpenHashSet();
+        StringBuilder perLayer = new StringBuilder();
         for (int caveLayer : layersFor(processor, referenceY)) {
+            int before = builder.knownCells();
             readLayer(processor, caveLayer, minChunkX, minChunkZ, chunksX, chunksZ, builder, voidCandidates);
+            if (!perLayer.isEmpty()) {
+                perLayer.append(' ');
+            }
+            perLayer.append(caveLayer == SURFACE_LAYER ? "地表" : "L" + caveLayer)
+                    .append('=').append(builder.knownCells() - before);
         }
         markVoidCells(builder, voidCandidates);
-        return builder.build();
+        return new SurfaceRead(builder.build(), perLayer.toString());
+    }
+
+    /**
+     * 読んだ地図と、レイヤーごとに<b>新しく床が付いたセルの数</b>。既に別のレイヤーで床が
+     * 付いているセルは数えないので、合計は{@link CoarseMap#knownCells()}に一致する。
+     */
+    public record SurfaceRead(CoarseMap map, String layerBreakdown) {
     }
 
     /**
@@ -317,6 +360,86 @@ public final class XaeroMapReader {
             }
         }
         return builder.build();
+    }
+
+    /** {@link #forEachCaveFloor}が1本の柱について報告する床。 */
+    @FunctionalInterface
+    public interface FloorVisitor {
+
+        /**
+         * @param floorTopY このレイヤーで見つかった、いちばん上の固体ブロックのY。立つのは1つ上
+         * @param lava      その面が溶岩か
+         */
+        void floor(int x, int z, int floorTopY, boolean lava);
+    }
+
+    /**
+     * 洞窟レイヤーが持つ床を<b>ブロック解像度・レイヤーごと</b>に1つずつ報告する。
+     * 3D粗層（{@code VoxelTerrain}）の唯一のデータ源。
+     *
+     * <p>{@link #readSurfaceDetailed}と違い<b>レイヤーを1枚に潰さない</b>。潰すとネザーで
+     * 上下に重なる通路のうち1枚しか残らず、3次元にした意味が消える。{@link #readSurface}と違い
+     * <b>チャンク平均にもしない</b>——実測で、チャンク平均の床では歩ける格子が全体の6%にしか
+     * ならず、ガイドが「知らない場所をまっすぐ橋で渡る方が安い」と答えるようになる。
+     *
+     * <p>{@link #MAX_CAVE_LAYERS}の枠も掛けない。あれは{@link CoarseMap#MAX_FLOORS}に収める
+     * ための制限で、こちらの格子には効かない（同じ柱に何枚の床があってもセルが別なら別に入る）。
+     *
+     * <p><b>メインスレッド専用。</b>Xaeroのリージョン構造を触る。
+     *
+     * @param step 何ブロックおきに見るか。格子のセル辺の半分にすると、1セルにつき数点が入る
+     * @return 報告した床の数。0なら、この範囲の地図をXaeroがまだ持っていない
+     */
+    public static int forEachCaveFloor(int minBlockX, int minBlockZ, int sizeX, int sizeZ,
+                                        int referenceY, int step, FloorVisitor visitor) {
+        MapProcessor processor = processor();
+        if (processor == null) {
+            return 0;
+        }
+        int minRegionX = (minBlockX >> 4) >> CHUNKS_PER_REGION_SHIFT;
+        int maxRegionX = ((minBlockX + sizeX - 1) >> 4) >> CHUNKS_PER_REGION_SHIFT;
+        int minRegionZ = (minBlockZ >> 4) >> CHUNKS_PER_REGION_SHIFT;
+        int maxRegionZ = ((minBlockZ + sizeZ - 1) >> 4) >> CHUNKS_PER_REGION_SHIFT;
+        int[] reported = {0};
+        for (int caveLayer : allLayers(processor, referenceY)) {
+            for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
+                for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
+                    forEachLoadedTile(processor, caveLayer, regionX, regionZ, tile -> {
+                        int blockX = tile.getChunkX() * 16;
+                        int blockZ = tile.getChunkZ() * 16;
+                        for (int x = 0; x < 16; x += step) {
+                            for (int z = 0; z < 16; z += step) {
+                                if (blockX + x < minBlockX || blockX + x >= minBlockX + sizeX
+                                        || blockZ + z < minBlockZ || blockZ + z >= minBlockZ + sizeZ) {
+                                    continue;
+                                }
+                                MapBlock block = tile.getBlock(x, z);
+                                if (block == null || isEmpty(block)) {
+                                    continue;
+                                }
+                                boolean lava = isLava(block);
+                                // 水は水面が通れる高さ。水底の高さを渡すと立てない所を床にしてしまう
+                                int height = !lava && isWater(block) ? block.getTopHeight() : block.getHeight();
+                                visitor.floor(blockX + x, blockZ + z, height, lava);
+                                reported[0]++;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        return reported[0];
+    }
+
+    /**
+     * メモリに載っている全レイヤー。{@link #layersFor}と違って枚数を絞らない
+     * （{@link #forEachCaveFloor}専用）。参照Yに近い順に並べるのは、途中で打ち切られたときに
+     * 手前の高さ帯が残るようにするため。
+     */
+    private static int[] allLayers(MapProcessor processor, int referenceY) {
+        List<Integer> layers = new ArrayList<>(loadedLayers(processor));
+        layers.sort(Comparator.comparingInt(layer -> Math.abs(layerCenterY(layer) - referenceY)));
+        return layers.stream().mapToInt(Integer::intValue).toArray();
     }
 
     /**

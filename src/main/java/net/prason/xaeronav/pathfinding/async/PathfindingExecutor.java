@@ -29,6 +29,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
+import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
@@ -233,13 +234,33 @@ public final class PathfindingExecutor {
      */
     public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
                                                  boolean costToGoGuideEnabled, int goalRadius, Carryover carried) {
+        return submit(view, start, goal, limits, costToGoGuideEnabled, goalRadius, carried, null);
+    }
+
+    /** 作り済みのガイドを渡す版（実験）。 */
+    public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits,
+                                                 boolean costToGoGuideEnabled, int goalRadius, Carryover carried,
+                                                 CostToGo prepared) {
         return submit(cancelled -> {
-            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(view, start, goal, cancelled) : null;
-            return search(view, limits, cancelled, costToGo, (pathfinder, c) ->
-                    // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
-                    // 寄せ直しなので、メインスレッドへ戻さずここで行う
-                    pathfinder.search(StanceFinder.resolveStart(view, start), StanceFinder.resolveGoal(view, goal),
-                            c, carried, goalRadius));
+            // 立てない座標のまま探索すると経路が1本も伸びない。ブロックを読める場所での
+            // 寄せ直しなので、メインスレッドへ戻さずここで行う
+            BlockPos resolvedStart = StanceFinder.resolveStart(view, start);
+            BlockPos resolvedGoal = StanceFinder.resolveGoal(view, goal);
+            boolean goalInsideBounds = goalInsideBounds(view, resolvedGoal, goalRadius);
+            // ゴールが箱の外なら層1ガイドは組まない。組んでも{@code CoarseRouter#costToGo}が
+            // ゴールのセルを持たず<b>どこでも0を返す表</b>にしかならないのに、
+            // {@link LiveCoarseSampler}は箱を丸ごと舐める（天井のある次元では全高ぶん）。
+            //
+            // ガイドの起点には<b>寄せ直す前のゴール</b>を渡す。同じ床の中でもYを寄せると層1の
+            // オフセット補正が変わり、NetherLavaSeaTestが「経路なし」へ戻る。到達可能性の判定と
+            // A*には下で寄せ直した方を使う
+            CostToGo costToGo = prepared != null ? prepared
+                    : costToGoGuideEnabled && goalInsideBounds
+                            ? buildCostToGoGuide(view, resolvedStart, goal, cancelled) : null;
+            return search(view, limits, System.currentTimeMillis() + limits.timeLimitMillis(), cancelled,
+                    costToGo, (pathfinder, c) ->
+                    pathfinder.search(resolvedStart, resolvedGoal, c, carried, goalRadius),
+                    goalInsideBounds);
         });
     }
 
@@ -275,16 +296,44 @@ public final class PathfindingExecutor {
      * 元に戻せてしまうため——引数で強制すれば取り違えようがない。
      *
      * @param normalView 通常予算の探索が占有するビュー
-     * @param deepView   深い予算の探索が占有するビュー。{@code normalView}とは別インスタンスであること
+     * @param deepView   深い予算の探索が占有するビュー。同じ地形・探索範囲を持ち、
+     *                   {@code normalView}とは別インスタンスであること
      */
     public CompletableFuture<PathResult> submitWithDeepFallback(CellSource normalView, CellSource deepView,
                                                                   BlockPos start, BlockPos goal,
                                                                   SearchLimits normalLimits, SearchLimits deepLimits,
                                                                   boolean costToGoGuideEnabled, int goalRadius) {
+        return submitWithDeepFallback(normalView, deepView, start, goal, normalLimits, deepLimits,
+                costToGoGuideEnabled, goalRadius, null);
+    }
+
+    /**
+     * 作り済みのガイドを渡す版。天井のある次元の3D粗層（{@code VoxelCostToGo}）がここへ入る。
+     *
+     * <p><b>{@code prepared}はゴールが箱の外でも使う。</b>層1のガイドと違って箱の外まで覆っている
+     * ことがその存在意義で、ネザーの遠距離ではゴールは必ず箱の外にある。
+     */
+    public CompletableFuture<PathResult> submitWithDeepFallback(CellSource normalView, CellSource deepView,
+                                                                  BlockPos start, BlockPos goal,
+                                                                  SearchLimits normalLimits, SearchLimits deepLimits,
+                                                                  boolean costToGoGuideEnabled, int goalRadius,
+                                                                  CostToGo prepared) {
         return submit(cancelled -> {
-            CostToGo costToGo = costToGoGuideEnabled ? buildCostToGoGuide(normalView, start, goal, cancelled) : null;
             BlockPos resolvedStart = StanceFinder.resolveStart(normalView, start);
             BlockPos resolvedGoal = StanceFinder.resolveGoal(normalView, goal);
+            boolean inside = goalInsideBounds(normalView, resolvedGoal, goalRadius);
+            CostToGo costToGo = prepared != null ? prepared
+                    : costToGoGuideEnabled && inside
+                            ? buildCostToGoGuide(normalView, resolvedStart, goal, cancelled) : null;
+            if (!inside) {
+                // 両ビューは同じ箱。深い予算でも完走しえず、その部分経路は下の選択で
+                // 捨てられる。submitと同じく通常予算を満額で1回だけ使い、先まで案内する。
+                // 判定もこのワーカーで行い、ビューのスレッド所有権を保つ。
+                return search(normalView, normalLimits,
+                        System.currentTimeMillis() + normalLimits.timeLimitMillis(), cancelled, costToGo,
+                        (pathfinder, c) -> pathfinder.search(resolvedStart, resolvedGoal, c,
+                                Carryover.NONE, goalRadius), false);
+            }
 
             // 通常予算が先に届いたら、まだ走っている深い方をここで打ち切る。deepExecutor自体は
             // 空けておかないと、次の呼び出しがこのジョブの後ろに並んで無駄に待たされる
@@ -326,6 +375,12 @@ public final class PathfindingExecutor {
      * <p>ボート所持の有無は見ない（{@code false}固定）。ガイドは{@code AStarPathfinder}側で
      * 幾何学的なヒューリスティックとのmaxを取って使うだけなので、多少粗くても実害が無い——
      * 損をするのは「ボートがあるのに引き締めが甘くなる」程度で、非許容にはならない。
+     *
+     * <p><b>ゴールが箱の外にあるとガイドは丸ごと無効になる。</b>{@code CoarseRouter#costToGo}は
+     * ゴールのセルを地図に含まないと全コストを無限にし、{@code estimate}はどこでも0を返す。
+     * 箱は始点を中心に描画距離で切られる（{@code SearchBounds#around}）ので、遠い目的地を
+     * そのまま狙う設計（天井のある次元。{@code PathfindingState#selectDetailTarget}）では常にこの形になる
+     * ——<b>意図的にそうしている</b>（測定は{@code NetherDetourBreakdownTest}）。
      */
     private static CostToGo buildCostToGoGuide(CellSource view, BlockPos start, BlockPos goal,
                                                 BooleanSupplier cancelled) {
@@ -333,6 +388,28 @@ public final class PathfindingExecutor {
         CoarseRouter.BridgePolicy bridgePolicy = view.lavaBridgingEnabled()
                 ? CoarseRouter.BridgePolicy.BRIDGE : CoarseRouter.BridgePolicy.ALLOW;
         return CoarseRouter.costToGo(coarseMap, goal, false, bridgePolicy);
+    }
+
+    /**
+     * 補正済みのゴール領域が探索範囲に掛かり、正確なゴールならセルが読み込まれているか。
+     * 半径付きゴールは中心のセルが無くても周囲へ到達できる。範囲が重ならなければ、この探索は
+     * どれだけ予算を積んでも完走しない——範囲の外は未ロード扱いのセルで、そこへ入る手が無い。
+     *
+     * <p>{@code SearchBounds#around}は始点を中心に描画距離で切るので、遠い目的地をそのまま
+     * 狙う設計（天井のある次元。{@code PathfindingState#selectDetailTarget}）では常にこちら側になる。
+     */
+    private static boolean goalInsideBounds(CellSource view, BlockPos goal, int goalRadius) {
+        SearchBounds bounds = view.bounds();
+        int verticalRadius = AStarPathfinder.goalVerticalRadius(goalRadius);
+        // 正確なゴールのセルがこのスナップショットに無ければ、そこへ入る手が無い。
+        // 半径付きゴールは読み込み済みの隣で受かるので、そちらは残す
+        if (goalRadius <= 0 && !CellData.present(view.cell(goal.getX(), goal.getY(), goal.getZ()))) {
+            return false;
+        }
+        return goal.getX() + goalRadius >= bounds.minX() && goal.getX() - goalRadius <= bounds.maxX()
+                && goal.getZ() + goalRadius >= bounds.minZ() && goal.getZ() - goalRadius <= bounds.maxZ()
+                && goal.getY() + verticalRadius >= bounds.minY()
+                && goal.getY() - verticalRadius <= bounds.maxY();
     }
 
     /**
@@ -584,6 +661,28 @@ public final class PathfindingExecutor {
      */
     private static PathResult search(CellSource view, SearchLimits limits, long looseningDeadline,
                                      BooleanSupplier cancelled, CostToGo costToGo, SearchCall run) {
+        return search(view, limits, looseningDeadline, cancelled, costToGo, run, true);
+    }
+
+    /**
+     * <b>ゴールが探索範囲の外にあると分かっている探索</b>は、下の梯子（貪欲さを上げる・上限を
+     * 緩める・質を問い直す）が1つも効かない——どれも「届かせる」ための仕掛けで、届いた経路にしか
+     * 出番が無いのに対し、範囲外のゴールへは<b>原理的に届かない</b>からだ。
+     *
+     * <p>それでも梯子を回すと、最初の探索は{@link #FIRST_PASS_PERCENT}しか使えないまま
+     * 残りを2回の空振りに使う。返るのは40%の予算で引けた短い部分経路で、
+     * <b>末端から継ぎ足す回数がそのぶん増える</b>——繋ぎ目こそが遠回りの出どころなので、
+     * 短い部分経路は質にも効く。ここは満額の予算で1回だけ解く。
+     *
+     * @param goalInsideBounds ゴールが探索範囲の中にあるか（{@link #goalInsideBounds}）
+     */
+    private static PathResult search(CellSource view, SearchLimits limits, long looseningDeadline,
+                                     BooleanSupplier cancelled, CostToGo costToGo, SearchCall run,
+                                     boolean goalInsideBounds) {
+        if (!goalInsideBounds) {
+            return PathSafetyChecker.annotate(view,
+                    run.search(new AStarPathfinder(view, limits, costToGo), cancelled));
+        }
         AStarPathfinder pathfinder = new AStarPathfinder(view, firstPassLimits(limits), costToGo);
         PathResult result = run.search(pathfinder, cancelled);
         boolean capBlocked = pathfinder.bridgeRunCapBlocked() || pathfinder.submergedRunCapBlocked()
@@ -705,10 +804,10 @@ public final class PathfindingExecutor {
      * {@code +17%}〜{@code +46%}増える（オーバーワールドでは{@code -0.7%}に対し{@code +5%}）。
      * <b>損は平均ではなく一部の経路に集中している</b>ので、その一部だけを狙い撃つ。
      *
-     * <p>引き金を「奈落・致死落差の上を通る」に置くのは、そこが<b>貪欲さを許してはいけない唯一の判断</b>
+     * <p>引き金を「奈落・致死落差の上を通る」に置くのは、そこが<b>貪欲さを抑えたい判断</b>
      * だから。{@code VOID_BRIDGE_PENALTY_TICKS}は元々「他に道が無いときの最後の手段」という値段で、
-     * 回り込む道があるかどうかを確かめずに払ってよいものではない。橋の無い経路には引き金が掛からないので、
-     * 大半の探索は1回で終わる。
+     * 回り込む道があるかどうかを確かめずに払ってよいものではない。橋の無い経路には引き金が
+     * 掛からないので、大半の探索は1回で終わる。
      *
      * <h4>引き金2: 持ち物の大半を使い切る（設置の値段を上げる）</h4>
      *
@@ -758,7 +857,8 @@ public final class PathfindingExecutor {
         SearchLimits refined = new SearchLimits(limits.maxExpandedNodes(), remainingMillis,
                 lowerWeight ? REFINE_HEURISTIC_WEIGHT : limits.heuristicWeight());
         PathResult attempt = PathSafetyChecker.annotate(view,
-                run.search(new AStarPathfinder(view, refined, costToGo, Tolerances.of(view), scale), cancelled));
+                run.search(new AStarPathfinder(view, refined, costToGo,
+                        Tolerances.of(view), scale), cancelled));
         if (!attempt.complete()) {
             return result;
         }

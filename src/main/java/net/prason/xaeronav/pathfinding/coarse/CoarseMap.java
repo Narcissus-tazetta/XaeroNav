@@ -54,11 +54,15 @@ public final class CoarseMap {
     public static final short UNKNOWN_HEIGHT = Short.MIN_VALUE;
 
     /**
-     * 1セルが持てる床の上限。Xaeroの参照Y付近の洞窟レイヤーを最大4枚まで読む
-     * （{@code XaeroMapReader#MAX_CAVE_LAYERS}）のに合わせてある——それ以上の階層が
-     * 同じセルに実在しても、読む対象自体を絞っているので床には現れない。
+     * 1セルが持てる床の上限。
+     *
+     * <p><b>{@code CoarseMapBuilder#putFloor}は上限を超えると「いちばん高い床」を捨てる。</b>
+     * 天井のある次元でここが足りないと、捨てられるのは<b>上の階＝歩ける階</b>になりやすい——
+     * ネザーの1列は「溶岩の海・下の洞窟・森の地面・天井近くの通路」と簡単に4層を超える。
+     * {@code XaeroMapReader#MAX_CAVE_LAYERS}（洞窟レイヤーの枠）はこの値と揃えてあり、
+     * 天井の無い次元では{@code XaeroMapReader#layersFor}が地表レイヤーへ1枚ぶん空ける。
      */
-    public static final int MAX_FLOORS = 4;
+    public static final int MAX_FLOORS = 6;
 
     private final int minChunkX;
     private final int minChunkZ;

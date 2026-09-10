@@ -25,8 +25,12 @@ final class CoarseMapWindow {
      * しかも溶岩ポリシーの梯子で最大2回呼ばれる——チャンク四方の上限だけでは、層1が3D化して
      * 1セルあたり複数層になったぶんそのまま倍になる。状態数で切ることで、細長い範囲（片軸だけ遠い
      * 目的地）では従来どおりの到達距離を保ったまま、正方形の最悪ケースだけを2D時代と同じ確保量に戻す。
+     *
+     * <p>{@link CoarseMap#MAX_FLOORS}を上げたぶんはここも上げる。据え置くと<b>床の枚数を増やした
+     * だけで長距離ルートの届く距離が縮む</b>——切っているのはセル数ではなく状態数なので、
+     * 1セルあたりの床が増えれば同じ上限で入るセル数が減る。
      */
-    private static final int MAX_STATES = 1024 * 1024;
+    private static final int MAX_STATES = 1536 * 1024;
 
     private CoarseMapWindow() {
     }
@@ -34,10 +38,11 @@ final class CoarseMapWindow {
     /**
      * 読んだ地図と、この範囲で<b>ディスクにはあるのにまだメモリへ載っていない</b>リージョンの数。
      *
-     * @param map            範囲が広すぎて読めなかったときは{@code null}
-     * @param pendingRegions 0より大きければ、少し待って読み直せば地図が増えるということ
+     * @param map             範囲が広すぎて読めなかったときは{@code null}
+     * @param pendingRegions  0より大きければ、少し待って読み直せば地図が増えるということ
+     * @param layerBreakdown  洞窟レイヤーごとの取り分（{@link XaeroMapReader.SurfaceRead}）
      */
-    record Window(CoarseMap map, int pendingRegions) {
+    record Window(CoarseMap map, int pendingRegions, String layerBreakdown) {
     }
 
     /**
@@ -64,7 +69,7 @@ final class CoarseMapWindow {
         int chunksZ = maxChunkZ - minChunkZ + 1;
         if (chunksX > MAX_SPAN_CHUNKS || chunksZ > MAX_SPAN_CHUNKS
                 || (long) chunksX * chunksZ * statesPerCell > MAX_STATES) {
-            return new Window(null, 0);
+            return new Window(null, 0, "");
         }
         int referenceY = (from.getY() + to.getY()) / 2;
         int pending = XaeroMapReader
@@ -74,7 +79,8 @@ final class CoarseMapWindow {
             // pendingRegionsを見て引き直す（PathfindingState#cachedOrFreshRoute）
             XaeroMapReader.requestLoad(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
         }
-        return new Window(
-                XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, referenceY), pending);
+        XaeroMapReader.SurfaceRead read =
+                XaeroMapReader.readSurfaceReporting(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
+        return new Window(read.map(), pending, read.layerBreakdown());
     }
 }
