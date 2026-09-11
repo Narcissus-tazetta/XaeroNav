@@ -5,10 +5,11 @@ node="${1:-}"
 case "$node" in
     1.21.1-fabric|1.21.1-forge|1.21.1-neoforge|1.20.1-fabric|1.20.1-forge) ;;
     *)
-        echo "Usage: $0 <1.21.1-fabric|1.21.1-forge|1.21.1-neoforge|1.20.1-fabric|1.20.1-forge>" >&2
+        echo "Usage: $0 <1.21.1-fabric|1.21.1-forge|1.21.1-neoforge|1.20.1-fabric|1.20.1-forge> [gradle args...]" >&2
         exit 2
         ;;
 esac
+shift
 
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$project_dir"
@@ -17,4 +18,5 @@ cd "$project_dir"
 # src/の更新をcompileJavaの暗黙依存として拒否する。プロセスを分ければ、2回目の
 # configurationは切り替え後のソースを通常の入力として扱える。
 ./gradlew ":stonecutterSwitchTo$node"
-exec ./gradlew ":$node:runClient"
+# macOS標準のbash 3.2はset -u下で空の"$@"を未定義扱いにするので${@+"$@"}で展開する
+exec ./gradlew ":$node:runClient" ${@+"$@"}
