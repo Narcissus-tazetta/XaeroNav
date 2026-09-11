@@ -11,6 +11,11 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `1.21.1-fabric` | 1.21.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
 | `1.20.1-fabric` | 1.20.1 | Fabric Loader 0.19.5+ / Fabric API |
+| `1.20.1-forge` | 1.20.1 | Forge 47.4.23+ |
+
+**1.20.1にNeoForgeノードは無い**（意図的）。その時点のNeoForgeはForgeとjarレベルで互換
+（NeoForge自身も1.20.1ではForgeの使用を推奨）で、Xaeroも"neoforge"向けの1.20.1ビルドを
+配っていない（1.20.4からしか無い）。1.20.1でNeoForgeを使うユーザーは`1.20.1-forge`のjarを使う。
 
 ノード名は `<MC バージョン>-<ローダー>`。切り分けには [Stonecutter](https://stonecutter.kikugie.dev/)
 を使っています（Architectury は入れていません）。
@@ -26,6 +31,7 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `buildSrc/src/main/kotlin/xaeronav.common.gradle.kts` | 全ノード共通のビルド設定（Java toolchain・テスト・jar 名）。Java版はMCバージョンで分岐（1.20.5未満は17・以降は21） |
 | `src/main/java/net/prason/xaeronav/platform/` | ローダーごとの起動処理とイベント配線 |
 | `src/main/resources/xaeronav.accesswidener` | Fabric専用。Mojang公式マッピングの一部ネストクラス（`RenderType.CompositeState`等）は自クラスの宣言とInnerClasses属性の宣言が食い違っており、外部から参照するには開放が要る（NeoForge/Forgeの`accesstransformer.cfg`のFabric版） |
+| `build.forge-legacy.gradle.kts` | 1.20.1のForgeノード専用。1.21.1-forgeとは違うツールチェーン（`net.neoforged.moddev.legacyforge`、ForgeGradleではない） |
 
 `gradle.properties` にあるのは MOD 自身のメタデータ（id・名前・バージョン）だけです。
 Minecraft / ローダー / Xaero の版は `stonecutter.properties.toml` が唯一の情報源で、

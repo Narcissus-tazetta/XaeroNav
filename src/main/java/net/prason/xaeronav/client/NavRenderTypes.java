@@ -31,8 +31,12 @@ final class NavRenderTypes {
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
 
+    // 5引数のcreate(...)はパッケージ外に公開されていない版がある（Forgeの独自ATで開放できない
+    // ケースを確認済み）。7引数版はどの版・ローダーでも常にpublicなので、5引数版が中で渡している
+    // 既定値(false, false)をそのまま明示して直接呼ぶ
     static final RenderType OCCLUDED_LINES = RenderType.create(
             "xaeronav_occluded_lines", DefaultVertexFormat.POSITION_COLOR_NORMAL, VertexFormat.Mode.LINES, 1536,
+            false, false,
             RenderType.CompositeState.builder()
                     .setShaderState(RenderStateShard.RENDERTYPE_LINES_SHADER)
                     .setLineState(new RenderStateShard.LineStateShard(OptionalDouble.empty()))

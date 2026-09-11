@@ -151,8 +151,8 @@ public final class CellData {
                         //? if >=1.21 {
                         PathComputationType.LAND
                         //?} else {
-                        /*EmptyBlockGetter.INSTANCE, BlockPos.ZERO, PathComputationType.LAND*/
-                        //?}
+                        /*EmptyBlockGetter.INSTANCE, BlockPos.ZERO, PathComputationType.LAND
+                        *///?}
                 );
 
         long flags = PRESENT;
