@@ -15,8 +15,8 @@ stonecutter.active(file(".sc_active_version"))
 
 stonecutter.parameters {
     // ノード名 `1.21.1-neoforge` の末尾がそのままローダー名。これで各ソースの
-    // `//? if neoforge {` / `//? if fabric {` が切り替わる。
-    constants.match(current.project.substringAfterLast('-'), "neoforge", "fabric")
+    // `//? if neoforge {` / `//? if fabric {` / `//? if forge {` が切り替わる。
+    constants.match(current.project.substringAfterLast('-'), "neoforge", "fabric", "forge")
 }
 
 // 全ノードをまとめて回すための入口。ノードを増やしてもCIの記述は変わらない。

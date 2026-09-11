@@ -5,7 +5,8 @@
 目的地までの実際に歩ける経路を計算して、ワールド内・Xaero's World Map・Xaero's Minimap の
 3 箇所に描くクライアント MOD です。画面上部には次にどちらへ進むかが出ます。
 
-- Minecraft 1.21.1 / NeoForge 21.1.228 以降 または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）
+- Minecraft 1.21.1 / NeoForge 21.1.228 以降、Forge 52.1.16 以降、または Fabric（Fabric Loader
+  0.15.11 以降 + Fabric API）
 - クライアント専用。サーバー側に入れるものはありません
 - ライセンスは MIT
 
@@ -19,11 +20,11 @@
 ## インストール
 
 1. Minecraft 1.21.1 用のローダーを導入する。[NeoForge](https://neoforged.net/) 21.1.228 以降、
-   または [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 +
-   [Fabric API](https://modrinth.com/mod/fabric-api)）。
+   [Forge](https://files.minecraftforge.net/) 52.1.16 以降、または [Fabric](https://fabricmc.net/)
+   （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
 2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から使うローダー向けの
-   jar（`xaeronav-neoforge-*.jar` または `xaeronav-fabric-*.jar`）をダウンロードし、
-   `mods` フォルダへ入れる。
+   jar（`xaeronav-neoforge-*.jar`、`xaeronav-forge-*.jar`、または `xaeronav-fabric-*.jar`）を
+   ダウンロードし、`mods` フォルダへ入れる。
 3. 地図と連携させたい場合は Xaero's World Map 1.44.2 以降、Xaero's Minimap 26.4.2 以降も入れる
    （任意）。
 
@@ -244,6 +245,7 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 ```bash
 ./gradlew :1.21.1-neoforge:runClient                      # Xaero 込み
 ./gradlew :1.21.1-fabric:runClient                        # Fabric 側
+./gradlew :1.21.1-forge:runClient                         # Forge 側
 ./gradlew :1.21.1-neoforge:runClient -Pwith_xaero=false   # Xaero 抜き（フォールバック動作の確認用）
 ```
 

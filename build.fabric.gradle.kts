@@ -101,8 +101,10 @@ tasks.named<ProcessResources>("processResources").configure {
 
     inputs.properties(replaceProperties)
 
-    // NeoForge側のMOD定義はFabricのjarには要らない
+    // NeoForge/Forge側のMOD定義・AT定義はFabricのjarには要らない
     exclude("META-INF/neoforge.mods.toml")
+    exclude("META-INF/mods.toml")
+    exclude("META-INF/accesstransformer.cfg")
 
     filesMatching("fabric.mod.json") {
         expand(replaceProperties)

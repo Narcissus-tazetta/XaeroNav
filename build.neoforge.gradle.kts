@@ -103,8 +103,12 @@ tasks.named<ProcessResources>("processResources").configure {
 
     inputs.properties(replaceProperties)
 
-    // Fabric側のMOD定義はNeoForgeのjarには要らない
+    // Fabric/Forge側のMOD定義はNeoForgeのjarには要らない
     exclude("fabric.mod.json")
+    exclude("META-INF/mods.toml")
+    // Forge専用のAT（NavRenderTypes.javaのコメント参照）。NeoForgeは元々RenderStateShardの
+    // 定数群を開放済みなので不要
+    exclude("META-INF/accesstransformer.cfg")
 
     filesMatching("META-INF/neoforge.mods.toml") {
         expand(replaceProperties)
