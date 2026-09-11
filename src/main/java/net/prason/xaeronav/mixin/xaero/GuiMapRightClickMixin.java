@@ -64,7 +64,8 @@ public abstract class GuiMapRightClickMixin {
     @Shadow
     private ResourceKey<Level> rightClickDim;
 
-    @ModifyReturnValue(method = "getRightClickOptions", at = @At("RETURN"))
+    // Xaero自身のメソッドなのでSRGの対応が無い。remapさせると1.20.1-forgeのAPがビルドを止める
+    @ModifyReturnValue(method = "getRightClickOptions", at = @At("RETURN"), remap = false)
     private ArrayList<RightClickOption> xaeronav$addGoHereOption(ArrayList<RightClickOption> original) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) {

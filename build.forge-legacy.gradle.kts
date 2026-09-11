@@ -41,6 +41,19 @@ legacyForge {
     addModdingDependenciesTo(sourceSets["test"])
 }
 
+// Forge 1.20.1のFMLはmods.tomlの[[mixins]]を読まず、MANIFESTのMixinConfigsだけを見る。
+// また本番はSRG名で動くので、注入先の文字列（render・endBatch等）をSRGへ引くrefmapが要る。
+// どちらが欠けてもXaero連携のmixinは本番で1本も当たらない
+mixin {
+    add(sourceSets["main"], "${modProperty("mod_id")}.refmap.json")
+    config("${modProperty("mod_id")}-xaero.mixins.json")
+}
+
+// mixin.config()が効くのは開発実行の引数だけで、配布jarのMANIFESTには書かれない
+tasks.named<Jar>("jar") {
+    manifest.attributes("MixinConfigs" to "${modProperty("mod_id")}-xaero.mixins.json")
+}
+
 val xaeroModules = listOf(
     "xaero.lib:xaerolib-forge-$mcVersion:${dep("xaerolib")}",
     "xaero.map:xaeroworldmap-forge-$mcVersion:${dep("xaero_worldmap")}",
@@ -62,9 +75,11 @@ dependencies {
         xaeroModules.forEach { xaeroRuntimeMods(it) }
     }
 
-    // compileOnlyだけにする（annotationProcessorに足すとMixin APが公式マッピングランタイムで
-    // ビルドを止める。1.21.1-forgeで踏んだ罠と同じ）
+    // @WrapOperation・@ModifyReturnValueはMixin本体のAPが知らない注入なので、mixinextras-commonを
+    // APにも載せないとrefmapへ載らない。1.21.1-forgeでAPに載せてビルドが止まったのは公式マッピングで
+    // 「マッピング無し」になるためで、SRGを渡すこのノードでは起きない
     compileOnly("io.github.llamalad7:mixinextras-common:${dep("mixinextras")}")
+    annotationProcessor("io.github.llamalad7:mixinextras-common:${dep("mixinextras")}")
     implementation("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
     "jarJar"("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
 }

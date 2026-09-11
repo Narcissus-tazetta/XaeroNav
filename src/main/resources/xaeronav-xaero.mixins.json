@@ -2,6 +2,7 @@
   "required": false,
   "minVersion": "0.8",
   "package": "net.prason.xaeronav.mixin.xaero",
+  "refmap": "xaeronav.refmap.json",
   "compatibilityLevel": "${mixin_compatibility_level}",
   "client": [
     "GuiMapKeyMixin",

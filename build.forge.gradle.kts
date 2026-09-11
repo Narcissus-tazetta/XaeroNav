@@ -57,8 +57,11 @@ jarJar.register {
     archiveClassifier = null
 }
 
+// ForgeのFMLはmods.tomlの[[mixins]]を読まない（NeoForgeとの違い）。configを拾うのはMixin本体で、
+// 見るのはMANIFESTのMixinConfigsだけ。無いとXaero連携のmixinが本番で1本も当たらない
 tasks.named<Jar>("jar") {
     archiveClassifier = "slim"
+    manifest.attributes("MixinConfigs" to "${modProperty("mod_id")}-xaero.mixins.json")
 }
 
 val xaeroModules = listOf(

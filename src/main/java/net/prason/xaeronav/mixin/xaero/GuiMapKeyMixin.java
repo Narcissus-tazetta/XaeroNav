@@ -48,7 +48,13 @@ public abstract class GuiMapKeyMixin {
         throw new UnsupportedOperationException();
     }
 
+    // 本番がSRG名で動く1.20.1-forgeだけはrefmapでm_7933_へ引く必要がある。公式マッピングの
+    // ノードでremapさせるとAPが「マッピング無し」でビルドを止める（Fabricはloomが別途引く）
+    //? if forge && <1.21 {
+    /*@Inject(method = "keyPressed(III)Z", at = @At("HEAD"), cancellable = true)
+    *///?} else {
     @Inject(method = "keyPressed(III)Z", at = @At("HEAD"), cancellable = true, remap = false)
+    //?}
     private void xaeronav$onKeyPressed(int keyCode, int scanCode, int modifiers,
                                         CallbackInfoReturnable<Boolean> cir) {
         if (this.isUsingTextField() || !XaeroNavKeys.GOTO_MAP_CURSOR.matches(keyCode, scanCode)) {

@@ -28,7 +28,9 @@ public abstract class WaypointReaderMixin implements XaeroHookMarker {
 
     @ModifyReturnValue(
             method = "getRightClickOptions(Lxaero/map/mods/gui/Waypoint;Lxaero/map/gui/IRightClickableElement;)Ljava/util/ArrayList;",
-            at = @At("RETURN")
+            at = @At("RETURN"),
+            // Xaero自身のメソッドなのでSRGの対応が無い。remapさせると1.20.1-forgeのAPがビルドを止める
+            remap = false
     )
     private ArrayList<RightClickOption> xaeronav$addGoHereOption(ArrayList<RightClickOption> original,
                                                                    Waypoint element, IRightClickableElement target) {
