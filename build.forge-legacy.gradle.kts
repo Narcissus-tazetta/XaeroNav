@@ -106,6 +106,9 @@ tasks.named<ProcessResources>("processResources").configure {
     filesMatching("xaeronav-xaero.mixins.json") {
         expand(replaceProperties)
     }
+    filesMatching("pack.mcmeta") {
+        expand(replaceProperties)
+    }
 }
 
 // NeoForgeノードと同じ理由（ModDevGradle系のcreateMinecraftArtifactsが暗黙の依存を持つ）

@@ -1,6 +1,6 @@
 plugins {
     id("xaeronav.common")
-    id("net.neoforged.moddev") version "2.0.144"
+    id("net.neoforged.moddev") version "2.0.146"
 }
 
 stonecutter.properties.tags(stonecutter.current.version, "neoforge")
