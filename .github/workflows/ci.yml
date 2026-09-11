@@ -143,11 +143,15 @@ jobs:
           mkdir -p run/mods
           cp build/runtime-test/${{ matrix.node.node }}/mods/*.jar run/mods/
 
-      # fabric-apiの版はstonecutter.properties.tomlが持つ唯一の情報源から読む
+      # fabric-apiの版はstonecutter.properties.tomlが持つ唯一の情報源から読む。
+      # MCバージョンが複数あるとdeps.fabric_apiの行も複数マッチするので、
+      # バージョン文字列（値の"+<mc>"サフィックス）で対象ノードの行だけに絞る
       - id: deps
         if: matrix.node.loader == 'fabric'
         run: |
-          VERSION=$(grep 'deps.fabric_api' stonecutter.properties.toml | cut -d'"' -f2 | cut -d'+' -f1)
+          VERSION=$(grep 'deps.fabric_api' stonecutter.properties.toml \
+            | grep -- "+${{ matrix.node.minecraft }}\"" \
+            | cut -d'"' -f2 | cut -d'+' -f1)
           echo "fabric_api=$VERSION" >> "$GITHUB_OUTPUT"
 
       # ワールドへ入ってテストが通ったあと、JVMが終了しないまま止まることがある
