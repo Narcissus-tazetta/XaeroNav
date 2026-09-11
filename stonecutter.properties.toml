@@ -40,6 +40,15 @@ deps.xaerolib = "1.7.3"
 deps.xaero_worldmap = "1.46.0"
 deps.xaero_minimap = "26.5.0"
 
+[forge."1.20.1"]
+deps.minecraft = "1.20.1"
+deps.forge = "47.4.23"
+deps.forge_loader_range = "[47,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+
 [fabric."1.21.1"]
 deps.minecraft = "1.21.1"
 # 開発・実行時に使うローダー（loom 1.17のClassTweakerが0.19.0以降を要る）

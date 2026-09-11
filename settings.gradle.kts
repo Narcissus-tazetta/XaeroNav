@@ -25,6 +25,12 @@ stonecutter {
 
         match("1.21.1", "neoforge", "fabric", "forge")
         match("1.20.1", "fabric")
+        // 1.20.1はForgeGradle 7ではなくModDevGradleのlegacyforgeプラグインを使う
+        // （1.17〜1.20.1向け、上流もこちらへの移行を推奨）ので専用のビルドスクリプトを充てる。
+        // NeoForge 1.20.1は見送り——その版のNeoForgeはForgeとjarレベルで互換で
+        // （NeoForge自身も1.20.1ではForgeの使用を推奨）、Xaero側も"neoforge"向けの
+        // 1.20.1ビルドを配っていない（1.20.4からしか無い）
+        version("1.20.1-forge", "1.20.1").buildscript("build.forge-legacy.gradle.kts")
 
         // gitへコミットする状態。Stonecutterはsrc/を書き換えるので、
         // ここと違うノードを有効にしたまま差分を取ると全ファイルが動いて見える。

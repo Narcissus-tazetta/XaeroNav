@@ -1,10 +1,14 @@
 package net.prason.xaeronav.platform.forge;
 
 //? forge {
-/*import net.minecraft.resources.ResourceLocation;
+/*//? if >=1.21 {
+import net.minecraft.resources.ResourceLocation;
+import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
+//?} else {
+/^import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
+^///?}
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.ConfigScreenHandler;
-import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.common.MinecraftForge;
@@ -69,13 +73,21 @@ public final class ForgeEntry {
             XaeroNavKeys.register(event::register);
         }
 
-        // Forge 1.21.1にはNeoForgeのRenderGuiEvent.Postが無い。ForgeLayeredDrawへレイヤーとして
-        // 足す形でHUD描画を差し込む（ForgeとNeoForge/Fabricの構造差はここだけ）
+        // ForgeにはNeoForgeのRenderGuiEvent.Postが無い。HUD描画をオーバーレイとして登録する形で
+        // 差し込む（ForgeとNeoForge/Fabricの構造差はここだけ）。登録イベント自体が1.21.1と1.20.1で
+        // 別クラス（AddGuiOverlayLayersEvent / RegisterGuiOverlaysEvent）かつシグネチャも違う
         @SubscribeEvent
+        //? if >=1.21 {
         public static void onAddGuiOverlayLayers(AddGuiOverlayLayersEvent event) {
             event.getLayeredDraw().add(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                     (graphics, partialTick) -> XaeroNavClient.HUD.render(graphics));
         }
+        //?} else {
+        /^public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
+            event.registerAboveAll("hud",
+                    (gui, graphics, partialTick, screenWidth, screenHeight) -> XaeroNavClient.HUD.render(graphics));
+        }
+        ^///?}
     }
 }
 *///?}
