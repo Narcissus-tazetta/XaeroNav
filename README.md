@@ -8,10 +8,11 @@ where to go next.
 
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
   Fabric API)
+- Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
 - Client-only. Nothing to install on the server.
 - MIT licensed
 
-This is the 0.1 series, and routing is the part still worth stress-testing. If a route detours,
+This is still a 0.x release, and routing is the part still worth stress-testing. If a route detours,
 stops short, never appears, or sends you somewhere you cannot follow, run
 `/xaeronav debug probe <x> <y> <z>` where it happens and
 [open an issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) with that output —
@@ -22,14 +23,20 @@ problem here.
 
 ## Installation
 
-1. Install a loader for Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 or newer,
-   [Forge](https://files.minecraftforge.net/) 52.1.16 or newer, or [Fabric](https://fabricmc.net/)
-   with Fabric Loader 0.15.11 or newer plus [Fabric API](https://modrinth.com/mod/fabric-api).
-2. Download the jar for your loader from the
-   [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) — `xaeronav-neoforge-*.jar`,
-   `xaeronav-forge-*.jar`, or `xaeronav-fabric-*.jar` — and drop it into your `mods` folder.
-3. For map integration, also install Xaero's World Map 1.44.2+ and/or Xaero's Minimap 26.4.2+.
-   This part is optional.
+1. Install a loader:
+   - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 or newer,
+     [Forge](https://files.minecraftforge.net/) 52.1.16 or newer, or [Fabric](https://fabricmc.net/)
+     with Fabric Loader 0.15.11 or newer plus [Fabric API](https://modrinth.com/mod/fabric-api).
+   - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api).
+2. Download the jar for your loader and Minecraft version from the
+   [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) and drop it into your
+   `mods` folder. Jars are named `xaeronav-<version>-<loader>-<minecraft version>.jar`, for example
+   `xaeronav-0.2.0-fabric-1.20.1.jar`.
+3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
+   optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, World Map 1.46.0 /
+   Minimap 26.5.0 on 1.20.1.
 
 ## What it does
 
@@ -246,16 +253,18 @@ world data, which take about a minute; those carry `@Tag("slow")` and run as `./
 The pathfinding core does not depend on the loader or the Minecraft version, so the tests only
 actually run on the canonical node (`canonical_test_node` in `stonecutter.properties.toml`).
 
-Running a dev client (pick a target):
+Running a dev client (pick a target). The script switches the active target first, then starts the
+client; anything after the target name is passed on to Gradle. IntelliJ IDEA gets the same thing
+as run configurations in `.run/`.
 
 ```bash
-./gradlew :1.21.1-neoforge:runClient                      # with Xaero
-./gradlew :1.21.1-fabric:runClient                        # the Fabric side
-./gradlew :1.21.1-forge:runClient                         # the Forge side
-./gradlew :1.21.1-neoforge:runClient -Pwith_xaero=false   # without Xaero (to check fallback behavior)
+tools/run-client.sh 1.21.1-neoforge                      # with Xaero
+tools/run-client.sh 1.20.1-forge                         # any other target
+tools/run-client.sh 1.21.1-neoforge -Pwith_xaero=false   # without Xaero (to check fallback behavior)
 ```
 
-Xaero is a compile-time-only dependency (`compileOnly`) and isn't bundled with the release.
+Xaero is only on the classpath for compiling and for the dev client; it isn't bundled with the
+release.
 
 ### Layout
 

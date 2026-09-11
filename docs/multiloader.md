@@ -53,6 +53,17 @@ Minecraft / ローダー / Xaero の版は `stonecutter.properties.toml` が唯�
 - `xaeronav-xaero.mixins.json`の`compatibilityLevel`（同上、`mixinCompatibilityLevel`変数）
 - `fabric.mod.json`の`java`依存（Fabricのみ、`java_version`変数）
 
+**Forgeのノードはmixin configの登録経路が違う。** mods.tomlの`[[mixins]]`を読むのはNeoForgeだけで、
+Forgeは版に関わらずMixin本体がjarのMANIFESTの`MixinConfigs`しか見ない。欠けるとXaero連携が本番で
+黙って1本も当たらない（`required=false`なので落ちもしない）。ビルド後は
+`unzip -p <jar> META-INF/MANIFEST.MF`で`MixinConfigs`を確かめる。
+
+- 配布jar: `jar`タスクの`manifest.attributes("MixinConfigs" to ...)`（jarJarの出力にも引き継がれる）
+- 開発実行: MODをクラスディレクトリから読むのでMANIFESTが無い。ForgeGradleは`args("--mixin.config", ...)`、
+  ModDevGradle legacyforgeは`mixin { config(...) }`で渡す
+- 本番がSRG名で動く1.20.x以前のForgeはrefmapも要る（`mixin { add(sourceSets["main"], ...) }`）。
+  公式マッピングで動く1.21.1-forgeには要らない
+
 CI は `printNodes` からノード一覧を作るので、ワークフローの書き換えは要りません
 （`runtime`ジョブをPRで正典ノードだけに絞る判定はファイルパスベースなので、`stonecutter.properties.toml`・
 `settings.gradle.kts`・`mixin/`のいずれかを触るPRなら自動で全ノードに広がります）。

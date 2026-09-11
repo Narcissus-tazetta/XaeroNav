@@ -23,6 +23,8 @@ All notable changes to XaeroNav are documented in this file.
 - Routes recalculating repeatedly for several seconds right after using `/xaeronav goto`.
 - The HUD showing "arriving soon" / distance-remaining for intermediate waypoints instead
   of only the final destination.
+- Route drawing on Xaero's World Map and Minimap, and the "Route here" right-click entries, not
+  working on Forge (XaeroNav's Xaero integration was never registered with Mixin).
 - A crash-like MOD loading screen on Forge caused by a missing `pack.mcmeta`.
 - Forge builds where MOD events never fired.
 

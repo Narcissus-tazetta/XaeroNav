@@ -7,10 +7,11 @@
 
 - Minecraft 1.21.1 / NeoForge 21.1.228 以降、Forge 52.1.16 以降、または Fabric（Fabric Loader
   0.15.11 以降 + Fabric API）
+- Minecraft 1.20.1 / Forge 47.4.23 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）
 - クライアント専用。サーバー側に入れるものはありません
 - ライセンスは MIT
 
-まだ 0.1 系で、いちばん試してほしいのは経路そのものです。遠回りする・途中で切れる・そもそも出ない・
+まだ 0.x 系で、いちばん試してほしいのは経路そのものです。遠回りする・途中で切れる・そもそも出ない・
 辿れない道を通される、といったことがあったら、その場で `/xaeronav debug probe <x> <y> <z>` を実行して、
 出力を添えて [Issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) を立ててください。
 詳細探索がどこまで到達して何で止まったかが出るので、たいていはこちらで同じ状況を再現できます。
@@ -19,14 +20,18 @@
 
 ## インストール
 
-1. Minecraft 1.21.1 用のローダーを導入する。[NeoForge](https://neoforged.net/) 21.1.228 以降、
-   [Forge](https://files.minecraftforge.net/) 52.1.16 以降、または [Fabric](https://fabricmc.net/)
-   （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
-2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から使うローダー向けの
-   jar（`xaeronav-neoforge-*.jar`、`xaeronav-forge-*.jar`、または `xaeronav-fabric-*.jar`）を
-   ダウンロードし、`mods` フォルダへ入れる。
-3. 地図と連携させたい場合は Xaero's World Map 1.44.2 以降、Xaero's Minimap 26.4.2 以降も入れる
-   （任意）。
+1. ローダーを導入する。
+   - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 以降、
+     [Forge](https://files.minecraftforge.net/) 52.1.16 以降、または [Fabric](https://fabricmc.net/)
+     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
+   - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
+2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から、使うローダーと
+   Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
+   `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.2.0-fabric-1.20.1.jar`）。
+3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
+   1.21.1 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.20.1 なら World Map 1.46.0 以降・
+   Minimap 26.5.0 以降。
 
 ## 何ができるか
 
@@ -240,16 +245,17 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 経路探索コアはローダーにもバージョンにも依存しないので、テストが実際に走るのは
 正典ノード（`stonecutter.properties.toml` の `canonical_test_node`）だけです。
 
-開発用クライアントの起動（ターゲットを指定する）:
+開発用クライアントの起動（ターゲットを指定する）。スクリプトが先に対象ターゲットへ切り替えてから
+クライアントを起動します。ターゲット名の後ろに書いたものはそのまま Gradle へ渡ります。
+IntelliJ IDEA には同じものが `.run/` の実行構成として入っています。
 
 ```bash
-./gradlew :1.21.1-neoforge:runClient                      # Xaero 込み
-./gradlew :1.21.1-fabric:runClient                        # Fabric 側
-./gradlew :1.21.1-forge:runClient                         # Forge 側
-./gradlew :1.21.1-neoforge:runClient -Pwith_xaero=false   # Xaero 抜き（フォールバック動作の確認用）
+tools/run-client.sh 1.21.1-neoforge                      # Xaero 込み
+tools/run-client.sh 1.20.1-forge                         # 他のターゲットも同様
+tools/run-client.sh 1.21.1-neoforge -Pwith_xaero=false   # Xaero 抜き（フォールバック動作の確認用）
 ```
 
-Xaero はコンパイル時にだけ必要な依存（`compileOnly`）で、配布物には含まれません。
+Xaero はコンパイルと開発用クライアントのときだけ使う依存で、配布物には含まれません。
 
 ### 構成
 
