@@ -1,6 +1,7 @@
 package net.prason.xaeronav.pathfinding.flight;
 
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
+import net.prason.xaeronav.util.MathSupport;
 
 /**
  * 空中の長距離ルート用の粗い地形。1セル＝1チャンクで、そのセルで<b>飛べる高度帯</b>だけを持つ。
@@ -185,7 +186,7 @@ public final class CoarseAirMap {
 
     /** その帯の中で{@code y}に最も近い高さ。帯の中なら{@code y}そのもの。 */
     public int clampToBand(int chunkX, int chunkZ, int band, int y) {
-        return Math.clamp(y, bandBottom(chunkX, chunkZ, band), bandTop(chunkX, chunkZ, band));
+        return MathSupport.clamp(y, bandBottom(chunkX, chunkZ, band), bandTop(chunkX, chunkZ, band));
     }
 
     /** {@code y}を含む帯。無ければ最も近い帯。セルに帯が1つも無ければ0（未知セル扱い）。 */

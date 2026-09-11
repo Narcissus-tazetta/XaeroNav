@@ -19,9 +19,13 @@ base {
     archivesName = modProperty("mod_id")
 }
 
+// MojangがMC 1.20.5以降でJava 21を要求するようになった境界線。今のところ1.20.1と1.21.1しか
+// ノードが無いのでこの1行で足りるが、1.20.5以降の別バージョンを増やすときは書き直しが要る
+val javaVersion = if (minecraftVersion.startsWith("1.20.")) 17 else 21
+
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(javaVersion)
     }
 }
 

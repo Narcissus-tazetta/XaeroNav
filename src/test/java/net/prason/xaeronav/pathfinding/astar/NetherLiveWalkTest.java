@@ -89,7 +89,7 @@ class NetherLiveWalkTest {
                     (System.currentTimeMillis() - began) / 1000.0));
             System.out.println(report.get(report.size() - 1));
             assertTrue(Double.isFinite(best), "基準の探索が完走していない");
-            assertTrue(!voxel.steps().isEmpty(), "3D粗層で到達できなくなった: " + report.getLast());
+            assertTrue(!voxel.steps().isEmpty(), "3D粗層で到達できなくなった: " + report.get(report.size() - 1));
         }
         assertTrue(!report.isEmpty(), "1本も測れていない");
     }

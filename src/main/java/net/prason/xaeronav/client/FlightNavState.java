@@ -709,6 +709,6 @@ final class FlightNavState {
      * ここの真偽で経路の高度の取り方がはっきり変わる。
      */
     private static boolean hasRockets(Player player) {
-        return player.getInventory().contains(stack -> stack.getItem() instanceof FireworkRocketItem);
+        return ChunkView.hasItem(player.getInventory(), stack -> stack.getItem() instanceof FireworkRocketItem);
     }
 }

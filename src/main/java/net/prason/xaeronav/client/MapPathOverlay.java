@@ -9,6 +9,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.util.MathSupport;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
 
 /**
@@ -70,7 +71,7 @@ public final class MapPathOverlay {
         double y = pose.m01();
         double z = pose.m02();
         double scale = Math.sqrt(x * x + y * y + z * z);
-        return Double.isFinite(scale) ? Math.clamp(scale, MIN_PIXELS_PER_BLOCK, MAX_PIXELS_PER_BLOCK) : 1.0;
+        return Double.isFinite(scale) ? MathSupport.clamp(scale, MIN_PIXELS_PER_BLOCK, MAX_PIXELS_PER_BLOCK) : 1.0;
     }
 
     private MapPathOverlay() {
@@ -246,7 +247,7 @@ public final class MapPathOverlay {
         double dz = b.getZ() - (double) a.getZ();
         double lengthSq = dx * dx + dz * dz;
         double t = lengthSq == 0 ? 0
-                : Math.clamp(((x - (double) a.getX()) * dx + (z - (double) a.getZ()) * dz) / lengthSq, 0.0, 1.0);
+                : MathSupport.clamp(((x - (double) a.getX()) * dx + (z - (double) a.getZ()) * dz) / lengthSq, 0.0, 1.0);
         double px = a.getX() + t * dx - x;
         double pz = a.getZ() + t * dz - z;
         return px * px + pz * pz;

@@ -50,7 +50,7 @@ class NetherBasinStallProbeTest {
         for (double weight : new double[] {AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT, 2.5, 3.0}) {
             PathResult r = new AStarPathfinder(view, new SearchLimits(100_000, 30_000, weight), guide)
                     .search(from, GOAL, () -> false, 0);
-            BlockPos end = r.steps().isEmpty() ? from : r.steps().getLast().pos();
+            BlockPos end = r.steps().isEmpty() ? from : r.steps().get(r.steps().size() - 1).pos();
             System.out.printf(Locale.ROOT,
                     "%-26s w=%.1f -> %s 展開=%d ステップ=%d 末端=%s guide.est=%.0f%n",
                     label, weight, r.termination(), r.expandedNodes(), r.steps().size(),

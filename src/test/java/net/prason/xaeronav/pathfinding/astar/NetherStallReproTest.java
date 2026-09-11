@@ -40,7 +40,7 @@ class NetherStallReproTest {
             System.out.println("leg=" + leg + " start=" + from + " target=" + target + " "
                     + chosen.termination() + " nodes=" + chosen.expandedNodes() + " steps="
                     + chosen.steps().size() + " end="
-                    + (chosen.steps().isEmpty() ? "none" : chosen.steps().getLast().pos()));
+                    + (chosen.steps().isEmpty() ? "none" : chosen.steps().get(chosen.steps().size() - 1).pos()));
             assertFalse(chosen.steps().isEmpty(), "No progress toward logged passage " + target);
             for (PathStep step : chosen.steps()) {
                 for (BlockPos dug : step.digCells()) {
@@ -51,7 +51,7 @@ class NetherStallReproTest {
                     cells.set(placed.getX(), placed.getY(), placed.getZ(), FakeCells.BEDROCK);
                 }
             }
-            from = chosen.steps().getLast().pos();
+            from = chosen.steps().get(chosen.steps().size() - 1).pos();
             player = from;
             if (chosen.complete()) {
                 waypoint++;

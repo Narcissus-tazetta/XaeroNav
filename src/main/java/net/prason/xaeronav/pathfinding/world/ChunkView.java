@@ -26,6 +26,8 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.cost.DigCost;
 
+import java.util.function.Predicate;
+
 /**
  * 探索範囲のブロックを読むためのビュー。
  *
@@ -137,12 +139,26 @@ public final class ChunkView implements CellSource {
      */
     public static boolean boatAvailable(Player player) {
         return ridingBoat(player)
-                || player.getInventory().contains(stack -> stack.getItem() instanceof BoatItem);
+                || hasItem(player.getInventory(), stack -> stack.getItem() instanceof BoatItem);
     }
 
     /** いまボートに乗っているか。 */
     public static boolean ridingBoat(Player player) {
         return player.getVehicle() instanceof Boat;
+    }
+
+    /**
+     * 持ち物に条件を満たすスタックがあるか。{@code Inventory#contains(Predicate)}は1.21.1にしか
+     * 無いオーバーロードなので、1.20.1でも同じ結果になる手書きの探索で代える
+     * （バージョンゲートを避けて済むJDK/vanilla API差はゲートしない方針）。
+     */
+    public static boolean hasItem(Inventory inventory, Predicate<ItemStack> predicate) {
+        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+            if (predicate.test(inventory.getItem(slot))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** メインスレッド専用。読み込み済みチャンクへの参照とホットバーの複製だけを集める。 */
@@ -165,9 +181,16 @@ public final class ChunkView implements CellSource {
             }
         }
 
+        // 1.20.1はエンチャントがレジストリ経由のHolderではなく、Enchantments直下の静的フィールドを
+        // そのままEnchantmentHelperへ渡す旧モデル（フィールド名もBLOCK_EFFICIENCYで別物）。
+        // vanilla APIの形そのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
+        //? if >=1.21 {
         Holder<Enchantment> efficiency = level.registryAccess()
                 .registryOrThrow(Registries.ENCHANTMENT)
                 .getHolderOrThrow(Enchantments.EFFICIENCY);
+        //?} else {
+        /*Enchantment efficiency = Enchantments.BLOCK_EFFICIENCY;
+        *///?}
         ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
         int[] hotbarEfficiency = new int[hotbar.length];
         for (int slot = 0; slot < hotbar.length; slot++) {
@@ -193,7 +216,7 @@ public final class ChunkView implements CellSource {
         // ultraWarmな次元（ネザー）は水を置いても即座に蒸発するので、着地寸前に水バケツを置く
         // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
         boolean canMlgWaterBucket = options.fallDamageToleranceEnabled() && !level.dimensionType().ultraWarm()
-                && player.getInventory().contains(stack -> stack.is(Items.WATER_BUCKET));
+                && hasItem(player.getInventory(), stack -> stack.is(Items.WATER_BUCKET));
         boolean boatAvailable = boatAvailable(player);
         boolean ridingBoat = ridingBoat(player);
 

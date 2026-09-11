@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # 通常のPRではruntimeを正典ノードだけに絞るぶん、全ノードのXaeroフック疎通を
+    # 週1回は確認する
+    - cron: "0 3 * * 1"
 
 # 読むだけ。ビルドがリポジトリへ書き戻すことは無い
 permissions:
@@ -16,10 +20,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  # ノード一覧の取得と、runtimeを全ノードへ広げるかどうかの判定だけを行う軽いジョブ。
+  # ここを先に独立させることで、下のbuildジョブをノードごとのmatrixに割れる
+  # （printNodesはGradleの設定フェーズだけで数秒、フルビルドを待つ必要が無い）。
+  discover:
     runs-on: ubuntu-latest
     outputs:
       nodes: ${{ steps.nodes.outputs.nodes }}
+      runtime_nodes: ${{ steps.nodes.outputs.runtime_nodes }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      # runtimeを全ノードへ広げる条件: mainへのpush・週次スケジュール・
+      # ノード定義やXaero mixinを触ったPR。それ以外の通常PRは正典ノードだけに絞り、
+      # MCバージョンノードが増えてもruntimeジョブの総数が線形に膨らまないようにする
+      - name: Decide whether to run the full runtime matrix
+        id: full
+        run: |
+          FULL=false
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            FULL=true
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            FULL=true
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")
+            if echo "$CHANGED" | grep -qE '^(stonecutter\.properties\.toml|settings\.gradle\.kts|src/main/java/net/prason/xaeronav/mixin/|src/main/resources/.*\.mixins\.json)'; then
+              FULL=true
+            fi
+          fi
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+
+      # ノードの定義はsettings.gradle.ktsにしか無い状態を保つ
+      - id: nodes
+        run: |
+          NODES=$(./gradlew printNodes -q --console=plain | tail -1)
+          echo "nodes=$NODES" >> "$GITHUB_OUTPUT"
+          if [ "${{ steps.full.outputs.full }}" = "true" ]; then
+            echo "runtime_nodes=$NODES" >> "$GITHUB_OUTPUT"
+          else
+            CANON=$(grep '^canonical_test_node' stonecutter.properties.toml | cut -d'"' -f2)
+            echo "runtime_nodes=$(echo "$NODES" | jq -c --arg c "$CANON" '[.[] | select(.node == $c)]')" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ノードごとにコンパイル + フォーマット確認(spotlessCheck) + テストを行う。
+  # 実機地形の重いテスト(slowTest)は正典ノードだけで走る（stonecutter.properties.tomlのcanonical_test_node）。
+  build:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJson(needs.discover.outputs.nodes) }}
+    name: build (${{ matrix.node.node }})
     steps:
       - uses: actions/checkout@v7
 
@@ -30,34 +91,25 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      # 全ノード（MCバージョン×ローダー）のコンパイル + フォーマット確認(spotlessCheck) +
-      # テストをまとめて実行する。ノードを増やしてもここは変わらない。
-      # 実機地形の重いテスト(slowTest)もcheckが依存しているので、手元の既定から外れていても必ず通る。
-      # 経路探索のテストが実際に走るのは正典ノードだけ（stonecutter.properties.tomlのcanonical_test_node）。
-      - run: ./gradlew build collectJars --console=plain
-
-      # 起動スモークテストのジョブをノードごとに立てるための一覧。
-      # ノードの定義はsettings.gradle.ktsにしか無い状態を保つ
-      - id: nodes
-        run: echo "nodes=$(./gradlew printNodes -q --console=plain | tail -1)" >> "$GITHUB_OUTPUT"
+      - run: ./gradlew :${{ matrix.node.node }}:build --console=plain
 
       # 失敗したときに、どのテストがなぜ落ちたかをログを掘らずに見られるようにする
       - name: Upload test report
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: test-report
+          name: test-report-${{ matrix.node.node }}
           path: |
-            versions/*/build/reports/tests/test
-            versions/*/build/reports/tests/slowTest
+            versions/${{ matrix.node.node }}/build/reports/tests/test
+            versions/${{ matrix.node.node }}/build/reports/tests/slowTest
           retention-days: 7
 
       # PRから実際のjarを落として動作確認できるようにする
-      - name: Upload mod jars
+      - name: Upload mod jar
         uses: actions/upload-artifact@v7
         with:
-          name: xaeronav-jars
-          path: build/libs/*.jar
+          name: xaeronav-jar-${{ matrix.node.node }}
+          path: versions/${{ matrix.node.node }}/build/libs/*.jar
           if-no-files-found: error
           retention-days: 14
 
@@ -66,12 +118,12 @@ jobs:
   # Xaero連携のmixinはrequired=falseなので、注入先が変わっても例外は出ず「地図に線が出ない」だけになる。
   # ビルドが通ることは何の保証にもならないので、起動してログを読むところまでをCIの仕事にする。
   runtime:
-    needs: build
+    needs: [discover, build]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node: ${{ fromJson(needs.build.outputs.nodes) }}
+        node: ${{ fromJson(needs.discover.outputs.runtime_nodes) }}
     name: runtime (${{ matrix.node.node }})
     steps:
       - uses: actions/checkout@v7
@@ -91,11 +143,15 @@ jobs:
           mkdir -p run/mods
           cp build/runtime-test/${{ matrix.node.node }}/mods/*.jar run/mods/
 
-      # fabric-apiの版はstonecutter.properties.tomlが持つ唯一の情報源から読む
+      # fabric-apiの版はstonecutter.properties.tomlが持つ唯一の情報源から読む。
+      # MCバージョンが複数あるとdeps.fabric_apiの行も複数マッチするので、
+      # バージョン文字列（値の"+<mc>"サフィックス）で対象ノードの行だけに絞る
       - id: deps
         if: matrix.node.loader == 'fabric'
         run: |
-          VERSION=$(grep 'deps.fabric_api' stonecutter.properties.toml | cut -d'"' -f2 | cut -d'+' -f1)
+          VERSION=$(grep 'deps.fabric_api' stonecutter.properties.toml \
+            | grep -- "+${{ matrix.node.minecraft }}\"" \
+            | cut -d'"' -f2 | cut -d'+' -f1)
           echo "fabric_api=$VERSION" >> "$GITHUB_OUTPUT"
 
       # ワールドへ入ってテストが通ったあと、JVMが終了しないまま止まることがある

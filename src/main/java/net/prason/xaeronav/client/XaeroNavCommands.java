@@ -463,7 +463,7 @@ public final class XaeroNavCommands {
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), goal,
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, MovementOptions.NONE);
-        boolean rockets = player.getInventory().contains(stack -> stack.getItem() instanceof FireworkRocketItem);
+        boolean rockets = ChunkView.hasItem(player.getInventory(), stack -> stack.getItem() instanceof FireworkRocketItem);
 
         long startedAt = System.nanoTime();
         FlightRoute route = FlightRouter.route(view, player.position(), Vec3.atCenterOf(goal), rockets,

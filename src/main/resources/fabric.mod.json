@@ -18,10 +18,11 @@
     "modmenu": ["net.prason.xaeronav.platform.fabric.XaeroNavModMenu"]
   },
   "mixins": ["xaeronav-xaero.mixins.json"],
+  "accessWidener": "xaeronav.accesswidener",
   "depends": {
     "fabricloader": "${fabric_loader_range}",
     "minecraft": "${minecraft_version}",
-    "java": ">=21",
+    "java": ">=${java_version}",
     "fabric-api": "*"
   },
   "suggests": {

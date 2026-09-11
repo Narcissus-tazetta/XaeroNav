@@ -6,6 +6,7 @@ import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
+import net.prason.xaeronav.util.MathSupport;
 
 /**
  * 提示中の経路から「残りの道のり」「所要時間」「次にどちらへ曲がるか」を求める（カーナビの案内相当）。
@@ -198,7 +199,7 @@ final class NavGuidance {
                 return movement + action;
             }
             double assumed = moved / movement;
-            return movement * Math.clamp(assumed / actual, PACE_FACTOR_MIN, PACE_FACTOR_MAX) + action;
+            return movement * MathSupport.clamp(assumed / actual, PACE_FACTOR_MIN, PACE_FACTOR_MAX) + action;
         }
     }
 
