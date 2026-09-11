@@ -22,7 +22,7 @@ class ProgressiveWalkTerrainTest {
         var trace = ProgressiveWalk.trace(cells, new BlockPos(0, 1, 0), goal,
                 64, ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.GOAL);
         assertFalse(trace.steps().isEmpty(), trace.stopped());
-        assertEquals(goal, trace.steps().getLast().pos());
+        assertEquals(goal, trace.steps().get(trace.steps().size() - 1).pos());
     }
 
     @Test

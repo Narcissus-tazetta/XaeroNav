@@ -9,11 +9,20 @@ fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 
 val minecraftVersion = dep("minecraft")
 
+// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線（MC 1.20.5以降がJava 21）。
+// fabric.mod.jsonの"java"依存とxaeronav-xaero.mixins.jsonのcompatibilityLevelへ渡す
+val javaVersion = if (minecraftVersion.startsWith("1.20.")) 17 else 21
+val mixinCompatibilityLevel = "JAVA_$javaVersion"
+// リソースパックのpack_format（Minecraft Wikiのpack format表どおり、1.20.1系は15・1.21.1系は34）
+val packFormat = if (minecraftVersion.startsWith("1.20.")) 15 else 34
+
 repositories {
     maven("https://maven.terraformersmc.com/releases") { name = "TerraformersMC" }
 }
 
 loom {
+    accessWidenerPath = rootProject.file("src/main/resources/xaeronav.accesswidener")
+
     // 実行ディレクトリはノード配下（versions/<ノード>/run）のloom既定のまま。
     // ローダーごとにmodsの中身が違うので、NeoForge側のrun/と共有すると
     // 相手のローダー向けXaeroが混ざって読み込みに失敗する。
@@ -96,7 +105,10 @@ tasks.named<ProcessResources>("processResources").configure {
         "minecraft_version" to minecraftVersion,
         "fabric_loader_range" to dep("fabric_loader_range"),
         "xaero_worldmap_version" to dep("xaero_worldmap"),
-        "xaero_minimap_version" to dep("xaero_minimap")
+        "xaero_minimap_version" to dep("xaero_minimap"),
+        "java_version" to javaVersion.toString(),
+        "mixin_compatibility_level" to mixinCompatibilityLevel,
+        "pack_format" to packFormat.toString()
     )
 
     inputs.properties(replaceProperties)
@@ -107,6 +119,12 @@ tasks.named<ProcessResources>("processResources").configure {
     exclude("META-INF/accesstransformer.cfg")
 
     filesMatching("fabric.mod.json") {
+        expand(replaceProperties)
+    }
+    filesMatching("xaeronav-xaero.mixins.json") {
+        expand(replaceProperties)
+    }
+    filesMatching("pack.mcmeta") {
         expand(replaceProperties)
     }
 }

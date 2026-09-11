@@ -28,6 +28,18 @@ deps.xaerolib = "1.7.1"
 deps.xaero_worldmap = "1.44.2"
 deps.xaero_minimap = "26.4.2"
 
+[fabric."1.20.1"]
+deps.minecraft = "1.20.1"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.15.11"
+deps.fabric_api = "0.92.12+1.20.1"
+deps.modmenu = "7.2.2"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+
 [fabric."1.21.1"]
 deps.minecraft = "1.21.1"
 # 開発・実行時に使うローダー（loom 1.17のClassTweakerが0.19.0以降を要る）

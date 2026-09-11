@@ -11,6 +11,12 @@ fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 
 val minecraftVersion = dep("minecraft")
 
+// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線。xaeronav-xaero.mixins.jsonの
+// compatibilityLevelへ渡す（このノードは今のところ常に1.21.1系なのでJAVA_21固定）
+val mixinCompatibilityLevel = if (minecraftVersion.startsWith("1.20.")) "JAVA_17" else "JAVA_21"
+// リソースパックのpack_format（Minecraft Wikiのpack format表どおり、1.20.1系は15・1.21.1系は34）
+val packFormat = if (minecraftVersion.startsWith("1.20.")) 15 else 34
+
 repositories {
     mavenCentral()
     maven("https://maven.minecraftforge.net") { name = "MinecraftForge" }
@@ -113,18 +119,27 @@ tasks.named<ProcessResources>("processResources").configure {
         "minecraft_version" to minecraftVersion,
         "forge_loader_version_range" to dep("forge_loader_range"),
         "xaero_worldmap_version" to dep("xaero_worldmap"),
-        "xaero_minimap_version" to dep("xaero_minimap")
+        "xaero_minimap_version" to dep("xaero_minimap"),
+        "mixin_compatibility_level" to mixinCompatibilityLevel,
+        "pack_format" to packFormat.toString()
     )
 
     inputs.properties(replaceProperties)
 
     // 他の2ローダーのMOD定義はForgeのjarには要らない
     exclude("fabric.mod.json")
+    exclude("xaeronav.accesswidener")
     exclude("META-INF/neoforge.mods.toml")
     // accesstransformer.cfgは逆に含める（Forge本体が実行時にも同じ変換を配布先の環境へ
     // 適用するため）。除外するのはNeoForge/Fabric側（build.neoforge/fabric.gradle.kts）
 
     filesMatching("META-INF/mods.toml") {
+        expand(replaceProperties)
+    }
+    filesMatching("xaeronav-xaero.mixins.json") {
+        expand(replaceProperties)
+    }
+    filesMatching("pack.mcmeta") {
         expand(replaceProperties)
     }
 }

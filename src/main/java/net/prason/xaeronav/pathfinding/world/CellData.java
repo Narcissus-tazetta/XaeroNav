@@ -143,8 +143,17 @@ public final class CellData {
         boolean openable = openableByHand(state);
         // 開いたドア・フェンスゲート・トラップドアは薄い板の当たり判定が残るので当たり判定は空にならない。
         // バニラのモブ経路探索と同じ判定（levelを参照しないのでワーカースレッドから呼べる）でくぐれるかを見る
+        // isPathfindableは1.20.1では(BlockGetter, BlockPos, PathComputationType)を取る旧シグネチャ。
+        // levelを見ない判定なのでgetCollisionShapeと同じ空のプローブ値を渡せば意味は変わらない。
+        // vanilla APIのシグネチャそのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
         boolean passable = collisionEmpty
-                || openable && state.isPathfindable(PathComputationType.LAND);
+                || openable && state.isPathfindable(
+                        //? if >=1.21 {
+                        PathComputationType.LAND
+                        //?} else {
+                        /*EmptyBlockGetter.INSTANCE, BlockPos.ZERO, PathComputationType.LAND*/
+                        //?}
+                );
 
         long flags = PRESENT;
         if (water && passable) {

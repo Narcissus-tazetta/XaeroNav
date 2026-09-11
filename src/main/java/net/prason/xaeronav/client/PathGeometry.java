@@ -12,6 +12,7 @@ import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.VoxelRay;
 import net.prason.xaeronav.pathfinding.world.CellData;
+import net.prason.xaeronav.util.MathSupport;
 
 /**
  * ワールド内描画用に経路を焼き固めたもの。経路が変わったときにだけ組み直す。
@@ -222,7 +223,7 @@ final class PathGeometry {
         double dz = bz - az;
         double lengthSq = dx * dx + dy * dy + dz * dz;
         double t = lengthSq < 1.0e-12 ? 0.0
-                : Math.clamp(((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / lengthSq, 0.0, 1.0);
+                : MathSupport.clamp(((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / lengthSq, 0.0, 1.0);
         out[0] = ax + dx * t;
         out[1] = ay + dy * t;
         out[2] = az + dz * t;

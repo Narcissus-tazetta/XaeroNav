@@ -352,7 +352,7 @@ final class ProgressiveWalk {
         PathResult result = new AStarPathfinder(future,
                 new SearchLimits(REPAIR_NODE_BUDGET, 30_000, 1.0)).search(fromPos, toPos, NEVER);
         if (!result.complete() || result.steps().isEmpty()
-                || !result.steps().getLast().pos().equals(toPos)
+                || !result.steps().get(result.steps().size() - 1).pos().equals(toPos)
                 || cost(result.steps()) >= current * REPAIR_MIN_GAIN) {
             return new RepairAttempt(null, result.expandedNodes());
         }

@@ -1,0 +1,8 @@
+accessWidener v2 named
+
+# RenderType.CompositeState / RenderStateShard.LineStateShard は自身のクラスファイルの
+# アクセスフラグと、外側のクラス(RenderType/RenderStateShard)が持つInnerClasses属性上の
+# 宣言が食い違っており(前者はpublic、後者はprotected)、javacは後者を見て解決するため
+# ゲート無しでは他パッケージから参照できない(NeoForge/Forgeはこの2つを開放するATを持つ)。
+accessible class net/minecraft/client/renderer/RenderType$CompositeState
+accessible class net/minecraft/client/renderer/RenderStateShard$LineStateShard

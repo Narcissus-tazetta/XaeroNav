@@ -10,6 +10,7 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `1.21.1-neoforge` | 1.21.1 | NeoForge 21.1.228+ |
 | `1.21.1-fabric` | 1.21.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
+| `1.20.1-fabric` | 1.20.1 | Fabric Loader 0.19.5+ / Fabric API |
 
 ノード名は `<MC バージョン>-<ローダー>`。切り分けには [Stonecutter](https://stonecutter.kikugie.dev/)
 を使っています（Architectury は入れていません）。
@@ -22,8 +23,9 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `stonecutter.properties.toml` | ノードごとの依存バージョン。**ノードを増やすとここにテーブルが 1 つ増える** |
 | `stonecutter.gradle.kts` | 全ノード共通の入口（`buildAll` / `collectJars` / `printNodes`）と spotless |
 | `build.neoforge.gradle.kts` / `build.fabric.gradle.kts` / `build.forge.gradle.kts` | ローダーごとのビルド。ローダーが増えたときだけ増える |
-| `buildSrc/src/main/kotlin/xaeronav.common.gradle.kts` | 全ノード共通のビルド設定（Java 21・テスト・jar 名） |
+| `buildSrc/src/main/kotlin/xaeronav.common.gradle.kts` | 全ノード共通のビルド設定（Java toolchain・テスト・jar 名）。Java版はMCバージョンで分岐（1.20.5未満は17・以降は21） |
 | `src/main/java/net/prason/xaeronav/platform/` | ローダーごとの起動処理とイベント配線 |
+| `src/main/resources/xaeronav.accesswidener` | Fabric専用。Mojang公式マッピングの一部ネストクラス（`RenderType.CompositeState`等）は自クラスの宣言とInnerClasses属性の宣言が食い違っており、外部から参照するには開放が要る（NeoForge/Forgeの`accesstransformer.cfg`のFabric版） |
 
 `gradle.properties` にあるのは MOD 自身のメタデータ（id・名前・バージョン）だけです。
 Minecraft / ローダー / Xaero の版は `stonecutter.properties.toml` が唯一の情報源で、
@@ -33,27 +35,68 @@ Minecraft / ローダー / Xaero の版は `stonecutter.properties.toml` が唯�
 
 1. `settings.gradle.kts` の `match(...)` に 1 行足す（例: `match("1.21.5", "neoforge", "fabric")`）
 2. `stonecutter.properties.toml` に `[<ローダー>."<MC バージョン>"]` のテーブルを足す
+   （依存バージョンは実在するものを実際に確認してから書く。推測で書かない）
 3. `./gradlew build` で全ノードのコンパイルを通す
 
-CI は `printNodes` からノード一覧を作るので、ワークフローの書き換えは要りません。
+**同じMCバージョンへローダーを1つ足すだけなら、ここまでで済む**（1.21.1-forge追加のとき）。
+**新しいMCバージョンを足す場合はさらに要る**（1.20.1-fabric追加で判明。詳細は下の「版差が出る場所」）:
+
+- `buildSrc/.../xaeronav.common.gradle.kts`のJava toolchain分岐に新しい境界が要らないか
+  （MC 1.20.5未満はJava 17、以降はJava 21——2バージョン以上増えると分岐の書き方自体を見直す）
+- `pack.mcmeta`の`pack_format`（各ビルドスクリプトの`packFormat`変数）
+- `xaeronav-xaero.mixins.json`の`compatibilityLevel`（同上、`mixinCompatibilityLevel`変数）
+- `fabric.mod.json`の`java`依存（Fabricのみ、`java_version`変数）
+
+CI は `printNodes` からノード一覧を作るので、ワークフローの書き換えは要りません
+（`runtime`ジョブをPRで正典ノードだけに絞る判定はファイルパスベースなので、`stonecutter.properties.toml`・
+`settings.gradle.kts`・`mixin/`のいずれかを触るPRなら自動で全ノードに広がります）。
 
 ## 版差が出る場所
 
-ローダー非依存・バージョン非依存のコード（`pathfinding/` 49 ファイルと全テスト）は、
-ノードを増やしても 1 行も変わりません。版差が出るのは描画まわりだけです。
+`1.20.1-fabric` を足したときに実際に踏んだ版差（1.20.1 ⇔ 1.21.1）。1.21.5 の
+`RenderPipeline` / `GpuBuffer` 全面リワークより手前でも、これだけの差がある。
 
-- `client/PathRenderer` `client/NavRenderTypes` `client/MapPathOverlay` `client/NavHud` の blaze3d 呼び出し
-  （1.21.5 で `RenderPipeline` / `GpuBuffer` へ全面的に変わっています）
+- **GUI画面の基底クラス**（`client/gui/XaeroNavConfigScreen`）。1.21.1の`OptionsSubScreen`は
+  `net.minecraft.client.gui.screens.options`パッケージ・`addOptions()`フックを持つが、1.20.1の
+  同名クラスは`net.minecraft.client.gui.screens`直下にあり、`addOptions()`が無く`init()`を
+  自分で書く必要がある（`OptionsList`の生成・Doneボタンの配置まで自前）
+- **頂点バッファAPI**（`client/PathRenderer`の`vertex`/`line`）。1.21.1は`addVertex(pose,x,y,z)`
+  を起点にした新API（endVertex不要）、1.20.1は`vertex(x,y,z)`起点で`color`/`normal`を
+  チェーンし最後に`endVertex()`で確定する旧API
+- **`RenderType.CompositeState` / `RenderStateShard.LineStateShard`のアクセス**
+  （`client/NavRenderTypes`）。両バージョンとも自クラスファイルの宣言は`public`だが、
+  外側のクラス（`RenderType`/`RenderStateShard`）が持つInnerClasses属性上の宣言は`protected`——
+  javacは後者を見て解決するため、ゲートではなくアクセス開放が要る。NeoForge/Forgeは
+  `accesstransformer.cfg`で開放しているのと同じ話が、Fabricでは`xaeronav.accesswidener`
+  （`accessible class ...`）になる
 - `mixin/xaero/` が触る Xaero 側の内部（`CustomRenderTypes` / `MapRenderHelper` / `GuiMap#render` の
   `endBatch()` の ordinal）。ここは **Minecraft ではなく Xaero の更新で動きます**
 
+### JDK自体のバージョン差はゲートしない
+
+1.20.1はJava 17必須（1.21.1はJava 21）。`Math.clamp`・`List#getLast()`等のJDK21で追加された
+標準ライブラリAPIは、`//?`で分岐せず**自前の実装に置き換えて両バージョンで同じコードを使う**
+（`util/MathSupport`、テストコードの`list.get(list.size() - 1)`など）。バージョンゲートは
+Minecraft自体のAPI差にだけ使う。
+
 ## 守る決まり
 
-### `pathfinding/` に `//?` を書かない
+### `pathfinding/` に `//?` を書かない（例外は vanilla API のシグネチャ差だけ）
 
 経路探索のテストは正典ノード（`stonecutter.properties.toml` の `canonical_test_node`）でしか
 走りません。`pathfinding/` に版分岐が入ると、正典ノードのテストが他ノードのバグを見逃します。
 版分岐が要るなら、その差を吸収する層を `client/` か `platform/` 側に作ってください。
+
+**唯一の例外**: vanilla APIの**呼び出し方（シグネチャ）そのものが版で違う**が、**意味は変わらない**
+場合。1.20.1対応で2箇所だけ実例が出た——
+`pathfinding/world/CellData.java`の`BlockStateBase#isPathfindable`（1.20.1は
+`(BlockGetter, BlockPos, PathComputationType)`という旧シグネチャを取る。levelを見ない判定なので
+空のプローブ値を渡せば同じ)と、`pathfinding/world/ChunkView.java`のエンチャント効率レベル取得
+（1.20.1はレジストリ経由の`Holder<Enchantment>`ではなく`Enchantments`直下の静的フィールドを
+直接渡す旧モデル）。**ロジックが分岐するわけではない**ので、正典ノードのテストが検証している
+中身は変わらない。判断に迷ったら、まずJDK差と同じくポータブルな書き方で両バージョンとも
+同じコードにできないかを先に検討すること（`Inventory#contains(Predicate)`が1.20.1に無い件は
+手書きループに置き換えてゲート無しで解決した——`ChunkView.hasItem`）。
 
 ### ローダー固有の import はゲートの内側に書く
 
@@ -82,8 +125,10 @@ Stonecutter は有効なノードに合わせて `src/` を書き換えます。
 
 ## CI が見ているもの
 
-- `./gradlew build collectJars` — 全ノードのコンパイル、正典ノードでのテスト、spotless
-- ノードごとに実際にクライアントを起動してワールドへ入る（`headlesshq/mc-runtime-test`）
+- `build`ジョブ（ノードごとのmatrix、`:<node>:build`）— コンパイル・正典ノードでのテスト・spotless
+- `runtime`ジョブ（ノードごとに実際にクライアントを起動してワールドへ入る、`headlesshq/mc-runtime-test`）。
+  通常のPRでは正典ノードだけに絞り、mainへのpush・週次スケジュール・ノード定義やmixinを触ったPRでは
+  全ノードへ広がる（ノードが増えてもruntimeジョブの総数が線形に膨らまないようにするため）
 - 起動ログに XaeroNav の mixin 適用失敗が無いこと
 
 3 つ目が要るのは、`xaeronav-xaero.mixins.json` が `required=false` だからです。注入先が変わっても

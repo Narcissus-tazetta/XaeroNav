@@ -24,6 +24,7 @@ stonecutter {
         }
 
         match("1.21.1", "neoforge", "fabric", "forge")
+        match("1.20.1", "fabric")
 
         // gitへコミットする状態。Stonecutterはsrc/を書き換えるので、
         // ここと違うノードを有効にしたまま差分を取ると全ファイルが動いて見える。

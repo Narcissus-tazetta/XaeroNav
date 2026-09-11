@@ -1,5 +1,7 @@
 package net.prason.xaeronav.config;
 
+import net.prason.xaeronav.util.MathSupport;
+
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -102,7 +104,7 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
     @Override
     public IntValue defineInRange(String name, int defaultValue, int min, int max) {
         List<String> path = define(name, defaultValue, rangeComment(takeComment(), defaultValue, range(min, max)),
-                value -> value instanceof Number number ? Math.clamp(number.longValue(), min, max) : defaultValue);
+                value -> value instanceof Number number ? MathSupport.clamp(number.longValue(), min, max) : defaultValue);
         return new IntValue() {
             @Override
             public int get() {
@@ -119,7 +121,7 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
     @Override
     public DoubleValue defineInRange(String name, double defaultValue, double min, double max) {
         List<String> path = define(name, defaultValue, rangeComment(takeComment(), defaultValue, min + " ~ " + max),
-                value -> value instanceof Number number ? Math.clamp(number.doubleValue(), min, max) : defaultValue);
+                value -> value instanceof Number number ? MathSupport.clamp(number.doubleValue(), min, max) : defaultValue);
         return () -> ((Number) file.get(path)).doubleValue();
     }
 

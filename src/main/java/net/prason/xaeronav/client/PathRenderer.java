@@ -18,6 +18,7 @@ import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.world.CellData;
+import net.prason.xaeronav.util.MathSupport;
 
 /**
  * Xaero非依存のワールド内描画。
@@ -258,7 +259,7 @@ public final class PathRenderer {
     private static double flightTubeRadius(Vec3 camera, double fromX, double fromY, double fromZ,
                                             double toX, double toY, double toZ) {
         double distance = Math.sqrt(distanceSqToSegment(camera, fromX, fromY, fromZ, toX, toY, toZ));
-        return Math.clamp(distance * FLIGHT_TUBE_RADIUS_PER_BLOCK,
+        return MathSupport.clamp(distance * FLIGHT_TUBE_RADIUS_PER_BLOCK,
                 FLIGHT_TUBE_MIN_RADIUS, FLIGHT_TUBE_MAX_RADIUS);
     }
 
@@ -596,7 +597,7 @@ public final class PathRenderer {
         double apz = camera.z - az;
         double lengthSq = abx * abx + aby * aby + abz * abz;
         double t = lengthSq > 0.0 ? (apx * abx + apy * aby + apz * abz) / lengthSq : 0.0;
-        t = Math.clamp(t, 0.0, 1.0);
+        t = MathSupport.clamp(t, 0.0, 1.0);
         double dx = apx - abx * t;
         double dy = apy - aby * t;
         double dz = apz - abz * t;
@@ -715,15 +716,36 @@ public final class PathRenderer {
         vertex(buffer, pose, x3, y3, z3, red, green, blue, alpha);
     }
 
+    // 1.20.1はVertexConsumerが旧世代のAPI（vertex(double,double,double)を起点にcolor/normalを
+    // チェーンし、最後にendVertex()で確定する形）で、1.21.1のaddVertex系（Pose引数を直接取り、
+    // endVertex不要）とは形そのものが違う。座標・色・法線の値そのものは同じなので、
+    // vertex/lineの2箇所だけをゲートすれば足りる
     private void vertex(VertexConsumer buffer, PoseStack.Pose pose, double x, double y, double z,
                         float red, float green, float blue, float alpha) {
+        //? if >=1.21 {
         buffer.addVertex(pose, (float) x, (float) y, (float) z).setColor(red, green, blue, alpha);
+        //?} else {
+        /*buffer.vertex(pose.pose(), (float) x, (float) y, (float) z)
+                .color(red, green, blue, alpha)
+                .endVertex();
+        *///?}
     }
 
     private void line(VertexConsumer buffer, PoseStack.Pose pose,
                       float x0, float y0, float z0, float x1, float y1, float z1,
                       float red, float green, float blue) {
+        //? if >=1.21 {
         buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
         buffer.addVertex(pose, x1, y1, z1).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
+        //?} else {
+        /*buffer.vertex(pose.pose(), x0, y0, z0)
+                .color(red, green, blue, 1.0f)
+                .normal(pose.normal(), 0f, 1f, 0f)
+                .endVertex();
+        buffer.vertex(pose.pose(), x1, y1, z1)
+                .color(red, green, blue, 1.0f)
+                .normal(pose.normal(), 0f, 1f, 0f)
+                .endVertex();
+        *///?}
     }
 }

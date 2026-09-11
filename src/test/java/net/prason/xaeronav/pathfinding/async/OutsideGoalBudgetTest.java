@@ -35,7 +35,8 @@ class OutsideGoalBudgetTest {
                 .get(15, TimeUnit.SECONDS);
         assertFalse(actual.complete());
         assertTrue(expected.steps().size() > 90, "The normal budget can reach much farther than 40% allows");
-        assertEquals(expected.steps().getLast().pos(), actual.steps().getLast().pos());
+        assertEquals(expected.steps().get(expected.steps().size() - 1).pos(),
+                actual.steps().get(actual.steps().size() - 1).pos());
         assertEquals(expected.expandedNodes(), actual.expandedNodes());
         assertNull(deepView.owner(), "Neither budget can finish an out-of-bounds goal");
     }

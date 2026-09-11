@@ -4,6 +4,7 @@ import java.util.List;
 
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.util.MathSupport;
 
 /**
  * 「いま空中経路のどこにいるか」を1tickに1度だけ求めて共有する（歩行の{@link PathProgress}と同じ役目）。
@@ -129,6 +130,6 @@ final class FlightProgress {
         Vec3 along = to.subtract(from);
         double lengthSq = along.lengthSqr();
         double t = lengthSq > 0.0 ? position.subtract(from).dot(along) / lengthSq : 0.0;
-        return position.subtract(from.add(along.scale(Math.clamp(t, 0.0, 1.0))));
+        return position.subtract(from.add(along.scale(MathSupport.clamp(t, 0.0, 1.0))));
     }
 }
