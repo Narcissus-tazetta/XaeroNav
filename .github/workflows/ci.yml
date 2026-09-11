@@ -125,6 +125,10 @@ jobs:
       matrix:
         node: ${{ fromJson(needs.discover.outputs.runtime_nodes) }}
     name: runtime (${{ matrix.node.node }})
+    # 1.20.1-forgeはmc-runtime-test側が1.20.1のForgeインストーラーAPIに対応しておらず、
+    # バージョンを変えても直らない構造的な問題（上流 headlesshq/mc-runtime-test#151 に報告済み）。
+    # 直るまでこのノードだけ赤でもワークフロー全体・PRのマージを妨げない
+    continue-on-error: ${{ matrix.node.node == '1.20.1-forge' }}
     steps:
       - uses: actions/checkout@v7
 
