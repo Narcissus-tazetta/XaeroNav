@@ -18,6 +18,23 @@ val mixinCompatibilityLevel = if (minecraftVersion.startsWith("1.20.")) "JAVA_17
 val packFormat = if (minecraftVersion.startsWith("1.20.")) 15 else 34
 
 repositories {
+    // Minecraft 1.21.1のmacOS用LWJGLにはMaven Centralに無い
+    // `natives-macos-patch` classifierが含まれる。通常のMavenメタデータ解決でCentralへ
+    // 固定されないよう、Minecraft公式ライブラリ置き場をartifact patternでも登録する。
+    exclusiveContent {
+        forRepository {
+            ivy {
+                name = "MojangLibraryArtifacts"
+                url = uri("https://libraries.minecraft.net")
+                patternLayout {
+                    artifact("[organisation]/[module]/[revision]/[artifact]-[revision](-[classifier]).[ext]")
+                    setM2compatible(true)
+                }
+                metadataSources { artifact() }
+            }
+        }
+        filter { includeModule("org.lwjgl", "lwjgl-freetype") }
+    }
     mavenCentral()
     maven("https://maven.minecraftforge.net") { name = "MinecraftForge" }
     maven("https://libraries.minecraft.net") { name = "Mojang" } // com.mojang:text2speech 等がここにしか無い
@@ -38,12 +55,26 @@ minecraft {
 
     runs {
         configureEach {
-            workingDir = rootProject.layout.projectDirectory.dir("run")
+            // MC版・ローダーの異なるXaero jarを同じmodsへ混在させない。
+            workingDir = rootProject.layout.projectDirectory.dir("run/${stonecutter.current.project}")
         }
 
         // NeoForgeノード追加時に踏んだIDEモジュール束縛の不一致（xaeronav-multiloader-plan参照）と
         // 同種の問題がFG7でも起きるかは未確認。まずは既定のまま作り、実機で崩れたらdisableIdeRun相当を探す
-        register("client")
+        register("client") {
+            mods {
+                create(modProperty("mod_id")) {
+                    sources(sourceSets["main"])
+                }
+            }
+            // FG7のSlime LauncherはMinecraftのversion metadataにあるこのmacOS用引数を
+            // runClientへ引き継がない。無いとGLFWがfirst thread検査で起動直後に停止する。
+            if (System.getProperty("os.name").startsWith("Mac")) {
+                jvmArgs("-XstartOnFirstThread")
+            }
+            // 開発実行はMODをクラスディレクトリから読むのでMANIFESTのMixinConfigsが存在しない
+            args("--mixin.config", "${modProperty("mod_id")}-xaero.mixins.json")
+        }
     }
 }
 
@@ -80,9 +111,12 @@ val xaeroRuntimeMods: Configuration by configurations.creating {
 }
 
 dependencies {
-    // Xaeroはmods.toml上optionalな連携先。コンパイルにだけ必要で、配布物にも実行時依存にも含めない
+    // FG7はMinecraft依存と同じ解決構成上の外部modをmavenizerでnamedへ変換する。
+    // 公開jarをrun/modsへ直接コピーすると変換を迂回し、Xaero自身の@Shadow f_... が落ちる。
     xaeroModules.forEach { compileOnly(it) }
     if (withXaero) {
+        xaeroModules.forEach { runtimeOnly(it) }
+        // stageRuntimeTestModsには配布時と同じ未変換jarを渡す。
         xaeroModules.forEach { xaeroRuntimeMods(it) }
     }
 
@@ -96,16 +130,6 @@ dependencies {
     compileOnly("io.github.llamalad7:mixinextras-common:${dep("mixinextras")}")
     implementation("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
     "jarJar"("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
-}
-
-// Syncではなくコピーにして、手で入れた他のMODを消さない
-val installXaeroMods by tasks.registering(Copy::class) {
-    from(xaeroRuntimeMods)
-    into(rootProject.layout.projectDirectory.dir("run/mods"))
-}
-
-tasks.matching { it.name == "runClient" }.configureEach {
-    dependsOn(installXaeroMods)
 }
 
 // CIの起動スモークテスト（mc-runtime-test）へ渡す一式。配布jarとXaeroを1箇所へ集める。

@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="1.20.1 Forge" type="ShConfigurationType" folderName="Minecraft Client">
+    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/tools/run-client.sh" />
+    <option name="SCRIPT_OPTIONS" value="1.20.1-forge" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="INTERPRETER_PATH" value="/bin/bash" />
+    <option name="EXECUTE_SCRIPT_FILE" value="true" />
+    <method v="2" />
+  </configuration>
+</component>

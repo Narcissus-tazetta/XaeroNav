@@ -32,7 +32,9 @@ legacyForge {
     runs {
         create("client") {
             client()
-            gameDirectory = rootProject.layout.projectDirectory.dir("run")
+            // 全ノードでroot/runを共有すると、別MC版・別ローダーのXaero jarまで同時に
+            // 読み込まれてMixinが異なるMinecraftへ適用される。ノードごとに完全分離する。
+            gameDirectory = rootProject.layout.projectDirectory.dir("run/${stonecutter.current.project}")
         }
     }
 
@@ -70,8 +72,12 @@ val xaeroRuntimeMods: Configuration by configurations.creating {
 dependencies {
     annotationProcessor("org.spongepowered:mixin:0.8.7:processor")
 
-    xaeroModules.forEach { compileOnly(it) }
+    // 公開jarはSRG名前空間なので、通常のcompileOnly/runtimeコピーではnamed開発環境で
+    // Xaero自身のMixin（@Shadow f_...）が失敗する。MDGのmod構成でnamedへリマップする。
+    xaeroModules.forEach { modCompileOnly(it) }
     if (withXaero) {
+        xaeroModules.forEach { modRuntimeOnly(it) }
+        // stageRuntimeTestModsには配布時と同じ未変換jarを渡す。
         xaeroModules.forEach { xaeroRuntimeMods(it) }
     }
 
@@ -82,15 +88,6 @@ dependencies {
     annotationProcessor("io.github.llamalad7:mixinextras-common:${dep("mixinextras")}")
     implementation("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
     "jarJar"("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
-}
-
-val installXaeroMods by tasks.registering(Copy::class) {
-    from(xaeroRuntimeMods)
-    into(rootProject.layout.projectDirectory.dir("run/mods"))
-}
-
-tasks.matching { it.name == "runClient" }.configureEach {
-    dependsOn(installXaeroMods)
 }
 
 val stageRuntimeTestMods by tasks.registering(Copy::class) {
