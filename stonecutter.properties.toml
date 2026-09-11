@@ -15,6 +15,19 @@ deps.xaerolib = "1.7.1"
 deps.xaero_worldmap = "1.44.2"
 deps.xaero_minimap = "26.4.2"
 
+[forge."1.21.1"]
+deps.minecraft = "1.21.1"
+# 開発・実行時に使うForge（正確な版）
+deps.forge = "52.1.16"
+# mods.tomlへ書く「動く下限」。開発で使う版とは別物にしておく——Fabricで踏んだ落とし穴と同じ理由
+# （stonecutter.properties.tomlのdeps.fabric_loader_rangeのコメント参照）
+deps.forge_loader_range = "[52,)"
+# Forgeは本体にMixinExtrasを同梱していない（NeoForge/Fabricとの違い）。jar-in-jarで足す版
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "1.7.1"
+deps.xaero_worldmap = "1.44.2"
+deps.xaero_minimap = "26.4.2"
+
 [fabric."1.21.1"]
 deps.minecraft = "1.21.1"
 # 開発・実行時に使うローダー（loom 1.17のClassTweakerが0.19.0以降を要る）

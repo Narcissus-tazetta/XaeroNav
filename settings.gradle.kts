@@ -23,7 +23,7 @@ stonecutter {
             version("$minecraft-$it", minecraft).buildscript("build.$it.gradle.kts")
         }
 
-        match("1.21.1", "neoforge", "fabric")
+        match("1.21.1", "neoforge", "fabric", "forge")
 
         // gitへコミットする状態。Stonecutterはsrc/を書き換えるので、
         // ここと違うノードを有効にしたまま差分を取ると全ファイルが動いて見える。
