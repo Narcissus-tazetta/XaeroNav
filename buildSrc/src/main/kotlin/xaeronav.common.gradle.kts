@@ -64,6 +64,11 @@ val slowTest by tasks.registering(Test::class) {
     // 積み上がってヒープを使い切る（実際にテスト結果を1件も残さずJVMごと落ちた）。
     // 起動のぶんは遅くなるが、重いテストは元々1本あたり数十秒かかる
     forkEvery = 1
+    // 直列だと重い3本（Nether{WideRoute,LiveWalk,DetourBreakdown}Test、合計約14分）が
+    // 積み上がって全体で30分超になる（CI実測）。クラスはJVM単位で独立しているので並列化して
+    // 素直に効く。1コアはGradle本体・他タスクに残す。3g(maxHeapSize)×並列数ぶんのメモリが
+    // 要るので上限4に留める（GitHub Actions既定ランナーの4vCPU/16GBで3並列なら収まる）
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() - 1).coerceIn(1, 4)
 }
 
 tasks.named("check") { dependsOn(slowTest) }
