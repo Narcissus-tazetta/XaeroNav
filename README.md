@@ -6,7 +6,8 @@ A client-side Minecraft mod that finds a route you can actually walk to a destin
 it in the world, on Xaero's World Map, and on Xaero's Minimap. The top of the screen tells you
 where to go next.
 
-- Minecraft 1.21.1, on NeoForge 21.1.228+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
+- Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
+  Fabric API)
 - Client-only. Nothing to install on the server.
 - MIT licensed
 
@@ -22,11 +23,11 @@ problem here.
 ## Installation
 
 1. Install a loader for Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 or newer,
-   or [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
-   [Fabric API](https://modrinth.com/mod/fabric-api).
+   [Forge](https://files.minecraftforge.net/) 52.1.16 or newer, or [Fabric](https://fabricmc.net/)
+   with Fabric Loader 0.15.11 or newer plus [Fabric API](https://modrinth.com/mod/fabric-api).
 2. Download the jar for your loader from the
-   [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) — `xaeronav-neoforge-*.jar`
-   or `xaeronav-fabric-*.jar` — and drop it into your `mods` folder.
+   [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) — `xaeronav-neoforge-*.jar`,
+   `xaeronav-forge-*.jar`, or `xaeronav-fabric-*.jar` — and drop it into your `mods` folder.
 3. For map integration, also install Xaero's World Map 1.44.2+ and/or Xaero's Minimap 26.4.2+.
    This part is optional.
 
@@ -250,6 +251,7 @@ Running a dev client (pick a target):
 ```bash
 ./gradlew :1.21.1-neoforge:runClient                      # with Xaero
 ./gradlew :1.21.1-fabric:runClient                        # the Fabric side
+./gradlew :1.21.1-forge:runClient                         # the Forge side
 ./gradlew :1.21.1-neoforge:runClient -Pwith_xaero=false   # without Xaero (to check fallback behavior)
 ```
 

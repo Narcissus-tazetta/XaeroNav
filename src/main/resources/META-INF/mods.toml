@@ -19,14 +19,14 @@ config="${mod_id}-xaero.mixins.json"
 
 [[dependencies.${mod_id}]]
 modId="forge"
-type="required"
+mandatory=true
 versionRange="${forge_loader_version_range}"
 ordering="NONE"
 side="BOTH"
 
 [[dependencies.${mod_id}]]
 modId="minecraft"
-type="required"
+mandatory=true
 versionRange="[${minecraft_version}]"
 ordering="NONE"
 side="BOTH"
@@ -40,14 +40,14 @@ side="BOTH"
 # 黙って無効になるだけで、ユーザーには「地図に経路が出ない」としか見えない。
 [[dependencies.${mod_id}]]
 modId="xaeroworldmap"
-type="optional"
+mandatory=false
 versionRange="[${xaero_worldmap_version},)"
 ordering="AFTER"
 side="CLIENT"
 
 [[dependencies.${mod_id}]]
 modId="xaerominimap"
-type="optional"
+mandatory=false
 versionRange="[${xaero_minimap_version},)"
 ordering="AFTER"
 side="CLIENT"

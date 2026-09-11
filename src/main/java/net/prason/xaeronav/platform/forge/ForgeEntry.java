@@ -47,7 +47,10 @@ public final class ForgeEntry {
     // クライアント専用クラス（Minecraft/RenderLevelStageEvent等）への参照はFMLClientSetupEvent内に
     // 閉じ込める。dist=CLIENTでガードすることで、専用サーバー上でもこのクラス自体がロードされない
     // （NeoForgeEntryと同じ構造。Forgeの@Modにはdist引数が無いのでここでガードする）。
-    @Mod.EventBusSubscriber(modid = XaeroNav.MOD_ID, value = Dist.CLIENT)
+    // bus=MODは明示が要る——NeoForgeと違いForgeの@EventBusSubscriberは既定がFORGE busで、
+    // 省略するとFMLClientSetupEvent/RegisterKeyMappingsEvent/AddGuiOverlayLayersEvent
+    // （すべてmod event busでしか発火しない）が一切呼ばれない
+    @Mod.EventBusSubscriber(modid = XaeroNav.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static final class ClientSetup {
 
         @SubscribeEvent

@@ -9,6 +9,7 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 |---|---|---|
 | `1.21.1-neoforge` | 1.21.1 | NeoForge 21.1.228+ |
 | `1.21.1-fabric` | 1.21.1 | Fabric Loader 0.19.5+ / Fabric API |
+| `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
 
 ノード名は `<MC バージョン>-<ローダー>`。切り分けには [Stonecutter](https://stonecutter.kikugie.dev/)
 を使っています（Architectury は入れていません）。
@@ -20,13 +21,13 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `settings.gradle.kts` | ノードの一覧。**ノードを増やすのはここの 1 行** |
 | `stonecutter.properties.toml` | ノードごとの依存バージョン。**ノードを増やすとここにテーブルが 1 つ増える** |
 | `stonecutter.gradle.kts` | 全ノード共通の入口（`buildAll` / `collectJars` / `printNodes`）と spotless |
-| `build.neoforge.gradle.kts` / `build.fabric.gradle.kts` | ローダーごとのビルド。ローダーが増えたときだけ増える |
+| `build.neoforge.gradle.kts` / `build.fabric.gradle.kts` / `build.forge.gradle.kts` | ローダーごとのビルド。ローダーが増えたときだけ増える |
 | `buildSrc/src/main/kotlin/xaeronav.common.gradle.kts` | 全ノード共通のビルド設定（Java 21・テスト・jar 名） |
 | `src/main/java/net/prason/xaeronav/platform/` | ローダーごとの起動処理とイベント配線 |
 
 `gradle.properties` にあるのは MOD 自身のメタデータ（id・名前・バージョン）だけです。
 Minecraft / ローダー / Xaero の版は `stonecutter.properties.toml` が唯一の情報源で、
-`neoforge.mods.toml` と `fabric.mod.json` へもそこから流し込まれます。
+`neoforge.mods.toml` / `fabric.mod.json` / `mods.toml`（Forge）へもそこから流し込まれます。
 
 ## ノードを増やす
 
