@@ -5,10 +5,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.BooleanSupplier;
-import java.util.function.LongPredicate;
 
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
@@ -59,10 +56,6 @@ public final class AStarPathfinder {
     /** {@link ColumnScans#UNREADABLE_BELOW}の別名。 */
     private static final int UNREADABLE_BELOW = ColumnScans.UNREADABLE_BELOW;
 
-    private static final int WATER_NEARBY = 0;
-    private static final int LAVA_NEARBY = 1;
-    private static final int CLIMBABLE_NEAR = 2;
-
     /**
      * 飛び越えられる隙間の最大幅（着地点は隙間の1マス先）。疾走ジャンプは滞空約12.5tickの間に
      * 水平4マス弱しか進めないので、3マスの隙間＝4マス先への着地がバニラの到達限界になる。
@@ -105,9 +98,6 @@ public final class AStarPathfinder {
 
     /** 縦走査と、その結果の列ごとの覚え書き。探索1回ぶんで使い捨てる。 */
     private final ColumnScans scans;
-
-    /** {@link #neighborhood}の答え。種別ごとに「調べたか」と「真か」の2ビットを持つ。 */
-    private final Long2IntOpenHashMap neighborhoods = new Long2IntOpenHashMap();
 
     /** 連続して架けてよい橋の長さ（ブロック）。0なら無制限。{@link CellSource#maxBridgeRunBlocks()}。 */
     private final int maxBridgeRun;
@@ -221,19 +211,17 @@ public final class AStarPathfinder {
     /** {@link CellSource#minDescentTicksPerBlock()}。探索中は不変なので1度だけ読む。 */
     private final double minDescentPerBlock;
 
-    /**
-     * ノード表の初期サイズの上限。展開数上限を大きく設定されたときに、実際にはそこまで使わない表を
-     * 先に確保してしまわないための頭打ち。
-     */
-    private static final int MAX_PRESIZED_NODES = 1 << 16;
+    private final NodeTable nodes = new NodeTable();
 
-    private final Long2ObjectOpenHashMap<PathNode> nodes;
     /**
      * ボートに乗った状態のノード。{@link PathNode#boating}が同一性の一部なので、座標が同じでも
      * 乗っている／いないは別のノードになる。{@link BlockPos#asLong}は64bitを使い切っていて
      * キーに1bit足せないため、表そのものを分けている。ボートを持っていなければ空のまま。
      */
-    private final Long2ObjectOpenHashMap<PathNode> boatNodes = new Long2ObjectOpenHashMap<>();
+    private final NodeTable boatNodes = new NodeTable();
+
+    /** 作ったノードの総数（展開したノードの周りも含む）。 */
+    private int createdNodes;
     private final BinaryHeapOpenSet open = new BinaryHeapOpenSet();
     private final PathNode[] bestSoFar = new PathNode[COEFFICIENTS.length];
     private final double[] bestHeuristic = new double[COEFFICIENTS.length];
@@ -327,7 +315,9 @@ public final class AStarPathfinder {
         this.placeWithoutBlocks = tolerances.placeWithoutBlocks();
         this.avoidRiskyJumps = !tolerances.allowRiskyJumps();
         this.maxFallDamagePoints = tolerances.maxFallDamagePoints();
-        this.view = view;
+        // 生成器は同じセルを何度も読み直す（1ノードあたり197〜413回の読みに対し、触れる列は
+        // 探索全体で2万本ほど）。ここで包んでおくと、2回目以降がハッシュ表を引かずに済む
+        this.view = new MemoCells(view);
         // 落下ダメージの許容量を緩めたら下降の下限も一緒に緩める。許せる落差が伸びるほど
         // 1ブロックあたりの実コストは終端速度へ近づいて安くなるので、元の下限のままでは
         // ヒューリスティックが実コストを上回りうる（＝非許容）
@@ -336,11 +326,7 @@ public final class AStarPathfinder {
         this.timeLimitMillis = limits.timeLimitMillis();
         this.heuristicWeight = limits.heuristicWeight();
         this.costToGo = costToGo;
-        this.scans = new ColumnScans(view);
-        // 展開したノードの周囲も含めるとノード数は展開数を超える。小さく作ると探索の途中で
-        // 表の作り直しが何度も走り、そのたびに全エントリの再配置が起きる
-        this.nodes = new Long2ObjectOpenHashMap<>(
-                Math.min(limits.maxExpandedNodes(), MAX_PRESIZED_NODES), 0.75f);
+        this.scans = new ColumnScans(this.view);
     }
 
     /**
@@ -626,7 +612,7 @@ public final class AStarPathfinder {
         if (termination != PathResult.Termination.REACHED_GOAL) {
             trimUnfinishedPlacements(steps);
         }
-        return new PathResult(steps, termination, expanded, nodes.size() + boatNodes.size());
+        return new PathResult(steps, termination, expanded, createdNodes);
     }
 
     /**
@@ -681,9 +667,9 @@ public final class AStarPathfinder {
     }
 
     private PathNode node(int x, int y, int z, boolean boating) {
-        Long2ObjectOpenHashMap<PathNode> table = boating ? boatNodes : nodes;
-        long key = BlockPos.asLong(x, y, z);
-        PathNode existing = table.get(key);
+        PathNode[] page = (boating ? boatNodes : nodes).page(x, y, z);
+        int index = NodeTable.index(x, y, z);
+        PathNode existing = page[index];
         if (existing != null) {
             return existing;
         }
@@ -719,7 +705,8 @@ public final class AStarPathfinder {
             }
         }
         PathNode created = new PathNode(x, y, z, boating, heuristic);
-        table.put(key, created);
+        page[index] = created;
+        createdNodes++;
         return created;
     }
 
@@ -1650,14 +1637,19 @@ public final class AStarPathfinder {
                 && hasAdjacentWater(x, headY, z);
     }
 
-    /** ブロックを置くセルの周り（真上を除く5面）に水があるか。 */
+    /**
+     * ブロックを置くセルの周り（真上を除く5面）に水があるか。
+     *
+     * <p><b>毎回読み直してよい。</b>読みは{@code MemoCells}のページ配列に当たるので、ここに
+     * セルごとの覚え書きを足しても速くならない——覚え書きの引き当ての方が高くつく。
+     */
     private boolean hasAdjacentWater(int x, int y, int z) {
-        return neighborhood(x, y, z, WATER_NEARBY);
+        return adjacentWater(x, y, z);
     }
 
     /** ブロックを置くセルの周り（真上を除く5面）に溶岩があるか。 */
     private boolean hasAdjacentLava(int x, int y, int z) {
-        return neighborhood(x, y, z, LAVA_NEARBY);
+        return adjacentLava(x, y, z);
     }
 
     /**
@@ -1667,31 +1659,9 @@ public final class AStarPathfinder {
      * そこにツタが垂れていれば、置く先を狙う視線はまずそれに当たる。
      */
     private boolean climbableNear(int x, int y, int z) {
-        return neighborhood(x, y, z, CLIMBABLE_NEAR);
-    }
-
-    /**
-     * 周り5面（ツタだけは自分と真上も）の問い合わせ。答えはセルごとに覚える——
-     * 1回に5〜7セル読むうえ、隣り合うノードが同じセルを何度も聞き直すので、実測では
-     * {@link #addBridge}まわりのこの判定だけで探索時間の約10%を使っていた。
-     */
-    private boolean neighborhood(int x, int y, int z, int kind) {
-        long key = BlockPos.asLong(x, y, z);
-        int flags = neighborhoods.get(key);
-        int knownBit = 1 << (kind * 2);
-        int valueBit = knownBit << 1;
-        if ((flags & knownBit) != 0) {
-            return (flags & valueBit) != 0;
-        }
-        boolean value = switch (kind) {
-            case WATER_NEARBY -> hasAdjacent(x, y, z, CellData::water);
-            case LAVA_NEARBY -> hasAdjacent(x, y, z, CellData::lava);
-            default -> CellData.climbable(view.cell(x, y, z))
-                    || CellData.climbable(view.cell(x, y + 1, z))
-                    || hasAdjacent(x, y, z, CellData::climbable);
-        };
-        neighborhoods.put(key, flags | knownBit | (value ? valueBit : 0));
-        return value;
+        return CellData.climbable(view.cell(x, y, z))
+                || CellData.climbable(view.cell(x, y + 1, z))
+                || adjacentClimbable(x, y, z);
     }
 
     /**
@@ -1726,10 +1696,22 @@ public final class AStarPathfinder {
         return true;
     }
 
-    private boolean hasAdjacent(int x, int y, int z, LongPredicate test) {
-        return test.test(view.cell(x, y - 1, z))
-                || test.test(view.cell(x + 1, y, z)) || test.test(view.cell(x - 1, y, z))
-                || test.test(view.cell(x, y, z + 1)) || test.test(view.cell(x, y, z - 1));
+    private boolean adjacentWater(int x, int y, int z) {
+        return CellData.water(view.cell(x, y - 1, z))
+                || CellData.water(view.cell(x + 1, y, z)) || CellData.water(view.cell(x - 1, y, z))
+                || CellData.water(view.cell(x, y, z + 1)) || CellData.water(view.cell(x, y, z - 1));
+    }
+
+    private boolean adjacentLava(int x, int y, int z) {
+        return CellData.lava(view.cell(x, y - 1, z))
+                || CellData.lava(view.cell(x + 1, y, z)) || CellData.lava(view.cell(x - 1, y, z))
+                || CellData.lava(view.cell(x, y, z + 1)) || CellData.lava(view.cell(x, y, z - 1));
+    }
+
+    private boolean adjacentClimbable(int x, int y, int z) {
+        return CellData.climbable(view.cell(x, y - 1, z))
+                || CellData.climbable(view.cell(x + 1, y, z)) || CellData.climbable(view.cell(x - 1, y, z))
+                || CellData.climbable(view.cell(x, y, z + 1)) || CellData.climbable(view.cell(x, y, z - 1));
     }
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
@@ -1751,6 +1733,18 @@ public final class AStarPathfinder {
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
                         boolean boating) {
+        // 息の勘定より先に「そもそも安くならない候補」を捨てる。割増（SUBMERGED_TRAVEL_PENALTY）は
+        // 1倍を下回らないので、割増前のコストで改善できないなら割増後も改善できない。
+        // ここを後回しにすると、捨てると分かっている候補のために頭上と周り5面を読むことになる。
+        //
+        // この先で立てる{@code submergedRunCapBlocked}をここで取りこぼすが、それでよい——
+        // 改善しない辺が上限で消えても答えは変わらないので、それを理由に上限を外して
+        // 探し直しても同じ経路が出る
+        PathNode neighbor = node(x, y, z, boating);
+        if (neighbor.closed || neighbor.cost - (from.cost + edgeCost) <= MIN_IMPROVEMENT) {
+            return;
+        }
+
         // 移動の種類に関わらず、着地点で頭が水に浸かるならその移動にかかった時間だけ息が減る。
         // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・掘る・水へ落ちる）でも同じだから——
         // とりわけ採掘は1手に数十tickかかるので、マス数で数えると息の上限をすり抜ける
@@ -1779,8 +1773,7 @@ public final class AStarPathfinder {
         boolean surfacing = y > from.y && Math.abs(x - from.x) + Math.abs(z - from.z) <= 1;
         double tentativeCost = from.cost
                 + (submerged && !surfacing ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost);
-        PathNode neighbor = node(x, y, z, boating);
-        if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
+        if (neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
             return;
         }
 
@@ -1855,11 +1848,12 @@ public final class AStarPathfinder {
         for (int y = bottomY; y <= topY; y++) {
             // ドアは上下2セルに分かれているが、開ける動作は1回。両方に開閉コストを払うと
             // 1枚のドアが2枚分の重さになり、ドアのある正しい通り道を避けるようになる
-            boolean openable = CellData.openable(view.cell(x, y, z));
+            long cell = view.cell(x, y, z);
+            boolean openable = CellData.openable(cell);
             if (openable && doorCharged) {
                 continue;
             }
-            double cost = occupyCost(x, y, z, cells);
+            double cost = occupyCost(cell, x, y, z, cells);
             if (Double.isInfinite(cost)) {
                 return ActionCosts.INFEASIBLE;
             }
@@ -1873,10 +1867,11 @@ public final class AStarPathfinder {
         double total = 0.0;
         for (int i = 0; i < MAX_FALLING_CHAIN_SCAN; i++) {
             int y = startY + i;
-            if (!CellData.fallingBlock(view.cell(x, y, z))) {
+            long cell = view.cell(x, y, z);
+            if (!CellData.fallingBlock(cell)) {
                 break;
             }
-            double cost = occupyCost(x, y, z, cells);
+            double cost = occupyCost(cell, x, y, z, cells);
             if (Double.isInfinite(cost)) {
                 break;
             }
@@ -1885,8 +1880,7 @@ public final class AStarPathfinder {
         return total;
     }
 
-    private double occupyCost(int x, int y, int z, List<BlockPos> cells) {
-        long cell = view.cell(x, y, z);
+    private double occupyCost(long cell, int x, int y, int z, List<BlockPos> cells) {
         if (!CellData.present(cell)) {
             return ActionCosts.INFEASIBLE;
         }
