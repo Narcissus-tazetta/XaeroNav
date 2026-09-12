@@ -1733,6 +1733,18 @@ public final class AStarPathfinder {
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
                         boolean boating) {
+        // 息の勘定より先に「そもそも安くならない候補」を捨てる。割増（SUBMERGED_TRAVEL_PENALTY）は
+        // 1倍を下回らないので、割増前のコストで改善できないなら割増後も改善できない。
+        // ここを後回しにすると、捨てると分かっている候補のために頭上と周り5面を読むことになる。
+        //
+        // この先で立てる{@code submergedRunCapBlocked}をここで取りこぼすが、それでよい——
+        // 改善しない辺が上限で消えても答えは変わらないので、それを理由に上限を外して
+        // 探し直しても同じ経路が出る
+        PathNode neighbor = node(x, y, z, boating);
+        if (neighbor.closed || neighbor.cost - (from.cost + edgeCost) <= MIN_IMPROVEMENT) {
+            return;
+        }
+
         // 移動の種類に関わらず、着地点で頭が水に浸かるならその移動にかかった時間だけ息が減る。
         // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・掘る・水へ落ちる）でも同じだから——
         // とりわけ採掘は1手に数十tickかかるので、マス数で数えると息の上限をすり抜ける
@@ -1761,8 +1773,7 @@ public final class AStarPathfinder {
         boolean surfacing = y > from.y && Math.abs(x - from.x) + Math.abs(z - from.z) <= 1;
         double tentativeCost = from.cost
                 + (submerged && !surfacing ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost);
-        PathNode neighbor = node(x, y, z, boating);
-        if (neighbor.closed || neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
+        if (neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
             return;
         }
 
