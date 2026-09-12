@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongPredicate;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import net.minecraft.core.BlockPos;
@@ -58,6 +59,10 @@ public final class AStarPathfinder {
     /** {@link ColumnScans#UNREADABLE_BELOW}の別名。 */
     private static final int UNREADABLE_BELOW = ColumnScans.UNREADABLE_BELOW;
 
+    private static final int WATER_NEARBY = 0;
+    private static final int LAVA_NEARBY = 1;
+    private static final int CLIMBABLE_NEAR = 2;
+
     /**
      * 飛び越えられる隙間の最大幅（着地点は隙間の1マス先）。疾走ジャンプは滞空約12.5tickの間に
      * 水平4マス弱しか進めないので、3マスの隙間＝4マス先への着地がバニラの到達限界になる。
@@ -100,6 +105,9 @@ public final class AStarPathfinder {
 
     /** 縦走査と、その結果の列ごとの覚え書き。探索1回ぶんで使い捨てる。 */
     private final ColumnScans scans;
+
+    /** {@link #neighborhood}の答え。種別ごとに「調べたか」と「真か」の2ビットを持つ。 */
+    private final Long2IntOpenHashMap neighborhoods = new Long2IntOpenHashMap();
 
     /** 連続して架けてよい橋の長さ（ブロック）。0なら無制限。{@link CellSource#maxBridgeRunBlocks()}。 */
     private final int maxBridgeRun;
@@ -1644,12 +1652,12 @@ public final class AStarPathfinder {
 
     /** ブロックを置くセルの周り（真上を除く5面）に水があるか。 */
     private boolean hasAdjacentWater(int x, int y, int z) {
-        return hasAdjacent(x, y, z, CellData::water);
+        return neighborhood(x, y, z, WATER_NEARBY);
     }
 
     /** ブロックを置くセルの周り（真上を除く5面）に溶岩があるか。 */
     private boolean hasAdjacentLava(int x, int y, int z) {
-        return hasAdjacent(x, y, z, CellData::lava);
+        return neighborhood(x, y, z, LAVA_NEARBY);
     }
 
     /**
@@ -1659,9 +1667,31 @@ public final class AStarPathfinder {
      * そこにツタが垂れていれば、置く先を狙う視線はまずそれに当たる。
      */
     private boolean climbableNear(int x, int y, int z) {
-        return CellData.climbable(view.cell(x, y, z))
-                || CellData.climbable(view.cell(x, y + 1, z))
-                || hasAdjacent(x, y, z, CellData::climbable);
+        return neighborhood(x, y, z, CLIMBABLE_NEAR);
+    }
+
+    /**
+     * 周り5面（ツタだけは自分と真上も）の問い合わせ。答えはセルごとに覚える——
+     * 1回に5〜7セル読むうえ、隣り合うノードが同じセルを何度も聞き直すので、実測では
+     * {@link #addBridge}まわりのこの判定だけで探索時間の約10%を使っていた。
+     */
+    private boolean neighborhood(int x, int y, int z, int kind) {
+        long key = BlockPos.asLong(x, y, z);
+        int flags = neighborhoods.get(key);
+        int knownBit = 1 << (kind * 2);
+        int valueBit = knownBit << 1;
+        if ((flags & knownBit) != 0) {
+            return (flags & valueBit) != 0;
+        }
+        boolean value = switch (kind) {
+            case WATER_NEARBY -> hasAdjacent(x, y, z, CellData::water);
+            case LAVA_NEARBY -> hasAdjacent(x, y, z, CellData::lava);
+            default -> CellData.climbable(view.cell(x, y, z))
+                    || CellData.climbable(view.cell(x, y + 1, z))
+                    || hasAdjacent(x, y, z, CellData::climbable);
+        };
+        neighborhoods.put(key, flags | knownBit | (value ? valueBit : 0));
+        return value;
     }
 
     /**
