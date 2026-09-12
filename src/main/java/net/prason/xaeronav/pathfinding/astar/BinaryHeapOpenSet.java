@@ -53,6 +53,7 @@ final class BinaryHeapOpenSet {
         return result;
     }
 
+    /** 段ごとに入れ替えず、空けた穴へ親を降ろしていき、最後に一度だけノードを置く。 */
     private void siftUp(PathNode node) {
         int index = node.heapPosition;
         double cost = node.combinedCost;
@@ -62,11 +63,11 @@ final class BinaryHeapOpenSet {
             if (parent.combinedCost <= cost) {
                 break;
             }
-            array[parentIndex] = node;
             array[index] = parent;
             parent.heapPosition = index;
             index = parentIndex;
         }
+        array[index] = node;
         node.heapPosition = index;
     }
 
@@ -90,10 +91,10 @@ final class BinaryHeapOpenSet {
                 break;
             }
             array[index] = smaller;
-            array[child] = node;
             smaller.heapPosition = index;
             index = child;
         }
+        array[index] = node;
         node.heapPosition = index;
     }
 }
