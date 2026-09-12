@@ -1843,11 +1843,12 @@ public final class AStarPathfinder {
         for (int y = bottomY; y <= topY; y++) {
             // ドアは上下2セルに分かれているが、開ける動作は1回。両方に開閉コストを払うと
             // 1枚のドアが2枚分の重さになり、ドアのある正しい通り道を避けるようになる
-            boolean openable = CellData.openable(view.cell(x, y, z));
+            long cell = view.cell(x, y, z);
+            boolean openable = CellData.openable(cell);
             if (openable && doorCharged) {
                 continue;
             }
-            double cost = occupyCost(x, y, z, cells);
+            double cost = occupyCost(cell, x, y, z, cells);
             if (Double.isInfinite(cost)) {
                 return ActionCosts.INFEASIBLE;
             }
@@ -1861,10 +1862,11 @@ public final class AStarPathfinder {
         double total = 0.0;
         for (int i = 0; i < MAX_FALLING_CHAIN_SCAN; i++) {
             int y = startY + i;
-            if (!CellData.fallingBlock(view.cell(x, y, z))) {
+            long cell = view.cell(x, y, z);
+            if (!CellData.fallingBlock(cell)) {
                 break;
             }
-            double cost = occupyCost(x, y, z, cells);
+            double cost = occupyCost(cell, x, y, z, cells);
             if (Double.isInfinite(cost)) {
                 break;
             }
@@ -1873,8 +1875,7 @@ public final class AStarPathfinder {
         return total;
     }
 
-    private double occupyCost(int x, int y, int z, List<BlockPos> cells) {
-        long cell = view.cell(x, y, z);
+    private double occupyCost(long cell, int x, int y, int z, List<BlockPos> cells) {
         if (!CellData.present(cell)) {
             return ActionCosts.INFEASIBLE;
         }
