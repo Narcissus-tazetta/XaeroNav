@@ -303,6 +303,20 @@ class SearchProfileTest {
         List<String> report = new ArrayList<>();
         for (Scenario scenario : scenarios()) {
             report.add(String.format(Locale.ROOT, "%n■ %s", scenario.name()));
+            FakeCells guideCells = scenario.terrain().create();
+            long sampleBegan = System.nanoTime();
+            net.prason.xaeronav.pathfinding.coarse.CoarseMap coarseMap =
+                    net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler.sample(guideCells,
+                            guideCells.bounds(), scenario.start().getY(), () -> false);
+            double sampleMillis = (System.nanoTime() - sampleBegan) / 1e6;
+            long dijkstraBegan = System.nanoTime();
+            net.prason.xaeronav.pathfinding.coarse.CoarseRouter.costToGo(coarseMap, scenario.goal(), false,
+                    guideCells.lavaBridgingEnabled()
+                            ? net.prason.xaeronav.pathfinding.coarse.CoarseRouter.BridgePolicy.BRIDGE
+                            : net.prason.xaeronav.pathfinding.coarse.CoarseRouter.BridgePolicy.ALLOW);
+            double dijkstraMillis = (System.nanoTime() - dijkstraBegan) / 1e6;
+            report.add(String.format(Locale.ROOT, "    ガイド構築の内訳: 地図の走査%.0fms + ダイクストラ%.0fms",
+                    sampleMillis, dijkstraMillis));
             for (boolean guide : new boolean[] {false, true}) {
                 FakeCells cells = scenario.terrain().create();
                 long began = System.nanoTime();
@@ -315,6 +329,31 @@ class SearchProfileTest {
             }
         }
         emit("profile-guide.txt", String.join("\n", report));
+    }
+
+    /**
+     * 実機と同じ組み立て（層1ガイド＋区間分割＋継ぎ足し）で歩き通したときの総時間。
+     * 探索1回ぶんでは見えない「同じものを何度も組み直す」ぶんがここに出る。
+     */
+    @Test
+    void walkThrough() throws IOException {
+        List<String> report = new ArrayList<>();
+        FakeCells probe = overworldWide();
+        for (BlockPos[] route : TerrainFixture.randomRoutes(probe, probe.bounds(), SEED, 3, 200, 320)) {
+            double best = Double.MAX_VALUE;
+            int steps = 0;
+            for (int attempt = 0; attempt < RUNS; attempt++) {
+                FakeCells cells = overworldWide();
+                long began = System.nanoTime();
+                List<PathStep> walked = ProgressiveWalk.walk(cells, route[0], route[1], WINDOW_RADIUS, true);
+                best = Math.min(best, (System.nanoTime() - began) / 1e6);
+                steps = walked.size();
+            }
+            report.add(String.format(Locale.ROOT, "    %s→%s (%.0fブロック) %d手 %.0fms",
+                    route[0].toShortString(), route[1].toShortString(),
+                    horizontal(route[0], route[1]), steps, best));
+        }
+        emit("profile-walk.txt", String.join("\n", report));
     }
 
     /** 結果はGradleが握り潰すので、標準出力とファイルの両方へ出す。 */
