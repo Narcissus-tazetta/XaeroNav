@@ -6,7 +6,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
@@ -212,19 +211,17 @@ public final class AStarPathfinder {
     /** {@link CellSource#minDescentTicksPerBlock()}。探索中は不変なので1度だけ読む。 */
     private final double minDescentPerBlock;
 
-    /**
-     * ノード表の初期サイズの上限。展開数上限を大きく設定されたときに、実際にはそこまで使わない表を
-     * 先に確保してしまわないための頭打ち。
-     */
-    private static final int MAX_PRESIZED_NODES = 1 << 16;
+    private final NodeTable nodes = new NodeTable();
 
-    private final Long2ObjectOpenHashMap<PathNode> nodes;
     /**
      * ボートに乗った状態のノード。{@link PathNode#boating}が同一性の一部なので、座標が同じでも
      * 乗っている／いないは別のノードになる。{@link BlockPos#asLong}は64bitを使い切っていて
      * キーに1bit足せないため、表そのものを分けている。ボートを持っていなければ空のまま。
      */
-    private final Long2ObjectOpenHashMap<PathNode> boatNodes = new Long2ObjectOpenHashMap<>();
+    private final NodeTable boatNodes = new NodeTable();
+
+    /** 作ったノードの総数（展開したノードの周りも含む）。 */
+    private int createdNodes;
     private final BinaryHeapOpenSet open = new BinaryHeapOpenSet();
     private final PathNode[] bestSoFar = new PathNode[COEFFICIENTS.length];
     private final double[] bestHeuristic = new double[COEFFICIENTS.length];
@@ -330,10 +327,6 @@ public final class AStarPathfinder {
         this.heuristicWeight = limits.heuristicWeight();
         this.costToGo = costToGo;
         this.scans = new ColumnScans(this.view);
-        // 展開したノードの周囲も含めるとノード数は展開数を超える。小さく作ると探索の途中で
-        // 表の作り直しが何度も走り、そのたびに全エントリの再配置が起きる
-        this.nodes = new Long2ObjectOpenHashMap<>(
-                Math.min(limits.maxExpandedNodes(), MAX_PRESIZED_NODES), 0.75f);
     }
 
     /**
@@ -619,7 +612,7 @@ public final class AStarPathfinder {
         if (termination != PathResult.Termination.REACHED_GOAL) {
             trimUnfinishedPlacements(steps);
         }
-        return new PathResult(steps, termination, expanded, nodes.size() + boatNodes.size());
+        return new PathResult(steps, termination, expanded, createdNodes);
     }
 
     /**
@@ -674,9 +667,9 @@ public final class AStarPathfinder {
     }
 
     private PathNode node(int x, int y, int z, boolean boating) {
-        Long2ObjectOpenHashMap<PathNode> table = boating ? boatNodes : nodes;
-        long key = BlockPos.asLong(x, y, z);
-        PathNode existing = table.get(key);
+        PathNode[] page = (boating ? boatNodes : nodes).page(x, y, z);
+        int index = NodeTable.index(x, y, z);
+        PathNode existing = page[index];
         if (existing != null) {
             return existing;
         }
@@ -712,7 +705,8 @@ public final class AStarPathfinder {
             }
         }
         PathNode created = new PathNode(x, y, z, boating, heuristic);
-        table.put(key, created);
+        page[index] = created;
+        createdNodes++;
         return created;
     }
 
