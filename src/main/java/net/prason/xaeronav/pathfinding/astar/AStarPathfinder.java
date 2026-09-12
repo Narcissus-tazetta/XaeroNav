@@ -5,7 +5,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.BooleanSupplier;
-import java.util.function.LongPredicate;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
@@ -1651,12 +1650,12 @@ public final class AStarPathfinder {
      * セルごとの覚え書きを足しても速くならない——覚え書きの引き当ての方が高くつく。
      */
     private boolean hasAdjacentWater(int x, int y, int z) {
-        return hasAdjacent(x, y, z, CellData::water);
+        return adjacentWater(x, y, z);
     }
 
     /** ブロックを置くセルの周り（真上を除く5面）に溶岩があるか。 */
     private boolean hasAdjacentLava(int x, int y, int z) {
-        return hasAdjacent(x, y, z, CellData::lava);
+        return adjacentLava(x, y, z);
     }
 
     /**
@@ -1668,7 +1667,7 @@ public final class AStarPathfinder {
     private boolean climbableNear(int x, int y, int z) {
         return CellData.climbable(view.cell(x, y, z))
                 || CellData.climbable(view.cell(x, y + 1, z))
-                || hasAdjacent(x, y, z, CellData::climbable);
+                || adjacentClimbable(x, y, z);
     }
 
     /**
@@ -1703,10 +1702,22 @@ public final class AStarPathfinder {
         return true;
     }
 
-    private boolean hasAdjacent(int x, int y, int z, LongPredicate test) {
-        return test.test(view.cell(x, y - 1, z))
-                || test.test(view.cell(x + 1, y, z)) || test.test(view.cell(x - 1, y, z))
-                || test.test(view.cell(x, y, z + 1)) || test.test(view.cell(x, y, z - 1));
+    private boolean adjacentWater(int x, int y, int z) {
+        return CellData.water(view.cell(x, y - 1, z))
+                || CellData.water(view.cell(x + 1, y, z)) || CellData.water(view.cell(x - 1, y, z))
+                || CellData.water(view.cell(x, y, z + 1)) || CellData.water(view.cell(x, y, z - 1));
+    }
+
+    private boolean adjacentLava(int x, int y, int z) {
+        return CellData.lava(view.cell(x, y - 1, z))
+                || CellData.lava(view.cell(x + 1, y, z)) || CellData.lava(view.cell(x - 1, y, z))
+                || CellData.lava(view.cell(x, y, z + 1)) || CellData.lava(view.cell(x, y, z - 1));
+    }
+
+    private boolean adjacentClimbable(int x, int y, int z) {
+        return CellData.climbable(view.cell(x, y - 1, z))
+                || CellData.climbable(view.cell(x + 1, y, z)) || CellData.climbable(view.cell(x - 1, y, z))
+                || CellData.climbable(view.cell(x, y, z + 1)) || CellData.climbable(view.cell(x, y, z - 1));
     }
 
     private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
