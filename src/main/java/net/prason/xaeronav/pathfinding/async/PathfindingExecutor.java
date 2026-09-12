@@ -66,6 +66,35 @@ public final class PathfindingExecutor {
     });
 
     /**
+     * 直前に組んだ層1ガイドと、それを組んだ条件。
+     *
+     * <p>歩いている間、目的地も地形も変わらないのに<b>探索のたびに組み直していた</b>
+     * （実測15〜30ms/回で、ほとんどが地図の走査）。
+     *
+     * <p><b>箱を格子へ広げて揃えてはいけない。</b>再利用の頻度は上がるが、広げたぶんの縁が
+     * 未知セル（下限側では最安）になってガイドが弱まる——実測でネザーの溶岩の海が
+     * 560,075→610,699ノードに増え、<b>ジ・エンドの奈落越えは到達から予算切れへ落ちた</b>。
+     *
+     * <p><b>地形が後から読み込まれても古い表を使い続けてよい。</b>下限側では未知セルが
+     * 最安（倍率1.0）に倒れるので、古い表は新しい表以下＝下限であることは保たれる。
+     * 一方で参照Y（{@link LiveCoarseSampler}がどの床を採るか）が変われば下限を破りうるので、
+     * そちらは鍵に入れて厳密に一致させる。
+     *
+     * <p>逆に<b>地形が掘られて安くなった</b>場合だけは古い表が上振れしうる。起きるのは
+     * 「箱も目的地も参照Yも変わらないまま地形が変わる」＝プレイヤーがその場から動かずに
+     * 掘ったときだけで、1ブロック歩けば箱が動いて組み直される。
+     *
+     * <p>触るのは{@link #executor}のワーカー1本だけ（深い予算の探索には組み終えた表を渡す）。
+     */
+    private record GuideKey(BlockPos goal, SearchBounds bounds, int referenceY,
+                            CoarseRouter.BridgePolicy bridgePolicy) {
+    }
+
+    private GuideKey guideKey;
+
+    private CostToGo guide;
+
+    /**
      * 粗い経由地チェーンの中間の経由地を、ゴールとして許す半径（ブロック）。
      *
      * <p>経由地は1セル＝1チャンク(16ブロック)の代表点なので、実際の通り道はその中心から
@@ -382,12 +411,22 @@ public final class PathfindingExecutor {
      * そのまま狙う設計（天井のある次元。{@code PathfindingState#selectDetailTarget}）では常にこの形になる
      * ——<b>意図的にそうしている</b>（測定は{@code NetherDetourBreakdownTest}）。
      */
-    private static CostToGo buildCostToGoGuide(CellSource view, BlockPos start, BlockPos goal,
-                                                BooleanSupplier cancelled) {
-        CoarseMap coarseMap = LiveCoarseSampler.sample(view, view.bounds(), start.getY(), cancelled);
+    private CostToGo buildCostToGoGuide(CellSource view, BlockPos start, BlockPos goal,
+                                         BooleanSupplier cancelled) {
         CoarseRouter.BridgePolicy bridgePolicy = view.lavaBridgingEnabled()
                 ? CoarseRouter.BridgePolicy.BRIDGE : CoarseRouter.BridgePolicy.ALLOW;
-        return CoarseRouter.costToGo(coarseMap, goal, false, bridgePolicy);
+        SearchBounds bounds = view.bounds();
+        GuideKey key = new GuideKey(goal, bounds, start.getY(), bridgePolicy);
+        if (key.equals(guideKey)) {
+            return guide;
+        }
+        CoarseMap coarseMap = LiveCoarseSampler.sample(view, bounds, start.getY(), cancelled);
+        CostToGo built = CoarseRouter.costToGo(coarseMap, goal, false, bridgePolicy);
+        if (!cancelled.getAsBoolean()) {
+            guideKey = key;
+            guide = built;
+        }
+        return built;
     }
 
     /**

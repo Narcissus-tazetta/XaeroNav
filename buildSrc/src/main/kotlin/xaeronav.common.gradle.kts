@@ -43,7 +43,7 @@ testing {
             // 手元で回し続ける既定の`test`からは外し、`slowTest`（`check`が依存）に任せる
             targets.all {
                 testTask.configure {
-                    useJUnitPlatform { excludeTags("slow") }
+                    useJUnitPlatform { excludeTags("slow", "bench") }
                 }
             }
         }
@@ -76,6 +76,23 @@ val slowTest by tasks.registering(Test::class) {
 }
 
 tasks.named("check") { dependsOn(slowTest) }
+
+/**
+ * `@Tag("bench")`の付いた計測を回す。番人ではないので`check`からは外してある——
+ * 判定を持たない計測をCIに載せても、赤にならないぶん誰も見ない。
+ */
+val bench by tasks.registering(Test::class) {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "経路探索の速度・質を計測する（判定なし）"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform { includeTags("bench") }
+    // 理由はslowTestと同じ
+    maxHeapSize = "3g"
+    forkEvery = 1
+    systemProperty("xaeronav.profileOut",
+            layout.buildDirectory.dir("bench").get().asFile.absolutePath)
+}
 
 // テストは正典ノードでだけ実行する。経路探索コアはローダーにもMCバージョンにも依存せず
 // （`pathfinding/`に`//?`を書かない鉄則）、どのノードで回しても同じ結果になるので、
