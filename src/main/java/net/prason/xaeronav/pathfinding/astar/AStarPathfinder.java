@@ -327,7 +327,9 @@ public final class AStarPathfinder {
         this.placeWithoutBlocks = tolerances.placeWithoutBlocks();
         this.avoidRiskyJumps = !tolerances.allowRiskyJumps();
         this.maxFallDamagePoints = tolerances.maxFallDamagePoints();
-        this.view = view;
+        // 生成器は同じセルを何度も読み直す（1ノードあたり197〜413回の読みに対し、触れる列は
+        // 探索全体で2万本ほど）。ここで包んでおくと、2回目以降がハッシュ表を引かずに済む
+        this.view = new MemoCells(view);
         // 落下ダメージの許容量を緩めたら下降の下限も一緒に緩める。許せる落差が伸びるほど
         // 1ブロックあたりの実コストは終端速度へ近づいて安くなるので、元の下限のままでは
         // ヒューリスティックが実コストを上回りうる（＝非許容）
@@ -336,7 +338,7 @@ public final class AStarPathfinder {
         this.timeLimitMillis = limits.timeLimitMillis();
         this.heuristicWeight = limits.heuristicWeight();
         this.costToGo = costToGo;
-        this.scans = new ColumnScans(view);
+        this.scans = new ColumnScans(this.view);
         // 展開したノードの周囲も含めるとノード数は展開数を超える。小さく作ると探索の途中で
         // 表の作り直しが何度も走り、そのたびに全エントリの再配置が起きる
         this.nodes = new Long2ObjectOpenHashMap<>(
