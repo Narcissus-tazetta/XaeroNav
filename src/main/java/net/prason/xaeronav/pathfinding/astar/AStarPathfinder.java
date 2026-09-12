@@ -52,51 +52,17 @@ public final class AStarPathfinder {
     /** 落下ブロックが延々と積まれている異常な塔でも1エッジの評価が固まらないようにする安全弁。 */
     private static final int MAX_FALLING_CHAIN_SCAN = 16;
 
-    /**
-     * 踏み出した先の下を辿る深さ。着地点・水面・空虚のどれなのかを見分けるためのもので、
-     * 落下（{@link #addFall}）とブロック設置（{@link #addBridge}）が同じ結果を使う。
-     *
-     * <p>空気が続く限りしか下りないので、地形のある場所では1〜2マスで止まる。探索範囲の外
-     * （未ロード・範囲外）に出ると{@code cell()}が{@link CellData#ABSENT}を返し、それは
-     * {@code passableEmpty}ではないのでその場で止まる——毎ノード×4方向呼ばれるこの走査が
-     * 際限なく続くことはない。深さが効くのは範囲内に本当に空気が続く場所（ジ・エンドの空虚、
-     * ネザーの溶岩の海の上）だけ。
-     *
-     * <p>層1の{@code LiveCoarseSampler}が同じ理由で使っている値（128）に揃えてある。
-     * 以前は32だったため、32マスを超える空洞の下にある溶岩を見逃し、溶岩の上へ跳躍を
-     * 提示することがあった。
-     */
-    private static final int COLUMN_SCAN_DEPTH = 128;
+    /** {@link ColumnScans#NOTHING_BELOW}の別名（走査の結果を読む側の可読性のため）。 */
+    private static final int NOTHING_BELOW = ColumnScans.NOTHING_BELOW;
 
-    /**
-     * {@link #firstNonAirBelow}が、読めるセルだけを辿った末に何にも当たらなかったことを表す。
-     * 走査した範囲は全て空気だったと分かっている＝<b>底が無い</b>（ジ・エンドの奈落、
-     * 探索範囲の下端より深い大空洞）。落ちれば助からない。
-     */
-    private static final int NOTHING_BELOW = Integer.MIN_VALUE;
-
-    /**
-     * {@link #firstNonAirBelow}が未ロードチャンクに当たって走査を打ち切ったことを表す。
-     * {@link #NOTHING_BELOW}と分けるのが要点——{@code ChunkView}は探索範囲外も未ロードも同じ
-     * {@code ABSENT}を返すので、区別せずに「読めなかったら諦める」としていた頃は、
-     * <b>奈落の上に橋の辺が一本も生成されなかった</b>（ジ・エンドの島間で経路が岸で切れる正体）。
-     */
-    private static final int UNREADABLE_BELOW = Integer.MIN_VALUE + 1;
+    /** {@link ColumnScans#UNREADABLE_BELOW}の別名。 */
+    private static final int UNREADABLE_BELOW = ColumnScans.UNREADABLE_BELOW;
 
     /**
      * 飛び越えられる隙間の最大幅（着地点は隙間の1マス先）。疾走ジャンプは滞空約12.5tickの間に
      * 水平4マス弱しか進めないので、3マスの隙間＝4マス先への着地がバニラの到達限界になる。
      */
     private static final int MAX_JUMP_GAP_BLOCKS = 3;
-
-    /**
-     * 隙間の下に溶岩が無いかを確かめる深さ（ブロック）。{@link #COLUMN_SCAN_DEPTH}と揃える
-     * （揃えないと、落下では見える深さの溶岩が跳躍では見えないという食い違いが起きる）。
-     *
-     * <p>「落ちても平気な高さ」で切ってはいけない。溶岩は深さに関わらず落ちれば死ぬので、
-     * 落下ダメージの許容量とは別の話になる（実機で、深い割れ目の底の溶岩へ跳び損ねて死んだ）。
-     */
-    private static final int JUMP_LAVA_SCAN_DEPTH = COLUMN_SCAN_DEPTH;
 
     /**
      * ゴールに到達できなかった場合の到達点候補を、{@code h + g / 係数}という複数の指標で同時に追う。
@@ -131,6 +97,9 @@ public final class AStarPathfinder {
      * {@link Heuristic}（既定の幾何学的下限）をそのまま使う。
      */
     private final CostToGo costToGo;
+
+    /** 縦走査と、その結果の列ごとの覚え書き。探索1回ぶんで使い捨てる。 */
+    private final ColumnScans scans;
 
     /** 連続して架けてよい橋の長さ（ブロック）。0なら無制限。{@link CellSource#maxBridgeRunBlocks()}。 */
     private final int maxBridgeRun;
@@ -359,6 +328,7 @@ public final class AStarPathfinder {
         this.timeLimitMillis = limits.timeLimitMillis();
         this.heuristicWeight = limits.heuristicWeight();
         this.costToGo = costToGo;
+        this.scans = new ColumnScans(view);
         // 展開したノードの周囲も含めるとノード数は展開数を超える。小さく作ると探索の途中で
         // 表の作り直しが何度も走り、そのたびに全エントリの再配置が起きる
         this.nodes = new Long2ObjectOpenHashMap<>(
@@ -787,35 +757,10 @@ public final class AStarPathfinder {
         for (int i = 0; i < CARDINAL_DX.length; i++) {
             int dx = CARDINAL_DX[i];
             int dz = CARDINAL_DZ[i];
-            int obstacleY = firstNonAirBelow(current.x + dx, current.y - 1, current.z + dz);
+            int obstacleY = scans.firstNonAirBelow(current.x + dx, current.y - 1, current.z + dz);
             addFall(current, dx, dz, obstacleY);
             addBridge(current, dx, dz, obstacleY);
         }
-    }
-
-    /**
-     * {@code topY}から下へ、空気ではない最初のセルのYを返す。水・地面・梯子のどれで止まったかは
-     * 呼び出し側がそのセルを見て判断する（{@link CellSource}がキャッシュしているので引き直しは安い）。
-     *
-     * <p>何にも当たらなかった場合は{@link #NOTHING_BELOW}（読めるセルだけを辿った＝本当に底が無い）と
-     * {@link #UNREADABLE_BELOW}（未ロードチャンクで走査が止まった＝下は分からない）を区別して返す。
-     * {@code ChunkView}はどちらも{@code ABSENT}で表すので、ここで探索範囲との位置関係から判別する。
-     */
-    private int firstNonAirBelow(int x, int topY, int z) {
-        for (int i = 0; i < COLUMN_SCAN_DEPTH; i++) {
-            int y = topY - i;
-            long cell = view.cell(x, y, z);
-            if (CellData.passableEmpty(cell)) {
-                continue;
-            }
-            if (CellData.present(cell)) {
-                return y;
-            }
-            // 空気でも実在するセルでもない＝読めなかった。範囲内なら未ロードチャンク、
-            // 範囲外なら「ここまで空気しか無かった」と分かっている
-            return view.isInBounds(x, y, z) ? UNREADABLE_BELOW : NOTHING_BELOW;
-        }
-        return NOTHING_BELOW;
     }
 
     private void addTraverse(PathNode from, int dx, int dz) {
@@ -1156,7 +1101,7 @@ public final class AStarPathfinder {
             // 下が溶岩の隙間は跳ばない。跳躍は外せば落ちるという前提でコストを積んであるが、
             // 溶岩ではその「外したとき」が死なので、コストの多寡で釣り合う話ではなくなる。
             // 下が読めない（未ロード）隙間も同じ扱いにする——溶岩でないと言い切れない
-            if (lavaOrUnknownBelow(gapX, y, gapZ)) {
+            if (scans.lavaOrUnknownBelow(gapX, y, gapZ)) {
                 return;
             }
             int gapDrop = missDrop(gapX, y, gapZ);
@@ -1190,7 +1135,7 @@ public final class AStarPathfinder {
      * 呼び出し側（{@code lavaOrUnknownBelow}）が先に弾いている。
      */
     private int missDrop(int x, int y, int z) {
-        int obstacleY = firstNonAirBelow(x, y - 1, z);
+        int obstacleY = scans.firstNonAirBelow(x, y - 1, z);
         if (obstacleY == NOTHING_BELOW || obstacleY == UNREADABLE_BELOW) {
             // 未ロードは呼び出し側が既に弾いている。ここへは来ない想定だが、
             // 「読めない＝危険ではない」と倒さないよう明示しておく
@@ -1223,36 +1168,6 @@ public final class AStarPathfinder {
             speedFactor = CellData.speedFactor(view.cell(x, y - 1, z));
         }
         return Math.min(1.0, speedFactor);
-    }
-
-    /**
-     * 跳び損ねたときに落ちる先が溶岩か、それとも見通せないか。足元から
-     * {@link #JUMP_LAVA_SCAN_DEPTH}マス下までを見る。
-     *
-     * <p>奈落（読めるセルだけを辿って底に当たらない）は{@code false}を返す——落ちれば死ぬのは
-     * 溶岩と同じだが、そちらは{@code PathSafetyChecker#assessJumpRisk}が{@link PathRisk#VOID_BELOW}で
-     * 警告する担当になっている。ここで一律に禁止すると、ジ・エンドでは全ての隙間が奈落の上なので
-     * 跳ぶ移動が丸ごと消える。
-     */
-    private boolean lavaOrUnknownBelow(int x, int y, int z) {
-        for (int depth = 1; depth <= JUMP_LAVA_SCAN_DEPTH; depth++) {
-            int cellY = y - depth;
-            long cell = view.cell(x, cellY, z);
-            if (CellData.lava(cell)) {
-                return true;
-            }
-            if (CellData.standable(cell)) {
-                // 溶岩より先に床がある。ここへ落ちても溶岩には触れない
-                return false;
-            }
-            if (!CellData.present(cell)) {
-                // 読めなかった。範囲内なら未ロードチャンクで、その下が溶岩かどうか本当に分からない
-                // ——外したときの結末が読めない以上、跳べとは言えない。範囲外なら「ここまで空気しか
-                // 無かった」と分かっているので奈落として扱う（上の注記）
-                return view.isInBounds(x, cellY, z);
-            }
-        }
-        return false;
     }
 
     /**
