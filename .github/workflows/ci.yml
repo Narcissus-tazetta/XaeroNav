@@ -72,10 +72,16 @@ jobs:
           echo "nodes=$NODES" >> "$GITHUB_OUTPUT"
           echo "canonical_node=$CANON" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.full.outputs.full }}" = "true" ]; then
-            echo "runtime_nodes=$NODES" >> "$GITHUB_OUTPUT"
+            RUNTIME=$NODES
           else
-            echo "runtime_nodes=$(echo "$NODES" | jq -c --arg c "$CANON" '[.[] | select(.node == $c)]')" >> "$GITHUB_OUTPUT"
+            RUNTIME=$(echo "$NODES" | jq -c --arg c "$CANON" '[.[] | select(.node == $c)]')
           fi
+          # 1.20.1-forgeはmc-runtime-test側が1.20.1のForgeインストーラーAPIに対応しておらず、
+          # バージョンを変えても直らない構造的な問題（上流 headlesshq/mc-runtime-test#151 に報告済み）。
+          # 直るまでジョブごと作らない。ジョブ側のifでは弾けない——job levelのifからは
+          # matrixコンテキストを参照できず、ワークフローファイルが丸ごと不正になる
+          RUNTIME=$(echo "$RUNTIME" | jq -c '[.[] | select(.node != "1.20.1-forge")]')
+          echo "runtime_nodes=$RUNTIME" >> "$GITHUB_OUTPUT"
 
   # 全ノードの配布jarをコンパイルする。フォーマット確認とテスト（slowTestを含む）は、
   # ソースを共有する正典ノードでだけ行う（stonecutter.properties.tomlのcanonical_test_node）。
@@ -147,11 +153,6 @@ jobs:
       matrix:
         node: ${{ fromJson(needs.discover.outputs.runtime_nodes) }}
     name: runtime (${{ matrix.node.node }})
-    # 1.20.1-forgeはmc-runtime-test側が1.20.1のForgeインストーラーAPIに対応しておらず、
-    # バージョンを変えても直らない構造的な問題（上流 headlesshq/mc-runtime-test#151 に報告済み）。
-    # continue-on-errorだと毎回オレンジの失敗マークが付いてパッと見で分かりづらいので、
-    # 直るまでこのノードは実行自体をskipする（Actions上はgrayのskippedになる）
-    if: matrix.node.node != '1.20.1-forge'
     steps:
       - uses: actions/checkout@v7
 
