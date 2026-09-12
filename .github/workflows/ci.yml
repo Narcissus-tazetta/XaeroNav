@@ -28,6 +28,7 @@ jobs:
     outputs:
       nodes: ${{ steps.nodes.outputs.nodes }}
       runtime_nodes: ${{ steps.nodes.outputs.runtime_nodes }}
+      canonical_node: ${{ steps.nodes.outputs.canonical_node }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -38,7 +39,11 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # ノード発見だけのジョブから専用キャッシュを書き出しても、後続ビルドには
+      # ほぼ再利用できず保存・退避コストだけが増える。
       - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
 
       # runtimeを全ノードへ広げる条件: mainへのpush・週次スケジュール・
       # ノード定義やXaero mixinを触ったPR。それ以外の通常PRは正典ノードだけに絞り、
@@ -63,16 +68,17 @@ jobs:
       - id: nodes
         run: |
           NODES=$(./gradlew printNodes -q --console=plain | tail -1)
+          CANON=$(grep '^canonical_test_node' stonecutter.properties.toml | cut -d'"' -f2)
           echo "nodes=$NODES" >> "$GITHUB_OUTPUT"
+          echo "canonical_node=$CANON" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.full.outputs.full }}" = "true" ]; then
             echo "runtime_nodes=$NODES" >> "$GITHUB_OUTPUT"
           else
-            CANON=$(grep '^canonical_test_node' stonecutter.properties.toml | cut -d'"' -f2)
             echo "runtime_nodes=$(echo "$NODES" | jq -c --arg c "$CANON" '[.[] | select(.node == $c)]')" >> "$GITHUB_OUTPUT"
           fi
 
-  # ノードごとにコンパイル + フォーマット確認(spotlessCheck) + テストを行う。
-  # 実機地形の重いテスト(slowTest)は正典ノードだけで走る（stonecutter.properties.tomlのcanonical_test_node）。
+  # 全ノードの配布jarをコンパイルする。フォーマット確認とテスト（slowTestを含む）は、
+  # ソースを共有する正典ノードでだけ行う（stonecutter.properties.tomlのcanonical_test_node）。
   build:
     needs: discover
     runs-on: ubuntu-latest
@@ -91,11 +97,23 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      - run: ./gradlew :${{ matrix.node.node }}:build --console=plain
+      # 経路探索テストは全ノードで同じなので正典ノードだけでコンパイル・実行する。
+      # 他ノードでbuildを呼ぶと、Test自体はonlyIfで止まってもcompileTestJavaまでは
+      # 同じソースを再コンパイルするため、配布jarの検証に必要なassembleだけを使う。
+      - name: Build and verify
+        env:
+          NODE: ${{ matrix.node.node }}
+          CANONICAL_NODE: ${{ needs.discover.outputs.canonical_node }}
+        run: |
+          if [ "$NODE" = "$CANONICAL_NODE" ]; then
+            ./gradlew spotlessCheck ":$NODE:build" --console=plain
+          else
+            ./gradlew ":$NODE:assemble" --console=plain
+          fi
 
       # 失敗したときに、どのテストがなぜ落ちたかをログを掘らずに見られるようにする
       - name: Upload test report
-        if: failure()
+        if: failure() && matrix.node.node == needs.discover.outputs.canonical_node
         uses: actions/upload-artifact@v7
         with:
           name: test-report-${{ matrix.node.node }}
@@ -106,6 +124,7 @@ jobs:
 
       # PRから実際のjarを落として動作確認できるようにする
       - name: Upload mod jar
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: xaeronav-jar-${{ matrix.node.node }}
@@ -118,7 +137,10 @@ jobs:
   # Xaero連携のmixinはrequired=falseなので、注入先が変わっても例外は出ず「地図に線が出ない」だけになる。
   # ビルドが通ることは何の保証にもならないので、起動してログを読むところまでをCIの仕事にする。
   runtime:
-    needs: [discover, build]
+    # runtime自身が配布jarをビルドするので、build matrixの完了を待つ必要はない。
+    # 重いslowTestを含む正典ノードとMinecraft起動確認を並行させ、CI全体の
+    # クリティカルパスを「build + runtime」から「長い方だけ」にする。
+    needs: discover
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -137,7 +159,11 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # build matrixが同じGradle依存をキャッシュする。runtime matrixからも5組の
+      # 類似キャッシュを書き出すと容量を圧迫するため、ここでは復元だけを行う。
       - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
 
       - name: Build and stage mods
         run: ./gradlew :${{ matrix.node.node }}:stageRuntimeTestMods --console=plain
@@ -273,7 +299,7 @@ jobs:
           echo "XaeroNavのmixin適用に失敗の記録は無し"
 
       - name: Upload client logs
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: client-log-${{ matrix.node.node }}

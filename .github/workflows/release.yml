@@ -32,6 +32,10 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # CIと同じGradle User Home / build cacheを復元する。Minecraft本体や各ローダーの
+      # 変換済み成果物は大きいため、リリースのたびに一から生成しない。
+      - uses: gradle/actions/setup-gradle@v6
+
       # workflow_dispatch: 入力されたバージョンを使う。タグpush: タグ名から取り出す
       - name: Resolve version and tag
         id: release
