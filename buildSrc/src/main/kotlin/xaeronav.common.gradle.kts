@@ -30,8 +30,10 @@ java {
 }
 
 // 非推奨APIの発生元を通常ログへ必ず出す。まとめの「一部で使用」だけでは更新対象を特定できない。
+// 警告ゼロを確認済み（BUILD-01）なので、-Werrorで再発をビルド失敗として検知する（TEST-03）。
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:deprecation")
+    options.compilerArgs.add("-Werror")
 }
 
 repositories {
@@ -59,7 +61,7 @@ testing {
  * `@Tag("slow")`の付いたテストだけを回す。実機ジ・エンドの地形で「規模が大きいときにだけ
  * 現れる穴」を見張るもので、合成地形では構造的に再現できない。
  */
-val slowTest by tasks.registering(Test::class) {
+val slowTest = tasks.register<Test>("slowTest") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "実機のワールド保存データを使う重い経路探索テストを回す"
     testClassesDirs = sourceSets["test"].output.classesDirs
@@ -86,7 +88,7 @@ tasks.named("check") { dependsOn(slowTest) }
  * `@Tag("bench")`の付いた計測を回す。番人ではないので`check`からは外してある——
  * 判定を持たない計測をCIに載せても、赤にならないぶん誰も見ない。
  */
-val bench by tasks.registering(Test::class) {
+val bench = tasks.register<Test>("bench") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "経路探索の速度・質を計測する（判定なし）"
     testClassesDirs = sourceSets["test"].output.classesDirs

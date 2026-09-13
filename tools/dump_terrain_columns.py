@@ -179,7 +179,19 @@ def read_chunk(region, cx, cz):
         payload = gzip.decompress(payload)
     elif compression == 2:
         payload = zlib.decompress(payload)
+    else:
+        # 3(非圧縮)・4(LZ4, 1.20.5+の一部設定)は対応していない。ここで弾かないと、
+        # 圧縮されたままのバイト列を素のNBTとして読もうとして分かりにくい失敗をする
+        # （運悪く先頭バイトが有効なtag IDと一致すると、エラーにすらならず誤った地形を書き出す）
+        raise ValueError('unsupported chunk compression type: %d' % compression)
     return Nbt(payload).root()
+
+
+def section_overlaps_band(section_y, band_low, band_high):
+    """このセクション（16ブロック立方、`Y`は1.18以降のセクション座標で負にもなる）が
+    `[band_low, band_high]`と重なるか。"""
+    base_y = section_y * 16
+    return base_y <= band_high and base_y + 15 >= band_low
 
 
 def section_blocks(section):
@@ -238,9 +250,9 @@ def main():
                             'minecraft:full', 'full'):
                         continue
                     for section in chunk.get('sections', []):
-                        base_y = section['Y'] * 16
-                        if base_y > band_high or base_y + 15 < band_low:
+                        if not section_overlaps_band(section['Y'], band_low, band_high):
                             continue
+                        base_y = section['Y'] * 16
                         blocks = section_blocks(section)
                         if blocks is None:
                             continue

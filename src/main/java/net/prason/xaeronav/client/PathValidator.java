@@ -116,7 +116,7 @@ final class PathValidator {
      * 近づけば読めるようになる。
      */
     private static boolean readable(Level level, BlockPos pos) {
-        return level.hasChunkAt(pos);
+        return level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4) != null;
     }
 
     private static double horizontalDistSq(BlockPos a, BlockPos b) {

@@ -63,17 +63,19 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     private static void addAllOptions(Consumer<OptionInstance<?>> addBig) {
         XaeroNavConfig cfg = XaeroNavConfig.INSTANCE;
 
-        addBig.accept(boolOption("gui.xaeronav.config.digging_enabled",
-                cfg.diggingEnabled(), cfg::setDiggingEnabled));
-        addBig.accept(boolOption("gui.xaeronav.config.bridging_enabled",
-                cfg.bridgingEnabled(), cfg::setBridgingEnabled));
-        addBig.accept(boolOption("gui.xaeronav.config.lava_bridging_enabled",
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.digging_enabled",
+                "gui.xaeronav.config.digging_enabled.tooltip", cfg.diggingEnabled(), cfg::setDiggingEnabled));
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.bridging_enabled",
+                "gui.xaeronav.config.bridging_enabled.tooltip", cfg.bridgingEnabled(), cfg::setBridgingEnabled));
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.lava_bridging_enabled",
+                "gui.xaeronav.config.lava_bridging_enabled.tooltip",
                 cfg.lavaBridgingEnabled(), cfg::setLavaBridgingEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.block_budget_enabled",
                 cfg.blockBudgetEnabled(), cfg::setBlockBudgetEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.jump_gap_enabled",
                 cfg.jumpGapEnabled(), cfg::setJumpGapEnabled));
-        addBig.accept(boolOption("gui.xaeronav.config.fall_damage_tolerance_enabled",
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.fall_damage_tolerance_enabled",
+                "gui.xaeronav.config.fall_damage_tolerance_enabled.tooltip",
                 cfg.fallDamageToleranceEnabled(), cfg::setFallDamageToleranceEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.deep_look_ahead_enabled",
                 cfg.deepLookAheadEnabled(), cfg::setDeepLookAheadEnabled));
@@ -91,6 +93,17 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
 
     private static OptionInstance<Boolean> boolOption(String key, boolean initial, Consumer<Boolean> setter) {
         return OptionInstance.createBoolean(key, initial, setter::accept);
+    }
+
+    /**
+     * 安全性・所持品への影響がある項目にだけ付ける短い補足（UX-03）。全項目に付けると
+     * どれも同じ重みに見えて読み飛ばされるので、実際に結果が変わる項目に絞る。
+     */
+    private static OptionInstance<Boolean> boolOptionWithTooltip(String key, String tooltipKey, boolean initial,
+                                                                  Consumer<Boolean> setter) {
+        return OptionInstance.createBoolean(key,
+                OptionInstance.cachedConstantTooltip(Component.translatable(tooltipKey)),
+                initial, setter::accept);
     }
 
     /**

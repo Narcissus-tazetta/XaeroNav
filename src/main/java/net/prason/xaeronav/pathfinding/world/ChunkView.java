@@ -33,13 +33,41 @@ import java.util.function.Predicate;
  *
  * <p>ブロックデータ自体は<b>コピーしない</b>。{@link #capture}がメインスレッドで集めるのは
  * 「読み込み済みチャンクへの参照」だけで、実際の{@link BlockState}はワーカースレッドが
- * チャンクから直接読む。{@code BlockState}は不変のグローバルシングルトンなので、
- * 参照さえ固定してしまえばワーカースレッドから読んでも安全になる。
+ * チャンクから直接読む。
  *
  * <p>形状・硬度の問い合わせ（{@code getCollisionShape}/{@code isFaceSturdy}/{@code getDestroySpeed}）は
  * {@code BlockState}側のキャッシュを読むだけでlevelを参照しないため、これもワーカースレッドから呼べる。
  * 唯一の例外が{@code Block#hasDynamicShape()}がtrueのブロックで、これらは形状の解決に実際のlevelを
  * 要求するため、安全側に倒して「進入も設置もできない障害物」として扱う。
+ *
+ * <p><b>メインスレッドの書き込みとの競合について（裏取り済み、2026-09-13）:</b>
+ * ワーカーはメインスレッドが同時に更新しうる{@code LevelChunk}を無同期で読む。実ソース
+ * （{@code LevelChunk}/{@code LevelChunkSection}/{@code PalettedContainer}/{@code SimpleBitStorage}）を
+ * 確認した結果は次の通り。
+ * <ul>
+ *   <li>参照の安定性は保証されている——{@code ChunkAccess.sections}は{@code final}配列、
+ *       {@code LevelChunkSection.states}も{@code final}な{@code PalettedContainer}。チャンクの
+ *       生存中にこれらの参照が別のチャンク/セクションへ化けることは無い。</li>
+ *   <li>{@code PalettedContainer.data}は{@code volatile}で、読み取りは1回のvolatile読みで
+ *       {@code palette}と{@code storage}を同じ世代へ固定してから読む。パレット拡張（bit幅が
+ *       足りず配列を丸ごと差し替える）と同時に起きても、palette/storageが別世代で混ざることは無い。</li>
+ *   <li><b>本当の競合点は{@code SimpleBitStorage}が持つ非{@code volatile}な{@code long[]}</b>。
+ *       ブロック更新はここへ同期無しでread-modify-writeする。1つの{@code long}に複数ブロック分の
+ *       状態が詰まっているため、メインスレッドの書き換えと同じ{@code long}内の別座標への
+ *       ワーカーの読み取りは、可視性保証の無いデータ競合になる。{@code PalettedContainer}自身が
+ *       持つ{@code ThreadingDetector}（{@code acquire}/{@code release}）も書き込み同士の多重アクセスしか
+ *       検知せず、読み取りはそもそも素通りする——Mojang側も単一スレッド前提で設計している。</li>
+ *   <li>ただし現代のJVM/ハードウェア（HotSpot、x86-64/ARM64）では整列された{@code long}配列要素の
+ *       書き込みはアトミックなので、値が壊れて範囲外のパレットindexになりクラッシュする、という
+ *       事態は実運用上ほぼ起きない。実際に起こりうるのは「メインスレッドの書き換え直前・直後の
+ *       ごく短い間、ワーカーが更新前のブロックを読む」という軽微なstale readどまり。</li>
+ *   <li>この残存リスクは{@code PathValidator.firstFailureFrom}が毎tickメインスレッドで最新の
+ *       {@code level.getBlockState}を読み直して経路を検証する既存の仕組みで自己修復される。
+ *       恒久的な破綻や見えたままの不整合にはならない。</li>
+ * </ul>
+ * 上記の判断により、section単位のコピーやrevision照合といった構造変更は見送っている
+ * （実害の乏しさに対してホットパスの性能コストが見合わない）。実機で本節の想定を超える
+ * 症状（stale readでは説明が付かない恒久的な経路破綻等）が確認された場合のみ再検討する。
  *
  * <p><b>スレッド契約:</b> {@link #capture}はメインスレッドから呼ぶこと。生成後のインスタンスは
  * 単一のワーカースレッドが占有する（直前チャンクとセルのキャッシュを可変フィールドに持つため、
@@ -196,9 +224,18 @@ public final class ChunkView implements CellSource {
         for (int slot = 0; slot < hotbar.length; slot++) {
             ItemStack stack = player.getInventory().getItem(slot);
             hotbar[slot] = stack.copy();
-            // NeoForgeが足す ItemStack#getEnchantmentLevel は使わない。この階層はローダーに
-            // 依存しない決まりで、他のMODがエンチャント値を動的に書き換える場合まで拾う必要も無い
-            hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            // NeoForge/Forgeが足す ItemStack#getEnchantmentLevel は使わない。この階層はローダーに
+            // 依存しない決まりで、他のMODがエンチャント値を動的に書き換える場合まで拾う必要も無い。
+            // 1.20.1-forge/1.21.1-neoforgeはgetItemEnchantmentLevelをその動的な値へ差し替えた
+            // (deprecated)ので、NBTの値をそのまま返すgetTagEnchantmentLevelを使う。Fabricは無改造の
+            // vanilla APIでgetItemEnchantmentLevelが最初からNBTの値を返し、1.21.1-forgeはそもそも
+            // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
+            // その2つはgetItemEnchantmentLevelのままでよい（BUILD-01）
+            //? if (forge && <1.21) || neoforge {
+            hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
+            //?} else {
+            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            *///?}
         }
         // 置ける枚数は持ち物<b>全体</b>で数える。ホットバーだけを見ていた頃は、インベントリに
         // 1スタック持っていても橋の案内が出ず、逆にホットバーの1個だけで64マスの橋が出ていた。

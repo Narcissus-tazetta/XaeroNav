@@ -47,7 +47,7 @@ val xaeroModules = listOf(
 val withXaero = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
 
 // XaeroはMODとして読み込ませる必要があるので、実行時クラスパスではなくrun/modsへ置く。
-val xaeroRuntimeMods: Configuration by configurations.creating {
+val xaeroRuntimeMods: Configuration = configurations.create("xaeroRuntimeMods") {
     isTransitive = false
 }
 
@@ -83,7 +83,7 @@ dependencies {
 }
 
 // Syncではなくコピーにして、手で入れた他のMODを消さない。
-val installXaeroMods by tasks.registering(Copy::class) {
+val installXaeroMods = tasks.register<Copy>("installXaeroMods") {
     from(xaeroRuntimeMods)
     into(layout.projectDirectory.dir("run/mods"))
 }
@@ -94,7 +94,7 @@ tasks.matching { it.name == "runClient" }.configureEach {
 
 // CIの起動スモークテスト（mc-runtime-test）へ渡す一式。配布jarとXaeroを1箇所へ集める。
 // Fabricで配るのは中間マッピングへ戻したremapJarの方で、素のjarではない
-val stageRuntimeTestMods by tasks.registering(Copy::class) {
+val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
     from(tasks.named("remapJar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
@@ -104,6 +104,10 @@ tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = modResourceProperties() + mapOf(
         "minecraft_version" to minecraftVersion,
         "fabric_loader_range" to dep("fabric_loader_range"),
+        // fabric-apiは"*"のままだと古いAPIでもloaderが起動を許してしまう。開発・CIで実際に
+        // ビルド・テストしている版（deps.fabric_api）を下限として宣言する——それより下は
+        // 検証していないので「動く保証がある最も低い版」とは言えない
+        "fabric_api_range" to dep("fabric_api"),
         "xaero_worldmap_version" to dep("xaero_worldmap"),
         "xaero_minimap_version" to dep("xaero_minimap"),
         "java_version" to javaVersion.toString(),

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 import com.mojang.brigadier.arguments.ArgumentType;
@@ -16,11 +17,17 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+//? if forge && <1.21 {
+/*import net.minecraftforge.registries.ForgeRegistries;
+*///?}
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.platform.ModPresence;
@@ -30,11 +37,11 @@ import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
+import net.prason.xaeronav.pathfinding.async.DiagnosticJobRunner;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
-import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
@@ -58,11 +65,31 @@ public final class XaeroNavCommands {
     private static final int DEFAULT_MAPDATA_RADIUS_CHUNKS = 64;
 
     /**
+     * {@code mapdata}の半径引数の上限。{@link XaeroMapReader}の読み取りはメインスレッド専用
+     * （クラスJavadoc参照）なのでワーカーへ逃がせず、一辺{@code radiusChunks*2+1}チャンクぶんを
+     * 丸ごと同期でXaeroの地図から読む。既定値64（一辺129、約16,641セル）が「一瞬で終わる」規模と
+     * 分かっている前提で、その2倍を安全側の上限にする——旧上限512（一辺1025、約1,050,625セル）は
+     * この規模の16倍あり、要求するとクライアントを長時間止め得た（PERF-02）。
+     */
+    private static final int MAPDATA_MAX_RADIUS_CHUNKS = 128;
+
+    /**
      * {@code probe}の上限なし計測で使う展開ノード数。時間上限（ライブナビと同じ）の方が先に効くよう、
      * 到達し得ない大きさにしてある。実質の打ち切りは時間側なので、この計測は
      * 「ライブナビと同じ時間予算で何ノードまで展開でき、届くのか」を測ることになる。
      */
     private static final int PROBE_UNBOUNDED_MAX_EXPANDED_NODES = 100_000_000;
+
+    /**
+     * {@code corridor}/{@code probe}/{@code flight}が使う専用の非同期実行基盤。ライブナビの
+     * {@code PathfindingExecutor}とは別インスタンス・別スレッド——共有すると診断コマンドを
+     * 打っただけで進行中の本番探索がキャンセルされてしまう。Xaeroの地図を読む層1部分
+     * （{@link CoarseRouter}・{@link XaeroMapReader}）はメインスレッド専用のため対象外
+     * （{@link CorridorLegSolver}・{@code FlightNavState}のクラスJavadoc参照）で、この基盤へ
+     * 委ねるのは実際に重いA*探索/空中経路計算だけ。
+     */
+    private static final DiagnosticJobRunner DIAGNOSTIC =
+            new DiagnosticJobRunner(runnable -> Minecraft.getInstance().execute(runnable));
 
     /**
      * ローダーが持つdispatcherへ載せるコマンドツリー。
@@ -103,7 +130,7 @@ public final class XaeroNavCommands {
                         .then(XaeroNavCommands.<S>literal("mapdata")
                                 .executes(ctx -> reportMapData(sink.apply(ctx), DEFAULT_MAPDATA_RADIUS_CHUNKS))
                                 .then(XaeroNavCommands.<S, Integer>argument("radiusChunks",
-                                        IntegerArgumentType.integer(1, 512))
+                                        IntegerArgumentType.integer(1, MAPDATA_MAX_RADIUS_CHUNKS))
                                         .executes(ctx -> reportMapData(sink.apply(ctx),
                                                 IntegerArgumentType.getInteger(ctx, "radiusChunks")))))
                         .then(XaeroNavCommands.<S>literal("route")
@@ -203,6 +230,11 @@ public final class XaeroNavCommands {
      * 2つの診断コマンドが共有する前半——プレイヤーと地図データの確認、層1の実行、経路が
      * 引けなかった場合の報告、waypoint数と所要時間の要約まで。要約まで出せたときだけ
      * {@code detail}を呼ぶ。
+     *
+     * <p>地図の読み取り（{@link #readCoarseMapOrFail}）はXaero API契約によりメインスレッドで
+     * 同期実行するが、その後の{@link CoarseRouter#findRoute}はMinecraft/Xaero状態を読まない
+     * 純粋な計算なので{@link #DIAGNOSTIC}のワーカーへ逃がす（PERF-02）。{@code detail}は
+     * ワーカー完了後のメインスレッドcallback内から呼ばれる。
      */
     private static int withCoarseRoute(NavCommandSink out, BlockPos goal, RouteDetail detail) {
         Player player = Minecraft.getInstance().player;
@@ -215,38 +247,48 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
+        boolean boatAvailable = ChunkView.boatAvailable(player);
+        CoarseMap map = readCoarseMapOrFail(out, start, goal);
+        if (map == null) {
+            return 0;
+        }
+
+        out.success(Component.translatable("commands.xaeronav.debug_running"));
+        long generation = DIAGNOSTIC.begin();
         long startNanos = System.nanoTime();
-        CoarseRouter.Route route =
-                computeRouteOrFail(out, start, goal, ChunkView.boatAvailable(player));
-        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
-        if (route == null) {
-            return 0;
-        }
+        DIAGNOSTIC.submit(generation,
+                // 診断コマンドは既定の重み付けをそのまま見せる（溶岩の梯子はPathfindingState側の話）
+                cancelled -> CoarseRouter.findRoute(map, start, goal, boatAvailable, CoarseRouter.BridgePolicy.ALLOW),
+                (route, error) -> {
+                    if (error != null) {
+                        XaeroNav.LOGGER.error("XaeroNav: 診断コマンドの層1探索に失敗しました", error);
+                        return;
+                    }
+                    long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+                    if (route.isEmpty()) {
+                        if (route.reachedGoal()) {
+                            out.success(Component.translatable("commands.xaeronav.route_same_chunk"));
+                            return;
+                        }
+                        out.failure(Component.translatable("commands.xaeronav.route_none", elapsedMillis));
+                        return;
+                    }
 
-        if (route.isEmpty()) {
-            if (route.reachedGoal()) {
-                out.success(Component.translatable("commands.xaeronav.route_same_chunk"));
-                return 1;
-            }
-            out.failure(Component.translatable("commands.xaeronav.route_none", elapsedMillis));
-            return 0;
-        }
-
-        List<BlockPos> waypoints = route.waypoints();
-        out.success(Component.translatable(
-                route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
-                        : "commands.xaeronav.route_summary_partial",
-                waypoints.size(), elapsedMillis));
-        detail.report(start, waypoints);
+                    List<BlockPos> waypoints = route.waypoints();
+                    out.success(Component.translatable(
+                            route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
+                                    : "commands.xaeronav.route_summary_partial",
+                            waypoints.size(), elapsedMillis));
+                    detail.report(start, waypoints);
+                });
         return 1;
     }
 
     /**
-     * {@link #reportRoute}と{@link #reportCorridor}が共有する層1の計算。範囲が
+     * {@link #reportRoute}と{@link #reportCorridor}が共有する層1の地図読み取り。範囲が
      * {@link #ROUTE_MAX_SPAN_CHUNKS}を超える場合は失敗を送って{@code null}を返す。
      */
-    private static CoarseRouter.Route computeRouteOrFail(NavCommandSink out, BlockPos start, BlockPos goal,
-                                                          boolean boatAvailable) {
+    private static CoarseMap readCoarseMapOrFail(NavCommandSink out, BlockPos start, BlockPos goal) {
         int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - ROUTE_PADDING_CHUNKS;
         int maxChunkX = (Math.max(start.getX(), goal.getX()) >> 4) + ROUTE_PADDING_CHUNKS;
         int minChunkZ = (Math.min(start.getZ(), goal.getZ()) >> 4) - ROUTE_PADDING_CHUNKS;
@@ -257,10 +299,7 @@ public final class XaeroNavCommands {
             out.failure(Component.translatable("commands.xaeronav.route_too_far"));
             return null;
         }
-        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ,
-                (start.getY() + goal.getY()) / 2);
-        // 診断コマンドは既定の重み付けをそのまま見せる（溶岩の梯子はPathfindingState側の話）
-        return CoarseRouter.findRoute(map, start, goal, boatAvailable, CoarseRouter.BridgePolicy.ALLOW);
+        return XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, (start.getY() + goal.getY()) / 2);
     }
 
     /**
@@ -275,28 +314,56 @@ public final class XaeroNavCommands {
             legs.add(start);
             legs.addAll(waypoints);
             int legCount = legs.size() - 1;
+            // prepareはXaeroの地図データを読むためメインスレッド専用（CorridorLegSolverのクラス
+            // Javadoc参照）。全区間ぶん先に済ませてしまい、後段の探索チェーンには不変な結果だけを渡す
+            // ——PathfindingState#refineRouteAsyncと同じ順序（ライブナビ側が先に確立した分離）
+            List<TimedLeg> prepared = new ArrayList<>(legCount);
             for (int i = 0; i < legCount; i++) {
-                reportCorridorLeg(out, i + 1, legCount, legs.get(i), legs.get(i + 1));
+                long prepareStartNanos = System.nanoTime();
+                CorridorLegSolver.PreparedLeg leg = CorridorLegSolver.prepare(legs.get(i), legs.get(i + 1));
+                prepared.add(new TimedLeg(leg, (System.nanoTime() - prepareStartNanos) / 1_000_000));
             }
+            out.success(Component.translatable("commands.xaeronav.debug_running"));
+            reportCorridorLeg(out, DIAGNOSTIC.begin(), prepared, 0, legCount);
         });
     }
 
-    private static void reportCorridorLeg(NavCommandSink out, int index, int total, BlockPos from, BlockPos to) {
-        long startNanos = System.nanoTime();
-        CorridorLegSolver.PreparedLeg prepared = CorridorLegSolver.prepare(from, to);
-        if (prepared.view() == null) {
-            long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
-            out.failure(Component.translatable(
-                    "commands.xaeronav.corridor_no_data", index, total, elapsedMillis, prepared.pendingRegions()));
+    /** {@link CorridorLegSolver#prepare}1回ぶんと、その所要時間（地図データが無い場合の報告に使う）。 */
+    private record TimedLeg(CorridorLegSolver.PreparedLeg leg, long prepareElapsedMillis) {
+    }
+
+    /**
+     * 区間を1本ずつ順番に探索する再帰チェーン。前の区間の完了を待ってから次を投げる
+     * ——{@code PathfindingState#refineRouteAsync}のleg-by-legチェーンと同じ考え方。
+     */
+    private static void reportCorridorLeg(NavCommandSink out, long generation, List<TimedLeg> prepared,
+                                           int index, int total) {
+        if (index >= total) {
             return;
         }
-        PathResult result = new AStarPathfinder(prepared.view(), CorridorLegSolver.SEARCH_LIMITS)
-                .search(prepared.from(), prepared.to(), () -> false);
-        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
-
-        out.success(Component.translatable(
-                result.complete() ? "commands.xaeronav.corridor_leg_reached" : "commands.xaeronav.corridor_leg_partial",
-                index, total, result.steps().size(), elapsedMillis, prepared.pendingRegions()));
+        TimedLeg timed = prepared.get(index);
+        if (timed.leg().view() == null) {
+            out.failure(Component.translatable("commands.xaeronav.corridor_no_data",
+                    index + 1, total, timed.prepareElapsedMillis(), timed.leg().pendingRegions()));
+            reportCorridorLeg(out, generation, prepared, index + 1, total);
+            return;
+        }
+        long startNanos = System.nanoTime();
+        DIAGNOSTIC.submit(generation,
+                cancelled -> new AStarPathfinder(timed.leg().view(), CorridorLegSolver.SEARCH_LIMITS)
+                        .search(timed.leg().from(), timed.leg().to(), cancelled),
+                (result, error) -> {
+                    if (error != null) {
+                        XaeroNav.LOGGER.error("XaeroNav: corridor診断の区間探索に失敗しました", error);
+                        return;
+                    }
+                    long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+                    out.success(Component.translatable(
+                            result.complete() ? "commands.xaeronav.corridor_leg_reached"
+                                    : "commands.xaeronav.corridor_leg_partial",
+                            index + 1, total, result.steps().size(), elapsedMillis, timed.leg().pendingRegions()));
+                    reportCorridorLeg(out, generation, prepared, index + 1, total);
+                });
     }
 
     /**
@@ -461,36 +528,47 @@ public final class XaeroNavCommands {
         }
 
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
-        SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), goal,
+        BlockPos playerPos = player.blockPosition();
+        SearchBounds bounds = SearchBounds.around(level, playerPos, goal,
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, MovementOptions.NONE);
         boolean rockets = ChunkView.hasItem(player.getInventory(), stack -> stack.getItem() instanceof FireworkRocketItem);
+        Vec3 start = player.position();
+        Vec3 target = Vec3.atCenterOf(goal);
 
+        out.success(Component.translatable("commands.xaeronav.debug_running"));
+        long generation = DIAGNOSTIC.begin();
         long startedAt = System.nanoTime();
-        FlightRoute route = FlightRouter.route(view, player.position(), Vec3.atCenterOf(goal), rockets,
-                FlightNavState.tuning());
-        long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
-
-        Vec3 tail = route.tail();
-        out.success(Component.translatable("commands.xaeronav.flight_result",
-                route.points().size(), route.termination().name(), route.expandedNodes(), elapsedMillis,
-                route.cellBlocks(), rockets ? 1 : 0));
-        if (tail != null) {
-            out.success(Component.translatable("commands.xaeronav.flight_tail",
-                    Mth.floor(tail.x), Mth.floor(tail.y), Mth.floor(tail.z),
-                    Mth.floor(Math.sqrt(tail.distanceToSqr(Vec3.atCenterOf(goal))))));
-        }
-        if (level.dimensionType().hasCeiling()) {
-            // 描画距離の外は粗い層（Xaeroの地図由来）が担当する。中間目標が0本なら、
-            // その方向のデータが地図に無い＝未訪問ということ。
-            // 範囲もマージンも本番と同じ道を通す——別々に組むと測った数字が案内と食い違う
-            CoarseRouter.Route coarse = FlightNavState.solveCoarseRoute(
-                    level, player.blockPosition(), goal, rockets);
-            out.success(Component.translatable("commands.xaeronav.flight_coarse",
-                    coarse.waypoints().size(), coarse.reachedGoal() ? 1 : 0));
-        }
-        // これは測るだけのコマンドで、目的地は設定しない。線を出すには goto が要る
-        out.success(Component.translatable("commands.xaeronav.flight_diagnostic_only"));
+        DIAGNOSTIC.submit(generation,
+                // FlightRouter.routeは外部からの協調cancelを受け付けない（内部の時間上限だけで終わる）。
+                // cancelledは渡さず、世代照合だけで古い結果を捨てる（FlightNavStateのjob世代管理と同じ考え方）
+                cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning()),
+                (route, error) -> {
+                    if (error != null) {
+                        XaeroNav.LOGGER.error("XaeroNav: flight診断の経路計算に失敗しました", error);
+                        return;
+                    }
+                    long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+                    Vec3 tail = route.tail();
+                    out.success(Component.translatable("commands.xaeronav.flight_result",
+                            route.points().size(), route.termination().name(), route.expandedNodes(), elapsedMillis,
+                            route.cellBlocks(), rockets ? 1 : 0));
+                    if (tail != null) {
+                        out.success(Component.translatable("commands.xaeronav.flight_tail",
+                                Mth.floor(tail.x), Mth.floor(tail.y), Mth.floor(tail.z),
+                                Mth.floor(Math.sqrt(tail.distanceToSqr(target)))));
+                    }
+                    if (level.dimensionType().hasCeiling()) {
+                        // 描画距離の外は粗い層（Xaeroの地図由来）が担当する。中間目標が0本なら、
+                        // その方向のデータが地図に無い＝未訪問ということ。Xaeroを読むためメインスレッド
+                        // 専用（FlightNavStateのクラスJavadoc参照）——ここは既にメインスレッドへ戻った後
+                        CoarseRouter.Route coarse = FlightNavState.solveCoarseRoute(level, playerPos, goal, rockets);
+                        out.success(Component.translatable("commands.xaeronav.flight_coarse",
+                                coarse.waypoints().size(), coarse.reachedGoal() ? 1 : 0));
+                    }
+                    // これは測るだけのコマンドで、目的地は設定しない。線を出すには goto が要る
+                    out.success(Component.translatable("commands.xaeronav.flight_diagnostic_only"));
+                });
         return 1;
     }
 
@@ -507,57 +585,104 @@ public final class XaeroNavCommands {
         int verticalMargin = PathfindingState.verticalSearchMargin(level, false);
         int normalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
 
-        SearchBounds normalBounds = SearchBounds.around(level, start, goal, normalMargin, verticalMargin,
+        CapturedView normal = captureProbeView(level, player, start, goal, normalMargin, verticalMargin,
                 renderRadius);
-        ChunkView normalView =
-                ChunkView.capture(level, player, normalBounds, XaeroNavConfig.INSTANCE.movementOptions());
-        reportPlacementAvailability(out, normalView);
-        reportGoalCell(out, normalView, normalBounds, start, goal, renderRadius);
+        reportPlacementAvailability(out, normal.view());
+        reportGoalCell(out, level, normal.view(), normal.bounds(), start, goal, renderRadius);
+        out.success(Component.translatable("commands.xaeronav.debug_running"));
 
-        ProbeRun normal = runProbe(normalView, normalBounds, start, goal);
-        reportProbeRun(out, "commands.xaeronav.probe_normal", normal);
+        long generation = DIAGNOSTIC.begin();
+        DIAGNOSTIC.submit(generation,
+                cancelled -> runProbe(normal.view(), normal.bounds(), start, goal, cancelled),
+                (normalRun, error) -> {
+                    if (error != null) {
+                        XaeroNav.LOGGER.error("XaeroNav: probe診断の通常予算実行に失敗しました", error);
+                        return;
+                    }
+                    reportProbeRun(out, "commands.xaeronav.probe_normal", normalRun);
+                    continueProbeAfterNormal(out, generation, level, player, start, goal, renderRadius,
+                            normalMargin, normal, normalRun);
+                });
+        return 1;
+    }
 
-        // 掘削が有効だと、固体セルがすべて「有限コストで進入可能」になる（ChunkView#computeState）。
-        // 探索空間が地表という面から山という体積に変わるので、同じ箱・同じ上限のまま掘削だけを切って
-        // 走らせた展開ノード数との差が、掘削が分岐数に効いている量そのものになる。
-        // 箱の広さを変えずに比べるため、チャンク参照を共有する派生ビューを使う（同スレッドで逐次実行）
-        if (XaeroNavConfig.INSTANCE.diggingEnabled()) {
-            ProbeRun noDigging = runProbe(normalView.withoutDigging(), normalBounds, start, goal);
-            reportProbeRun(out, "commands.xaeronav.probe_no_digging", noDigging);
-        } else {
+    /**
+     * 掘削が有効だと、固体セルがすべて「有限コストで進入可能」になる（ChunkView#computeState）。
+     * 探索空間が地表という面から山という体積に変わるので、同じ箱・同じ上限のまま掘削だけを切って
+     * 走らせた展開ノード数との差が、掘削が分岐数に効いている量そのものになる。
+     * 箱の広さを変えずに比べるため、チャンク参照を共有する派生ビューを使う
+     * （{@link #DIAGNOSTIC}は単一スレッドなので、通常予算の完了後に逐次実行される）。
+     */
+    private static void continueProbeAfterNormal(NavCommandSink out, long generation, Level level, Player player,
+                                                  BlockPos start, BlockPos goal, int renderRadius, int normalMargin,
+                                                  CapturedView normal, ProbeRun normalRun) {
+        if (!XaeroNavConfig.INSTANCE.diggingEnabled()) {
             out.success(Component.translatable("commands.xaeronav.probe_no_digging_skipped"));
+            continueProbeAfterDigging(out, generation, level, player, start, goal, renderRadius, normalMargin,
+                    normal, normalRun);
+            return;
         }
+        DIAGNOSTIC.submit(generation,
+                cancelled -> runProbe(normal.view().withoutDigging(), normal.bounds(), start, goal, cancelled),
+                (noDiggingRun, error) -> {
+                    if (error != null) {
+                        XaeroNav.LOGGER.error("XaeroNav: probe診断の掘削OFF実行に失敗しました", error);
+                        return;
+                    }
+                    reportProbeRun(out, "commands.xaeronav.probe_no_digging", noDiggingRun);
+                    continueProbeAfterDigging(out, generation, level, player, start, goal, renderRadius,
+                            normalMargin, normal, normalRun);
+                });
+    }
 
-        // 予算切れ（ノード数上限・時間上限）での未到達は、箱を広げても同じ上限に同じように当たるだけで
-        // 結果は変わらない（実機で確認済み: 通常マージンと拡大後で展開ノード数が完全一致していた）。
-        // ここで弾かないと、無駄なA*をもう1回投げたうえ「箱が原因」と誤読させる出力になる。
-        // 時間上限で切れた回もここに含める——展開数だけを見ると「範囲が狭い」と誤読して
-        // widenTriggeredに倒れてしまう
+    /**
+     * 予算切れ（ノード数上限・時間上限）での未到達は、箱を広げても同じ上限に同じように当たるだけで
+     * 結果は変わらない（実機で確認済み: 通常マージンと拡大後で展開ノード数が完全一致していた）。
+     * ここで弾かないと、無駄なA*をもう1回投げたうえ「箱が原因」と誤読させる出力になる。
+     * 時間上限で切れた回もここに含める——展開数だけを見ると「範囲が狭い」と誤読して
+     * widenTriggeredに倒れてしまう。
+     */
+    private static void continueProbeAfterDigging(NavCommandSink out, long generation, Level level, Player player,
+                                                   BlockPos start, BlockPos goal, int renderRadius, int normalMargin,
+                                                   CapturedView normal, ProbeRun normalRun) {
         int maxExpandedNodes = XaeroNavConfig.INSTANCE.maxExpandedNodes();
-        boolean budgetExhausted = normal.result().budgetExhausted();
-        boolean widenTriggered = !normal.result().complete() && !budgetExhausted
+        boolean budgetExhausted = normalRun.result().budgetExhausted();
+        boolean widenTriggered = !normalRun.result().complete() && !budgetExhausted
                 && horizontalDistance(start, goal) <= renderRadius && normalMargin < renderRadius;
-        if (!normal.result().complete() && budgetExhausted) {
+        if (!normalRun.result().complete() && budgetExhausted) {
             out.success(Component.translatable(
                     "commands.xaeronav.probe_widen_skipped_budget", maxExpandedNodes));
             // 上限に張り付いた回どうしを比べても展開ノード数は必ず一致するので、そこからは何も分からない。
             // 打ち切りを時間だけに任せて「この地形で目的地まで実際に何ノード要るのか」を測り、
             // 設定値が足りないだけなのか、時間予算でも届かない＝探索側の問題なのかを切り分ける
-            ProbeRun unbounded = runProbe(normalView, normalBounds, start, goal,
-                    new SearchLimits(PROBE_UNBOUNDED_MAX_EXPANDED_NODES,
-                            AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS,
-                            XaeroNavConfig.INSTANCE.heuristicWeight()));
-            reportProbeRun(out, "commands.xaeronav.probe_unbounded", unbounded);
+            SearchLimits unboundedLimits = new SearchLimits(PROBE_UNBOUNDED_MAX_EXPANDED_NODES,
+                    AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, XaeroNavConfig.INSTANCE.heuristicWeight());
+            DIAGNOSTIC.submit(generation,
+                    cancelled -> runProbe(normal.view(), normal.bounds(), start, goal, unboundedLimits, cancelled),
+                    (unboundedRun, error) -> {
+                        if (error != null) {
+                            XaeroNav.LOGGER.error("XaeroNav: probe診断の上限なし実行に失敗しました", error);
+                            return;
+                        }
+                        reportProbeRun(out, "commands.xaeronav.probe_unbounded", unboundedRun);
+                    });
         } else {
             out.success(Component.translatable(widenTriggered
                     ? "commands.xaeronav.probe_widen_triggered" : "commands.xaeronav.probe_widen_skipped"));
         }
         if (widenTriggered) {
-            ProbeRun widened = runProbe(level, player, start, goal, renderRadius,
+            CapturedView widened = captureProbeView(level, player, start, goal, renderRadius,
                     PathfindingState.verticalSearchMargin(level, true), renderRadius);
-            reportProbeRun(out, "commands.xaeronav.probe_widened", widened);
+            DIAGNOSTIC.submit(generation,
+                    cancelled -> runProbe(widened.view(), widened.bounds(), start, goal, cancelled),
+                    (widenedRun, error) -> {
+                        if (error != null) {
+                            XaeroNav.LOGGER.error("XaeroNav: probe診断の拡大再試行に失敗しました", error);
+                            return;
+                        }
+                        reportProbeRun(out, "commands.xaeronav.probe_widened", widenedRun);
+                    });
         }
-        return 1;
     }
 
     /**
@@ -569,7 +694,7 @@ public final class XaeroNavCommands {
      * <p>体の2セルは掘って入れるなら通れるので、掘れないセル（溶岩・危険セル・掘削禁止設定）だけを
      * 到達不能として扱う。素の空きかどうかで判定すると、掘れば普通に到達する目的地まで不能と報告する。
      */
-    private static void reportGoalCell(NavCommandSink out, ChunkView view, SearchBounds bounds,
+    private static void reportGoalCell(NavCommandSink out, Level level, ChunkView view, SearchBounds bounds,
                                         BlockPos start, BlockPos goal, int renderRadius) {
         int x = goal.getX();
         int y = goal.getY();
@@ -581,6 +706,8 @@ public final class XaeroNavCommands {
                     Math.round(horizontalDistance(start, goal)), renderRadius));
             return;
         }
+        BlockPos feetPos = new BlockPos(x, y, z);
+        BlockPos headPos = new BlockPos(x, y + 1, z);
         long feetCell = view.cell(x, y, z);
         long headCell = view.cell(x, y + 1, z);
         long belowCell = view.cell(x, y - 1, z);
@@ -590,8 +717,8 @@ public final class XaeroNavCommands {
         boolean floorReachable = CellData.standable(belowCell)
                 || view.canPlaceBlocks()
                 && (CellData.lava(belowCell) || CellData.replaceable(belowCell));
-        Component feet = describeGoalCell(feetCell);
-        Component head = describeGoalCell(headCell);
+        Component feet = describeGoalCell(level, feetPos, feetCell);
+        Component head = describeGoalCell(level, headPos, headCell);
         if (floorReachable && enterable(feetCell) && enterable(headCell)) {
             out.success(Component.translatable("commands.xaeronav.probe_goal_ok", feet, head));
         } else {
@@ -606,7 +733,29 @@ public final class XaeroNavCommands {
         return CellData.occupiableWithoutDigging(cell) || !Double.isInfinite(CellData.digTicks(cell));
     }
 
-    private static Component describeGoalCell(long cell) {
+    /**
+     * ブロックの登録ID。1.20.1-forgeだけ{@code BuiltInRegistries.BLOCK}がdeprecated
+     * （{@code ForgeRegistries.BLOCKS}への誘導）で、他ノードはdeprecatedではない
+     * （{@code DiggableBlocks}参照・BUILD-01と同じ事情）。
+     */
+    private static ResourceLocation blockId(Block block) {
+        //? if forge && <1.21 {
+        /*return ForgeRegistries.BLOCKS.getKey(block);
+        *///?} else {
+        return BuiltInRegistries.BLOCK.getKey(block);
+        //?}
+    }
+
+    /**
+     * {@code UNRESOLVED_SHAPE}（{@code hasDynamicShape()}なブロック、CellData参照）はmodブロックの
+     * ことが多く、対象を名指ししないと「なぜここだけ通れないのか」が地形からは分からない（COMPAT-01）。
+     */
+    private static Component describeGoalCell(Level level, BlockPos pos, long cell) {
+        if (CellData.unresolvedShape(cell)) {
+            ResourceLocation id = blockId(level.getBlockState(pos).getBlock());
+            return Component.translatable("commands.xaeronav.probe_goal_cell_unresolved_shape",
+                    id == null ? "?" : id.toString());
+        }
         if (CellData.occupiableWithoutDigging(cell)) {
             return Component.translatable("commands.xaeronav.probe_goal_cell_ok");
         }
@@ -614,22 +763,30 @@ public final class XaeroNavCommands {
                 ? "commands.xaeronav.probe_goal_cell_blocked" : "commands.xaeronav.probe_goal_cell_dig");
     }
 
-    private static ProbeRun runProbe(Level level, Player player, BlockPos start, BlockPos goal,
-                                      int horizontalMargin, int verticalMargin, int renderRadius) {
+    /**
+     * {@link ChunkView#capture}はメインスレッド専用。ここで作った{@link CapturedView}をバックグラウンドの
+     * {@link #DIAGNOSTIC}へ渡し、実際のA*探索はワーカースレッドで行う。
+     */
+    private static CapturedView captureProbeView(Level level, Player player, BlockPos start, BlockPos goal,
+                                                  int horizontalMargin, int verticalMargin, int renderRadius) {
         SearchBounds bounds = SearchBounds.around(level, start, goal, horizontalMargin, verticalMargin, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
-        return runProbe(view, bounds, start, goal);
+        return new CapturedView(view, bounds);
     }
 
-    private static ProbeRun runProbe(ChunkView view, SearchBounds bounds, BlockPos start, BlockPos goal) {
-        return runProbe(view, bounds, start, goal, XaeroNavConfig.INSTANCE.searchLimits());
+    private record CapturedView(ChunkView view, SearchBounds bounds) {
     }
 
     private static ProbeRun runProbe(ChunkView view, SearchBounds bounds, BlockPos start, BlockPos goal,
-                                      SearchLimits limits) {
+                                      BooleanSupplier cancelled) {
+        return runProbe(view, bounds, start, goal, XaeroNavConfig.INSTANCE.searchLimits(), cancelled);
+    }
+
+    private static ProbeRun runProbe(ChunkView view, SearchBounds bounds, BlockPos start, BlockPos goal,
+                                      SearchLimits limits, BooleanSupplier cancelled) {
         AStarPathfinder pathfinder = new AStarPathfinder(view, limits);
         long startNanos = System.nanoTime();
-        PathResult result = pathfinder.search(start, goal, () -> false);
+        PathResult result = pathfinder.search(start, goal, cancelled);
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
         return new ProbeRun(start, result, bounds, elapsedMillis, view.loadedChunksInBounds(),
                 view.totalChunksInBounds(), pathfinder.trimmedPlacements(), pathfinder.bridgeRunCapBlocked());
