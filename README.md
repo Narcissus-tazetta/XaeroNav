@@ -222,7 +222,7 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
   long-distance guidance keeps cutting off, raise your render distance.
 - Long-distance routing depends on Xaero's map data, so it isn't available without Xaero installed
   or in areas you haven't visited yet. It falls back to computing from loaded chunks only.
-- The HUD is hidden for aerial (elytra) routes. It only shows when a walking destination is set.
+- During aerial (elytra) routes, the HUD shows flight guidance, direct distance, and upcoming climbs.
 - Routes don't cross dimensions. Changing dimension clears the current destination.
 - Map integration hooks into Xaero's internals. If a newer Xaero changes them, only that part
   switches off; XaeroNav says which part in chat once per session, and in-world rendering and the
