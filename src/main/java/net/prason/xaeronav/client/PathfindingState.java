@@ -653,7 +653,7 @@ public final class PathfindingState {
     private static BlockPos resolveGoalStandable(Level level, BlockPos goal) {
         int x = goal.getX();
         int z = goal.getZ();
-        if (!level.hasChunkAt(x, z)) {
+        if (level.getChunkSource().getChunkNow(x >> 4, z >> 4) == null) {
             BlockPos fromMap = XaeroPresence.mapPresent() ? resolveGoalOnSurface(goal) : null;
             return fromMap != null ? fromMap : goal;
         }
@@ -2157,7 +2157,8 @@ public final class PathfindingState {
     }
 
     private static boolean water(Level level, BlockPos pos) {
-        return level.hasChunkAt(pos) && CellData.water(CellData.flagsOf(level.getBlockState(pos)));
+        return level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4) != null
+                && CellData.water(CellData.flagsOf(level.getBlockState(pos)));
     }
 
     /**

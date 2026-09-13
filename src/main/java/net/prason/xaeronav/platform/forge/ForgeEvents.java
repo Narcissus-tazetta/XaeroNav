@@ -1,7 +1,8 @@
 package net.prason.xaeronav.platform.forge;
 
 //? forge {
-/*import com.mojang.blaze3d.vertex.PoseStack;
+/*import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
@@ -24,9 +25,12 @@ public final class ForgeEvents {
         //? if >=1.21 {
         // Forge 1.21.1のRenderLevelStageEventはPoseStackではなくMatrix4fを持つ（Mojang側がGUI描画で
         // PoseStackの受け渡しをやめたため）。PathRendererはPoseStackのpush/pop APIに依存しているので、
-        // 単体のPoseStackへ積み直して渡す（回転・並進が乗った行列を1回複製するだけ、毎フレームの負荷は軽い）
+        // 単体のPoseStackへ積み直して渡す（回転・並進が乗った行列を1回複製するだけ、毎フレームの負荷は軽い）。
+        // event.getPoseStack()はforRemoval=trueで削除予定（Forge 1.21〜）。同じ値は
+        // RenderSystem.getModelViewMatrix()からも読める（Mojangがレンダリングパイプラインの
+        // 引数からPoseStackを外した際、Forge側は値をイベントへ残しつつ取得口だけ非推奨にした）
         PoseStack poseStack = new PoseStack();
-        poseStack.last().pose().set(event.getPoseStack());
+        poseStack.last().pose().set(RenderSystem.getModelViewMatrix());
         //?} else {
         /^// 1.20.1のRenderLevelStageEventはPoseStackをそのまま持っている（1.21のMatrix4f化以前）
         PoseStack poseStack = event.getPoseStack();
