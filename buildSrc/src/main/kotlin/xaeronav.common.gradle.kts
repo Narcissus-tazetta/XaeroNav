@@ -30,8 +30,10 @@ java {
 }
 
 // 非推奨APIの発生元を通常ログへ必ず出す。まとめの「一部で使用」だけでは更新対象を特定できない。
+// 警告ゼロを確認済み（BUILD-01）なので、-Werrorで再発をビルド失敗として検知する（TEST-03）。
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:deprecation")
+    options.compilerArgs.add("-Werror")
 }
 
 repositories {
