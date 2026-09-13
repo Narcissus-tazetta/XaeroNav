@@ -1,10 +1,7 @@
 package net.prason.xaeronav.client;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -13,7 +10,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
-import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathRisk;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
@@ -44,8 +40,7 @@ public final class NavHud {
 
     // 警告すべき区間があるかは経路が変わったときにしか変わらない。HUDは毎フレーム描かれるので、
     // 全ステップの走査を経路1本につき1度で済ませる
-    private final PathCache<Set<PathRisk>> risksAhead = new PathCache<>();
-    private final PathCache<Boolean> usesBoat = new PathCache<>();
+    private final PathCache<PathSuffixes> suffixes = new PathCache<>();
 
     public void render(GuiGraphics graphics) {
         Minecraft mc = Minecraft.getInstance();
@@ -107,6 +102,8 @@ public final class NavHud {
                 add(Component.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
             }
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
+            PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
+            int from = PathProgress.INSTANCE.indexFor(result) + 1;
             boolean endsAtDestination = PathfindingState.INSTANCE.currentPathEndsAtDestination();
             add(instruction(guidance, climbing, endsAtDestination), PRIMARY_COLOR);
             add(Component.translatable(remainingKey(endsAtDestination),
@@ -114,32 +111,31 @@ public final class NavHud {
             // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
             // 気付いたのでは、そこまでの案内が前提ごと成立していない。
             // 乗っている間は出さない——すでに済んでいる支度を促し続けることになる
-            if (usesBoat(result) && !ChunkView.ridingBoat(mc.player)) {
+            if (ahead.usesBoat(from) && !ChunkView.ridingBoat(mc.player)) {
                 add(Component.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
             }
             // 持ち物で足りない経路は、予算を外した緩和の梯子を通って出てくる（他に道が無い場合）。
             // 足りているうちは黙っている——設置を含む経路はエンドではほぼ全てなので、常に出すと
             // 警告として意味を失う。クリエイティブは持ち物が空でも置けるので数えない
             if (!mc.player.getAbilities().instabuild) {
-                int needed = placementsNeeded(result);
+                int needed = ahead.placements(from);
                 int available = ChunkView.countPlaceableBlocks(mc.player);
                 if (needed > available) {
                     add(Component.translatable("hud.xaeronav.blocks_short", needed, available), WARNING_COLOR);
                 }
             }
-            Set<PathRisk> risks = risksAhead(result);
-            if (risks.contains(PathRisk.DROWNING)) {
+            if (ahead.hasRisk(from, PathRisk.DROWNING)) {
                 // 線の色だけでは「息が続かない」ことまでは伝わらない。潜る前に分かる必要がある
                 add(Component.translatable("hud.xaeronav.drowning"), WARNING_COLOR);
             }
-            if (risks.contains(PathRisk.MLG_REQUIRED)) {
+            if (ahead.hasRisk(from, PathRisk.MLG_REQUIRED)) {
                 // 着地の瞬間に操作が要る区間なので、辿り着いてから気付いたのでは間に合わない
                 add(Component.translatable("hud.xaeronav.mlg_required"), WARNING_COLOR);
             }
-            if (risks.contains(PathRisk.FALL_DAMAGE)) {
+            if (ahead.hasRisk(from, PathRisk.FALL_DAMAGE)) {
                 add(Component.translatable("hud.xaeronav.fall_damage"), WARNING_COLOR);
             }
-            if (risks.contains(PathRisk.SNEAK_OVER_MAGMA)) {
+            if (ahead.hasRisk(from, PathRisk.SNEAK_OVER_MAGMA)) {
                 // 踏んでから気付くのでは遅い（走って乗ると即座に燃える）
                 add(Component.translatable("hud.xaeronav.sneak_over_magma"), WARNING_COLOR);
             }
@@ -176,29 +172,40 @@ public final class NavHud {
         add(Component.translatable(PathfindingState.stuckHintKey(reason)), SECONDARY_COLOR);
     }
 
-    private Set<PathRisk> risksAhead(PathResult result) {
-        return risksAhead.get(result, path -> path.steps().stream()
-                .map(PathStep::risk)
-                .collect(Collectors.toCollection(() -> EnumSet.noneOf(PathRisk.class))));
-    }
+    /** 経路変更時に一度だけ作る、各添字から末尾までのHUD集計。 */
+    static final class PathSuffixes {
+        private final int[] riskMasks;
+        private final boolean[] boats;
+        private final int[] placements;
 
-    /**
-     * ここから先で置くことになる足場の数。
-     *
-     * <p><b>経路全体ではなく残りを数える。</b>置いたブロックは持ち物から減るので、全体の数と
-     * 突き合わせると、案内どおりに橋を架けているだけで「足りない」と言い出す（40個持って40個の
-     * 経路を歩き、10個置いた時点で「40個必要／所持30個」）。探索が予算を引き継ぐときの
-     * 数え方（{@link Carryover#placements}）と同じものを共有する。
-     *
-     * <p>{@link PathCache}に載せられないのはそのため——値は経路だけでなく<b>いまどこにいるか</b>で
-     * 変わる。走査は経路1本ぶんで、毎フレーム走っている案内の組み立てと同じ桁に収まる。
-     */
-    private static int placementsNeeded(PathResult result) {
-        return Carryover.placements(result.steps(), PathProgress.INSTANCE.indexFor(result) + 1);
-    }
+        PathSuffixes(PathResult result) {
+            List<PathStep> steps = result.steps();
+            riskMasks = new int[steps.size() + 1];
+            boats = new boolean[steps.size() + 1];
+            placements = new int[steps.size() + 1];
+            for (int i = steps.size() - 1; i >= 0; i--) {
+                PathStep step = steps.get(i);
+                riskMasks[i] = riskMasks[i + 1] | (1 << step.risk().ordinal());
+                boats[i] = boats[i + 1] || step.boating();
+                placements[i] = placements[i + 1] + (step.bridging() ? 1 : 0);
+            }
+        }
 
-    private boolean usesBoat(PathResult result) {
-        return usesBoat.get(result, path -> path.steps().stream().anyMatch(PathStep::boating));
+        boolean hasRisk(int from, PathRisk risk) {
+            return (riskMasks[index(from)] & (1 << risk.ordinal())) != 0;
+        }
+
+        boolean usesBoat(int from) {
+            return boats[index(from)];
+        }
+
+        int placements(int from) {
+            return placements[index(from)];
+        }
+
+        private int index(int from) {
+            return Math.max(0, Math.min(from, riskMasks.length - 1));
+        }
     }
 
     private static Component instruction(NavGuidance guidance, boolean climbing, boolean endsAtDestination) {
