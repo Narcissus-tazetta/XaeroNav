@@ -4,7 +4,7 @@ import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.CellData;
 
 /**
- * 足場を置く移動候補生成（橋・柱）。{@link AStarPathfinder}の分割の一部（ARCH-02）——
+ * 足場を置く移動候補生成（橋・柱）。{@link AStarPathfinder}の分割の一部——
  * {@link GroundMoves}のクラスJavadoc参照。
  */
 final class BuildMoves {
@@ -147,7 +147,7 @@ final class BuildMoves {
         }
         int bridgeRun = from.bridgeRun + 1;
         if (cap > 0 && bridgeRun > cap) {
-            owner.bridgeRunCapBlocked = true;
+            owner.markBridgeRunCapBlocked();
             return;
         }
         // 持ち物の枚数で経路全体の設置数を切る。連続長（上の cap）は「1本の橋が何マス続いてよいか」
@@ -223,7 +223,7 @@ final class BuildMoves {
         // 「外したら死ぬ場所に架かっている」という前提が成り立たない
         int pillarRun = from.bridgeRun + 1;
         if (owner.maxBridgeRun > 0 && pillarRun > owner.maxBridgeRun) {
-            owner.bridgeRunCapBlocked = true;
+            owner.markBridgeRunCapBlocked();
             return;
         }
         if (placedBudgetExceeded(from)) {
@@ -272,7 +272,7 @@ final class BuildMoves {
             return false;
         }
         if (!owner.placeWithoutBlocks) {
-            owner.placementBlockedByEmptyInventory = true;
+            owner.markPlacementBlockedByEmptyInventory();
             return false;
         }
         return true;
@@ -286,7 +286,7 @@ final class BuildMoves {
         if (owner.placedBudget <= 0 || from.placedTotal + 1 <= owner.placedBudget) {
             return false;
         }
-        owner.placedBudgetBlocked = true;
+        owner.markPlacedBudgetBlocked();
         return true;
     }
 
@@ -299,25 +299,11 @@ final class BuildMoves {
     private boolean climbableNear(int x, int y, int z) {
         return CellData.climbable(owner.view.cell(x, y, z))
                 || CellData.climbable(owner.view.cell(x, y + 1, z))
-                || adjacentClimbable(x, y, z);
+                || owner.hasAdjacentCell(x, y, z, CellData::climbable);
     }
 
     /** ブロックを置くセルの周り（真上を除く5面）に溶岩があるか。 */
     private boolean hasAdjacentLava(int x, int y, int z) {
-        return adjacentLava(x, y, z);
-    }
-
-    private boolean adjacentLava(int x, int y, int z) {
-        return CellData.lava(owner.view.cell(x, y - 1, z))
-                || CellData.lava(owner.view.cell(x + 1, y, z)) || CellData.lava(owner.view.cell(x - 1, y, z))
-                || CellData.lava(owner.view.cell(x, y, z + 1)) || CellData.lava(owner.view.cell(x, y, z - 1));
-    }
-
-    private boolean adjacentClimbable(int x, int y, int z) {
-        return CellData.climbable(owner.view.cell(x, y - 1, z))
-                || CellData.climbable(owner.view.cell(x + 1, y, z))
-                || CellData.climbable(owner.view.cell(x - 1, y, z))
-                || CellData.climbable(owner.view.cell(x, y, z + 1))
-                || CellData.climbable(owner.view.cell(x, y, z - 1));
+        return owner.hasAdjacentCell(x, y, z, CellData::lava);
     }
 }

@@ -5,7 +5,7 @@ import net.prason.xaeronav.pathfinding.world.CellData;
 
 /**
  * 水中・水面の移動候補生成（泳ぎ・浮上・潜降・ボート）。{@link AStarPathfinder}の分割の一部
- * （ARCH-02）——{@link GroundMoves}のクラスJavadoc参照。
+ * ——{@link GroundMoves}のクラスJavadoc参照。
  */
 final class WaterMoves {
 

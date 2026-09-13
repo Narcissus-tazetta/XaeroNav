@@ -5,7 +5,7 @@ import net.prason.xaeronav.pathfinding.world.CellData;
 
 /**
  * 地上の移動候補生成（歩行・斜め・昇降・跳躍・梯子・落下）。{@link AStarPathfinder}の
- * 分割の一部（ARCH-02）——探索ループ・open set・ノード表は{@link AStarPathfinder}に残し、
+ * 分割の一部——探索ループ・open set・ノード表は{@link AStarPathfinder}に残し、
  * 候補生成だけをここへ切り出した。
  *
  * <p>探索1回につき1つだけ生成する（{@link AStarPathfinder}のコンストラクタ参照）。展開のたびに
@@ -258,7 +258,7 @@ final class GroundMoves {
             if (owner.avoidRiskyJumps && gapDrop >= owner.view.fatalFallBlocks()) {
                 // 外したら死ぬ隙間。溶岩と違って「その隙間の上を跳ぶ手そのものを永久に消す」のではなく、
                 // 回り込む道が一本も無いと分かったときだけ緩和の梯子が開ける（riskyJumpBlocked）
-                owner.riskyJumpBlocked = true;
+                owner.markRiskyJumpBlocked();
                 return;
             }
             dropRisk += ActionCosts.dropRiskPenalty(gapDrop, owner.view.fatalFallBlocks());
@@ -406,7 +406,7 @@ final class GroundMoves {
             //
             // 水バケツMLGで同じ着地を既に作れているなら立てない。その辺は許容量に関わらず通れるので、
             // 緩めても増える移動が無い——立てると、緩和の梯子が何も変えずに探索を繰り返すだけになる
-            owner.fallDamageCapBlocked |= !mlg;
+            owner.markFallDamageCapBlocked(!mlg);
             return;
         }
         owner.relax(from, x, obstacleY + 1, z,

@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongPredicate;
 
 
 import net.minecraft.core.BlockPos;
@@ -107,7 +108,12 @@ public final class AStarPathfinder {
      * この探索が{@link #maxBridgeRun}・{@link #maxLavaBridgeRun}・{@link #maxVoidBridgeRun}を
      * 理由に橋の移動を1つでも捨てたか。
      */
-    boolean bridgeRunCapBlocked;
+    private boolean bridgeRunCapBlocked;
+
+    /** {@link BuildMoves}・自分自身が橋の連続長上限を理由に移動を捨てたときに呼ぶ。 */
+    void markBridgeRunCapBlocked() {
+        bridgeRunCapBlocked = true;
+    }
 
     /**
      * 経路全体で置いてよい足場の総数。0なら無制限。{@link Tolerances#placedBlockBudget()}。
@@ -118,7 +124,12 @@ public final class AStarPathfinder {
     final int placedBudget;
 
     /** この探索が{@link #placedBudget}を理由に設置の移動を1つでも捨てたか。 */
-    boolean placedBudgetBlocked;
+    private boolean placedBudgetBlocked;
+
+    /** {@link BuildMoves}が設置の総数上限を理由に移動を捨てたときに呼ぶ。 */
+    void markPlacedBudgetBlocked() {
+        placedBudgetBlocked = true;
+    }
 
     /**
      * 足場を1つ置く動作そのものの値段（tick）。既定は
@@ -144,7 +155,12 @@ public final class AStarPathfinder {
     final boolean placeWithoutBlocks;
 
     /** この探索が「置けるブロックを持っていない」を理由に設置の移動を1つでも捨てたか。 */
-    boolean placementBlockedByEmptyInventory;
+    private boolean placementBlockedByEmptyInventory;
+
+    /** {@link BuildMoves}が持ち物切れを理由に設置の移動を捨てたときに呼ぶ。 */
+    void markPlacementBlockedByEmptyInventory() {
+        placementBlockedByEmptyInventory = true;
+    }
 
     /** {@link #trimUnfinishedPlacements}が末尾から落とした設置ステップの数。診断用。 */
     private int trimmedPlacements;
@@ -159,7 +175,12 @@ public final class AStarPathfinder {
      * 奈落（{@link #NOTHING_BELOW}）や未ロード（{@link #UNREADABLE_BELOW}）で捨てた場合は立てない
      * ——そちらは許容量をいくら緩めても着地点が現れないので、探し直しても同じ結果になる。
      */
-    boolean fallDamageCapBlocked;
+    private boolean fallDamageCapBlocked;
+
+    /** {@link GroundMoves}が落下ダメージ許容量を理由に着地を捨てたときに呼ぶ。 */
+    void markFallDamageCapBlocked(boolean blocked) {
+        fallDamageCapBlocked |= blocked;
+    }
 
     /** 奈落・致死落差の上での跳躍を避けるか。{@link Tolerances#allowRiskyJumps()}の裏返し。 */
     final boolean avoidRiskyJumps;
@@ -168,7 +189,12 @@ public final class AStarPathfinder {
      * この探索が{@link #avoidRiskyJumps}を理由に跳躍を1つでも捨てたか。捨てていなければ、
      * 許して探し直しても結果は変わらない（{@code bridgeRunCapBlocked}と同じ役割）。
      */
-    boolean riskyJumpBlocked;
+    private boolean riskyJumpBlocked;
+
+    /** {@link GroundMoves}が危険な跳躍の回避設定を理由に移動を捨てたときに呼ぶ。 */
+    void markRiskyJumpBlocked() {
+        riskyJumpBlocked = true;
+    }
 
     /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
     private final int maxSubmergedTicks;
@@ -200,7 +226,7 @@ public final class AStarPathfinder {
     /** {@link CellSource#minDescentTicksPerBlock()}。探索中は不変なので1度だけ読む。 */
     private final double minDescentPerBlock;
 
-    /** 移動候補生成（ARCH-02）。探索1回につき1つだけ作る——{@link GroundMoves}のクラスJavadoc参照。 */
+    /** 移動候補生成。探索1回につき1つだけ作る——{@link GroundMoves}のクラスJavadoc参照。 */
     private final GroundMoves groundMoves = new GroundMoves(this);
     private final WaterMoves waterMoves = new WaterMoves(this);
     private final BuildMoves buildMoves = new BuildMoves(this);
@@ -879,9 +905,17 @@ public final class AStarPathfinder {
      * セルごとの覚え書きを足しても速くならない——覚え書きの引き当ての方が高くつく。
      */
     boolean hasAdjacentWater(int x, int y, int z) {
-        return CellData.water(view.cell(x, y - 1, z))
-                || CellData.water(view.cell(x + 1, y, z)) || CellData.water(view.cell(x - 1, y, z))
-                || CellData.water(view.cell(x, y, z + 1)) || CellData.water(view.cell(x, y, z - 1));
+        return hasAdjacentCell(x, y, z, CellData::water);
+    }
+
+    /**
+     * 真上を除く5面（下・東西南北）のいずれかが{@code test}を満たすか。水・溶岩・掴まれるものの
+     * 隣接判定が形だけ違う実装を3つ持たないための共通形——{@link BuildMoves}も使う。
+     */
+    boolean hasAdjacentCell(int x, int y, int z, LongPredicate test) {
+        return test.test(view.cell(x, y - 1, z))
+                || test.test(view.cell(x + 1, y, z)) || test.test(view.cell(x - 1, y, z))
+                || test.test(view.cell(x, y, z + 1)) || test.test(view.cell(x, y, z - 1));
     }
 
     void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
