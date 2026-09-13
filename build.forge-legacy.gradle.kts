@@ -65,7 +65,7 @@ val xaeroModules = listOf(
 // Xaeroを開発実行（runClient）へ載せるか。`./gradlew runClient -Pwith_xaero=false` で外せる。
 val withXaero = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
 
-val xaeroRuntimeMods: Configuration by configurations.creating {
+val xaeroRuntimeMods: Configuration = configurations.create("xaeroRuntimeMods") {
     isTransitive = false
 }
 
@@ -90,7 +90,7 @@ dependencies {
     "jarJar"("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
 }
 
-val stageRuntimeTestMods by tasks.registering(Copy::class) {
+val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
     from(tasks.named("jar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))

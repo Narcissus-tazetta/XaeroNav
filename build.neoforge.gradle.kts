@@ -65,7 +65,7 @@ val withXaero = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
 // Xaeroのクラスだけが「Minecraftのクラスを解決できないレイヤー」に置かれる。すると
 // ModList上は未導入なのにClass.forNameは成功するという食い違いが生まれ、触った瞬間に
 // NoClassDefFoundErrorでゲームごと落ちる。
-val xaeroRuntimeMods: Configuration by configurations.creating {
+val xaeroRuntimeMods: Configuration = configurations.create("xaeroRuntimeMods") {
     isTransitive = false
 }
 
@@ -83,7 +83,7 @@ dependencies {
 
 // Syncではなくコピーにして、手で入れた他のMODを消さない。バージョンを上げたときに古いjarが
 // 残るが、mods以下を消して入れ直せば済む。
-val installXaeroMods by tasks.registering(Copy::class) {
+val installXaeroMods = tasks.register<Copy>("installXaeroMods") {
     from(xaeroRuntimeMods)
     into(rootProject.layout.projectDirectory.dir("run/mods"))
 }
@@ -93,7 +93,7 @@ tasks.matching { it.name == "runClient" }.configureEach {
 }
 
 // CIの起動スモークテスト（mc-runtime-test）へ渡す一式。配布jarとXaeroを1箇所へ集める
-val stageRuntimeTestMods by tasks.registering(Copy::class) {
+val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
     from(tasks.named("jar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
