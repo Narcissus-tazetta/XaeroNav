@@ -17,6 +17,7 @@ import net.prason.xaeronav.pathfinding.astar.Heuristic;
 import net.prason.xaeronav.pathfinding.coarse.VoxelCostToGo;
 import net.prason.xaeronav.pathfinding.coarse.VoxelTerrain;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 
@@ -115,7 +116,7 @@ final class NetherVoxelGuide {
                 || horizontal(current.from(), player) >= REBUILD_MOVE_BLOCKS;
         // 条件が変わったときだけ間隔を飛ばす。同じ条件のまま失敗し続けるとき、間隔が無いと
         // 探索のたびにメインスレッドで地図を読み直すことになる
-        boolean mayAttempt = !key.equals(attempted) || System.currentTimeMillis() >= nextAttemptMillis;
+        boolean mayAttempt = !key.equals(attempted) || MonotonicTime.millis() >= nextAttemptMillis;
         if (stale && !building && mayAttempt) {
             start(level, key, player);
         }
@@ -163,17 +164,25 @@ final class NetherVoxelGuide {
     private void start(LevelHeightAccessor level, Key key, BlockPos player) {
         stalled = false;
         attempted = key;
-        nextAttemptMillis = System.currentTimeMillis() + MIN_REBUILD_INTERVAL_MILLIS;
+        nextAttemptMillis = MonotonicTime.millis() + MIN_REBUILD_INTERVAL_MILLIS;
         if (!XaeroPresence.mapPresent()) {
             return;
         }
         BlockPos goal = key.goal();
-        long began = System.currentTimeMillis();
+        long began = MonotonicTime.millis();
         int minX = Math.min(player.getX(), goal.getX()) - VoxelTerrain.MARGIN_BLOCKS;
         int minZ = Math.min(player.getZ(), goal.getZ()) - VoxelTerrain.MARGIN_BLOCKS;
         int sizeX = Math.max(player.getX(), goal.getX()) + VoxelTerrain.MARGIN_BLOCKS - minX + 1;
         int sizeZ = Math.max(player.getZ(), goal.getZ()) + VoxelTerrain.MARGIN_BLOCKS - minZ + 1;
         int referenceY = (player.getY() + goal.getY()) / 2;
+        // 実際の床範囲で作る箱は、少なくとも始点・目的地とその余白を含む。この最小の箱でさえ
+        // 上限へ収まらないなら、地図を何百万セル走査しても最後に必ず捨てることになる。
+        SearchBounds minimumBox = VoxelTerrain.boxFor(level, player, goal,
+                Math.min(player.getY(), goal.getY()), Math.max(player.getY(), goal.getY()));
+        if (VoxelTerrain.cellBlocksFor(minimumBox) == 0) {
+            LOGGER.debug("XaeroNav: 3D粗層の範囲が大きすぎるため地図読みを省略します ({})", minimumBox);
+            return;
+        }
         // 要求しないと、Xaeroが既にメモリへ載せているリージョンしか読めない。要求は非同期なので
         // この回には間に合わないが、次の組み直しで効く
         XaeroMapReader.requestLoad(minX >> 4, minZ >> 4,
@@ -200,7 +209,7 @@ final class NetherVoxelGuide {
         }
         XaeroMapReader.forEachCaveFloor(minX, minZ, sizeX, sizeZ, referenceY, SAMPLE_STEP,
                 terrain::markFloor);
-        long read = System.currentTimeMillis() - began;
+        long read = MonotonicTime.millis() - began;
 
         building = true;
         long myGeneration = generation.incrementAndGet();
@@ -229,7 +238,7 @@ final class NetherVoxelGuide {
                                     + "地図{}ms, Dijkstra{}ms)",
                             floors, terrain.breakdown(), terrain.cellCount(), terrain.cellBlocks(),
                             round(inflation(guide, player, goal)), box,
-                            read, System.currentTimeMillis() - began - read);
+                            read, MonotonicTime.millis() - began - read);
                 });
     }
 

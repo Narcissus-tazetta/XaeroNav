@@ -5,6 +5,7 @@ import java.util.List;
 
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.cost.FlightCosts;
+import net.prason.xaeronav.util.MonotonicTime;
 
 /**
  * 格子A*が返す階段状の折れ線を、通せる限り真っ直ぐに伸ばす（string pull）。
@@ -65,7 +66,7 @@ final class FlightSmoother {
         int from = 0;
         while (from < points.size() - 1) {
             int next = from + 1;
-            if (System.currentTimeMillis() < deadline) {
+            if (MonotonicTime.millis() < deadline) {
                 int limit = Math.min(points.size() - 1, from + LOOKAHEAD_POINTS);
                 // 遠い方から試す。最初に見つかったものが最も多くの折れを畳める
                 for (int to = limit; to > from + 1; to--) {

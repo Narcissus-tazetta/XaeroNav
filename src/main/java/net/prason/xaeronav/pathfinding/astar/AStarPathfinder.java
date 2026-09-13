@@ -11,6 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
+import net.prason.xaeronav.util.MonotonicTime;
 
 /**
  * Traverse/Diagonal/Ascend/Descend/Bridgeを扱う。
@@ -78,7 +79,7 @@ public final class AStarPathfinder {
      */
     private static final double MIN_IMPROVEMENT = 0.01;
 
-    /** 時刻とキャンセルの確認間隔（ノード数）。{@code System.currentTimeMillis()}自体が安くないため間引く。 */
+    /** 時刻とキャンセルの確認間隔（ノード数）。単調時計の呼び出しも内側では間引く。 */
     private static final int CHECK_INTERVAL_MASK = (1 << 6) - 1;
 
     private static final int[] CARDINAL_DX = {0, 1, 0, -1};
@@ -502,7 +503,7 @@ public final class AStarPathfinder {
         Arrays.fill(bestSoFar, startNode);
         Arrays.fill(bestHeuristic, startNode.estimatedCostToGoal);
 
-        long deadline = System.currentTimeMillis() + timeLimitMillis;
+        long deadline = MonotonicTime.millis() + timeLimitMillis;
         int expanded = 0;
 
         // openが尽きるまで回り切ったなら、探索範囲の中に到達手段が無かったということ。
@@ -518,7 +519,7 @@ public final class AStarPathfinder {
                     termination = PathResult.Termination.CANCELLED;
                     break;
                 }
-                if (System.currentTimeMillis() >= deadline) {
+                if (MonotonicTime.millis() >= deadline) {
                     termination = PathResult.Termination.TIME_LIMIT;
                     break;
                 }
@@ -609,10 +610,46 @@ public final class AStarPathfinder {
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
         }
         Collections.reverse(steps);
+        if (trimCapViolations(steps)) {
+            // 同一座標へ異なる資源状態で着く候補が統合されても、安全上限を超えた完成経路は
+            // 外へ出さない。上位runnerはblockedフラグを見て緩和段を選べる。
+            termination = PathResult.Termination.EXHAUSTED;
+        }
         if (termination != PathResult.Termination.REACHED_GOAL) {
             trimUnfinishedPlacements(steps);
         }
         return new PathResult(steps, termination, expanded, createdNodes);
+    }
+
+    /** 探索中の近似状態が取りこぼしても、公開する経路の設置上限を最後に必ず守る。 */
+    private boolean trimCapViolations(List<PathStep> steps) {
+        int bridgeRun = carried.bridgeRun();
+        int placed = carried.placedBlocks();
+        int bridgeStart = bridgeRun > 0 ? 0 : -1;
+        for (int i = 0; i < steps.size(); i++) {
+            PathStep step = steps.get(i);
+            if (!step.bridging()) {
+                bridgeRun = 0;
+                bridgeStart = -1;
+                continue;
+            }
+            if (bridgeStart < 0) {
+                bridgeStart = i;
+            }
+            bridgeRun++;
+            placed++;
+            if (maxBridgeRun > 0 && bridgeRun > maxBridgeRun) {
+                bridgeRunCapBlocked = true;
+                steps.subList(bridgeStart, steps.size()).clear();
+                return true;
+            }
+            if (placedBudget > 0 && placed > placedBudget) {
+                placedBudgetBlocked = true;
+                steps.subList(bridgeStart, steps.size()).clear();
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -3,6 +3,7 @@ package net.prason.xaeronav.pathfinding.flight;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.CellSource;
+import net.prason.xaeronav.util.MonotonicTime;
 
 /**
  * 空中経路を求める入口。粒度を落としながら数回試す段取りだけを持つ。
@@ -42,9 +43,9 @@ public final class FlightRouter {
     public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
                                      FlightTuning tuning) {
         FlightRoute best = FlightRoute.NONE;
-        long deadline = System.currentTimeMillis() + tuning.limits().timeLimitMillis();
+        long deadline = MonotonicTime.millis() + tuning.limits().timeLimitMillis();
         for (int cells = tuning.cellBlocks(); cells >= MIN_CELL_BLOCKS; cells /= 2) {
-            long remaining = deadline - System.currentTimeMillis();
+            long remaining = deadline - MonotonicTime.millis();
             if (best != FlightRoute.NONE && remaining < MIN_RETRY_BUDGET_MILLIS) {
                 // 既に何か出せていて時間も無い。ここで粘るより今ある線を返す
                 break;

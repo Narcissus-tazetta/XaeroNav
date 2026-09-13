@@ -13,6 +13,7 @@ import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.cost.FlightCosts;
+import net.prason.xaeronav.util.MonotonicTime;
 
 /**
  * {@link AirGrid}の上を26近傍で解くA*。空いている空間だけを通る折れ線を返す。
@@ -142,7 +143,7 @@ public final class FlightPathfinder {
         Arrays.fill(bestSoFar, startNode);
         Arrays.fill(bestHeuristic, estimate[startNode]);
 
-        this.deadline = System.currentTimeMillis() + limits.timeLimitMillis();
+        this.deadline = MonotonicTime.millis() + limits.timeLimitMillis();
         int expanded = 0;
         PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
 
@@ -156,7 +157,7 @@ public final class FlightPathfinder {
                     termination = PathResult.Termination.CANCELLED;
                     break;
                 }
-                if (System.currentTimeMillis() >= deadline) {
+                if (MonotonicTime.millis() >= deadline) {
                     termination = PathResult.Termination.TIME_LIMIT;
                     break;
                 }
