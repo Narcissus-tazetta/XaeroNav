@@ -30,18 +30,18 @@ jobs:
       runtime_nodes: ${{ steps.nodes.outputs.runtime_nodes }}
       canonical_node: ${{ steps.nodes.outputs.canonical_node }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
 
       # ノード発見だけのジョブから専用キャッシュを書き出しても、後続ビルドには
       # ほぼ再利用できず保存・退避コストだけが増える。
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
 
@@ -94,14 +94,14 @@ jobs:
         node: ${{ fromJson(needs.discover.outputs.nodes) }}
     name: build (${{ matrix.node.node }})
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
 
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       # 経路探索テストは全ノードで同じなので正典ノードだけでコンパイル・実行する。
       # 他ノードでbuildを呼ぶと、Test自体はonlyIfで止まってもcompileTestJavaまでは
@@ -120,7 +120,7 @@ jobs:
       # 失敗したときに、どのテストがなぜ落ちたかをログを掘らずに見られるようにする
       - name: Upload test report
         if: failure() && matrix.node.node == needs.discover.outputs.canonical_node
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-report-${{ matrix.node.node }}
           path: |
@@ -131,7 +131,7 @@ jobs:
       # PRから実際のjarを落として動作確認できるようにする
       - name: Upload mod jar
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: xaeronav-jar-${{ matrix.node.node }}
           path: versions/${{ matrix.node.node }}/build/libs/*.jar
@@ -154,16 +154,16 @@ jobs:
         node: ${{ fromJson(needs.discover.outputs.runtime_nodes) }}
     name: runtime (${{ matrix.node.node }})
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: 21
 
       # build matrixが同じGradle依存をキャッシュする。runtime matrixからも5組の
       # 類似キャッシュを書き出すと容量を圧迫するため、ここでは復元だけを行う。
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
 
@@ -231,7 +231,7 @@ jobs:
         id: client
         timeout-minutes: 20
         continue-on-error: true
-        uses: headlesshq/mc-runtime-test@4.5.1
+        uses: headlesshq/mc-runtime-test@fbafe02f89f4f13682e7b16dbcee6b6a43f4faca # 4.5.1
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: ${{ matrix.node.loader }}
@@ -308,7 +308,7 @@ jobs:
 
       - name: Upload client logs
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: client-log-${{ matrix.node.node }}
           path: |

@@ -14,27 +14,32 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 jobs:
-  release:
+  # ビルドとタグ/Release作成を別jobに分ける。ビルドはGradleプラグイン・依存関係が
+  # 全部通る場所で、そのどれか1つが侵害されてもcontents:writeへ手が届かないよう、
+  # このjobにはwrite権限を渡さない（BUILD-03）。
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "21"
 
       # CIと同じGradle User Home / build cacheを復元する。Minecraft本体や各ローダーの
       # 変換済み成果物は大きいため、リリースのたびに一から生成しない。
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       # workflow_dispatch: 入力されたバージョンを使う。タグpush: タグ名から取り出す
       - name: Resolve version and tag
@@ -67,19 +72,46 @@ jobs:
       - name: Build
         run: ./gradlew build verifyDistribution -Prelease -Pmod_version=${{ steps.release.outputs.version }}
 
+      - name: Upload distribution jars
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-jars
+          path: build/libs/xaeronav-*.jar
+          retention-days: 1
+
+  # タグ作成とGitHub Releaseの公開だけを行う。contents:writeが要るのはこのjobだけ。
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # 同じworkflow run内のartifactをdownload-artifactで取るのに要る
+      actions: read
+    steps:
+      # タグのpushにはローカルにgitリポジトリが要る（ビルド成果物だけでは足りない）。
+      # ビルド自体はしないのでcheckoutだけの軽量な取得でよい
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download distribution jars
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-jars
+          path: build/libs
+
       # 成果物がすべて検査を通った後で初めてタグを作る。ビルド失敗時には何もpushしない。
       - name: Create and push tag
         if: github.event_name == 'workflow_dispatch'
         run: |
-          TAG="${{ steps.release.outputs.tag }}"
+          TAG="${{ needs.build.outputs.tag }}"
           git tag "$TAG"
           git push origin "$TAG"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          tag_name: ${{ steps.release.outputs.tag }}
-          name: ${{ steps.release.outputs.tag }}
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: ${{ needs.build.outputs.tag }}
           draft: true
           generate_release_notes: true
           files: build/libs/xaeronav-*.jar
