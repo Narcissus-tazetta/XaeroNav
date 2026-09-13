@@ -186,15 +186,6 @@ public final class PathfindingState {
      */
     private static final int COARSE_MAP_RETRY_LIMIT = 10;
 
-    /** 目的地へ近づけないまま終わる探索がこの回数続いたら、詰みと判断する。 */
-    private static final int STUCK_SEARCH_STREAK = 4;
-
-    /** 「目的地へ近づけた」と認める最小の距離（ブロック）。測定のゆらぎで判断が揺れないための幅。 */
-    private static final double STUCK_PROGRESS_BLOCKS = 8.0;
-
-    /** 詰みと判断したあと、探索を投げ直すまでにプレイヤーが動く距離（ブロック）。 */
-    private static final double STUCK_RETRY_MOVE_BLOCKS = 16.0;
-
     /**
      * 通常探索が予算切れした地点から、これだけ離れるまでは通常探索を省いて粗い経由地チェーンから
      * 始める（ブロック）。{@link #plainSearchHopeless}参照。
@@ -535,14 +526,6 @@ public final class PathfindingState {
     private volatile int passedWaypoints;
 
     /**
-     * 目的地へ最も近づけた水平距離（案内できた経路の末端か、プレイヤー自身）。詰みの判定に使う。
-     *
-     * <p>見るのは「経路が引けたか」ではなく「<b>近づけたか</b>」。予算切れの探索は行き止まりへ
-     * 向かう部分経路を毎回返すので、経路の有無で判断すると詰みは一度も検知できない。
-     */
-    private volatile double bestApproachBlocks = Double.MAX_VALUE;
-
-    /**
      * 直前の通常探索（粗い経由地チェーンではない側）が展開ノード数の上限に当たった地点。
      * {@link #plainSearchHopeless}参照。
      */
@@ -578,17 +561,8 @@ public final class PathfindingState {
     /** 予算を積んだ探索を次tickで投げ直すか。{@link #pendingCoarseGuideRetry}の一段手前。 */
     private volatile boolean pendingDeepRetry;
 
-    /** {@link #bestApproachBlocks}を縮められないまま終わった探索の連続回数。 */
-    private volatile int stalledSearches;
-
-    /** 直近で「前進しなかった」と数えた探索の始点。{@link #noteSearchOutcome}参照。 */
-    private volatile BlockPos lastStalledAt;
-
-    /** 目的地へ行けないと判断した理由。判断していない・解消したなら{@code null}。 */
-    private volatile StuckReason stuckReason;
-
-    /** 詰みをチャットで1度だけ知らせるための引き継ぎ。ワーカースレッドで立て、次tickで読む。 */
-    private volatile StuckReason pendingStuckNotice;
+    /** 「目的地へ行けない」の判定。詳細は{@link StuckTracker}のクラスJavadoc参照（ARCH-01）。 */
+    private final StuckTracker stuckTracker = new StuckTracker();
 
     /**
      * 経路の末端から先へ伸ばせなかった地点。同じ末端で延長を試み続けないための歯止めで、
@@ -632,7 +606,7 @@ public final class PathfindingState {
     }
 
     private void publishNavigationView() {
-        navigationView = new NavigationView(goal, flying, arrived, computing, stuckReason, displayed,
+        navigationView = new NavigationView(goal, flying, arrived, computing, stuckTracker.reason(), displayed,
                 coarseRoute, refinedRoute, passedWaypoints, rerouteNoticeTicks > 0,
                 flying ? flight.route() : FlightRoute.NONE);
     }
@@ -791,15 +765,11 @@ public final class PathfindingState {
         this.pendingDeepRetry = false;
         this.lastAimedWaypoint = null;
         this.passedWaypoints = 0;
-        this.bestApproachBlocks = Double.MAX_VALUE;
         this.plainBudgetExhaustedAt = null;
         this.spliceBlockedFrom = null;
         this.seamsToRepair.clear();
         this.lastSeamRepairRefusal = null;
-        this.stalledSearches = 0;
-        this.lastStalledAt = null;
-        this.stuckReason = null;
-        this.pendingStuckNotice = null;
+        this.stuckTracker.reset();
         this.extendBlockedAt = null;
         this.extendBlockedFrom = null;
         this.rerouteNoticeTicks = 0;
@@ -931,7 +901,7 @@ public final class PathfindingState {
      * この状態の間は探索そのものを止めている（プレイヤーが動くまで結果が変わらないため）。
      */
     public StuckReason stuckReason() {
-        return stuckReason;
+        return stuckTracker.reason();
     }
 
     /**
@@ -980,10 +950,9 @@ public final class PathfindingState {
                 clear();
                 return;
             }
-            StuckReason notice = pendingStuckNotice;
+            StuckReason notice = stuckTracker.takePendingNotice();
             if (notice != null) {
                 // 判断はワーカースレッドで行われる。チャットへの出力はメインスレッド専用なのでここで拾う
-                pendingStuckNotice = null;
                 mc.player.displayClientMessage(Component.translatable("hud.xaeronav.unreachable_notice",
                         Component.translatable(stuckHintKey(notice))), false);
             }
@@ -1058,7 +1027,9 @@ public final class PathfindingState {
             }
             ticksSinceRecalc++;
             ticksSinceValidation++;
-            if (stuckReason != null && !stuckRetryDue(mc.player)) {
+            if (stuckTracker.reason() != null
+                    && !stuckTracker.retryDue(lastStart, mc.player.blockPosition(),
+                            ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS)) {
                 // 目的地へ行けないと判断済み。同じ場所から投げ直しても読み込み済みチャンクも地形も
                 // 変わっていないので結果は同じ——実機では通常探索10万＋粗い経由地チェーン20万ノードを
                 // 3秒おきに焼き続けていた。プレイヤーが動くか、世界が変わりうるだけの時間が経つまで待つ
@@ -1190,7 +1161,8 @@ public final class PathfindingState {
         if (flying || computing) {
             return false;
         }
-        if (stuckReason != null && !stuckRetryDue(player)) {
+        if (stuckTracker.reason() != null
+                && !stuckTracker.retryDue(lastStart, player.blockPosition(), ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS)) {
             return false;
         }
         if (pendingWideRetry) {
@@ -1348,8 +1320,7 @@ public final class PathfindingState {
         flight.dropRoute();
         arrivedTicks = 0;
         arrived = true;
-        stuckReason = null;
-        pendingStuckNotice = null;
+        stuckTracker.clearReason();
         Player player = Minecraft.getInstance().player;
         if (player != null) {
             player.playSound(SoundEvents.NOTE_BLOCK_BELL.value(), 0.4f, 1.5f);
@@ -1394,32 +1365,11 @@ public final class PathfindingState {
         return moved || ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS;
     }
 
-    /** 詰みと判断したあとで、もう一度探索を投げてよい頃合いか。{@link #STUCK_RETRY_MOVE_BLOCKS}参照。 */
-    private boolean stuckRetryDue(Player player) {
-        BlockPos start = lastStart;
-        return start == null
-                || start.distSqr(player.blockPosition()) >= STUCK_RETRY_MOVE_BLOCKS * STUCK_RETRY_MOVE_BLOCKS
-                || ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS;
-    }
-
     /**
-     * この探索の結果を詰みの判定へ反映する。詰みは「<b>狙った先へ届きもせず、目的地へ近づきも
-     * しなかった</b>探索」が{@link #STUCK_SEARCH_STREAK}回続いたこと、と定義する。
-     *
-     * <p>経路が引けたかどうかでは判定できない。予算切れの探索は行き止まりへ向かう部分経路を毎回
-     * 返すので、実機ログではステップ数55→23→5→18→93→0…が5分間続く間ずっと同じ溶岩の海の縁に
-     * 居た。逆に「近づいたか」だけで見ると、溶岩の海を大きく迂回する区間（目的地から遠ざかりながら
-     * 正しく進んでいる）を詰みと誤判定する——そこでは探索は狙った中間目標へ<b>届いている</b>ので、
-     * 2つを併せて初めて正しく切り分けられる。
-     *
-     * <p>近さの測り方にプレイヤー自身の位置も入れる。部分経路を辿って歩いて前進するのも正常な
-     * 進み方なので、その間に投げた探索が何回失敗していようと詰みではない。
-     *
-     * <p><b>連続として数えるのは、ほぼ同じ場所から投げた探索だけ</b>（{@link #STUCK_RETRY_MOVE_BLOCKS}）。
-     * 詰みの根拠は「同じ実験を繰り返しても結果が変わらない」ことなので、始点が動いていれば
-     * 別の実験——読み込み済みチャンクも層1の地図も変わり、実際に結果が変わりうる。実機
-     * （ジ・エンドの崖ぎわ、06:36）では、プレイヤーが崖に沿って26ブロック行き来する間の失敗が
-     * 連続として数えられ「行けません」が出たが、その16秒後に橋49本で渡り切っている。
+     * この探索の結果を詰みの判定へ反映する（{@link StuckTracker}参照）。ここでは
+     * {@link StuckTracker}が必要とする2つの条件——完走した地上経路が今も表示中か、
+     * 層1が目的地まで届いていないか——を、この状態機械が持つ{@code displayed}/{@code coarseRoute}
+     * から求めるだけにする。
      */
     private void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result) {
         BlockPos currentGoal = goal;
@@ -1427,65 +1377,12 @@ public final class PathfindingState {
             return;
         }
         DisplayedPath shown = displayed;
-        if (shown != null && shown.mode() != PathMode.TO_SURFACE && shown.result().complete()
-                && !shown.result().steps().isEmpty()) {
-            // 完走した経路が出ている＝ここから先へ実際に歩ける。中間目標へ向かう探索がその先で
-            // 何回失敗しようと、歩ける経路がある間は詰みではない。実機（22:42）では、110ステップ・
-            // 橋47本の経路を表示したまま「目的地へ行けません」が出ていた
-            stalledSearches = 0;
-            stuckReason = null;
-            return;
-        }
-        double approach = Math.min(horizontalDistance(start, currentGoal),
-                horizontalDistance(planEnd, currentGoal));
-        // 高水位がSTUCK_PROGRESS_BLOCKSを切ったら、そこから更にその幅ぶん近づいた探索は
-        // 原理的に出せない（距離は0未満にならない）。一度でも目的地のそばまで届いた目的地では
-        // 以後どんな探索も前進と認められず、未到達がSTUCK_SEARCH_STREAK回続くだけで
-        // 「行けません」になる——改善しえない値を歯止めに使うと永久に外れない
-        boolean improvable = bestApproachBlocks >= STUCK_PROGRESS_BLOCKS;
-        boolean progressed = result.complete() || !improvable
-                || approach <= bestApproachBlocks - STUCK_PROGRESS_BLOCKS;
-        bestApproachBlocks = Math.min(bestApproachBlocks, approach);
-        if (progressed) {
-            stalledSearches = 0;
-            stuckReason = null;
-            return;
-        }
-        // 薄い地図で組んだ3D粗層が、詰まったまま更新されずに残るのを防ぐ。ここを通るのは
-        // 「狙った先へ届きも目的地へ近づきもしなかった」探索だけなので、組み直しの引き金として
-        // ちょうどよい（実際に組み直すかはNetherVoxelGuide側が間引く）
-        voxelGuide.noteStalled();
-        BlockPos previouslyStalledAt = lastStalledAt;
-        boolean sameSpot = previouslyStalledAt != null
-                && previouslyStalledAt.distSqr(start) < STUCK_RETRY_MOVE_BLOCKS * STUCK_RETRY_MOVE_BLOCKS;
-        stalledSearches = sameSpot ? stalledSearches + 1 : 1;
-        lastStalledAt = start;
-        if (stalledSearches < STUCK_SEARCH_STREAK || stuckReason != null) {
-            return;
-        }
-        stuckReason = classifyStuck(result.termination());
-        pendingStuckNotice = stuckReason;
-        LOGGER.info("XaeroNav: 目的地へ行けないと判断しました (理由={}, 最接近={}ブロック, 目的地={})",
-                stuckReason, Math.round(bestApproachBlocks), currentGoal.toShortString());
-    }
-
-    /**
-     * 詰みの理由を、確度の高い順に見て決める。
-     *
-     * <p>層1（Xaeroの地図）で目的地まで繋がっていないことが最も情報量が多い——<b>この判定に使う
-     * ルートは梯子の最終段（{@code BridgePolicy.BRIDGE}）まで試したもの</b>で、そこでは溶岩の海も
-     * 奈落も橋を架ける前提で通れることになっており、未探索セルも通行可能として扱われる。それでも
-     * 届かないなら、詳細探索をいくら回しても届かない。次に確かなのが{@code EXHAUSTED}（探索範囲の
-     * 中に到達手段が無いことの証明）で、残りは資源不足。
-     */
-    private StuckReason classifyStuck(PathResult.Termination termination) {
+        boolean hasCompleteGroundRoute = shown != null && shown.mode() != PathMode.TO_SURFACE
+                && shown.result().complete() && !shown.result().steps().isEmpty();
         CoarseRoute route = coarseRoute;
-        if (route != null && route.goal().equals(goal) && !route.reachedGoal()) {
-            return StuckReason.UNMAPPED;
-        }
-        return termination == PathResult.Termination.EXHAUSTED
-                ? StuckReason.NO_WAY_THROUGH
-                : StuckReason.SEARCH_TOO_HARD;
+        boolean routeUnmapped = route != null && route.goal().equals(currentGoal) && !route.reachedGoal();
+        stuckTracker.noteOutcome(start, planEnd, currentGoal, hasCompleteGroundRoute, result, routeUnmapped,
+                voxelGuide);
     }
 
     private void retryWithoutRoute(BlockPos start) {
@@ -3323,7 +3220,7 @@ public final class PathfindingState {
         // 踏んだのと同じ形（[[xaeronav-architecture]]の「ラッチ」の項）。
         // 詰みかけているときだけ外すので、通常の前進中に「前進する目標と背後の目標が交互に出る」
         // 振動（この歯止めを入れた理由そのもの）は起きない
-        boolean strandedHere = stalledSearches > 0;
+        boolean strandedHere = stuckTracker.stranded();
         BlockPos aimedBefore = playerAnchored && !strandedHere ? lastAimedWaypoint : null;
         for (int i = 0; i < waypoints.size(); i++) {
             BlockPos waypoint = waypoints.get(i);
