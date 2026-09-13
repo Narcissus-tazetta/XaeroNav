@@ -10,6 +10,9 @@ import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.registries.BuiltInRegistries;
+//? if forge && <1.21 {
+/*import net.minecraftforge.registries.ForgeRegistries;
+*///?}
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.TagKey;
@@ -117,11 +120,21 @@ public final class DiggableBlocks {
         Set<Block> blocks = new HashSet<>();
         for (String id : ids) {
             ResourceLocation location = ResourceLocation.tryParse(id);
+            // Forge 1.20.1はBuiltInRegistries.BLOCKをdeprecatedにし、代わりにForgeRegistries.BLOCKSを
+            // 使わせる（Forge独自のregistry実装への誘導）。他ノードはdeprecatedではないので素のまま（BUILD-01）
+            //? if forge && <1.21 {
+            /*if (location == null || !ForgeRegistries.BLOCKS.containsKey(location)) {
+                LOGGER.warn("XaeroNav config: 未知のブロックIDを無視しました: {}", id);
+                continue;
+            }
+            blocks.add(ForgeRegistries.BLOCKS.getValue(location));
+            *///?} else {
             if (location == null || !BuiltInRegistries.BLOCK.containsKey(location)) {
                 LOGGER.warn("XaeroNav config: 未知のブロックIDを無視しました: {}", id);
                 continue;
             }
             blocks.add(BuiltInRegistries.BLOCK.get(location));
+            //?}
         }
         return Set.copyOf(blocks);
     }

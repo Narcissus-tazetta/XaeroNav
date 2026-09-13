@@ -224,9 +224,18 @@ public final class ChunkView implements CellSource {
         for (int slot = 0; slot < hotbar.length; slot++) {
             ItemStack stack = player.getInventory().getItem(slot);
             hotbar[slot] = stack.copy();
-            // NeoForgeが足す ItemStack#getEnchantmentLevel は使わない。この階層はローダーに
-            // 依存しない決まりで、他のMODがエンチャント値を動的に書き換える場合まで拾う必要も無い
-            hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            // NeoForge/Forgeが足す ItemStack#getEnchantmentLevel は使わない。この階層はローダーに
+            // 依存しない決まりで、他のMODがエンチャント値を動的に書き換える場合まで拾う必要も無い。
+            // 1.20.1-forge/1.21.1-neoforgeはgetItemEnchantmentLevelをその動的な値へ差し替えた
+            // (deprecated)ので、NBTの値をそのまま返すgetTagEnchantmentLevelを使う。Fabricは無改造の
+            // vanilla APIでgetItemEnchantmentLevelが最初からNBTの値を返し、1.21.1-forgeはそもそも
+            // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
+            // その2つはgetItemEnchantmentLevelのままでよい（BUILD-01）
+            //? if (forge && <1.21) || neoforge {
+            hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
+            //?} else {
+            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            *///?}
         }
         // 置ける枚数は持ち物<b>全体</b>で数える。ホットバーだけを見ていた頃は、インベントリに
         // 1スタック持っていても橋の案内が出ず、逆にホットバーの1個だけで64マスの橋が出ていた。
