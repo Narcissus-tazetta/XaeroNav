@@ -124,12 +124,16 @@ public final class PathRenderer {
             return;
         }
 
-        PathResult groundResult = PathfindingState.INSTANCE.currentResult();
-        FlightRoute flight = PathfindingState.INSTANCE.flightRoute();
-        BlockPos goal = PathfindingState.INSTANCE.goal();
+        // 1度だけ取得し、以降はこのsnapshotだけを読む。個々のgetterを描画中に何度も呼ぶと、
+        // その間にワーカーcallbackが割り込んで「どの瞬間にも存在しなかった組み合わせ」
+        // （例: 新しいgoalと古いcurrentResult）を1フレームだけ描きうる
+        PathfindingState.NavigationView view = PathfindingState.INSTANCE.navigationView();
+        PathResult groundResult = view.currentResult();
+        FlightRoute flight = view.flightRoute();
+        BlockPos goal = view.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
         boolean hasFlight = !flight.isEmpty();
-        boolean arrived = PathfindingState.INSTANCE.arrived();
+        boolean arrived = view.arrived();
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
         boolean hasStraight = goal != null && !arrived && XaeroNavConfig.INSTANCE.straightLineEnabled();

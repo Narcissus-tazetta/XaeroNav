@@ -561,7 +561,7 @@ public final class PathfindingState {
     /** 予算を積んだ探索を次tickで投げ直すか。{@link #pendingCoarseGuideRetry}の一段手前。 */
     private volatile boolean pendingDeepRetry;
 
-    /** 「目的地へ行けない」の判定。詳細は{@link StuckTracker}のクラスJavadoc参照（ARCH-01）。 */
+    /** 「目的地へ行けない」の判定。詳細は{@link StuckTracker}のクラスJavadoc参照。 */
     private final StuckTracker stuckTracker = new StuckTracker();
 
     /**
@@ -580,7 +580,7 @@ public final class PathfindingState {
     private volatile int rerouteNoticeTicks;
 
     /**
-     * HUD・地図/ワールド描画が読む、地上ナビ関連stateの1フレーム分の合成snapshot（STATE-01）。
+     * HUD・地図/ワールド描画が読む、地上ナビ関連stateの1フレーム分の合成snapshot。
      *
      * <p>{@link #goal}・{@link #flying}・{@link #arrived}等は個別のvolatileなので、描画側が
      * 複数回に分けて読むと、その間にワーカーcallbackが割り込んで「どの瞬間にも存在しなかった
@@ -804,7 +804,7 @@ public final class PathfindingState {
      * 「もう捨てた経路の末端から新しい目的地へ伸びる点線」のような、どの時点にも存在しなかった
      * 組み合わせが1フレームだけ描かれる。{@link MapPathOverlay.Snapshot}が防いでいるのと同じ
      * 食い違いが1段内側で起きないよう、{@link #navigationView()}が既に発行済みの1つの
-     * snapshotから組む（STATE-01）。空中の曲がり点線（{@code flight.dashWaypoints}）だけは
+     * snapshotから組む。空中の曲がり点線（{@code flight.dashWaypoints}）だけは
      * {@link FlightNavState}自身の内部状態（{@code coarseRoute}/{@code guideWaypoints}）を
      * 参照する既存の作りを残しており、この部分の相互整合はここでは保証しない
      * （空になるとき限定の代替経路同士なので、混ざっても見た目の破綻は小さい）。

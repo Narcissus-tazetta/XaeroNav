@@ -17,10 +17,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-//? if forge && <1.21 {
-/*import net.minecraftforge.registries.ForgeRegistries;
-*///?}
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
@@ -43,6 +39,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
+import net.prason.xaeronav.pathfinding.world.BlockRegistryCompat;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
@@ -69,7 +66,7 @@ public final class XaeroNavCommands {
      * （クラスJavadoc参照）なのでワーカーへ逃がせず、一辺{@code radiusChunks*2+1}チャンクぶんを
      * 丸ごと同期でXaeroの地図から読む。既定値64（一辺129、約16,641セル）が「一瞬で終わる」規模と
      * 分かっている前提で、その2倍を安全側の上限にする——旧上限512（一辺1025、約1,050,625セル）は
-     * この規模の16倍あり、要求するとクライアントを長時間止め得た（PERF-02）。
+     * この規模の16倍あり、要求するとクライアントを長時間止め得た。
      */
     private static final int MAPDATA_MAX_RADIUS_CHUNKS = 128;
 
@@ -233,7 +230,7 @@ public final class XaeroNavCommands {
      *
      * <p>地図の読み取り（{@link #readCoarseMapOrFail}）はXaero API契約によりメインスレッドで
      * 同期実行するが、その後の{@link CoarseRouter#findRoute}はMinecraft/Xaero状態を読まない
-     * 純粋な計算なので{@link #DIAGNOSTIC}のワーカーへ逃がす（PERF-02）。{@code detail}は
+     * 純粋な計算なので{@link #DIAGNOSTIC}のワーカーへ逃がす。{@code detail}は
      * ワーカー完了後のメインスレッドcallback内から呼ばれる。
      */
     private static int withCoarseRoute(NavCommandSink out, BlockPos goal, RouteDetail detail) {
@@ -281,6 +278,8 @@ public final class XaeroNavCommands {
                             waypoints.size(), elapsedMillis));
                     detail.report(start, waypoints);
                 });
+        // 層1探索はワーカーへ委譲したため、ここで返せるのは「ジョブを投入できたか」であって
+        // 探索結果そのものではない。結果はout.success/out.failureでプレイヤーへ非同期に届く
         return 1;
     }
 
@@ -305,8 +304,8 @@ public final class XaeroNavCommands {
     /**
      * 長距離ルート層2（ブロック解像度の地表グラフ）の目視確認用。層1のwaypoint列を隣接ペアで結び、
      * 線分ごとに{@link CorridorLegSolver}で廊下を切り出して既存の{@link AStarPathfinder}を走らせる。
-     * {@code goto}（ライブナビ）も同じ{@link CorridorLegSolver}を非同期に使ってwaypointを精緻化するが、
-     * こちらはその場でチャットに結果を出す同期実行の確認用コマンドとして独立に残す。
+     * {@code goto}（ライブナビ）も同じ{@link CorridorLegSolver}を使ってwaypointを精緻化するが、
+     * こちらは区間ごとの結果をその場でチャットへ出す目視確認用コマンドとして独立に残す。
      */
     private static int reportCorridor(NavCommandSink out, BlockPos goal) {
         return withCoarseRoute(out, goal, (start, waypoints) -> {
@@ -733,22 +732,13 @@ public final class XaeroNavCommands {
         return CellData.occupiableWithoutDigging(cell) || !Double.isInfinite(CellData.digTicks(cell));
     }
 
-    /**
-     * ブロックの登録ID。1.20.1-forgeだけ{@code BuiltInRegistries.BLOCK}がdeprecated
-     * （{@code ForgeRegistries.BLOCKS}への誘導）で、他ノードはdeprecatedではない
-     * （{@code DiggableBlocks}参照・BUILD-01と同じ事情）。
-     */
     private static ResourceLocation blockId(Block block) {
-        //? if forge && <1.21 {
-        /*return ForgeRegistries.BLOCKS.getKey(block);
-        *///?} else {
-        return BuiltInRegistries.BLOCK.getKey(block);
-        //?}
+        return BlockRegistryCompat.keyOf(block);
     }
 
     /**
      * {@code UNRESOLVED_SHAPE}（{@code hasDynamicShape()}なブロック、CellData参照）はmodブロックの
-     * ことが多く、対象を名指ししないと「なぜここだけ通れないのか」が地形からは分からない（COMPAT-01）。
+     * ことが多く、対象を名指ししないと「なぜここだけ通れないのか」が地形からは分からない。
      */
     private static Component describeGoalCell(Level level, BlockPos pos, long cell) {
         if (CellData.unresolvedShape(cell)) {

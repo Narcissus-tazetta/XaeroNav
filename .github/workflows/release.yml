@@ -17,7 +17,7 @@ on:
 jobs:
   # ビルドとタグ/Release作成を別jobに分ける。ビルドはGradleプラグイン・依存関係が
   # 全部通る場所で、そのどれか1つが侵害されてもcontents:writeへ手が届かないよう、
-  # このjobにはwrite権限を渡さない（BUILD-03）。
+  # このjobにはwrite権限を渡さない。
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -89,9 +89,11 @@ jobs:
       actions: read
     steps:
       # タグのpushにはローカルにgitリポジトリが要る（ビルド成果物だけでは足りない）。
-      # ビルド自体はしないのでcheckoutだけの軽量な取得でよい
+      # buildジョブと同じ全履歴を取る（浅いcloneでのtag pushは対応済みだが、挙動をjob間で揃える）
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Download distribution jars
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
