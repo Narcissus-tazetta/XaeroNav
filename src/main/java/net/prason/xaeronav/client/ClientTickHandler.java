@@ -6,6 +6,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.prason.xaeronav.XaeroNav;
+import net.prason.xaeronav.platform.ModPresence;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
 import net.prason.xaeronav.xaero.XaeroHooks;
 
@@ -56,6 +57,12 @@ public final class ClientTickHandler {
         }
         hookNoticeShown = true;
         List<XaeroHooks.Hook> missing = XaeroHooks.missing();
+        for (XaeroHooks.Hook hook : XaeroHooks.Hook.values()) {
+            if (ModPresence.isLoaded(hook.modId()) && XaeroHooks.applied(hook)) {
+                // CIが「失敗文字列が無い」だけでなく、各hookの実適用をpositiveに検査するマーカー。
+                XaeroNav.LOGGER.info("XAERONAV_HOOK_APPLIED {}", hook.name());
+            }
+        }
         if (missing.isEmpty()) {
             return;
         }

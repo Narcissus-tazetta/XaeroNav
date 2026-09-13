@@ -63,16 +63,17 @@ jobs:
             exit 1
           fi
 
+      # 全ノード（MCバージョン×ローダー）をビルドして、jarをbuild/libsへ集める
+      - name: Build
+        run: ./gradlew build verifyDistribution -Prelease -Pmod_version=${{ steps.release.outputs.version }}
+
+      # 成果物がすべて検査を通った後で初めてタグを作る。ビルド失敗時には何もpushしない。
       - name: Create and push tag
         if: github.event_name == 'workflow_dispatch'
         run: |
           TAG="${{ steps.release.outputs.tag }}"
           git tag "$TAG"
           git push origin "$TAG"
-
-      # 全ノード（MCバージョン×ローダー）をビルドして、jarをbuild/libsへ集める
-      - name: Build
-        run: ./gradlew build collectJars -Prelease -Pmod_version=${{ steps.release.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

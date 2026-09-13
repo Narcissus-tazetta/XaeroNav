@@ -298,7 +298,13 @@ jobs:
             echo "::error::XaeroNavのmixinが当たっていない。Xaeroの版が対応範囲の外にある可能性がある"
             exit 1
           fi
-          echo "XaeroNavのmixin適用に失敗の記録は無し"
+          for HOOK in WORLD_MAP WAYPOINT_MENU MINIMAP; do
+            if ! grep -Fq "XAERONAV_HOOK_APPLIED $HOOK" "$LOG"; then
+              echo "::error::XaeroNavのmixin適用成功マーカーが無い: $HOOK"
+              exit 1
+            fi
+          done
+          echo "XaeroNavの全mixin適用成功を確認"
 
       - name: Upload client logs
         if: failure()

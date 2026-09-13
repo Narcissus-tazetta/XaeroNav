@@ -44,6 +44,48 @@ tasks.register<Sync>("collectJars") {
     into(layout.buildDirectory.dir("libs"))
 }
 
+// ReleaseとCIが同じ成果物契約を見る。ファイルが5個あるだけでなく、各ローダーのmetadataと
+// Xaero mixin configが正しいjarへ入っていることまで、公開前に機械的に検査する。
+tasks.register("verifyDistribution") {
+    group = "verification"
+    description = "全配布jarの個数・名前・loader metadata・Mixin設定を検査する"
+    dependsOn(tasks.named("collectJars"))
+    doLast {
+        val expected = stonecutter.versions.associate { node ->
+            val loader = node.project.substringAfterLast('-')
+            "${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar" to loader
+        }
+        val directory = layout.buildDirectory.dir("libs").get().asFile
+        val actual = directory.listFiles { file -> file.extension == "jar" }
+            ?.associateBy { it.name } ?: emptyMap()
+        check(actual.keys == expected.keys) {
+            "配布jarが想定と一致しません expected=${expected.keys.sorted()} actual=${actual.keys.sorted()}"
+        }
+        expected.forEach { (name, loader) ->
+            java.util.jar.JarFile(actual.getValue(name)).use { jar ->
+                check(jar.getEntry("xaeronav-xaero.mixins.json") != null) { "$name: mixin configがありません" }
+                when (loader) {
+                    "fabric" -> {
+                        check(jar.getEntry("fabric.mod.json") != null) { "$name: fabric.mod.jsonがありません" }
+                        check(jar.getEntry("META-INF/mods.toml") == null
+                                && jar.getEntry("META-INF/neoforge.mods.toml") == null) {
+                            "$name: 他loaderのmetadataが混入しています"
+                        }
+                    }
+                    "forge" -> {
+                        check(jar.getEntry("META-INF/mods.toml") != null) { "$name: mods.tomlがありません" }
+                        check(jar.manifest.mainAttributes.getValue("MixinConfigs")
+                                == "xaeronav-xaero.mixins.json") { "$name: MixinConfigs manifestが不正です" }
+                    }
+                    "neoforge" -> check(jar.getEntry("META-INF/neoforge.mods.toml") != null) {
+                        "$name: neoforge.mods.tomlがありません"
+                    }
+                }
+            }
+        }
+    }
+}
+
 // 整形の取り締まりはルートで1度だけ行う。ソースツリーは全ノードで共有しているので、
 // ノードごとに走らせても同じファイルを何度も見るだけになる（spotlessは
 // プロジェクトディレクトリの外にあるファイルを対象にできないので、置ける場所もここだけ）。

@@ -29,6 +29,11 @@ java {
     }
 }
 
+// 非推奨APIの発生元を通常ログへ必ず出す。まとめの「一部で使用」だけでは更新対象を特定できない。
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.add("-Xlint:deprecation")
+}
+
 repositories {
     mavenCentral()
     maven("https://chocolateminecraft.com/maven") { name = "Xaero's Maven" }
