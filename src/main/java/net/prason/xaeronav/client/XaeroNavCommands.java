@@ -17,11 +17,17 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+//? if forge && <1.21 {
+/*import net.minecraftforge.registries.ForgeRegistries;
+*///?}
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.platform.ModPresence;
@@ -582,7 +588,7 @@ public final class XaeroNavCommands {
         CapturedView normal = captureProbeView(level, player, start, goal, normalMargin, verticalMargin,
                 renderRadius);
         reportPlacementAvailability(out, normal.view());
-        reportGoalCell(out, normal.view(), normal.bounds(), start, goal, renderRadius);
+        reportGoalCell(out, level, normal.view(), normal.bounds(), start, goal, renderRadius);
         out.success(Component.translatable("commands.xaeronav.debug_running"));
 
         long generation = DIAGNOSTIC.begin();
@@ -688,7 +694,7 @@ public final class XaeroNavCommands {
      * <p>体の2セルは掘って入れるなら通れるので、掘れないセル（溶岩・危険セル・掘削禁止設定）だけを
      * 到達不能として扱う。素の空きかどうかで判定すると、掘れば普通に到達する目的地まで不能と報告する。
      */
-    private static void reportGoalCell(NavCommandSink out, ChunkView view, SearchBounds bounds,
+    private static void reportGoalCell(NavCommandSink out, Level level, ChunkView view, SearchBounds bounds,
                                         BlockPos start, BlockPos goal, int renderRadius) {
         int x = goal.getX();
         int y = goal.getY();
@@ -700,6 +706,8 @@ public final class XaeroNavCommands {
                     Math.round(horizontalDistance(start, goal)), renderRadius));
             return;
         }
+        BlockPos feetPos = new BlockPos(x, y, z);
+        BlockPos headPos = new BlockPos(x, y + 1, z);
         long feetCell = view.cell(x, y, z);
         long headCell = view.cell(x, y + 1, z);
         long belowCell = view.cell(x, y - 1, z);
@@ -709,8 +717,8 @@ public final class XaeroNavCommands {
         boolean floorReachable = CellData.standable(belowCell)
                 || view.canPlaceBlocks()
                 && (CellData.lava(belowCell) || CellData.replaceable(belowCell));
-        Component feet = describeGoalCell(feetCell);
-        Component head = describeGoalCell(headCell);
+        Component feet = describeGoalCell(level, feetPos, feetCell);
+        Component head = describeGoalCell(level, headPos, headCell);
         if (floorReachable && enterable(feetCell) && enterable(headCell)) {
             out.success(Component.translatable("commands.xaeronav.probe_goal_ok", feet, head));
         } else {
@@ -725,7 +733,29 @@ public final class XaeroNavCommands {
         return CellData.occupiableWithoutDigging(cell) || !Double.isInfinite(CellData.digTicks(cell));
     }
 
-    private static Component describeGoalCell(long cell) {
+    /**
+     * ブロックの登録ID。1.20.1-forgeだけ{@code BuiltInRegistries.BLOCK}がdeprecated
+     * （{@code ForgeRegistries.BLOCKS}への誘導）で、他ノードはdeprecatedではない
+     * （{@code DiggableBlocks}参照・BUILD-01と同じ事情）。
+     */
+    private static ResourceLocation blockId(Block block) {
+        //? if forge && <1.21 {
+        /*return ForgeRegistries.BLOCKS.getKey(block);
+        *///?} else {
+        return BuiltInRegistries.BLOCK.getKey(block);
+        //?}
+    }
+
+    /**
+     * {@code UNRESOLVED_SHAPE}（{@code hasDynamicShape()}なブロック、CellData参照）はmodブロックの
+     * ことが多く、対象を名指ししないと「なぜここだけ通れないのか」が地形からは分からない（COMPAT-01）。
+     */
+    private static Component describeGoalCell(Level level, BlockPos pos, long cell) {
+        if (CellData.unresolvedShape(cell)) {
+            ResourceLocation id = blockId(level.getBlockState(pos).getBlock());
+            return Component.translatable("commands.xaeronav.probe_goal_cell_unresolved_shape",
+                    id == null ? "?" : id.toString());
+        }
         if (CellData.occupiableWithoutDigging(cell)) {
             return Component.translatable("commands.xaeronav.probe_goal_cell_ok");
         }
