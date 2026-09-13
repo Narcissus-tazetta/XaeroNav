@@ -104,7 +104,8 @@ Clear the route with `/xaeronav clear` or its keybind.
 anywhere: `mapdata [radiusChunks]` for how much of Xaero's map data is available around you,
 `route` and `corridor` for the coarse waypoint chain and its per-leg refinement, `probe` for what
 the detailed search reached and why it stopped, and `flight` for the aerial route. They are there
-to explain a route that came out wrong, so attach their output to a bug report.
+to explain a route that came out wrong, so attach their output to a bug report — but review it
+first, since it includes your current position, destination, and nearby terrain.
 
 ### Keybinds
 
