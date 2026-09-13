@@ -76,6 +76,8 @@ public final class XaeroNavConfig {
     private static final int FLIGHT_CLEARANCE_DETOUR_DEFAULT = 12;
 
     private final NavConfigSpec.IntValue flightClearanceDetourBlocks;
+    /** GUIで一時的に無効化している間も、利用者が調整した非0値を失わない。 */
+    private int lastFlightClearanceDetourBlocks = FLIGHT_CLEARANCE_DETOUR_DEFAULT;
     private final NavConfigSpec.IntValue flightMaxExpandedNodes;
     private final NavConfigSpec.IntValue flightExtendMaxExpandedNodes;
     private final NavConfigSpec.DoubleValue flightHeuristicWeight;
@@ -518,9 +520,17 @@ public final class XaeroNavConfig {
         return flightClearanceDetourBlocks.get();
     }
 
-    /** 設定画面のトグル用。0（純粋な最短）と既定値を往復する。 */
+    /** 設定画面のトグル用。無効化前の調整値を保持して復元する。 */
     public void setFlightClearanceEnabled(boolean value) {
-        flightClearanceDetourBlocks.set(value ? FLIGHT_CLEARANCE_DETOUR_DEFAULT : 0);
+        int current = flightClearanceDetourBlocks.get();
+        if (!value) {
+            if (current > 0) {
+                lastFlightClearanceDetourBlocks = current;
+            }
+            flightClearanceDetourBlocks.set(0);
+        } else if (current == 0) {
+            flightClearanceDetourBlocks.set(lastFlightClearanceDetourBlocks);
+        }
     }
 
     public int flightMaxExpandedNodes() {

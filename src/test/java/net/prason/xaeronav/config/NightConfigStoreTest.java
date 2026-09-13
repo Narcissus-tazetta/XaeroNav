@@ -82,6 +82,40 @@ class NightConfigStoreTest {
         assertTrue(!reloaded.hudEnabled());
     }
 
+    @Test
+    void backsUpMalformedTomlAndRegeneratesDefaults(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("xaeronav-client.toml");
+        String malformed = "[pathfinding\ndiggingEnabled = false";
+        Files.writeString(file, malformed, StandardCharsets.UTF_8);
+
+        NightConfigStore store = new NightConfigStore(file);
+        XaeroNavConfig config = new XaeroNavConfig(store.spec());
+        store.build();
+
+        assertTrue(config.diggingEnabled());
+        assertTrue(Files.exists(file));
+        try (var files = Files.list(dir)) {
+            Path backup = files.filter(path -> path.getFileName().toString().startsWith(
+                            "xaeronav-client.toml.broken-"))
+                    .findFirst().orElseThrow();
+            assertEquals(malformed, Files.readString(backup, StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
+    void flightClearanceToggleRestoresTheCustomValue(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("xaeronav-client.toml");
+        Files.writeString(file, "[pathfinding]\nflightClearanceDetourBlocks = 37\n", StandardCharsets.UTF_8);
+        NightConfigStore store = new NightConfigStore(file);
+        XaeroNavConfig config = new XaeroNavConfig(store.spec());
+        store.build();
+
+        config.setFlightClearanceEnabled(false);
+        assertEquals(0, config.flightClearanceDetourBlocks());
+        config.setFlightClearanceEnabled(true);
+        assertEquals(37, config.flightClearanceDetourBlocks());
+    }
+
     private record Golden(String defaultValue, String comment) {
     }
 

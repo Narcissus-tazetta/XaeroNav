@@ -3,6 +3,8 @@ package net.prason.xaeronav.config;
 import net.prason.xaeronav.util.MathSupport;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -13,6 +15,8 @@ import java.util.function.Supplier;
 
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.file.FileNotFoundAction;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 /**
  * NeoForgeの{@code ModConfigSpec}が持っていない場所（Fabric）での保存先。
@@ -27,13 +31,17 @@ import com.electronwill.nightconfig.core.file.FileNotFoundAction;
  */
 public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
 
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private final CommentedFileConfig file;
+    private final Path path;
     private final List<Definition> definitions = new ArrayList<>();
     private final Deque<String> section = new ArrayDeque<>();
 
     private String pendingComment;
 
     public NightConfigStore(Path path) {
+        this.path = path;
         this.file = CommentedFileConfig.builder(path)
                 .sync()
                 .preserveInsertionOrder()
@@ -48,12 +56,29 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
 
     @Override
     public void build() {
-        file.load();
+        try {
+            file.load();
+        } catch (RuntimeException parseError) {
+            recoverBrokenFile(parseError);
+        }
         for (Definition definition : definitions) {
             file.set(definition.path(), definition.correct(file.get(definition.path())));
             file.setComment(definition.path(), definition.comment());
         }
         file.save();
+    }
+
+    /** 構文が壊れた元ファイルを残したまま、既定値で再生成できる空の設定へ戻す。 */
+    private void recoverBrokenFile(RuntimeException parseError) {
+        Path broken = path.resolveSibling(path.getFileName() + ".broken-" + System.currentTimeMillis());
+        try {
+            Files.move(path, broken, StandardCopyOption.REPLACE_EXISTING);
+            file.clear();
+            LOGGER.warn("XaeroNav: 壊れた設定ファイルを {} へ退避し、既定値で再生成します", broken, parseError);
+        } catch (java.io.IOException moveError) {
+            moveError.addSuppressed(parseError);
+            throw new IllegalStateException("壊れた設定ファイルを退避できませんでした: " + path, moveError);
+        }
     }
 
     @Override
