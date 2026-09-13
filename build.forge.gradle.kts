@@ -106,7 +106,7 @@ val withXaero = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
 
 // XaeroはMODとして読み込ませる必要があるので、実行時クラスパスではなくrun/modsへ置く
 // （他の2ノードと同じ理由。NeoForgeEntry.javaのコメント参照）。
-val xaeroRuntimeMods: Configuration by configurations.creating {
+val xaeroRuntimeMods: Configuration = configurations.create("xaeroRuntimeMods") {
     isTransitive = false
 }
 
@@ -135,7 +135,7 @@ dependencies {
 // CIの起動スモークテスト（mc-runtime-test）へ渡す一式。配布jarとXaeroを1箇所へ集める。
 // mixinextrasを同梱した統合jar（jarJarタスクの出力）を使う——素のjarタスクは"slim"で
 // mixinextrasを含まないため、それだけを配布・実行すると起動時にMixinExtrasが見つからず落ちる
-val stageRuntimeTestMods by tasks.registering(Copy::class) {
+val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
     from(tasks.named("jarJar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
