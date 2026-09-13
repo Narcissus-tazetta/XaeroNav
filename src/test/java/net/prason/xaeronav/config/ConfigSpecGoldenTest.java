@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -53,7 +52,7 @@ class ConfigSpecGoldenTest {
     }
 
     private static void collect(UnmodifiableConfig config, String prefix, List<String> out) {
-        for (Map.Entry<String, Object> entry : config.valueMap().entrySet()) {
+        for (UnmodifiableConfig.Entry entry : config.entrySet()) {
             String path = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
             Object value = entry.getValue();
             if (value instanceof UnmodifiableConfig nested) {
