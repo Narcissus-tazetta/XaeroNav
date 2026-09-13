@@ -104,6 +104,10 @@ tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = modResourceProperties() + mapOf(
         "minecraft_version" to minecraftVersion,
         "fabric_loader_range" to dep("fabric_loader_range"),
+        // fabric-apiは"*"のままだと古いAPIでもloaderが起動を許してしまう。開発・CIで実際に
+        // ビルド・テストしている版（deps.fabric_api）を下限として宣言する——それより下は
+        // 検証していないので「動く保証がある最も低い版」とは言えない
+        "fabric_api_range" to dep("fabric_api"),
         "xaero_worldmap_version" to dep("xaero_worldmap"),
         "xaero_minimap_version" to dep("xaero_minimap"),
         "java_version" to javaVersion.toString(),
