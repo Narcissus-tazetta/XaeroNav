@@ -59,6 +59,15 @@ public final class XaeroNavCommands {
     private static final int DEFAULT_MAPDATA_RADIUS_CHUNKS = 64;
 
     /**
+     * {@code mapdata}の半径引数の上限。{@link XaeroMapReader}の読み取りはメインスレッド専用
+     * （クラスJavadoc参照）なのでワーカーへ逃がせず、一辺{@code radiusChunks*2+1}チャンクぶんを
+     * 丸ごと同期でXaeroの地図から読む。既定値64（一辺129、約16,641セル）が「一瞬で終わる」規模と
+     * 分かっている前提で、その2倍を安全側の上限にする——旧上限512（一辺1025、約1,050,625セル）は
+     * この規模の16倍あり、要求するとクライアントを長時間止め得た（PERF-02）。
+     */
+    private static final int MAPDATA_MAX_RADIUS_CHUNKS = 128;
+
+    /**
      * {@code probe}の上限なし計測で使う展開ノード数。時間上限（ライブナビと同じ）の方が先に効くよう、
      * 到達し得ない大きさにしてある。実質の打ち切りは時間側なので、この計測は
      * 「ライブナビと同じ時間予算で何ノードまで展開でき、届くのか」を測ることになる。
@@ -115,7 +124,7 @@ public final class XaeroNavCommands {
                         .then(XaeroNavCommands.<S>literal("mapdata")
                                 .executes(ctx -> reportMapData(sink.apply(ctx), DEFAULT_MAPDATA_RADIUS_CHUNKS))
                                 .then(XaeroNavCommands.<S, Integer>argument("radiusChunks",
-                                        IntegerArgumentType.integer(1, 512))
+                                        IntegerArgumentType.integer(1, MAPDATA_MAX_RADIUS_CHUNKS))
                                         .executes(ctx -> reportMapData(sink.apply(ctx),
                                                 IntegerArgumentType.getInteger(ctx, "radiusChunks")))))
                         .then(XaeroNavCommands.<S>literal("route")
@@ -215,6 +224,11 @@ public final class XaeroNavCommands {
      * 2つの診断コマンドが共有する前半——プレイヤーと地図データの確認、層1の実行、経路が
      * 引けなかった場合の報告、waypoint数と所要時間の要約まで。要約まで出せたときだけ
      * {@code detail}を呼ぶ。
+     *
+     * <p>地図の読み取り（{@link #readCoarseMapOrFail}）はXaero API契約によりメインスレッドで
+     * 同期実行するが、その後の{@link CoarseRouter#findRoute}はMinecraft/Xaero状態を読まない
+     * 純粋な計算なので{@link #DIAGNOSTIC}のワーカーへ逃がす（PERF-02）。{@code detail}は
+     * ワーカー完了後のメインスレッドcallback内から呼ばれる。
      */
     private static int withCoarseRoute(NavCommandSink out, BlockPos goal, RouteDetail detail) {
         Player player = Minecraft.getInstance().player;
@@ -227,38 +241,48 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
+        boolean boatAvailable = ChunkView.boatAvailable(player);
+        CoarseMap map = readCoarseMapOrFail(out, start, goal);
+        if (map == null) {
+            return 0;
+        }
+
+        out.success(Component.translatable("commands.xaeronav.debug_running"));
+        long generation = DIAGNOSTIC.begin();
         long startNanos = System.nanoTime();
-        CoarseRouter.Route route =
-                computeRouteOrFail(out, start, goal, ChunkView.boatAvailable(player));
-        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
-        if (route == null) {
-            return 0;
-        }
+        DIAGNOSTIC.submit(generation,
+                // 診断コマンドは既定の重み付けをそのまま見せる（溶岩の梯子はPathfindingState側の話）
+                cancelled -> CoarseRouter.findRoute(map, start, goal, boatAvailable, CoarseRouter.BridgePolicy.ALLOW),
+                (route, error) -> {
+                    if (error != null) {
+                        XaeroNav.LOGGER.error("XaeroNav: 診断コマンドの層1探索に失敗しました", error);
+                        return;
+                    }
+                    long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+                    if (route.isEmpty()) {
+                        if (route.reachedGoal()) {
+                            out.success(Component.translatable("commands.xaeronav.route_same_chunk"));
+                            return;
+                        }
+                        out.failure(Component.translatable("commands.xaeronav.route_none", elapsedMillis));
+                        return;
+                    }
 
-        if (route.isEmpty()) {
-            if (route.reachedGoal()) {
-                out.success(Component.translatable("commands.xaeronav.route_same_chunk"));
-                return 1;
-            }
-            out.failure(Component.translatable("commands.xaeronav.route_none", elapsedMillis));
-            return 0;
-        }
-
-        List<BlockPos> waypoints = route.waypoints();
-        out.success(Component.translatable(
-                route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
-                        : "commands.xaeronav.route_summary_partial",
-                waypoints.size(), elapsedMillis));
-        detail.report(start, waypoints);
+                    List<BlockPos> waypoints = route.waypoints();
+                    out.success(Component.translatable(
+                            route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
+                                    : "commands.xaeronav.route_summary_partial",
+                            waypoints.size(), elapsedMillis));
+                    detail.report(start, waypoints);
+                });
         return 1;
     }
 
     /**
-     * {@link #reportRoute}と{@link #reportCorridor}が共有する層1の計算。範囲が
+     * {@link #reportRoute}と{@link #reportCorridor}が共有する層1の地図読み取り。範囲が
      * {@link #ROUTE_MAX_SPAN_CHUNKS}を超える場合は失敗を送って{@code null}を返す。
      */
-    private static CoarseRouter.Route computeRouteOrFail(NavCommandSink out, BlockPos start, BlockPos goal,
-                                                          boolean boatAvailable) {
+    private static CoarseMap readCoarseMapOrFail(NavCommandSink out, BlockPos start, BlockPos goal) {
         int minChunkX = (Math.min(start.getX(), goal.getX()) >> 4) - ROUTE_PADDING_CHUNKS;
         int maxChunkX = (Math.max(start.getX(), goal.getX()) >> 4) + ROUTE_PADDING_CHUNKS;
         int minChunkZ = (Math.min(start.getZ(), goal.getZ()) >> 4) - ROUTE_PADDING_CHUNKS;
@@ -269,10 +293,7 @@ public final class XaeroNavCommands {
             out.failure(Component.translatable("commands.xaeronav.route_too_far"));
             return null;
         }
-        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ,
-                (start.getY() + goal.getY()) / 2);
-        // 診断コマンドは既定の重み付けをそのまま見せる（溶岩の梯子はPathfindingState側の話）
-        return CoarseRouter.findRoute(map, start, goal, boatAvailable, CoarseRouter.BridgePolicy.ALLOW);
+        return XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, (start.getY() + goal.getY()) / 2);
     }
 
     /**
