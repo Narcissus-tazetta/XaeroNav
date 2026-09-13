@@ -51,18 +51,6 @@ public final class AStarPathfinder {
     /** 落下ブロックが延々と積まれている異常な塔でも1エッジの評価が固まらないようにする安全弁。 */
     private static final int MAX_FALLING_CHAIN_SCAN = 16;
 
-    /** {@link ColumnScans#NOTHING_BELOW}の別名（走査の結果を読む側の可読性のため）。 */
-    private static final int NOTHING_BELOW = ColumnScans.NOTHING_BELOW;
-
-    /** {@link ColumnScans#UNREADABLE_BELOW}の別名。 */
-    private static final int UNREADABLE_BELOW = ColumnScans.UNREADABLE_BELOW;
-
-    /**
-     * 飛び越えられる隙間の最大幅（着地点は隙間の1マス先）。疾走ジャンプは滞空約12.5tickの間に
-     * 水平4マス弱しか進めないので、3マスの隙間＝4マス先への着地がバニラの到達限界になる。
-     */
-    private static final int MAX_JUMP_GAP_BLOCKS = 3;
-
     /**
      * ゴールに到達できなかった場合の到達点候補を、{@code h + g / 係数}という複数の指標で同時に追う。
      * ヒューリスティック単独で最良の点を選ぶと、ゴールに近いだけで行き止まりの地点（崖の縁など）を
@@ -87,7 +75,7 @@ public final class AStarPathfinder {
     private static final int[] DIAGONAL_DX = {1, 1, -1, -1};
     private static final int[] DIAGONAL_DZ = {1, -1, 1, -1};
 
-    private final CellSource view;
+    final CellSource view;
     private final int maxExpandedNodes;
     private final long timeLimitMillis;
     private final double heuristicWeight;
@@ -98,28 +86,28 @@ public final class AStarPathfinder {
     private final CostToGo costToGo;
 
     /** 縦走査と、その結果の列ごとの覚え書き。探索1回ぶんで使い捨てる。 */
-    private final ColumnScans scans;
+    final ColumnScans scans;
 
     /** 連続して架けてよい橋の長さ（ブロック）。0なら無制限。{@link CellSource#maxBridgeRunBlocks()}。 */
-    private final int maxBridgeRun;
+    final int maxBridgeRun;
 
     /**
      * 溶岩の上で効く橋の長さの上限（ブロック）。0なら無制限。{@link RunCaps#effectiveLavaBridgeRun()}が
      * {@link #maxBridgeRun}との厳しい方を選んだ後の値なので、ここでは単独で比べてよい。
      */
-    private final int maxLavaBridgeRun;
+    final int maxLavaBridgeRun;
 
     /**
      * 底の無い空虚の上で効く橋の長さの上限（ブロック）。0なら無制限。
      * {@link #maxLavaBridgeRun}と同じく{@link #maxBridgeRun}を織り込み済み。
      */
-    private final int maxVoidBridgeRun;
+    final int maxVoidBridgeRun;
 
     /**
      * この探索が{@link #maxBridgeRun}・{@link #maxLavaBridgeRun}・{@link #maxVoidBridgeRun}を
      * 理由に橋の移動を1つでも捨てたか。
      */
-    private boolean bridgeRunCapBlocked;
+    boolean bridgeRunCapBlocked;
 
     /**
      * 経路全体で置いてよい足場の総数。0なら無制限。{@link Tolerances#placedBlockBudget()}。
@@ -127,10 +115,10 @@ public final class AStarPathfinder {
      * <p>{@link #maxBridgeRun}が連続長なのに対しこちらは累積——短い橋を何度も架ける経路は
      * 連続長では止まらないが、持ち物は同じだけ減る。
      */
-    private final int placedBudget;
+    final int placedBudget;
 
     /** この探索が{@link #placedBudget}を理由に設置の移動を1つでも捨てたか。 */
-    private boolean placedBudgetBlocked;
+    boolean placedBudgetBlocked;
 
     /**
      * 足場を1つ置く動作そのものの値段（tick）。既定は
@@ -150,19 +138,19 @@ public final class AStarPathfinder {
      * <p>割り増す向きは安全側——実コストが上がるだけなので、{@link Heuristic}も
      * {@link CostToGo}のガイドも下限であり続ける。
      */
-    private final double placementCostTicks;
+    final double placementCostTicks;
 
     /** 持ち物にブロックが無くても設置の移動を作ってよいか。{@link Tolerances#placeWithoutBlocks()}。 */
-    private final boolean placeWithoutBlocks;
+    final boolean placeWithoutBlocks;
 
     /** この探索が「置けるブロックを持っていない」を理由に設置の移動を1つでも捨てたか。 */
-    private boolean placementBlockedByEmptyInventory;
+    boolean placementBlockedByEmptyInventory;
 
     /** {@link #trimUnfinishedPlacements}が末尾から落とした設置ステップの数。診断用。 */
     private int trimmedPlacements;
 
     /** 落下ダメージを何点まで許容してよいか。{@link CellSource#maxFallDamagePoints()}を上書きできる。 */
-    private final int maxFallDamagePoints;
+    final int maxFallDamagePoints;
 
     /**
      * この探索が、落下ダメージの許容量<b>だけ</b>を理由に着地を捨てたか。
@@ -171,16 +159,16 @@ public final class AStarPathfinder {
      * 奈落（{@link #NOTHING_BELOW}）や未ロード（{@link #UNREADABLE_BELOW}）で捨てた場合は立てない
      * ——そちらは許容量をいくら緩めても着地点が現れないので、探し直しても同じ結果になる。
      */
-    private boolean fallDamageCapBlocked;
+    boolean fallDamageCapBlocked;
 
     /** 奈落・致死落差の上での跳躍を避けるか。{@link Tolerances#allowRiskyJumps()}の裏返し。 */
-    private final boolean avoidRiskyJumps;
+    final boolean avoidRiskyJumps;
 
     /**
      * この探索が{@link #avoidRiskyJumps}を理由に跳躍を1つでも捨てたか。捨てていなければ、
      * 許して探し直しても結果は変わらない（{@code bridgeRunCapBlocked}と同じ役割）。
      */
-    private boolean riskyJumpBlocked;
+    boolean riskyJumpBlocked;
 
     /** 頭を水に浸けたまま続けてよい時間（tick）。0なら無制限。{@link CellSource#maxSubmergedTicks()}。 */
     private final int maxSubmergedTicks;
@@ -212,6 +200,11 @@ public final class AStarPathfinder {
     /** {@link CellSource#minDescentTicksPerBlock()}。探索中は不変なので1度だけ読む。 */
     private final double minDescentPerBlock;
 
+    /** 移動候補生成（ARCH-02）。探索1回につき1つだけ作る——{@link GroundMoves}のクラスJavadoc参照。 */
+    private final GroundMoves groundMoves = new GroundMoves(this);
+    private final WaterMoves waterMoves = new WaterMoves(this);
+    private final BuildMoves buildMoves = new BuildMoves(this);
+
     private final NodeTable nodes = new NodeTable();
 
     /**
@@ -227,9 +220,9 @@ public final class AStarPathfinder {
     private final PathNode[] bestSoFar = new PathNode[COEFFICIENTS.length];
     private final double[] bestHeuristic = new double[COEFFICIENTS.length];
 
-    private int goalX;
+    int goalX;
     private int goalY;
-    private int goalZ;
+    int goalZ;
     // trueなら「y >= surfaceY のセルならどこでもゴール」として探索する（地上優先ナビ用）。
     // 目的地の真下から一直線に掘るのではなく、周囲のどこからでも地上に出られる経路を許すために
     // 固定の1点ではなく高さだけを条件にする。
@@ -751,65 +744,48 @@ public final class AStarPathfinder {
         for (int i = 0; i < CARDINAL_DX.length; i++) {
             int dx = CARDINAL_DX[i];
             int dz = CARDINAL_DZ[i];
-            addTraverse(current, dx, dz);
-            addAscend(current, dx, dz);
-            addDescend(current, dx, dz);
-            addSwim(current, dx, dz);
-            addBoatPaddle(current, dx, dz, false);
-            addBoatEnter(current, dx, dz);
-            addClimb(current, dx, dz);
-            addJumpGap(current, dx, dz);
+            groundMoves.addTraverse(current, dx, dz);
+            groundMoves.addAscend(current, dx, dz);
+            groundMoves.addDescend(current, dx, dz);
+            waterMoves.addSwim(current, dx, dz);
+            waterMoves.addBoatPaddle(current, dx, dz, false);
+            waterMoves.addBoatEnter(current, dx, dz);
+            groundMoves.addClimb(current, dx, dz);
+            groundMoves.addJumpGap(current, dx, dz);
         }
         for (int i = 0; i < DIAGONAL_DX.length; i++) {
-            addDiagonalTraverse(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
-            addDiagonalSwim(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
-            addBoatPaddle(current, DIAGONAL_DX[i], DIAGONAL_DZ[i], true);
-            addDiagonalAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
-            addDiagonalDescend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            groundMoves.addDiagonalTraverse(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            waterMoves.addDiagonalSwim(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            waterMoves.addBoatPaddle(current, DIAGONAL_DX[i], DIAGONAL_DZ[i], true);
+            groundMoves.addDiagonalAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+            groundMoves.addDiagonalDescend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
         }
         // 上下の泳ぎ・昇降は、いま水中／梯子の中にいるときしか始まらない。それ以外では判定ごと省く
         long standingCell = view.cell(current.x, current.y, current.z);
         if (CellData.water(standingCell)) {
-            addSwimUp(current);
-            addSwimDown(current);
+            waterMoves.addSwimUp(current);
+            waterMoves.addSwimDown(current);
             for (int i = 0; i < CARDINAL_DX.length; i++) {
-                addSwimAscend(current, CARDINAL_DX[i], CARDINAL_DZ[i]);
+                waterMoves.addSwimAscend(current, CARDINAL_DX[i], CARDINAL_DZ[i]);
             }
             for (int i = 0; i < DIAGONAL_DX.length; i++) {
-                addDiagonalSwimAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
+                waterMoves.addDiagonalSwimAscend(current, DIAGONAL_DX[i], DIAGONAL_DZ[i]);
             }
         }
         if (CellData.climbable(standingCell)) {
-            addClimbUp(current);
-            addClimbDown(current);
+            groundMoves.addClimbUp(current);
+            groundMoves.addClimbDown(current);
         }
-        addPillar(current);
+        buildMoves.addPillar(current);
         // 踏み出した先の下に何があるかは落下と設置で共通なので、方向ごとに1度だけ辿る。
         // ブロックの設置を最後に評価するのは、同コストなら地形をそのまま使う移動を採用させるため
         for (int i = 0; i < CARDINAL_DX.length; i++) {
             int dx = CARDINAL_DX[i];
             int dz = CARDINAL_DZ[i];
             int obstacleY = scans.firstNonAirBelow(current.x + dx, current.y - 1, current.z + dz);
-            addFall(current, dx, dz, obstacleY);
-            addBridge(current, dx, dz, obstacleY);
+            groundMoves.addFall(current, dx, dz, obstacleY);
+            buildMoves.addBridge(current, dx, dz, obstacleY);
         }
-    }
-
-    private void addTraverse(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y;
-        int z = from.z + dz;
-
-        if (!CellData.standable(view.cell(x, y - 1, z))) {
-            return;
-        }
-        double bodyCost = standingBodyCost(x, y, z, null);
-        if (Double.isInfinite(bodyCost)) {
-            return;
-        }
-        boolean inWater = CellData.water(view.cell(x, y, z));
-        relax(from, x, y, z, stepCost(x, y, z) + submerged(from, bodyCost, x, y + 1, z),
-                inWater ? MoveKind.SWIM : MoveKind.TRAVERSE);
     }
 
     /**
@@ -817,7 +793,7 @@ public final class AStarPathfinder {
      * 「通れる」だけを見ると走って抜けられるように見えるが、実際には桁が違うほど遅い。
      * 蜘蛛の巣は足元と頭のどちらか一方でも掛かっていれば減速する。
      */
-    private double stepCost(int x, int y, int z) {
+    double stepCost(int x, int y, int z) {
         long feet = view.cell(x, y, z);
         if (CellData.water(feet)) {
             // 足が着いていても水の中の速度で進む（{@link ActionCosts#SWIM_ONE_BLOCK}参照）
@@ -836,354 +812,20 @@ public final class AStarPathfinder {
     }
 
     /**
-     * 同一高度での斜め移動。カーディナル4方向のみだと、斜めに続く地形で
-     * 本来なら1手で行ける区間を2手のジグザグで迂回することになり不必要に遠回りになる。
-     * 角の2セル（{@link #clearWithoutDigging}）が両方とも掘削なしで通行可能な場合のみ許可し、
-     * 体が壁の角をすり抜ける経路を生成しないようにする。
-     */
-    private void addDiagonalTraverse(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y;
-        int z = from.z + dz;
-
-        if (!CellData.standable(view.cell(x, y - 1, z))) {
-            return;
-        }
-        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
-            return;
-        }
-        double bodyCost = standingBodyCost(x, y, z, null);
-        if (Double.isInfinite(bodyCost)) {
-            return;
-        }
-        boolean inWater = CellData.water(view.cell(x, y, z));
-        relax(from, x, y, z, stepCost(x, y, z) * ActionCosts.DIAGONAL_DISTANCE + submerged(from, bodyCost, x, y + 1, z),
-                inWater ? MoveKind.SWIM : MoveKind.DIAGONAL);
-    }
-
-    /**
-     * 水中を斜めに泳ぐ。{@link #addDiagonalTraverse}は足場を要求するので水中では成立せず、
-     * これが無いと泳ぎだけがカーディナル4方向に縛られる——斜めに進むのに2手（実コストの1.41倍）
-     * 払うことになり、海を渡る経路が実際より高く見積もられるうえ展開ノード数も増える。
-     *
-     * <p>角2セルの通行可能性を求めるのは{@link #addDiagonalTraverse}と同じ理由（体が壁の角を
-     * すり抜けないように）。
-     */
-    private void addDiagonalSwim(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y;
-        int z = from.z + dz;
-
-        if (CellData.standable(view.cell(x, y - 1, z))) {
-            // 足場があるなら同じ移動をDiagonalTraverse側が作る。2種類のMoveKindで二重に作らない
-            return;
-        }
-        if (!CellData.water(view.cell(x, y, z))
-                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
-            return;
-        }
-        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
-            return;
-        }
-        relax(from, x, y, z, ActionCosts.SWIM_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE, MoveKind.SWIM);
-    }
-
-    /**
      * ボートが浮けるセルか。水面＝「そのセルが水で、真上は水ではなく体を置ける」。
      * 水中の途中の高さにボートは浮かないので、この判定が船の高さそのものになる。
      */
-    private boolean isBoatSurface(int x, int y, int z) {
+    boolean isBoatSurface(int x, int y, int z) {
         long here = view.cell(x, y, z);
         long above = view.cell(x, y + 1, z);
         return CellData.water(here) && !CellData.water(above)
                 && CellData.occupiableWithoutDigging(above);
     }
 
-    /**
-     * 水面をボートで進む。1マスあたりは泳ぎの半分以下。乗っている状態からしか出ないので、
-     * 乗り降りの手間（{@link ActionCosts#BOAT_OVERHEAD_TICKS}）は{@link #addBoatEnter}で必ず先に払う。
-     *
-     * <p>水面から降りる移動は既存のTraverse/Ascendがそのまま担う——降りる手間は入口の
-     * オーバーヘッドに畳み込んである。
-     */
-    private void addBoatPaddle(PathNode from, int dx, int dz, boolean diagonal) {
-        if (!from.boating) {
-            return;
-        }
-        int x = from.x + dx;
-        int z = from.z + dz;
-        if (!isBoatSurface(x, from.y, z)) {
-            return;
-        }
-        if (diagonal && (!clearWithoutDigging(x, from.y, from.z)
-                || !clearWithoutDigging(from.x, from.y, z))) {
-            return;
-        }
-        double cost = ActionCosts.PADDLE_ONE_BLOCK * (diagonal ? ActionCosts.DIAGONAL_DISTANCE : 1.0);
-        relaxBoating(from, x, from.y, z, cost, MoveKind.BOAT_PADDLE);
-    }
-
-    /**
-     * ボートを出して乗り込む。乗り降りの手間をここで1度だけ払うので、短い水路では泳いで渡る方が
-     * 安いままになる（損益分岐は{@link ActionCosts#BOAT_OVERHEAD_TICKS}参照）。
-     *
-     * <p>岸から漕ぎ出す場合と、泳いでいる途中で出す場合の両方がある。水面は岸より1マス低いのが
-     * 普通なので、同じ高さと1つ下の両方を試す。
-     */
-    private void addBoatEnter(PathNode from, int dx, int dz) {
-        if (!view.boatAvailable() || from.boating) {
-            return;
-        }
-        // 岸に立っているか、水面に浮いているか。水中で潜ったままボートは出せない
-        boolean onShore = CellData.standable(view.cell(from.x, from.y - 1, from.z))
-                && !CellData.water(view.cell(from.x, from.y, from.z));
-        if (!onShore && !isBoatSurface(from.x, from.y, from.z)) {
-            return;
-        }
-        int x = from.x + dx;
-        int z = from.z + dz;
-        for (int y = from.y; y >= from.y - 1; y--) {
-            if (isBoatSurface(x, y, z)) {
-                relaxBoating(from, x, y, z,
-                        ActionCosts.PADDLE_ONE_BLOCK + ActionCosts.BOAT_OVERHEAD_TICKS, MoveKind.BOAT_ENTER);
-                return;
-            }
-        }
-    }
-
     /** 立った姿勢が占める2セルを、掘らずにそのまま通り抜けられるか。 */
-    private boolean clearWithoutDigging(int x, int y, int z) {
+    boolean clearWithoutDigging(int x, int y, int z) {
         return CellData.occupiableWithoutDigging(view.cell(x, y, z))
                 && CellData.occupiableWithoutDigging(view.cell(x, y + 1, z));
-    }
-
-    private void addAscend(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y + 1;
-        int z = from.z + dz;
-
-        if (!CellData.standable(view.cell(x, from.y, z))) {
-            return;
-        }
-        // 踏み切り地点の頭上。塞がっていればそのままではジャンプできないが、洞窟では天井を1マス
-        // 崩して上がるのが普通の手段なので、掘れるなら掘るという選択肢として残す
-        double clearanceCost = columnCost(from.x, from.y + 2, from.y + 2, from.z, null);
-        if (Double.isInfinite(clearanceCost)) {
-            return;
-        }
-        double bodyCost = standingBodyCost(x, y, z, null);
-        if (Double.isInfinite(bodyCost)) {
-            return;
-        }
-        relax(from, x, y, z,
-                ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
-                        + submerged(from, clearanceCost + bodyCost, x, y + 1, z),
-                MoveKind.ASCEND);
-    }
-
-    private void addDescend(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y - 1;
-        int z = from.z + dz;
-
-        // 水面へ踏み込む場合は足場が要らない。海岸は水面より1マス高いのが普通なので、
-        // これが無いと岸から海に入る手段そのものが無くなる
-        boolean intoWater = CellData.water(view.cell(x, y, z));
-        if (!intoWater && !CellData.standable(view.cell(x, y - 1, z))) {
-            return;
-        }
-        double bodyCost = descendingBodyCost(x, from.y, z, null);
-        if (Double.isInfinite(bodyCost)) {
-            return;
-        }
-        double baseCost = intoWater ? ActionCosts.SWIM_ONE_BLOCK
-                : ActionCosts.descendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z));
-        relax(from, x, y, z, baseCost + submerged(from, bodyCost, x, y + 1, z),
-                intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
-    }
-
-    /**
-     * 斜め1マスで1段登りながら進む（近距離レパートリー拡充）。カーディナル4方向限定の
-     * {@link #addAscend}だと、斜めに続く階段状の地形で本来1手の区間が「登ってから横へ」の2手に
-     * 分解されてしまう。{@link #addDiagonalTraverse}と同じく、体が壁の角をすり抜けないよう
-     * 角2セルの掘削なし通行可能性を求める。
-     *
-     * <p>掘削は許可しない。角を抜ける移動で掘るくらいなら、カーディナルで素直に掘る方が安全で
-     * コストも正しく出る。{@link #addAscend}と同じくジャンプ時間支配のモデルなので、
-     * 地形の速度倍率（氷・ソウルサンド等）は見ない。
-     */
-    private void addDiagonalAscend(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y + 1;
-        int z = from.z + dz;
-
-        if (!CellData.standable(view.cell(x, from.y, z))) {
-            return;
-        }
-        // 角2列を到着高さで見る。踏み出し高さの角は段差そのものなので塞がっていて構わない
-        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
-            return;
-        }
-        // 踏み切り地点の頭上。塞がっていると跳べない
-        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
-            return;
-        }
-        if (!clearWithoutDigging(x, y, z)) {
-            return;
-        }
-        relax(from, x, y, z, ActionCosts.diagonalAscendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z)),
-                MoveKind.DIAGONAL_ASCEND);
-    }
-
-    /**
-     * 斜め1マスで1段降りながら進む。{@link #addDiagonalAscend}と同じ狙い。掘削は許可しない。
-     *
-     * <p>{@link #addDescend}と違い水面への踏み込みは扱わない（床は{@code standable}限定）。
-     * 海岸線の水際はカーディナル側が既に扱っており、斜めまで足すと水際で経路が細かく揺れる。
-     */
-    private void addDiagonalDescend(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y - 1;
-        int z = from.z + dz;
-
-        if (!CellData.standable(view.cell(x, y - 1, z))) {
-            return;
-        }
-        // 角2列を踏み出し高さで見る
-        if (!clearWithoutDigging(from.x + dx, from.y, from.z) || !clearWithoutDigging(from.x, from.y, from.z + dz)) {
-            return;
-        }
-        // 到着地点の身体3セル分（Descendと同じ縦一列）。2回に分けて呼ぶことで
-        // y-1〜y+1（着地の足元・頭、踏み出し地点の足元と同じ高さ）をまとめて確認する
-        if (!clearWithoutDigging(x, y, z) || !clearWithoutDigging(x, y + 1, z)) {
-            return;
-        }
-        // 身体が水中にある斜め下降は泳いで進むので、疾走を前提にした値段では速すぎる——
-        // 泳ぎの斜め(7.857)より安くなり、水中で上下にジグザグして進む経路が出る。
-        // 水面へ踏み込む側は上のstandable要求で既に除いてあるので、ここで見るのは
-        // 「もう水の中にいる」場合だけ
-        boolean swimming = CellData.water(view.cell(from.x, from.y, from.z)) || CellData.water(view.cell(x, y, z));
-        double cost = swimming
-                ? ActionCosts.SWIM_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE
-                : ActionCosts.diagonalDescendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z));
-        relax(from, x, y, z, cost, swimming ? MoveKind.SWIM_DESCEND : MoveKind.DIAGONAL_DESCEND);
-    }
-
-    /**
-     * 隙間を飛び越える（同一高度、カーディナル方向のみ）。
-     *
-     * <p>これが無いと、誰でも何も考えずに跨げる1マスの割れ目（小川・洞窟の裂け目・峡谷の枝）で、
-     * ブロックを置いて渡るか大きく迂回することになる。
-     *
-     * <p>{@link #MAX_JUMP_GAP_BLOCKS}マスまで。これは疾走ジャンプの到達限界そのもので、
-     * これ以上は助走をどれだけ取っても届かない。跳躍は外せば落ちるので、そもそも提示するかどうかを
-     * {@link CellSource#jumpGapEnabled()}で切れるようにしてある。
-     *
-     * <p>近い隙間から順に試し、最初に着地できた距離で確定する。同じ方向に複数の着地点があるとき、
-     * 手前に降りられるなら遠くまで跳ぶ理由が無い（{@link ActionCosts#jumpAcrossGap}も遠いほど高い）。
-     *
-     * <p>空中では掘れないので、通り抜ける空間は掘削なしで通れることを求める。頭上も見る —
-     * ジャンプは1.25マス上がるので、天井があると跳べずに隙間へ落ちる。
-     */
-    private void addJumpGap(PathNode from, int dx, int dz) {
-        if (!view.jumpGapEnabled()) {
-            return;
-        }
-        int y = from.y;
-        if (CellData.standable(view.cell(from.x + dx, y - 1, from.z + dz))) {
-            // 隙間ではなく床がある。歩いて行けるならTraverseの方が安い
-            return;
-        }
-        // 踏み切り地点の頭上。ここが塞がっていると跳躍そのものが成立しない
-        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
-            return;
-        }
-        // ソウルサンド・蜂蜜の上からは疾走の最高速度が出ない。到達距離は踏み切り時の水平速度で
-        // 決まる（滞空時間は距離に依らず一定）ので、減速したまま跳ぶと必ず隙間に落ちる。
-        // 倍率の探し方は歩行コスト（{@link #stepCost}）と同じくバニラの{@code getBlockSpeedFactor}に倣う
-        if (slowedTakeoff(from.x, y, from.z)) {
-            return;
-        }
-        // 梯子・ツタに掴まったままでは跳べない。onGround()がfalseなのでjumpFromGround()自体が
-        // 呼ばれず（LivingEntity#aiStep）、掴まったまま接地していてもhandleOnClimbableが
-        // 水平速度を±0.15に固定するので、疾走の0.286も踏み切り加算の0.2も残らない
-        if (CellData.climbable(view.cell(from.x, y, from.z))
-                || !CellData.standable(view.cell(from.x, y - 1, from.z))) {
-            return;
-        }
-        // 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中の加速は
-        // 0.02/tickしかない（LivingEntity#getFlyingSpeed）ので、到達距離は踏み切り速度で
-        // そのまま決まる。1マス幅の足場からでは自分のマスの中（約0.5マス）しか助走できず、
-        // 3マスの隙間は理論上届いても余裕がゼロになる——跳べと指示するだけで、外して落ちるのは
-        // 人間の方（JUMP_REACH_PENALTYと同じ方針）
-        if (!hasRunUp(from, y, dx, dz)) {
-            return;
-        }
-
-        // 跳び越す隙間の下がどれだけ深いか。{@link #addBridge}と同じ値段表で危険料を積む
-        double dropRisk = 0.0;
-        for (int gap = 1; gap <= MAX_JUMP_GAP_BLOCKS; gap++) {
-            int gapX = from.x + gap * dx;
-            int gapZ = from.z + gap * dz;
-            // 跳び越える空間が塞がっていれば、その先へはどれだけ助走しても届かない
-            if (!clearWithoutDigging(gapX, y, gapZ)
-                    || !CellData.occupiableWithoutDigging(view.cell(gapX, y + 2, gapZ))) {
-                return;
-            }
-            // 下が溶岩の隙間は跳ばない。跳躍は外せば落ちるという前提でコストを積んであるが、
-            // 溶岩ではその「外したとき」が死なので、コストの多寡で釣り合う話ではなくなる。
-            // 下が読めない（未ロード）隙間も同じ扱いにする——溶岩でないと言い切れない
-            if (scans.lavaOrUnknownBelow(gapX, y, gapZ)) {
-                return;
-            }
-            int gapDrop = missDrop(gapX, y, gapZ);
-            if (avoidRiskyJumps && gapDrop >= view.fatalFallBlocks()) {
-                // 外したら死ぬ隙間。溶岩と違って「その隙間の上を跳ぶ手そのものを永久に消す」のではなく、
-                // 回り込む道が一本も無いと分かったときだけ緩和の梯子が開ける（riskyJumpBlocked）
-                riskyJumpBlocked = true;
-                return;
-            }
-            dropRisk += ActionCosts.dropRiskPenalty(gapDrop, view.fatalFallBlocks());
-            int x = from.x + (gap + 1) * dx;
-            int z = from.z + (gap + 1) * dz;
-            if (!CellData.standable(view.cell(x, y - 1, z))) {
-                // まだ着地できない。隙間はもう1マス続く
-                continue;
-            }
-            if (!clearWithoutDigging(x, y, z)) {
-                return;
-            }
-            relax(from, x, y, z, ActionCosts.jumpAcrossGap(gap) + dropRisk, MoveKind.JUMP);
-            return;
-        }
-    }
-
-    /**
-     * この隙間を跳び損ねたら何マス落ちるか。底が無い（奈落）なら
-     * {@link CellSource#fatalFallBlocks()}を返す。
-     *
-     * <p>落差の測り方は{@link #addFall}・{@link #addBridge}と揃えてある——あちらが「意図して降りる」
-     * 高さを見るのに対し、こちらは同じ落差を「跳んで外したとき」として見る。溶岩と未ロードは
-     * 呼び出し側（{@code lavaOrUnknownBelow}）が先に弾いている。
-     */
-    private int missDrop(int x, int y, int z) {
-        int obstacleY = scans.firstNonAirBelow(x, y - 1, z);
-        if (obstacleY == NOTHING_BELOW || obstacleY == UNREADABLE_BELOW) {
-            // 未ロードは呼び出し側が既に弾いている。ここへは来ない想定だが、
-            // 「読めない＝危険ではない」と倒さないよう明示しておく
-            return view.fatalFallBlocks();
-        }
-        long obstacle = view.cell(x, obstacleY, z);
-        if (CellData.water(obstacle)) {
-            // 着水はバニラが落下距離をリセットするので、どれだけ落ちても死なない
-            return 0;
-        }
-        return y - obstacleY - 1;
-    }
-
-    /** 踏み切り地点が減速ブロックの上か（バニラの{@code Entity#getBlockSpeedFactor}と同じ探し方）。 */
-    private boolean slowedTakeoff(int x, int y, int z) {
-        return takeoffSpeedFactor(x, y, z) < 1.0;
     }
 
     /**
@@ -1194,7 +836,7 @@ public final class AStarPathfinder {
      * {@code ASCEND_ONE_BLOCK}、水平の下限に{@code SPRINT_ONE_BLOCK}を置いているので、
      * そこを割ると非許容になる。速くなる側の得は{@link #stepCost}が水平移動でだけ表す。
      */
-    private double takeoffSpeedFactor(int x, int y, int z) {
+    double takeoffSpeedFactor(int x, int y, int z) {
         double speedFactor = CellData.speedFactor(view.cell(x, y, z));
         if (speedFactor == 1.0) {
             speedFactor = CellData.speedFactor(view.cell(x, y - 1, z));
@@ -1203,456 +845,11 @@ public final class AStarPathfinder {
     }
 
     /**
-     * 水中を泳いで進む。足場を要求しないのが{@link #addTraverse}との違いで、これが無いと海は
-     * 「水底まで降りて歩く」か「水面の上にブロックを置いて渡る」でしか越えられない。
-     */
-    private void addSwim(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y;
-        int z = from.z + dz;
-
-        if (CellData.standable(view.cell(x, y - 1, z))) {
-            // 足場があるなら同じ移動をTraverse側が作る。2種類のMoveKindで二重に作らない
-            return;
-        }
-        if (!CellData.water(view.cell(x, y, z))
-                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
-            return;
-        }
-        relax(from, x, y, z, ActionCosts.SWIM_ONE_BLOCK, MoveKind.SWIM);
-    }
-
-    /** 水中を浮上する。水面まで上がってから水平に泳ぐ経路を作るために要る。 */
-    private void addSwimUp(PathNode from) {
-        int y = from.y + 1;
-        if (!CellData.water(view.cell(from.x, y, from.z))
-                || !CellData.occupiableWithoutDigging(view.cell(from.x, y + 1, from.z))) {
-            return;
-        }
-        relax(from, from.x, y, from.z, ActionCosts.SWIM_UP_ONE_BLOCK, MoveKind.SWIM_UP);
-    }
-
-    /**
-     * 水中を進みながら1マス浮上する。{@link #addSwimUp}が真上にしか上がれないので、これが無いと
-     * 浮上が「その場で上がってから横へ」というL字になる——泳いでいる人間は目的地を向いたまま
-     * 斜めに上がるので、案内としても不自然に見える。
-     *
-     * <p>陸の{@link #addAscend}と同じく、踏み切り地点の頭上（＝上がっていく途中で体が通るセル）の
-     * 通行可能性を求める。掘削は許可しない（水中で掘って上がるくらいなら、開いている所まで
-     * 泳いだ方が速い）。
-     */
-    private void addSwimAscend(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y + 1;
-        int z = from.z + dz;
-
-        if (!CellData.water(view.cell(x, y, z))
-                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
-            return;
-        }
-        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
-            return;
-        }
-        relax(from, x, y, z, ActionCosts.SWIM_ASCEND_ONE_BLOCK, MoveKind.SWIM_ASCEND);
-    }
-
-    /**
-     * 斜めに進みながら1マス浮上する。{@link #addSwimAscend}がカーディナル4方向にしか無いと、
-     * 水面へ向かう区間だけ「真っ直ぐ進んでから上がる」か「上がってから斜めに進む」に分解され、
-     * そこだけ経路が直角に折れる。
-     *
-     * <p>角2セルの通行可能性を求めるのは{@link #addDiagonalSwim}と同じ理由（体が壁の角を
-     * すり抜けないように）。
-     */
-    private void addDiagonalSwimAscend(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y + 1;
-        int z = from.z + dz;
-
-        if (CellData.standable(view.cell(x, y - 1, z))) {
-            // 足場があるなら同じ移動をDiagonalAscend側が作る。2種類のMoveKindで二重に作らない
-            return;
-        }
-        if (!CellData.water(view.cell(x, y, z))
-                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
-            return;
-        }
-        if (!CellData.occupiableWithoutDigging(view.cell(from.x, from.y + 2, from.z))) {
-            return;
-        }
-        if (!clearWithoutDigging(from.x + dx, y, from.z) || !clearWithoutDigging(from.x, y, from.z + dz)) {
-            return;
-        }
-        relax(from, x, y, z, ActionCosts.DIAGONAL_SWIM_ASCEND_ONE_BLOCK, MoveKind.SWIM_ASCEND);
-    }
-
-    /** 水中を潜る。水底の地形沿いに進む方が近い場合に使う。 */
-    private void addSwimDown(PathNode from) {
-        int y = from.y - 1;
-        if (!CellData.water(view.cell(from.x, y, from.z))) {
-            return;
-        }
-        relax(from, from.x, y, from.z, ActionCosts.SWIM_DOWN_ONE_BLOCK, MoveKind.SWIM_DOWN);
-    }
-
-    /**
-     * 梯子・ツタに横から取り付く。足場を要求しないのが{@link #addTraverse}との違いで、
-     * 縦穴の途中に張られた梯子へ移るにはこれが要る。
-     */
-    private void addClimb(PathNode from, int dx, int dz) {
-        int x = from.x + dx;
-        int y = from.y;
-        int z = from.z + dz;
-
-        if (CellData.standable(view.cell(x, y - 1, z))) {
-            // 足場があるなら同じ移動をTraverse側が作る
-            return;
-        }
-        if (!CellData.climbable(view.cell(x, y, z))
-                || !CellData.occupiableWithoutDigging(view.cell(x, y + 1, z))) {
-            return;
-        }
-        relax(from, x, y, z, ActionCosts.WALK_ONE_BLOCK, MoveKind.CLIMB);
-    }
-
-    /** 梯子・ツタを登る。上り切った先へは、そこから水平移動で降りる（頂上より上には行けない）。 */
-    private void addClimbUp(PathNode from) {
-        int y = from.y + 1;
-        if (!CellData.climbable(view.cell(from.x, y, from.z))
-                || !CellData.occupiableWithoutDigging(view.cell(from.x, y + 1, from.z))) {
-            return;
-        }
-        relax(from, from.x, y, from.z, ActionCosts.LADDER_UP_ONE_BLOCK, MoveKind.CLIMB_UP);
-    }
-
-    private void addClimbDown(PathNode from) {
-        int y = from.y - 1;
-        if (!CellData.climbable(view.cell(from.x, y, from.z))) {
-            return;
-        }
-        relax(from, from.x, y, from.z, ActionCosts.LADDER_DOWN_ONE_BLOCK, MoveKind.CLIMB_DOWN);
-    }
-
-    /**
-     * 縁から踏み出して落ちる。1マス下は{@link #addDescend}が扱うので、ここは2マス以上の落下だけ。
-     *
-     * <p>既定では落下ダメージを受ける高さを提示しない（{@link ActionCosts#SAFE_FALL_BLOCKS}まで）。降りる
-     * 手段は掘り下げ（Descend + 掘削）もあるので、痛い近道を勧めるより階段状に降りる経路を出す方がよい。
-     * ただし着水はバニラが落下距離をリセットするので、高さを問わず安全に降りられる。
-     *
-     * <p>設定で許可された場合だけ、体力から決まる上限までのダメージ落下と、水バケツMLGによる無傷の
-     * 落下を候補に加える（{@link CellSource#maxFallDamagePoints}／{@link CellSource#canMlgWaterBucket}）。
-     */
-    private void addFall(PathNode from, int dx, int dz, int obstacleY) {
-        if (obstacleY == NOTHING_BELOW || obstacleY == UNREADABLE_BELOW) {
-            // 底が無い（奈落）か、下に何があるか読めない。どちらも着地点を約束できない
-            return;
-        }
-        int x = from.x + dx;
-        int z = from.z + dz;
-        // 踏み出す先の2マスが空いていないと縁から出られない。落下中は掘れないので空気であること
-        if (!CellData.passableEmpty(view.cell(x, from.y, z))
-                || !CellData.passableEmpty(view.cell(x, from.y + 1, z))) {
-            return;
-        }
-
-        // 縁を踏み出す動作も足元のブロックに減速される（落下中と着地後は無関係）
-        double takeoff = takeoffSpeedFactor(from.x, from.y, from.z);
-        long obstacle = view.cell(x, obstacleY, z);
-        if (CellData.water(obstacle)) {
-            relax(from, x, obstacleY, z, ActionCosts.fallCost(from.y - obstacleY, takeoff),
-                    MoveKind.FALL_TO_WATER);
-            return;
-        }
-        if (!CellData.standable(obstacle)) {
-            // 柵や梯子など、落ちても足場にならないもの
-            return;
-        }
-        int drop = from.y - obstacleY - 1;
-        if (drop < 2) {
-            return;
-        }
-        if (drop <= ActionCosts.SAFE_FALL_BLOCKS) {
-            relax(from, x, obstacleY + 1, z, ActionCosts.fallCost(drop, takeoff), MoveKind.FALL);
-            return;
-        }
-
-        // バニラのダメージは ceil(落下距離 - SAFE_FALL_DISTANCE)。落下距離が整数マスなのでそのまま引き算になる
-        int damage = drop - ActionCosts.SAFE_FALL_BLOCKS;
-        boolean mlg = view.canMlgWaterBucket();
-        if (mlg) {
-            relax(from, x, obstacleY + 1, z,
-                    ActionCosts.fallCost(drop, takeoff) + ActionCosts.MLG_WATER_OVERHEAD_TICKS,
-                    MoveKind.FALL_MLG);
-        }
-        if (damage > maxFallDamagePoints) {
-            // 立てる床はそこにあり、届きもする。許容量だけが足りない——緩めれば道になる可能性がある。
-            // ここまで来ている時点で奈落でも未ロードでもないので、フラグは「緩める意味がある」を正しく指す。
-            //
-            // 水バケツMLGで同じ着地を既に作れているなら立てない。その辺は許容量に関わらず通れるので、
-            // 緩めても増える移動が無い——立てると、緩和の梯子が何も変えずに探索を繰り返すだけになる
-            fallDamageCapBlocked |= !mlg;
-            return;
-        }
-        relax(from, x, obstacleY + 1, z,
-                ActionCosts.fallCost(drop, takeoff) + damage * ActionCosts.FALL_DAMAGE_PENALTY_PER_POINT,
-                MoveKind.FALL_DAMAGE);
-    }
-
-    /**
      * この探索が、落下ダメージの許容量を理由に着地を捨てたか。捨てていない場合、許容量を緩めて
      * 探し直しても結果は変わらない。
      */
     public boolean fallDamageCapBlocked() {
         return fallDamageCapBlocked;
-    }
-
-    /**
-     * 床が存在しない空洞（ジ・エンドの島間など）をブロックを置いて渡る移動。Pillarの水平版。掘削とは逆に、床セルが完全な空虚（{@code passableEmpty}）である場合のみ許可する — 水面の
-     * 上には置かない（{@link PathSafetyChecker}の事後チェックとは別に、そもそも設置対象として扱わない）。
-     *
-     * <p>水面のすぐ上も空気なので、床セルだけを見ても空虚と区別がつかない。海の上にブロックを敷いて
-     * 渡るのは泳いで渡れる場所にわざわざ足場を作ることになるので、下に水が見えたらこの移動を作らない。
-     *
-     * <p>溶岩は{@link CellSource#lavaBridgingEnabled()}のときだけ、
-     * {@link ActionCosts#LAVA_BRIDGE_PENALTY_TICKS}を上乗せして許可する。床セルが溶岩そのものでも
-     * よい——置いたブロックが溶岩を置き換えるバニラの橋架けなので、身体が溶岩に入るわけではない
-     * （入る経路は{@link #standingBodyCost}が既にINFEASIBLEで弾く）。
-     */
-    /** 踏み切り地点の手前（跳躍方向の逆側）に、走り込める足場が1マスあるか。 */
-    private boolean hasRunUp(PathNode from, int y, int dx, int dz) {
-        int x = from.x - dx;
-        int z = from.z - dz;
-        return CellData.standable(view.cell(x, y - 1, z)) && clearWithoutDigging(x, y, z);
-    }
-
-    private void addBridge(PathNode from, int dx, int dz, int obstacleY) {
-        if (!canPlace()) {
-            return;
-        }
-        int x = from.x + dx;
-        int y = from.y;
-        int z = from.z + dz;
-
-        long floorCell = view.cell(x, y - 1, z);
-        boolean overLava = CellData.lava(floorCell);
-        // 当たり判定が無いことと、そこへ置けることは別。しだれツタ・ねじれツタ・松明・レールは
-        // 体が通り抜けられるがreplaceableではないので、狙って置いても隣のセルへ飛ぶ
-        // （BlockPlaceContext#getClickedPos）——案内した位置には絶対に置かれない
-        if (!overLava && (CellData.standable(floorCell) || !CellData.replaceable(floorCell))) {
-            return;
-        }
-        // ツタ・梯子の中と、その隣には置かない。掴まれるものは当たり判定こそ薄いが視線は遮るので、
-        // 置く先を狙うとそちらに当たる——普通のツタはreplaceableなのでブロックはツタのセルへ入り、
-        // 梯子・しだれツタはreplaceableではないのでその隣のセルへ飛ぶ。どちらにしても
-        // 案内した位置には置かれない（上のBlockPlaceContext#getClickedPosの注記が、1マス隣で起きる形）
-        if (climbableNear(x, y - 1, z)) {
-            return;
-        }
-        // 床が溶岩なら、置くブロックがその溶岩を置き換える。何がそれを支えているかは関係ない
-        boolean lavaFarBelow = false;
-        boolean voidBelow = false;
-        // 床は在るが、そこまでの落差が致死。奈落と同じく「外せば死ぬ」橋
-        boolean fatalDropBelow = false;
-        // 足場を外したときに落ちる高さ。値段は{@link ActionCosts#dropRiskPenalty}で連続に決める
-        int dropBelow = 0;
-        if (!overLava) {
-            if (obstacleY == UNREADABLE_BELOW) {
-                // 未ロードチャンクで走査が止まった。下に何があるか本当に分からないので置かない
-                // ——水面の上に足場を敷けと言い出すのはこの取り違えから起きる
-                return;
-            }
-            if (obstacleY == NOTHING_BELOW) {
-                // 読めるセルだけを辿って何にも当たらなかった＝底が無い。外せば助からないので、
-                // 溶岩と同じ扱いにする
-                voidBelow = true;
-                dropBelow = view.fatalFallBlocks();
-            } else {
-                long obstacle = view.cell(x, obstacleY, z);
-                if (CellData.water(obstacle)) {
-                    return;
-                }
-                // 足元・隣接には溶岩が無くても、遥か下（ネザーの開けた空洞の底など）が溶岩なら
-                // 設置を外したときの結末は変わらない。hasAdjacentLavaは足元1マス下しか見ないので、
-                // ここを見ないと「空中で溶岩の上を長々と橋渡しする」経路が無傷の橋と同じ扱いになる
-                lavaFarBelow = CellData.lava(obstacle);
-                // 床は在る。だが<b>何マス下か</b>を見ないと、外したときの結末が分からない。
-                // 落差が致死なら結末は奈落と同じ（死ぬ）なので、値段も規律もそちらへ揃える——
-                // ユーザー報告「下にブロックあるからいいとか思ってそう」がこれ。
-                // 落差の測り方は{@link #missDrop}と同じ（水は上で弾いてある）
-                dropBelow = y - obstacleY - 1;
-                fatalDropBelow = !lavaFarBelow && dropBelow >= view.fatalFallBlocks();
-            }
-        }
-        // 水に接する場所へは置かない。流れ込んで足場ごと押し流される
-        if (hasAdjacentWater(x, y - 1, z)) {
-            return;
-        }
-        // 底の無い空虚の上では、目標へ近づく向きにしか橋を伸ばさない。
-        //
-        // 橋は地形ではなくプレイヤーが作る構造物で、奈落の上には迂回すべき地形がそもそも無い。
-        // 浮遊島や柱が邪魔なら「どの岸から出るか」で避けることになり、その選択は本物の地面の上で
-        // 起きるのでこの制限を受けない。逆に許すと、岸のあらゆるセルから全方位へ上限いっぱいの橋が
-        // 展開対象になり、探索空間が線から面へ膨らむ。
-        //
-        // 合成の群島（島4つ・間は奈落）で、島1つぶんの区間を測った実測: 10万ノードを焼いて予算切れ
-        // → 64978ノードで到達。測る単位は区間1本にすること——全行程で測ると、どのみち予算が
-        // 足りずにどの条件でも失敗するので、効いているかどうかが見えない。
-        // カーディナル移動はL1距離を必ず±1変えるので、ここで落ちるのは遠ざかる向きだけになる。
-        //
-        // 既知の穴: 奈落の上に浮いた障害物が真横への迂回を強いる地形では経路を失う。踏んだら、
-        // 連続長が短いうちだけ全方位を許す、といった形で緩めること
-        if (voidBelow && Math.abs(x - goalX) + Math.abs(z - goalZ)
-                >= Math.abs(from.x - goalX) + Math.abs(from.z - goalZ)) {
-            return;
-        }
-        boolean lavaNearby = overLava || lavaFarBelow || hasAdjacentLava(x, y - 1, z);
-        if (lavaNearby && !view.lavaBridgingEnabled()) {
-            return;
-        }
-        // 奈落・溶岩の上では、掘らないと通れない場所へは架けない。
-        //
-        // 1手の中に「床を置く」と「身体のセルを掘る」が同居すると、案内は<b>順序を表現できない</b>。
-        // 正しいのは「先に床を置く→後で掘る」だが、掘る枠が見えている以上そちらを先にやるのが自然で、
-        // 掘った先の足元は<b>まだ床が無い</b>——奈落なら落ちて死ぬ。実機でユーザーが踏んだ症状は
-        // 「掘るはずのブロックの横にブロックを置けと言われる」と「そのまま掘ったらダイブする」の
-        // 2つに見えていたが、原因はこの1つ。
-        //
-        // 空中では掘れないので{@link #addJumpGap}や斜め移動が{@code clearWithoutDigging}を
-        // 要求しているのと同じ規律。底のある空洞には掛けない——掘って落ちても1マス下の床に
-        // 着くだけで、結末がまるで違う
-        // 致死落差もここに含める。「底のある空洞には掛けない——掘って落ちても1マス下の床に
-        // 着くだけ」という上の理由づけは<b>浅い底にしか成り立たない</b>。43マス下の床は
-        // 底があるうちに入らない。ただし詰みを増やさないよう、跳躍と同じ緩和の梯子
-        // （{@code avoidRiskyJumps}）に載せる——奈落・溶岩は従来どおり無条件
-        if ((voidBelow || lavaNearby || (fatalDropBelow && avoidRiskyJumps))
-                && !clearWithoutDigging(x, y, z)) {
-            return;
-        }
-        // 連続した橋の長さで打ち切る。ここで「重いコスト」ではなく「移動を作らない」を選ぶのが要点——
-        // 重みで抑えると、A*は安い辺から展開するので橋に手を伸ばす前に周囲を展開し尽くし、
-        // 展開ノード数を焼き切ったうえで結局その先に進めない（ActionCosts#LAVA_BRIDGE_PENALTY_TICKS
-        // に記録された実測そのもの）。辺を作らなければ、探索は最初から迂回路だけを見る。
-        //
-        // 溶岩と奈落の上だけは別（より短い）上限で切る。底のある空洞なら足場を外しても落ちるだけだが、
-        // この2つでは死ぬので、同じ長さの橋でも許してよい範囲が違う。両方に当たる橋は厳しい方で切る
-        int cap = maxBridgeRun;
-        if (lavaNearby) {
-            cap = RunCaps.stricter(cap, maxLavaBridgeRun);
-        }
-        if (voidBelow || fatalDropBelow) {
-            cap = RunCaps.stricter(cap, maxVoidBridgeRun);
-        }
-        int bridgeRun = from.bridgeRun + 1;
-        if (cap > 0 && bridgeRun > cap) {
-            bridgeRunCapBlocked = true;
-            return;
-        }
-        // 持ち物の枚数で経路全体の設置数を切る。連続長（上の cap）は「1本の橋が何マス続いてよいか」
-        // なので、短い橋を何度も架ける経路は素通りする——途中で尽きると、そこから先の案内は
-        // 実行できない
-        if (placedBudgetExceeded(from)) {
-            return;
-        }
-        double bodyCost = standingBodyCost(x, y, z, null);
-        if (Double.isInfinite(bodyCost)) {
-            return;
-        }
-        // 進む1マスぶんだけ踏み切り地点の倍率で割る。置いたブロックの上は等速なので、遅いのは
-        // ソウルサンド等の上から踏み出す分だけ。設置の手間（placementCostTicks）は
-        // 立っているブロックと無関係なので割らない。
-        //
-        // 走行を中断するぶんの割増は、奈落・溶岩の上では乗せない。あちらの値段の上限を握っているのは
-        // 人間の好みではなく「探索が橋に手を届かせられるか」で、実測済みの窓
-        // （ActionCosts#LAVA_BRIDGE_PENALTY_TICKS）から外れると経路そのものが出なくなる
-        // ——ジ・エンドの島渡りが60万ノードでも解けなくなることをRealEndTerrainTestで確認した。
-        // 迂回させたいという意図も、そこでは迂回路が探索の箱の中に無いので買えるものが無い
-        double interruption = voidBelow || lavaNearby
-                ? 0.0
-                : ActionCosts.TERRAIN_EDIT_INTERRUPTION_TICKS;
-        double cost = ActionCosts.SPRINT_ONE_BLOCK / takeoffSpeedFactor(from.x, from.y, from.z)
-                + placementCostTicks + interruption
-                + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
-                // 遥か下が溶岩なら落差は測らない。外したときの結末は既に溶岩の割増が表しているので、
-                // 深さで二重に取ると測っていないネザーの橋の値段まで動く
-                + (lavaFarBelow ? 0.0 : ActionCosts.dropRiskPenalty(dropBelow, view.fatalFallBlocks()))
-                + submerged(from, bodyCost, x, y + 1, z);
-        relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
-    }
-
-    /**
-     * 跳びながら足元にブロックを置いて真上へ1マス登る（Pillar）。
-     * {@link #addBridge}の垂直版で、これが無いと断崖はどれだけ低くても迂回するしかない。
-     *
-     * <p>置く先は自分がいま立っているセルそのものなので、そこが本当の空気であることを求める。
-     * 水に浮いた状態では踏み切れず、梯子に掴まっている場所には置けない。
-     *
-     * <p>足場は要求しない。連続して積み上げる2手目以降は、自分が直前に置いたブロックの上に
-     * 立っている——地形データにはまだ存在しないセルなので、足場を求めると1マスしか登れなくなる。
-     *
-     * <p>新しい頭になるセル（2つ上）だけが未検証。新しい足元は元の頭で、そこに立っている時点で
-     * 通行可能性は確認済み。{@link #addAscend}と同じく、天井が塞がっていても掘れるなら掘って上がる。
-     */
-    private void addPillar(PathNode from) {
-        if (!canPlace()) {
-            return;
-        }
-        // 横に架けた橋の上からは積み始めない。1マス幅の足場の上で跳んで足元に置く動作で、
-        // 奈落や溶岩の上ではまず外す——案内として出してよい手ではない。
-        //
-        // 条件に「直前も柱」を入れるのが要点。柱自身も連続長を伸ばすので、{@code bridgeRun > 0}
-        // だけで切ると断崖を登る塔が1マスで止まる。
-        //
-        // 理由は安全性だけで、探索の効率には効かない（合成の群島で有無を測って差がゼロだった）。
-        // 奈落の上の展開を抑えているのは{@link #addBridge}の方向の絞り込み
-        if (from.bridgeRun > 0 && from.kind != MoveKind.PILLAR) {
-            return;
-        }
-        // 柱にも連続長の上限を掛ける。{@code bridgeRun}を増やすだけで検査していなかったため、
-        // 塔が探索範囲の天井まで伸び放題だった——実機（the_end）では島の立てるセルすべてから
-        // 約150段が展開対象になり、51万セルを焼いて予算切れで終わっていた。
-        //
-        // 本当の害はノード数ではなく、そのせいで{@code EXHAUSTED}に到達できないこと。
-        // {@code PathfindingExecutor}の上限緩和は「範囲内に道が無いと証明できた」ときにしか走らないので、
-        // 予算切れで終わる限り一度も発動しない＝橋が上限に張り付いたまま渡り切れない。
-        //
-        // 溶岩・奈落の上限は掛けない。柱は実在する床から始まる（上の分岐がそれを保証する）ので、
-        // 「外したら死ぬ場所に架かっている」という前提が成り立たない
-        int pillarRun = from.bridgeRun + 1;
-        if (maxBridgeRun > 0 && pillarRun > maxBridgeRun) {
-            bridgeRunCapBlocked = true;
-            return;
-        }
-        if (placedBudgetExceeded(from)) {
-            return;
-        }
-        long standing = view.cell(from.x, from.y, from.z);
-        // 置く先は自分がいるセルそのもの。梯子・ツタに掴まっている間は onGround() が false で
-        // jumpFromGround() が呼ばれず（LivingEntity#aiStep）、掴まったまま接地していても
-        // handleOnClimbable が水平・下向きの速度を±0.15に固定するので、跳んで積む動作が成立しない
-        // 水はreplaceableなので、水中も「置ける場所」として素通りしていた。実際には浮いたまま
-        // 踏み切れないので、案内した通りに積み上げることはできない
-        if (!CellData.replaceable(standing) || CellData.climbable(standing)
-                || CellData.water(standing)) {
-            return;
-        }
-        double clearanceCost = columnCost(from.x, from.y + 2, from.y + 2, from.z, null);
-        if (Double.isInfinite(clearanceCost)) {
-            return;
-        }
-        // 柱は必ず実在の足場の上から始まる（上のreplaceable判定）ので、走行を中断するぶんの割増は
-        // 常に乗る。橋の側にある免除は「奈落・溶岩の上に迂回路が無い」ことを根拠にしたもので、
-        // 地面の上から1マス上がる話には当てはまらない
-        double cost = ActionCosts.ascendOneBlock(takeoffSpeedFactor(from.x, from.y, from.z))
-                + placementCostTicks + ActionCosts.TERRAIN_EDIT_INTERRUPTION_TICKS
-                + submerged(from, clearanceCost, from.x, from.y + 2, from.z);
-        // 積んだブロックの上は自分が置いた足場であって地形ではないので、橋の連続を断たない。
-        // 0に戻していた頃は「橋を上限まで架ける→1マス積む→また上限まで架ける」が合法だった。
-        // 実際に発動するかは展開順しだいで（bridgeRunはノードの同一性に入らないので、柱の上の
-        // ノードへ別経路が同コストで届けばそちらの連続長が残る）、そのぶん質が悪い——同じ地形でも
-        // 上限が効いたり効かなかったりし、効かなかった回は bridgeRunCapBlocked が立たないので
-        // PathfindingExecutorの上限緩和も走らないまま階段状の経路が確定する
-        relax(from, from.x, from.y + 1, from.z, cost, MoveKind.PILLAR, pillarRun);
     }
 
     /**
@@ -1675,88 +872,24 @@ public final class AStarPathfinder {
     }
 
     /**
-     * ブロックを置くセルの周り（真上を除く5面）に水があるか。
+     * ブロックを置くセルの周り（真上を除く5面）に水があるか。{@link #headSubmerged}と
+     * {@link BuildMoves#addBridge}の両方が使う（後者は水に接する場所へ置かない判定）。
      *
      * <p><b>毎回読み直してよい。</b>読みは{@code MemoCells}のページ配列に当たるので、ここに
      * セルごとの覚え書きを足しても速くならない——覚え書きの引き当ての方が高くつく。
      */
-    private boolean hasAdjacentWater(int x, int y, int z) {
-        return adjacentWater(x, y, z);
-    }
-
-    /** ブロックを置くセルの周り（真上を除く5面）に溶岩があるか。 */
-    private boolean hasAdjacentLava(int x, int y, int z) {
-        return adjacentLava(x, y, z);
-    }
-
-    /**
-     * ブロックを置くセルの中か周りに、掴まれるもの（ツタ・しだれツタ・梯子）があるか。
-     *
-     * <p>水・溶岩の隣接判定と違って<b>真上も見る</b>。真上は足場を置いた後に自分が立つセルで、
-     * そこにツタが垂れていれば、置く先を狙う視線はまずそれに当たる。
-     */
-    private boolean climbableNear(int x, int y, int z) {
-        return CellData.climbable(view.cell(x, y, z))
-                || CellData.climbable(view.cell(x, y + 1, z))
-                || adjacentClimbable(x, y, z);
-    }
-
-    /**
-     * 足場を置く移動を作ってよいか。持ち物にブロックが無くても、詰み回避で開けられていれば作る
-     * （{@link Tolerances#placeWithoutBlocks()}）——出さないとジ・エンドの島渡りのように
-     * 橋以外に道が無い地形で経路が原理的に出ず、しかも案内には何も現れない。
-     */
-    private boolean canPlace() {
-        if (view.canPlaceBlocks()) {
-            return true;
-        }
-        // 設定で断られている場合は開けない。開けてよいのは「持っていないだけ」のときだけ
-        if (!view.bridgingAllowedBySettings()) {
-            return false;
-        }
-        if (!placeWithoutBlocks) {
-            placementBlockedByEmptyInventory = true;
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * {@code from}からもう1つ足場を置くと持ち物の予算を超えるか。超えるなら
-     * {@link #placedBudgetBlocked}を立てて、予算を外した探し直しが要ることを呼び出し側へ伝える。
-     */
-    private boolean placedBudgetExceeded(PathNode from) {
-        if (placedBudget <= 0 || from.placedTotal + 1 <= placedBudget) {
-            return false;
-        }
-        placedBudgetBlocked = true;
-        return true;
-    }
-
-    private boolean adjacentWater(int x, int y, int z) {
+    boolean hasAdjacentWater(int x, int y, int z) {
         return CellData.water(view.cell(x, y - 1, z))
                 || CellData.water(view.cell(x + 1, y, z)) || CellData.water(view.cell(x - 1, y, z))
                 || CellData.water(view.cell(x, y, z + 1)) || CellData.water(view.cell(x, y, z - 1));
     }
 
-    private boolean adjacentLava(int x, int y, int z) {
-        return CellData.lava(view.cell(x, y - 1, z))
-                || CellData.lava(view.cell(x + 1, y, z)) || CellData.lava(view.cell(x - 1, y, z))
-                || CellData.lava(view.cell(x, y, z + 1)) || CellData.lava(view.cell(x, y, z - 1));
-    }
-
-    private boolean adjacentClimbable(int x, int y, int z) {
-        return CellData.climbable(view.cell(x, y - 1, z))
-                || CellData.climbable(view.cell(x + 1, y, z)) || CellData.climbable(view.cell(x - 1, y, z))
-                || CellData.climbable(view.cell(x, y, z + 1)) || CellData.climbable(view.cell(x, y, z - 1));
-    }
-
-    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
+    void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
         relax(from, x, y, z, edgeCost, kind, 0);
     }
 
     /** ボートに乗った状態のノードへ緩和する。{@link #addBoatEnter}/{@link #addBoatPaddle}専用。 */
-    private void relaxBoating(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
+    void relaxBoating(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
         relax(from, x, y, z, edgeCost, kind, 0, true);
     }
 
@@ -1764,12 +897,12 @@ public final class AStarPathfinder {
      * {@code bridgeRun}を明示的に渡す版。非0を渡すのは自分で置いた足場の上に着く移動
      * （{@link #addBridge}・{@link #addPillar}）だけで、それ以外は実在する床に着くので0になる。
      */
-    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
+    void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
         relax(from, x, y, z, edgeCost, kind, bridgeRun, false);
     }
 
-    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
-                        boolean boating) {
+    void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
+               boolean boating) {
         // 息の勘定より先に「そもそも安くならない候補」を捨てる。割増（SUBMERGED_TRAVEL_PENALTY）は
         // 1倍を下回らないので、割増前のコストで改善できないなら割増後も改善できない。
         // ここを後回しにすると、捨てると分かっている候補のために頭上と周り5面を読むことになる。
@@ -1846,7 +979,7 @@ public final class AStarPathfinder {
      * <b>これから掘る固体セル</b>は「水ではない」ので割増が乗らない——水中を掘り進む区間が丸ごと
      * 陸と同じ値段になっていた。息の勘定と同じ判定に揃えてある。
      */
-    private double submerged(PathNode from, double digCost, int x, int headY, int z) {
+    double submerged(PathNode from, double digCost, int x, int headY, int z) {
         if (digCost <= 0.0 || !headSubmerged(from, x, headY, z)) {
             return digCost;
         }
@@ -1859,7 +992,7 @@ public final class AStarPathfinder {
     /**
      * 立った姿勢で占有する2セル（足元・頭）の破壊コスト。
      */
-    private double standingBodyCost(int x, int y, int z, List<BlockPos> cells) {
+    double standingBodyCost(int x, int y, int z, List<BlockPos> cells) {
         return columnCost(x, y, y + 1, z, cells);
     }
 
@@ -1867,7 +1000,7 @@ public final class AStarPathfinder {
      * 一段降りる移動で身体が通過する3セル分。{@code y}は降りる手前の高さ（足元が{@code y}、頭が{@code y+1}、
      * 降りた先が{@code y-1}）。
      */
-    private double descendingBodyCost(int x, int y, int z, List<BlockPos> cells) {
+    double descendingBodyCost(int x, int y, int z, List<BlockPos> cells) {
         return columnCost(x, y - 1, y + 1, z, cells);
     }
 
@@ -1879,7 +1012,7 @@ public final class AStarPathfinder {
      * <p>{@code cells}が非nullなら、実際に壊すセルをそこへ集める。コストを払う判断と壊すセルの列挙を
      * 同じ経路で行うためのもので、これを分けて書くと表示と探索が食い違う。
      */
-    private double columnCost(int x, int bottomY, int topY, int z, List<BlockPos> cells) {
+    double columnCost(int x, int bottomY, int topY, int z, List<BlockPos> cells) {
         double total = 0.0;
         boolean doorCharged = false;
         for (int y = bottomY; y <= topY; y++) {
