@@ -2,8 +2,9 @@ package net.prason.xaeronav.client;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 
@@ -155,11 +156,12 @@ final class FlightNavState {
      * 滑空中の点線を曲げる計算専用。A*とはライフサイクルも打ち切り方も関係が無いので、
      * {@code PathfindingExecutor}（呼ぶたび前のジョブを打ち切る）ではなく素のスレッドを1本持つ。
      */
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "xaeronav-flight-line");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>(), runnable -> {
+                Thread thread = new Thread(runnable, "xaeronav-flight-line");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     /** 空中経路（太線で描く本体）。引けなければ空。 */
     private volatile FlightRoute route = FlightRoute.NONE;
@@ -171,6 +173,12 @@ final class FlightNavState {
      * CPUは焼き続ける。
      */
     private volatile boolean computing;
+
+    /**
+     * {@link #computing}を所有するjobの世代。古いcallbackが新しいjobの実行中フラグを下ろさないための
+     * identityで、投入・resetはクライアントスレッドからだけ行う。
+     */
+    private volatile long jobGeneration;
 
     /** {@link #route}を計算したときのプレイヤー位置。ここから離れた＝新しいチャンクが読めている。 */
     private volatile BlockPos computedFrom;
@@ -254,8 +262,12 @@ final class FlightNavState {
         computedFrom = null;
     }
 
-    /** 目的地ごと捨てる。{@link #computing}は下ろさない——走っている探索の結果は{@link Current}が弾く。 */
+    /** 目的地ごと捨て、実行中jobを論理的にキャンセルする。 */
     void reset() {
+        jobGeneration++;
+        computing = false;
+        // 実行中のsupplierは安全な中断点まで走り得るが、待機中の旧jobは全て捨てて最新だけを残す。
+        executor.getQueue().clear();
         dropRoute();
         coarseRoute = null;
         aimedWaypoint = null;
@@ -322,6 +334,7 @@ final class FlightNavState {
         // 探索が狙う先は、届く範囲で最も遠い中間目標。読み込み済みの縁より少し内側に置く——
         // 縁ちょうどを狙うと、その周りのセルが未ロード＝飛行不可で必ず未到達に終わる
         Vec3 detailTarget = detailTarget(start, goalVec, coarse);
+        long myJob = ++jobGeneration;
         computing = true;
 
         CompletableFuture
@@ -336,7 +349,10 @@ final class FlightNavState {
                             : null;
                     return new Guidance(solved, bend, from);
                 }, executor)
-                .whenComplete((result, error) -> {
+                .whenComplete((result, error) -> Minecraft.getInstance().execute(() -> {
+                    if (jobGeneration != myJob) {
+                        return;
+                    }
                     computing = false;
                     if (error != null) {
                         LOGGER.error("XaeroNav: 滑空中の経路の計算に失敗しました", error);
@@ -347,7 +363,7 @@ final class FlightNavState {
                         guideWaypoints = result.bend();
                         computedFrom = result.from();
                     }
-                });
+                }));
     }
 
     /**
@@ -630,12 +646,16 @@ final class FlightNavState {
         BlockPos from = player.blockPosition();
         ResourceKey<Level> dimension = level.dimension();
         ticksSinceRecalc = 0;
+        long myJob = ++jobGeneration;
         computing = true;
 
         long startedAt = System.nanoTime();
         CompletableFuture
                 .supplyAsync(() -> FlightRouter.route(view, tail, target, rockets, tuning), executor)
-                .whenComplete((extension, error) -> {
+                .whenComplete((extension, error) -> Minecraft.getInstance().execute(() -> {
+                    if (jobGeneration != myJob) {
+                        return;
+                    }
                     computing = false;
                     if (error != null) {
                         LOGGER.error("XaeroNav: 空中経路の継ぎ足しに失敗しました", error);
@@ -673,7 +693,7 @@ final class FlightNavState {
                     FlightProgress.INSTANCE.carryOver(extended);
                     route = extended;
                     computedFrom = from;
-                });
+                }));
     }
 
     /**

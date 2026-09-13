@@ -6,6 +6,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -33,6 +36,7 @@ import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
+import net.prason.xaeronav.util.MonotonicTime;
 
 /**
  * ワーカースレッドでA*を実行する。新しいリクエストが来たら
@@ -46,11 +50,12 @@ public final class PathfindingExecutor {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "xaeronav-pathfinding");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>(), runnable -> {
+                Thread thread = new Thread(runnable, "xaeronav-pathfinding");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     /**
      * {@link #submitWithDeepFallback}が深い予算の探索だけに使う2本目のワーカー。
@@ -286,7 +291,7 @@ public final class PathfindingExecutor {
             CostToGo costToGo = prepared != null ? prepared
                     : costToGoGuideEnabled && goalInsideBounds
                             ? buildCostToGoGuide(view, resolvedStart, goal, cancelled) : null;
-            return search(view, limits, System.currentTimeMillis() + limits.timeLimitMillis(), cancelled,
+            return search(view, limits, MonotonicTime.millis() + limits.timeLimitMillis(), cancelled,
                     costToGo, (pathfinder, c) ->
                     pathfinder.search(resolvedStart, resolvedGoal, c, carried, goalRadius),
                     goalInsideBounds);
@@ -359,7 +364,7 @@ public final class PathfindingExecutor {
                 // 捨てられる。submitと同じく通常予算を満額で1回だけ使い、先まで案内する。
                 // 判定もこのワーカーで行い、ビューのスレッド所有権を保つ。
                 return search(normalView, normalLimits,
-                        System.currentTimeMillis() + normalLimits.timeLimitMillis(), cancelled, costToGo,
+                        MonotonicTime.millis() + normalLimits.timeLimitMillis(), cancelled, costToGo,
                         (pathfinder, c) -> pathfinder.search(resolvedStart, resolvedGoal, c,
                                 Carryover.NONE, goalRadius), false);
             }
@@ -556,7 +561,7 @@ public final class PathfindingExecutor {
         // 伸ばしても意味が無い——溶岩の海（NetherLavaSeaTest）でチェーンは単発の倍のノード
         // （104万 対 57万）を使ううえ遅く、時間を足すぶんだけ詰み判定が遅れるだけだった。
         // その中で各区間が残り時間を山分けする（下のlegShare）
-        long chainDeadline = System.currentTimeMillis() + limits.timeLimitMillis();
+        long chainDeadline = MonotonicTime.millis() + limits.timeLimitMillis();
 
         List<PathStep> steps = new ArrayList<>();
         // 届かなかった区間のうち、いちばん長く引けた部分経路。チェーンが丸ごと空で返るのを
@@ -573,7 +578,7 @@ public final class PathfindingExecutor {
         PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
         BlockPos legStart = StanceFinder.resolveStart(view, start);
         for (int i = 0; i < rawLegGoals.size(); i++) {
-            long remainingMillis = chainDeadline - System.currentTimeMillis();
+            long remainingMillis = chainDeadline - MonotonicTime.millis();
             if (remainingMillis <= 0) {
                 termination = PathResult.Termination.TIME_LIMIT;
                 break;
@@ -592,7 +597,7 @@ public final class PathfindingExecutor {
             long legShare = Math.max(1, remainingMillis / legsLeft);
             // 持ち時間の半分は上限緩和のために残す。最初の探索が全部使うと緩和が動けず、
             // 奈落越えに必要な「橋の上限を緩めた探索」へ一度も到達しない
-            long legDeadline = System.currentTimeMillis() + legShare;
+            long legDeadline = MonotonicTime.millis() + legShare;
             SearchLimits thisLegLimits = new SearchLimits(
                     limits.maxExpandedNodes() * LEG_NODE_BUDGET_FACTOR,
                     Math.max(1, legShare / 2), limits.heuristicWeight());
@@ -612,7 +617,7 @@ public final class PathfindingExecutor {
                     : null;
             // 区間の境目で累積が0に戻らないよう、直前までの分を引き継ぐ（橋の連続長・設置数）
             Carryover carried = Carryover.after(steps);
-            long legBegan = System.currentTimeMillis();
+            long legBegan = MonotonicTime.millis();
             PathResult legResult = search(view, thisLegLimits, legDeadline, cancelled, legCostToGo,
                     (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c, carried, legRadius));
             // 区間ごとに出す。チェーン全体の合算だけでは「どの区間で詰まったか」「始点から
@@ -624,7 +629,7 @@ public final class PathfindingExecutor {
                 LOGGER.debug("XaeroNav: 区間{}/{} {} → {} (到達={}, {}, 展開ノード数={}, ステップ数={}, {}ms)",
                         i + 1, rawLegGoals.size(), currentLegStart.toShortString(), legGoal.toShortString(),
                         legResult.complete(), legResult.termination(), legResult.expandedNodes(),
-                        legResult.steps().size(), System.currentTimeMillis() - legBegan);
+                        legResult.steps().size(), MonotonicTime.millis() - legBegan);
             }
             totalExpanded += legResult.expandedNodes();
             totalDistinct += legResult.distinctNodes();
@@ -686,7 +691,7 @@ public final class PathfindingExecutor {
 
     private static PathResult search(CellSource view, SearchLimits limits, BooleanSupplier cancelled,
                                      CostToGo costToGo, SearchCall run) {
-        return search(view, limits, System.currentTimeMillis() + limits.timeLimitMillis(), cancelled, costToGo, run);
+        return search(view, limits, MonotonicTime.millis() + limits.timeLimitMillis(), cancelled, costToGo, run);
     }
 
     /**
@@ -813,7 +818,7 @@ public final class PathfindingExecutor {
             if (weight <= limits.heuristicWeight()) {
                 continue;
             }
-            long remainingMillis = deadline - System.currentTimeMillis();
+            long remainingMillis = deadline - MonotonicTime.millis();
             if (remainingMillis <= 0) {
                 break;
             }
@@ -888,7 +893,7 @@ public final class PathfindingExecutor {
         if (!lowerWeight && !thrift) {
             return result;
         }
-        long remainingMillis = deadline - System.currentTimeMillis();
+        long remainingMillis = deadline - MonotonicTime.millis();
         if (remainingMillis <= 0) {
             return result;
         }
@@ -965,7 +970,7 @@ public final class PathfindingExecutor {
                                        List<Tolerances> stages) {
         boolean riskyJumpBlocked = false;
         for (Tolerances tolerances : stages) {
-            long remainingMillis = looseningDeadline - System.currentTimeMillis();
+            long remainingMillis = looseningDeadline - MonotonicTime.millis();
             if (remainingMillis <= 0) {
                 // 上限は疑われた（capBlocked）が、緩和を試し切る前に持ち時間が尽きた。上限ではなく
                 // 予算の問題だという手がかりなので残す——ただし予算が厳しい地形では毎回出るので
@@ -1086,13 +1091,15 @@ public final class PathfindingExecutor {
     }
 
     private CompletableFuture<PathResult> submit(Function<BooleanSupplier, PathResult> work) {
-        PathfindingJob job = new PathfindingJob();
+        CompletableFuture<PathResult> future = new CompletableFuture<>();
+        PathfindingJob job = new PathfindingJob(future);
         PathfindingJob previous = currentJob.getAndSet(job);
         if (previous != null) {
             previous.cancel();
         }
+        // 実行中1件は協調cancelへ任せ、まだ始まっていない旧jobは捨てる。待機列には常に最新だけ。
+        executor.getQueue().clear();
 
-        CompletableFuture<PathResult> future = new CompletableFuture<>();
         executor.submit(() -> {
             try {
                 PathResult result = work.apply(job::isCancelled);
@@ -1101,8 +1108,11 @@ public final class PathfindingExecutor {
                 } else {
                     future.complete(result);
                 }
-            } catch (Throwable t) {
-                future.completeExceptionally(t);
+            } catch (Exception exception) {
+                future.completeExceptionally(exception);
+            } catch (Error fatal) {
+                future.completeExceptionally(fatal);
+                throw fatal;
             }
         });
         return future;
