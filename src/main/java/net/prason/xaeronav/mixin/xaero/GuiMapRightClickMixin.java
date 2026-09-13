@@ -52,16 +52,16 @@ public abstract class GuiMapRightClickMixin {
             "gui.xaero_right_click_box_map_export",
             "gui.xaero_right_click_box_map_settings");
 
-    @Shadow
+    @Shadow(remap = false)
     private int rightClickX;
 
-    @Shadow
+    @Shadow(remap = false)
     private int rightClickY;
 
-    @Shadow
+    @Shadow(remap = false)
     private int rightClickZ;
 
-    @Shadow
+    @Shadow(remap = false)
     private ResourceKey<Level> rightClickDim;
 
     // Xaero自身のメソッドなのでSRGの対応が無い。remapさせると1.20.1-forgeのAPがビルドを止める

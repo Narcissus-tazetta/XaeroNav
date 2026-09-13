@@ -31,19 +31,19 @@ import xaero.map.gui.GuiMap;
 @Mixin(GuiMap.class)
 public abstract class GuiMapKeyMixin {
 
-    @Shadow
+    @Shadow(remap = false)
     private int mouseBlockPosX;
 
-    @Shadow
+    @Shadow(remap = false)
     private int mouseBlockPosY;
 
-    @Shadow
+    @Shadow(remap = false)
     private int mouseBlockPosZ;
 
-    @Shadow
+    @Shadow(remap = false)
     private ResourceKey<Level> mouseBlockDim;
 
-    @Shadow
+    @Shadow(remap = false)
     private boolean isUsingTextField() {
         throw new UnsupportedOperationException();
     }
@@ -70,9 +70,11 @@ public abstract class GuiMapKeyMixin {
 
         int goalY = XaeroMapCoords.resolveGoalY(mouseBlockPosY, mc.player);
         BlockPos goal = new BlockPos(mouseBlockPosX, goalY, mouseBlockPosZ);
-        PathfindingState.INSTANCE.setGoal(goal);
-        mc.player.displayClientMessage(Component.translatable("commands.xaeronav.goal_walk",
-                goal.toShortString()), true);
+        BlockPos resolved = PathfindingState.INSTANCE.setGoal(goal);
+        if (resolved != null) {
+            mc.player.displayClientMessage(Component.translatable("commands.xaeronav.goal_walk",
+                    resolved.toShortString()), true);
+        }
         cir.setReturnValue(true);
     }
 }

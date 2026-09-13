@@ -25,6 +25,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
+import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.Heuristic;
@@ -460,7 +461,8 @@ public final class PathfindingState {
     private volatile RefinedRoute refinedRoute;
     // 精緻化がバックグラウンドで完了したことを示す、次tickで拾うためのフラグ（pendingWideRetryと
     // 同じ構造）。whenComplete（ワーカースレッド）で立て、onClientTick（クライアントスレッド）で読む
-    private volatile boolean pendingRefinedRouteReady;
+    /** 完了した精緻化そのもの。由来元を照合してから現行routeへ公開する。 */
+    private volatile RefinedRoute pendingRefinedRouteReady;
     // 精緻化が進行中のcoarseRoute。進行中に長距離ルートを引き直すと、その結果は由来元の不一致で
     // 捨てられる——引き直しの間隔（最短0.5秒）は精緻化（区間ごとに最大300ms）より短くなりうるので、
     // 素通しにすると精緻版が一度も完成しないまま、メインスレッドの地図読みだけを回し続けることになる
@@ -612,12 +614,17 @@ public final class PathfindingState {
     private PathfindingState() {
     }
 
-    public void setGoal(BlockPos goal) {
+    /**
+     * 目的地を設定する。
+     *
+     * @return 実際に採用した、立てる高さへ解決済みの目的地。ワールドが無ければ {@code null}
+     */
+    public BlockPos setGoal(BlockPos goal) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
         if (level == null || player == null) {
-            return;
+            return null;
         }
         clear();
         this.goal = resolveGoalStandable(level, goal);
@@ -631,6 +638,7 @@ public final class PathfindingState {
         } else {
             recalculate();
         }
+        return this.goal;
     }
 
     /**
@@ -686,7 +694,7 @@ public final class PathfindingState {
         this.coarseRoute = null;
         this.refinedRoute = null;
         this.refiningRoute = null;
-        this.pendingRefinedRouteReady = false;
+        this.pendingRefinedRouteReady = null;
         this.coarseMapRetryAfterMillis = 0L;
         this.coarseMapRetries = 0;
         this.extendHeldForStreaming = false;
@@ -932,7 +940,7 @@ public final class PathfindingState {
         if (mc.level == null || mc.player == null) {
             return;
         }
-        if (mc.level.dimension() != goalDimension) {
+        if (!mc.level.dimension().equals(goalDimension)) {
             // 別の次元へ移った。同じ座標を目指し続けても意味がないので目的地ごと捨てる
             clear();
             return;
@@ -1170,12 +1178,18 @@ public final class PathfindingState {
             recalculate(Escalation.COARSE_GUIDED);
             return true;
         }
-        if (pendingRefinedRouteReady) {
+        RefinedRoute pendingRefined = pendingRefinedRouteReady;
+        if (pendingRefined != null && pendingRefined.source() == coarseRoute) {
             // 層2廊下による精緻化がバックグラウンドで終わった。まだ層1ベースのwaypointへ
             // 向かっていれば、精緻版へ切り替えるために引き直す
-            pendingRefinedRouteReady = false;
+            pendingRefinedRouteReady = null;
+            refinedRoute = pendingRefined;
             recalculate();
             return true;
+        }
+        if (pendingRefined != null) {
+            // 完了後に粗経路が差し替わった古いイベント。現行探索を巻き込まず捨てる。
+            pendingRefinedRouteReady = null;
         }
         return false;
     }
@@ -1203,7 +1217,7 @@ public final class PathfindingState {
             return false;
         }
         // 精緻化の最中に引き直すと、その結果は由来元の不一致で捨てられる（cachedOrFreshRouteと同じ条件）
-        if (refiningRoute != null || System.currentTimeMillis() < coarseMapRetryAfterMillis) {
+        if (refiningRoute != null || MonotonicTime.millis() < coarseMapRetryAfterMillis) {
             return false;
         }
         coarseMapRetries++;
@@ -1900,7 +1914,7 @@ public final class PathfindingState {
             future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius,
                     Carryover.NONE, prepared);
         }
-        future.whenComplete((result, error) -> {
+        future.whenComplete((result, error) -> Minecraft.getInstance().execute(() -> {
             if (generation.get() != myGeneration) {
                 // 追い越された古いリクエスト。computingは今走っているリクエストのものなので触らない
                 return;
@@ -2031,7 +2045,7 @@ public final class PathfindingState {
             spliceBlockedFrom = null;
             noteSuspiciousShape(start, finalTarget, result);
             displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
-        });
+        }));
     }
 
     /**
@@ -2358,7 +2372,7 @@ public final class PathfindingState {
         Carryover carried = new Carryover(0, Carryover.placements(result.steps(), joinIndex + 1));
         executor.submit(view, playerAt, joinPos, limits, XaeroNavConfig.INSTANCE.costToGoGuideEnabled(), 0,
                         carried)
-                .whenComplete((splice, error) -> {
+                .whenComplete((splice, error) -> Minecraft.getInstance().execute(() -> {
             if (generation.get() != myGeneration) {
                 return;
             }
@@ -2393,7 +2407,7 @@ public final class PathfindingState {
             displayed = spliced(shown, splice, joinIndex);
             LOGGER.info("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
                     splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
-        });
+        }));
         return true;
     }
 
@@ -2532,7 +2546,8 @@ public final class PathfindingState {
         // 1つも変わらなかった（5地形すべてで完全一致）
         PlannedCellSource repairTerrain = new PlannedCellSource(view, steps.subList(0, sectionFrom),
                 walkedTo + 1);
-        executor.submit(repairTerrain, fromPos, toPos, limits, false, 0, carried).whenComplete((repaired, error) -> {
+        executor.submit(repairTerrain, fromPos, toPos, limits, false, 0, carried)
+                .whenComplete((repaired, error) -> Minecraft.getInstance().execute(() -> {
             if (generation.get() != myGeneration) {
                 return;
             }
@@ -2562,7 +2577,7 @@ public final class PathfindingState {
             LOGGER.info("XaeroNav: 繋ぎ目を解き直しました (繋ぎ目={}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
                     seam.toShortString(), Math.round(current), Math.round(replacement),
                     sectionTo - sectionFrom + 1, repaired.steps().size(), repaired.expandedNodes());
-        });
+        }));
         return true;
     }
 
@@ -2727,7 +2742,7 @@ public final class PathfindingState {
         CostToGo prepared = preparedVoxelGuide(level, playerAt, currentGoal, target, false);
         executor.submit(futureTerrain, from, target, limits, costToGoGuideEnabled, detail.goalRadius(), carried,
                         prepared)
-                .whenComplete((result, error) -> {
+                .whenComplete((result, error) -> Minecraft.getInstance().execute(() -> {
             if (generation.get() != myGeneration) {
                 return;
             }
@@ -2777,7 +2792,7 @@ public final class PathfindingState {
             displayed = append(current, result, newWaypointIndex, reachesGoal);
             extendBlockedAt = null;
             extendBlockedFrom = null;
-        });
+        }));
     }
 
     /**
@@ -3110,7 +3125,7 @@ public final class PathfindingState {
         // 継ぎ足しの側からは引き直さない。あちらの始点は経路の末端なので、そこを起点に長距離ルートを
         // 引き直すと手前の案内まで入れ替わる（下のgoalOrPointTowardの分岐と同じ理由）
         if (playerAnchored && cached.pendingRegions() > 0 && refiningRoute == null
-                && System.currentTimeMillis() >= coarseMapRetryAfterMillis) {
+                && MonotonicTime.millis() >= coarseMapRetryAfterMillis) {
             return freshRoute(start, currentGoal, boatAvailable, ceilingDimension);
         }
         RefinedRoute refined = refinedRoute;
@@ -3121,7 +3136,7 @@ public final class PathfindingState {
                                        boolean ceilingDimension) {
         CoarseAttempt attempt = computeCoarseRoute(start, currentGoal, boatAvailable);
         CoarseRouter.Route route = attempt.route();
-        coarseMapRetryAfterMillis = System.currentTimeMillis() + COARSE_MAP_RETRY_INTERVAL_MILLIS;
+        coarseMapRetryAfterMillis = MonotonicTime.millis() + COARSE_MAP_RETRY_INTERVAL_MILLIS;
         List<BlockPos> waypoints = route.waypoints();
         if (!waypoints.isEmpty() && route.reachedGoal()) {
             // 粗い終点はチャンク中心±8ブロックで高さも代表値なので、そのままでは到着できない。
@@ -3194,19 +3209,22 @@ public final class PathfindingState {
             }));
         }
         chain.whenComplete((legPoints, error) -> {
-            if (refiningRoute == forRoute) {
-                refiningRoute = null;
-            }
-            if (error != null) {
-                return;
-            }
-            List<BlockPos> stitched = CorridorWaypoints.stitch(legPoints);
-            List<BlockPos> downsampled = CorridorWaypoints.downsample(stitched, REFINED_WAYPOINT_MIN_SPACING_BLOCKS);
+            List<BlockPos> downsampled = error == null
+                    ? CorridorWaypoints.downsample(CorridorWaypoints.stitch(legPoints),
+                            REFINED_WAYPOINT_MIN_SPACING_BLOCKS)
+                    : null;
+            Minecraft.getInstance().execute(() -> {
+                if (refiningRoute == forRoute) {
+                    refiningRoute = null;
+                }
+                if (downsampled == null) {
+                    return;
+                }
             // 世代の検査はここではなく読み出し側（RefinedRoute.source()）で行う。ここで
             // 「検査してから書き込む」形にすると、その間に世代が進んだ場合に古い精緻版が
             // 素通りする（stitch/downsampleは点列全体を走査するので、その隙間は実時間で開く）
-            refinedRoute = new RefinedRoute(currentGoal, forRoute, downsampled);
-            pendingRefinedRouteReady = true;
+                pendingRefinedRouteReady = new RefinedRoute(currentGoal, forRoute, downsampled);
+            });
         });
     }
 

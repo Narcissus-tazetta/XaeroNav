@@ -8,6 +8,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -71,6 +72,7 @@ public final class XaeroNavKeys {
         }
 
         if (mc.player == null || mc.level == null) {
+            drainWorldKeys();
             return;
         }
         while (GOTO_LOOKING_AT.consumeClick()) {
@@ -101,9 +103,24 @@ public final class XaeroNavKeys {
         }
         // 狙ったブロックの中ではなく、その上に立ちたい。地面を見て指定するのが普通の使い方なので、
         // 1マス上を渡す（実際に立てるかどうかはStanceFinderが寄せ直す）
-        PathfindingState.INSTANCE.setGoal(blockHit.getBlockPos().above());
-        mc.player.displayClientMessage(Component.translatable("commands.xaeronav.goal_walk",
-                blockHit.getBlockPos().toShortString()), true);
+        BlockPos resolved = PathfindingState.INSTANCE.setGoal(blockHit.getBlockPos().above());
+        if (resolved != null) {
+            mc.player.displayClientMessage(Component.translatable("commands.xaeronav.goal_walk",
+                    resolved.toShortString()), true);
+        }
         XaeroNav.LOGGER.debug("XaeroNav: 見ているブロックへ経路探索 {}", blockHit.getBlockPos());
+    }
+
+    /** タイトル/ロード画面で押されたworld依存キーを、次の参加時へ持ち越さない。 */
+    private static void drainWorldKeys() {
+        while (GOTO_LOOKING_AT.consumeClick()) {
+            // drain
+        }
+        while (CLEAR.consumeClick()) {
+            // drain
+        }
+        while (TOGGLE_HUD.consumeClick()) {
+            // drain
+        }
     }
 }
