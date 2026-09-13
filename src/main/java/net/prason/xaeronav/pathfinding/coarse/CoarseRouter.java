@@ -227,6 +227,10 @@ public final class CoarseRouter {
      */
     public record Route(List<BlockPos> waypoints, boolean reachedGoal) {
 
+        public Route {
+            waypoints = List.copyOf(waypoints);
+        }
+
         public boolean isEmpty() {
             return waypoints.isEmpty();
         }

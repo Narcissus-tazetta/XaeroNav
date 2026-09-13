@@ -85,6 +85,12 @@ public final class MapPathOverlay {
                             BlockPos playerPos, List<BlockPos> coarseWaypoints, List<Vec3> flightRoute,
                             int flightRouteFrom, List<Vec3> flightDash) {
 
+        public Snapshot {
+            coarseWaypoints = List.copyOf(coarseWaypoints);
+            flightRoute = List.copyOf(flightRoute);
+            flightDash = List.copyOf(flightDash);
+        }
+
         public boolean isEmpty() {
             return ground == null && goal == null && coarseWaypoints.isEmpty() && flightRoute.isEmpty();
         }

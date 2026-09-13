@@ -24,6 +24,10 @@ import net.prason.xaeronav.pathfinding.astar.PathResult;
 public record FlightRoute(List<Vec3> points, PathResult.Termination termination, int expandedNodes,
                            int cellBlocks) {
 
+    public FlightRoute {
+        points = List.copyOf(points);
+    }
+
     public static final FlightRoute NONE =
             new FlightRoute(List.of(), PathResult.Termination.EXHAUSTED, 0, 0);
 

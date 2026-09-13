@@ -13,6 +13,10 @@ import java.util.List;
  */
 public record PathResult(List<PathStep> steps, Termination termination, int expandedNodes, int distinctNodes) {
 
+    public PathResult {
+        steps = List.copyOf(steps);
+    }
+
     /** 探索の打ち切り理由。 */
     public enum Termination {
         /** ゴールに到達した。 */

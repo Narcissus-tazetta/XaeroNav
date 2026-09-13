@@ -28,6 +28,16 @@ public final class PathLoops {
      */
     public record Folded(List<PathStep> steps, int[] newIndex) {
 
+        public Folded {
+            steps = List.copyOf(steps);
+            newIndex = newIndex.clone();
+        }
+
+        @Override
+        public int[] newIndex() {
+            return newIndex.clone();
+        }
+
         public boolean changed() {
             return steps.size() != newIndex.length;
         }
