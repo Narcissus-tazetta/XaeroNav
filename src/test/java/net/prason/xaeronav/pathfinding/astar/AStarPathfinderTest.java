@@ -1638,6 +1638,64 @@ class AStarPathfinderTest {
     }
 
     /**
+     * <b>ASTAR-01（コードレビュー2026-09-13）が指摘した既知の穴を可視化する回帰fixture。</b>
+     * 奈落の上でのbridgeは「目的地へ近づく向きにしか架けない」よう制限されている
+     * （このクラス内、{@code voidBelow}の判定コメント参照）。橋は水平にしか架からず、
+     * このテストの壁は探索範囲の天井まで塞いであるので柱で越えることもできないため、
+     * 唯一の迂回路（隣の列へ1歩ずれてから戻る）が「目的地に近づかない向き」として
+     * 一律に拒否され、経路そのものを失う。
+     *
+     * <p>コード自身が「既知の穴」「踏んだら緩めること」と書いている通り、これは<b>直すべき
+     * 制限</b>であって仕様ではない。このテストは<b>現状の制限をそのまま固定する</b>——
+     * いつか緩和したら、このアサーションを「到達できる」側へ書き換えること。書き換えずに
+     * 緩和すると、このテストが落ちて気付ける（disabledにしていないのはそのため）。
+     */
+    @Test
+    void bridgeCannotDetourSidewaysAroundAFloatingObstacleOverTheVoid() {
+        // 出発の島（x=-2..0）と到着の島（x=9..11）、間はz=-1..1の3列とも奈落（未設定＝空気で
+        // 床が無い）。x=5だけ、z=0の列を床から探索範囲の天井まで塞ぐ壁を置く——
+        // z=±1は素通しなので、そちらへ1歩ずれれば物理的には迂回できる地形になっている
+        FakeCells cells = FakeCells.empty(new SearchBounds(-3, 20, -2, 12, 64, 2))
+                .canPlaceBlocks(true);
+        for (int x = -2; x <= 0; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+        }
+        for (int x = 9; x <= 11; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+        }
+        for (int y = 61; y <= 64; y++) {
+            cells.set(5, y, 0, FakeCells.BEDROCK);
+        }
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(10, 61, 0));
+
+        assertFalse(result.complete(),
+                "既知の穴が塞がれた（迂回できるようになった）ならこのテストを直すこと: " + movements(result));
+    }
+
+    /**
+     * 上のテストと同じ壁・同じ迂回幅を、奈落ではなく地面の上に置いた対照実験。迂回そのものは
+     * 普通に成立する——上のテストが失敗するのは地形が迂回不可能だからではなく、{@code voidBelow}が
+     * 「目的地に近づかない向きの橋」を一律に拒む<b>その制限のせい</b>だと示す。
+     */
+    @Test
+    void walksAroundTheSameObstacleWhenTheFloorIsSolidInsteadOfVoid() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-3, 20, -2, 12, 64, 2));
+        for (int x = -2; x <= 11; x++) {
+            for (int z = -1; z <= 1; z++) {
+                cells.set(x, 60, z, FakeCells.BEDROCK);
+            }
+        }
+        for (int y = 61; y <= 64; y++) {
+            cells.set(5, y, 0, FakeCells.BEDROCK);
+        }
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(10, 61, 0));
+
+        assertTrue(result.complete(), "地面の上なら壁を迂回できるはず: " + movements(result));
+    }
+
+    /**
      * <b>奈落・溶岩の上では、掘らないと通れない場所へ橋を架けない。</b>
      *
      * <p>1手の中に「床を置く」と「身体のセルを掘る」が同居すると、案内は<b>順序を表現できない</b>。
