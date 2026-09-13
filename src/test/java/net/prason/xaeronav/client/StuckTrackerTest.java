@@ -14,7 +14,7 @@ import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathResult.Termination;
 
 /**
- * {@link StuckTracker}の単体テスト（ARCH-01の最初の抽出）。
+ * {@link StuckTracker}の単体テスト。
  *
  * <p>{@code noteOutcome}の最初の呼び出しは必ず「前進した」扱いになる（比較対象となる
  * 最接近距離がまだ無いため）。詰みの連続をテストするときは、まず1回ベースラインを

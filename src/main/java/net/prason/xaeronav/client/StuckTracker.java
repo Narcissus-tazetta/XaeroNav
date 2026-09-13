@@ -6,7 +6,7 @@ import net.prason.xaeronav.pathfinding.astar.PathResult;
 
 /**
  * 「目的地へ行けない」の判定。{@code PathfindingState}から詰み判定だけを切り出したもの
- * （ARCH-01の最初の抽出——最も独立していて他の状態遷移と絡みが薄い部分から始める）。
+ * ——他の状態遷移と絡みが薄く、単体テストしやすい形に独立させてある。
  *
  * <p>詰みは「<b>狙った先へ届きもせず、目的地へ近づきもしなかった</b>探索」が
  * {@link #SEARCH_STREAK}回続いたこと、と定義する。

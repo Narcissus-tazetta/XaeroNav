@@ -230,7 +230,7 @@ public final class ChunkView implements CellSource {
             // (deprecated)ので、NBTの値をそのまま返すgetTagEnchantmentLevelを使う。Fabricは無改造の
             // vanilla APIでgetItemEnchantmentLevelが最初からNBTの値を返し、1.21.1-forgeはそもそも
             // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
-            // その2つはgetItemEnchantmentLevelのままでよい（BUILD-01）
+            // その2つはgetItemEnchantmentLevelのままでよい
             //? if (forge && <1.21) || neoforge {
             hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
             //?} else {

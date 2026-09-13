@@ -49,7 +49,7 @@ public final class NavHud {
         }
         // ここで1度だけ取得し、以降はこのインスタンスだけを読む。個々のgetterを描画中に何度も
         // 呼ぶと、その間にワーカーcallbackが割り込んで「どの瞬間にも存在しなかった組み合わせ」
-        // （例: 新しいgoalと古いstuck理由）を1フレームだけ表示しうる（STATE-01）
+        // （例: 新しいgoalと古いstuck理由）を1フレームだけ表示しうる
         PathfindingState.NavigationView view = PathfindingState.INSTANCE.navigationView();
         if (view.goal() == null) {
             return;

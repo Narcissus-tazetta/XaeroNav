@@ -51,8 +51,8 @@ final class PathValidator {
      *
      * <p><b>ストリーミング中のチャンクを「地形が消えた」と取り違えないための門番。</b>
      * goto直後は描画距離いっぱいのリージョンが数秒かけて届く。その間、遠いチャンクは
-     * {@link Level#hasChunkAt}が{@code true}を返しつつセクションは未populateで、
-     * {@code getBlockState}が空気を返す——{@link #readable}をすり抜けて「足場が無い」が
+     * {@link #readable}が{@code true}を返しつつセクションは未populateで、
+     * {@code getBlockState}が空気を返す——「足場が無い」が
      * 数百ブロック先で誤爆し、{@code handleBlockedPath}はそこまでspliceできず全引き直しになる。
      * 経路は継ぎ足しで伸び続けるので、伸びる→誤爆→全引き直し→また伸びる、が20〜25秒続いた。
      *

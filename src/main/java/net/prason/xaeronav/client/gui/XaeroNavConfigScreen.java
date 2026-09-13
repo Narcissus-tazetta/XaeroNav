@@ -96,7 +96,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     }
 
     /**
-     * 安全性・所持品への影響がある項目にだけ付ける短い補足（UX-03）。全項目に付けると
+     * 安全性・所持品への影響がある項目にだけ付ける短い補足。全項目に付けると
      * どれも同じ重みに見えて読み飛ばされるので、実際に結果が変わる項目に絞る。
      */
     private static OptionInstance<Boolean> boolOptionWithTooltip(String key, String tooltipKey, boolean initial,

@@ -154,7 +154,7 @@ final class FlightNavState {
 
     /**
      * 空中経路の非同期完了ごとに呼ぶ通知。所有者（{@link PathfindingState}）が描画用の
-     * atomic snapshotを再発行するためのもの（STATE-01）。{@code tick}/{@code recalculate}
+     * atomic snapshotを再発行するためのもの。{@code tick}/{@code recalculate}
      * 等の同期呼び出し経由の変更は呼び出し元が自分でtick終端に発行するので、ここでは
      * ワーカー完了callback（メインスレッドへ戻った後）でのみ呼べば足りる。
      */

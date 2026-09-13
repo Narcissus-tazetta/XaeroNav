@@ -132,7 +132,7 @@ def _region_with_single_chunk(cx, cz, compression, payload):
 
 class ReadChunkGoldenTest(unittest.TestCase):
     """region/NBTの最小フィクスチャを自前で組み立てて、read_chunk/section_blocksの
-    往復が壊れていないことを固定する（TOOL-01）。"""
+    往復が壊れていないことを固定する。"""
 
     def test_uniform_section_round_trips_through_zlib(self):
         nbt = _chunk_nbt([_section(0, ['minecraft:stone'])])
