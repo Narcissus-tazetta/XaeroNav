@@ -153,6 +153,14 @@ final class FlightNavState {
     private final Current current;
 
     /**
+     * 空中経路の非同期完了ごとに呼ぶ通知。所有者（{@link PathfindingState}）が描画用の
+     * atomic snapshotを再発行するためのもの（STATE-01）。{@code tick}/{@code recalculate}
+     * 等の同期呼び出し経由の変更は呼び出し元が自分でtick終端に発行するので、ここでは
+     * ワーカー完了callback（メインスレッドへ戻った後）でのみ呼べば足りる。
+     */
+    private final Runnable onChanged;
+
+    /**
      * 滑空中の点線を曲げる計算専用。A*とはライフサイクルも打ち切り方も関係が無いので、
      * {@code PathfindingExecutor}（呼ぶたび前のジョブを打ち切る）ではなく素のスレッドを1本持つ。
      */
@@ -215,8 +223,9 @@ final class FlightNavState {
     /** クライアントスレッド専用。 */
     private int ticksSinceRecalc;
 
-    FlightNavState(Current current) {
+    FlightNavState(Current current, Runnable onChanged) {
         this.current = current;
+        this.onChanged = onChanged;
     }
 
     /**
@@ -353,15 +362,19 @@ final class FlightNavState {
                     if (jobGeneration != myJob) {
                         return;
                     }
-                    computing = false;
-                    if (error != null) {
-                        LOGGER.error("XaeroNav: 滑空中の経路の計算に失敗しました", error);
-                        return;
-                    }
-                    if (current.stillFlyingTo(currentGoal, dimension)) {
-                        route = result.route();
-                        guideWaypoints = result.bend();
-                        computedFrom = result.from();
+                    try {
+                        computing = false;
+                        if (error != null) {
+                            LOGGER.error("XaeroNav: 滑空中の経路の計算に失敗しました", error);
+                            return;
+                        }
+                        if (current.stillFlyingTo(currentGoal, dimension)) {
+                            route = result.route();
+                            guideWaypoints = result.bend();
+                            computedFrom = result.from();
+                        }
+                    } finally {
+                        onChanged.run();
                     }
                 }));
     }
@@ -656,43 +669,47 @@ final class FlightNavState {
                     if (jobGeneration != myJob) {
                         return;
                     }
-                    computing = false;
-                    if (error != null) {
-                        LOGGER.error("XaeroNav: 空中経路の継ぎ足しに失敗しました", error);
-                        return;
+                    try {
+                        computing = false;
+                        if (error != null) {
+                            LOGGER.error("XaeroNav: 空中経路の継ぎ足しに失敗しました", error);
+                            return;
+                        }
+                        Vec3 grown = extension.tail();
+                        LOGGER.info("XaeroNav: 空中経路の継ぎ足し ({}, 展開={}, {}ms, 伸び={}ブロック, 格子={})",
+                                extension.termination(), extension.expandedNodes(),
+                                (System.nanoTime() - startedAt) / 1_000_000L,
+                                grown == null ? 0 : Mth.floor(tail.distanceTo(grown)), extension.cellBlocks());
+                        if (!current.stillFlyingTo(currentGoal, dimension)) {
+                            return;
+                        }
+                        // 継ぎ足す先が入れ替わっていたら捨てる（引き直しが挟まった場合）
+                        if (route != source) {
+                            return;
+                        }
+                        if (extension.isEmpty()) {
+                            extendBlockedAt = tail;
+                            extendBlockedFrom = from;
+                            return;
+                        }
+                        if (extension.budgetExhausted() && tail.distanceTo(grown) < MIN_EXTENSION_BLOCKS) {
+                            // 予算を焼き切って数十ブロックしか伸びなかった。この末端から投げ直しても
+                            // 同じことの繰り返しになるので、プレイヤーが進んで地形が変わるまで待つ。
+                            // 伸びたぶんは捨てずに繋ぐ
+                            extendBlockedAt = extension.tail();
+                            extendBlockedFrom = from;
+                        } else {
+                            extendBlockedAt = null;
+                            extendBlockedFrom = null;
+                        }
+                        FlightRoute extended = source.append(extension);
+                        // 対応づけを引き継がないと、伸ばした瞬間だけ通過済みの区間が描き直される
+                        FlightProgress.INSTANCE.carryOver(extended);
+                        route = extended;
+                        computedFrom = from;
+                    } finally {
+                        onChanged.run();
                     }
-                    Vec3 grown = extension.tail();
-                    LOGGER.info("XaeroNav: 空中経路の継ぎ足し ({}, 展開={}, {}ms, 伸び={}ブロック, 格子={})",
-                            extension.termination(), extension.expandedNodes(),
-                            (System.nanoTime() - startedAt) / 1_000_000L,
-                            grown == null ? 0 : Mth.floor(tail.distanceTo(grown)), extension.cellBlocks());
-                    if (!current.stillFlyingTo(currentGoal, dimension)) {
-                        return;
-                    }
-                    // 継ぎ足す先が入れ替わっていたら捨てる（引き直しが挟まった場合）
-                    if (route != source) {
-                        return;
-                    }
-                    if (extension.isEmpty()) {
-                        extendBlockedAt = tail;
-                        extendBlockedFrom = from;
-                        return;
-                    }
-                    if (extension.budgetExhausted() && tail.distanceTo(grown) < MIN_EXTENSION_BLOCKS) {
-                        // 予算を焼き切って数十ブロックしか伸びなかった。この末端から投げ直しても
-                        // 同じことの繰り返しになるので、プレイヤーが進んで地形が変わるまで待つ。
-                        // 伸びたぶんは捨てずに繋ぐ
-                        extendBlockedAt = extension.tail();
-                        extendBlockedFrom = from;
-                    } else {
-                        extendBlockedAt = null;
-                        extendBlockedFrom = null;
-                    }
-                    FlightRoute extended = source.append(extension);
-                    // 対応づけを引き継がないと、伸ばした瞬間だけ通過済みの区間が描き直される
-                    FlightProgress.INSTANCE.carryOver(extended);
-                    route = extended;
-                    computedFrom = from;
                 }));
     }
 

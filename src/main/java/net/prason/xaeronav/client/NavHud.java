@@ -47,25 +47,29 @@ public final class NavHud {
         if (mc.player == null || mc.options.hideGui || !XaeroNavConfig.INSTANCE.hudEnabled()) {
             return;
         }
-        if (PathfindingState.INSTANCE.goal() == null) {
+        // ここで1度だけ取得し、以降はこのインスタンスだけを読む。個々のgetterを描画中に何度も
+        // 呼ぶと、その間にワーカーcallbackが割り込んで「どの瞬間にも存在しなかった組み合わせ」
+        // （例: 新しいgoalと古いstuck理由）を1フレームだけ表示しうる（STATE-01）
+        PathfindingState.NavigationView view = PathfindingState.INSTANCE.navigationView();
+        if (view.goal() == null) {
             return;
         }
 
         lines.clear();
         colors.clear();
-        PathResult result = PathfindingState.INSTANCE.currentResult();
-        PathfindingState.StuckReason stuck = PathfindingState.INSTANCE.stuckReason();
-        if (PathfindingState.INSTANCE.arrived()) {
+        PathResult result = view.currentResult();
+        PathfindingState.StuckReason stuck = view.stuckReason();
+        if (view.arrived()) {
             add(Component.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
-        } else if (PathfindingState.INSTANCE.flying()) {
+        } else if (view.flying()) {
             // 空中経路が引けなかったこと（読み込み済みの範囲に抜け道が無い）と、そもそも案内が
             // 出ていないことは別。前者を「経路なし」と同じ文言にすると、地上と同じ失敗に見える
-            add(PathfindingState.INSTANCE.flightRoute().isEmpty()
+            add(view.flightRoute().isEmpty()
                     ? Component.translatable("hud.xaeronav.flying_no_route")
                     : Component.translatable("hud.xaeronav.flying"), SECONDARY_COLOR);
             add(Component.translatable("hud.xaeronav.direct_distance",
-                    straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
-            int climb = upcomingClimb(PathfindingState.INSTANCE.flightRoute());
+                    straightDistance(mc, view.goal())), SECONDARY_COLOR);
+            int climb = upcomingClimb(view.flightRoute());
             if (climb >= CLIMB_NOTICE_BLOCKS) {
                 // 上昇はプレイヤーが行動を要求される唯一の点。ロケットが無ければ速度と高度を
                 // 交換するしかなく、線だけ見て「登れ」と分かっても間に合わないことがある
@@ -77,12 +81,12 @@ public final class NavHud {
             } else {
                 // 「経路なし」は今回の探索の結果でしかない。次の探索では出るかもしれないので、
                 // 結論（addUnreachable）とは違う言い方にする
-                add(PathfindingState.INSTANCE.computing()
+                add(view.computing()
                         ? Component.translatable("hud.xaeronav.searching")
                         : Component.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
             }
             add(Component.translatable("hud.xaeronav.direct_distance",
-                    straightDistance(mc, PathfindingState.INSTANCE.goal())), SECONDARY_COLOR);
+                    straightDistance(mc, view.goal())), SECONDARY_COLOR);
         } else {
             // 部分経路が出ていても、それが目的地へ通じていないと分かったなら先に言う。この経路は
             // 「行ける所まで」であって案内の続きではないので、黙って曲がり角だけ出すと、
@@ -90,13 +94,13 @@ public final class NavHud {
             if (stuck != null) {
                 addUnreachable(stuck);
             }
-            boolean climbing = PathfindingState.INSTANCE.climbingToSurface();
+            boolean climbing = view.climbingToSurface();
             if (climbing) {
                 // 本来の目的地ではなく、まず地上へ出るまでの中継経路であることを示す。
                 // 出さないと、なぜ目的地と違う方向へ案内されるのか分からなくなる
                 add(Component.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
             }
-            if (PathfindingState.INSTANCE.rerouted()) {
+            if (view.rerouted()) {
                 // 案内が急に変わった理由を出す。出さないと、それまで歩いていた道が
                 // 突然消えたようにしか見えない
                 add(Component.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
@@ -104,7 +108,7 @@ public final class NavHud {
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
             PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
             int from = PathProgress.INSTANCE.indexFor(result) + 1;
-            boolean endsAtDestination = PathfindingState.INSTANCE.currentPathEndsAtDestination();
+            boolean endsAtDestination = view.currentPathEndsAtDestination();
             add(instruction(guidance, climbing, endsAtDestination), PRIMARY_COLOR);
             add(Component.translatable(remainingKey(endsAtDestination),
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
