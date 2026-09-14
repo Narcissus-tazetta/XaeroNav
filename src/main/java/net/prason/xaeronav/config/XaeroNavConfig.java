@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.List;
 
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
+import net.prason.xaeronav.pathfinding.astar.NavigationTuning;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 
@@ -578,6 +579,15 @@ public final class XaeroNavConfig {
     /** 歩行の探索の打ち切り条件。時間の上限だけは設定に出していない。 */
     public SearchLimits searchLimits() {
         return new SearchLimits(maxExpandedNodes(), AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, heuristicWeight());
+    }
+
+    /**
+     * 探索を投げる直前にまとめて読む値一式。{@link #movementOptions}・{@link #searchLimits}と
+     * 同じ理由（呼び出し箇所を増やすたびに同じ並びを写すことになる）でまとめている。
+     */
+    public NavigationTuning navigationTuning() {
+        return new NavigationTuning(searchHorizontalMargin(), movementOptions(), searchLimits(),
+                costToGoGuideEnabled());
     }
 
     public boolean hudEnabled() {

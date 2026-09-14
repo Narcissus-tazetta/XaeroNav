@@ -31,6 +31,7 @@ import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.Heuristic;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
+import net.prason.xaeronav.pathfinding.astar.NavigationTuning;
 import net.prason.xaeronav.pathfinding.astar.PathLoops;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
@@ -1752,7 +1753,8 @@ public final class PathfindingState {
         // そのぶん自分の周囲は広めに取る。洞窟の出口が目的地の方角にあるとは限らず、通常の
         // マージンでは出口ごと範囲の外に落ちる。この区間は掘削を切って探すので通れるセルが
         // 空洞だけに絞られ、範囲を広げても展開数はほとんど増えない
-        int horizontalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
+        NavigationTuning tuning = XaeroNavConfig.INSTANCE.navigationTuning();
+        int horizontalMargin = tuning.searchHorizontalMargin();
         boolean wideSearch = false;
         boolean coarseGuided = false;
         if (climbing) {
@@ -1795,12 +1797,12 @@ public final class PathfindingState {
         SearchBounds bounds = SearchBounds.around(level, start, target,
                 horizontalMargin, verticalSearchMargin(level, wideSearch),
                 renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
+        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
         if (!climbing) {
             noteTargetStandability(view, target, mode, waypointIndex);
         }
 
-        SearchLimits limits = XaeroNavConfig.INSTANCE.searchLimits();
+        SearchLimits limits = tuning.searchLimits();
         // ここは通常の予算では解けないと分かっている。<b>区間分割へ逃がすのではなく予算を積む。</b>
         // 実測（RealEndTerrainTest、実機の保存データ）では、区間分割は同じ地形で倍のノードを
         // 使ったうえに遅く、素直に予算を与えた単発探索の方が確実だった
@@ -1833,7 +1835,7 @@ public final class PathfindingState {
         // そこではプレイヤーが既に別次元へ移動している可能性がある
         ResourceKey<Level> searchDimension = level.dimension();
         CompletableFuture<PathResult> future;
-        boolean costToGoGuideEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
+        boolean costToGoGuideEnabled = tuning.costToGoGuideEnabled();
         // 3D粗層は最終目的地に対して1つだけ組む。中間目標を狙う探索には掛けない——
         // 起点が目的地に固定された表なので、別の点を狙う探索では方向がずれる
         CostToGo prepared = preparedVoxelGuide(level, start, currentGoal, finalTarget, climbing);
@@ -2296,11 +2298,12 @@ public final class PathfindingState {
             return false;
         }
 
+        NavigationTuning tuning = XaeroNavConfig.INSTANCE.navigationTuning();
         SearchBounds bounds = SearchBounds.around(level, playerAt, joinPos,
-                XaeroNavConfig.INSTANCE.searchHorizontalMargin(), verticalSearchMargin(level, false),
+                tuning.searchHorizontalMargin(), verticalSearchMargin(level, false),
                 renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
-        SearchLimits full = XaeroNavConfig.INSTANCE.searchLimits();
+        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
+        SearchLimits full = tuning.searchLimits();
         SearchLimits limits = new SearchLimits(Math.min(full.maxExpandedNodes(), SPLICE_MAX_EXPANDED_NODES),
                 full.timeLimitMillis(), full.heuristicWeight());
 
@@ -2311,7 +2314,7 @@ public final class PathfindingState {
         // 合流点から先はそのまま残るので、そこで置くと決まっているぶんは合流区間には使えない。
         // 引き継がないと、合流のたびに予算が満額に戻って手持ちを超える経路が組み上がる
         Carryover carried = new Carryover(0, Carryover.placements(result.steps(), joinIndex + 1));
-        executor.submit(view, playerAt, joinPos, limits, XaeroNavConfig.INSTANCE.costToGoGuideEnabled(), 0,
+        executor.submit(view, playerAt, joinPos, limits, tuning.costToGoGuideEnabled(), 0,
                         carried)
                 .whenComplete((splice, error) -> Minecraft.getInstance().execute(() -> {
             if (generation.get() != myGeneration) {
@@ -2466,11 +2469,12 @@ public final class PathfindingState {
         BlockPos fromPos = steps.get(sectionFrom - 1).pos();
         BlockPos toPos = steps.get(sectionTo).pos();
         double current = stepsCost(steps, sectionFrom, sectionTo);
+        NavigationTuning tuning = XaeroNavConfig.INSTANCE.navigationTuning();
         SearchBounds bounds = SearchBounds.around(level, fromPos, toPos,
-                XaeroNavConfig.INSTANCE.searchHorizontalMargin(), verticalSearchMargin(level, false),
+                tuning.searchHorizontalMargin(), verticalSearchMargin(level, false),
                 renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
-        SearchLimits full = XaeroNavConfig.INSTANCE.searchLimits();
+        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
+        SearchLimits full = tuning.searchLimits();
         // 予算は1区間と同じ。<b>頭打ちにしてはいけない</b>——6万で切ったところ、実機ログに
         // 「解き直しが繋ぎ目の先へ届かなかった (NODE_BUDGET)」が出て、ネザーの橋だらけの繋ぎ目が
         // 直らないまま残った（オフラインでも局所の遠回りが最悪1.059倍→1.927倍に戻る）。
@@ -2671,17 +2675,18 @@ public final class PathfindingState {
             return;
         }
 
+        NavigationTuning tuning = XaeroNavConfig.INSTANCE.navigationTuning();
         SearchBounds bounds = SearchBounds.around(level, from, target,
-                XaeroNavConfig.INSTANCE.searchHorizontalMargin(),
+                tuning.searchHorizontalMargin(),
                 verticalSearchMargin(level, false), renderRadius);
-        ChunkView view = ChunkView.capture(level, player, bounds, XaeroNavConfig.INSTANCE.movementOptions());
-        SearchLimits limits = XaeroNavConfig.INSTANCE.searchLimits();
+        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
+        SearchLimits limits = tuning.searchLimits();
 
         long myGeneration = generation.incrementAndGet();
         computing = true;
         boolean reachesGoal = aimingAtGoal;
         int newWaypointIndex = reachesGoal ? -1 : detail.waypointIndex();
-        boolean costToGoGuideEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
+        boolean costToGoGuideEnabled = tuning.costToGoGuideEnabled();
         // 手前の経路がこれから使うぶんを差し引いた資源で続きを解く。数えるのは<b>いる場所から先</b>
         // だけ——通り過ぎたぶんは既に置き終わっていて、手持ちの枚数からも減っている
         Carryover carried = new Carryover(Carryover.trailingBridgeRun(steps),
