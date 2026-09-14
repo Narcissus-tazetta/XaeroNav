@@ -32,6 +32,12 @@ final class BuildMoves {
         if (!canPlace()) {
             return;
         }
+        // ツタ・梯子を掴んでいる間はaddPillarと同じ理由（onGround()がfalse・handleOnClimbableが
+        // 速度を固定）で踏み切れない。橋は助走からのジャンプで隣へ渡る動作なので、掴まったままでは
+        // 成立しない——そこへ踏み出す前にまず登り切る必要がある
+        if (CellData.climbable(owner.view.cell(from.x, from.y, from.z))) {
+            return;
+        }
         int x = from.x + dx;
         int y = from.y;
         int z = from.z + dz;

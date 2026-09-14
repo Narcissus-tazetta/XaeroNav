@@ -1141,6 +1141,24 @@ class AStarPathfinderTest {
     }
 
     /**
+     * addPillarと同じ理由（{@code onGround()}がfalse・{@code handleOnClimbable}が速度を固定）で、
+     * 梯子・ツタを掴んでいる間はaddBridgeも踏み切れない。通路の全幅が梯子で覆われていると、
+     * 掴まったまま橋を架けるという不可能な手しか無いので、到達できないのが正しい（issue #46）。
+     */
+    @Test
+    void doesNotBridgeWhileHangingOnAClimbable() {
+        FakeCells cells = chasm(2).jumpGapEnabled(false).canPlaceBlocks(true);
+        for (int z = -1; z <= 1; z++) {
+            cells.set(1, 61, z, FakeCells.LADDER);
+        }
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(4, 61, 0));
+
+        assertFalse(result.complete(),
+                "梯子を掴んだまま橋を架ける以外に渡る手が無いので届かない: " + result.steps());
+    }
+
+    /**
      * 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中はほとんど加速
      * できないので、到達距離は踏み切り速度でそのまま決まる。1マス幅の足場からは自分のマスの中しか
      * 助走できない。
