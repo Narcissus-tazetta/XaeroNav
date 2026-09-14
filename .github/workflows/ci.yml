@@ -252,7 +252,9 @@ jobs:
           # （modloader引数の"forge"とは別物。headlesshq/mc-runtime-testのaction.yml参照）
           mc-runtime-test: ${{ matrix.node.loader == 'forge' && 'lexforge' || matrix.node.loader }}
           fabric-api: ${{ matrix.node.loader == 'fabric' && steps.deps.outputs.fabric_api || 'none' }}
-          headlessmc-command: '--jvm "-Djava.awt.headless=true -Dxaeronav-ci.runtimeHookProbe=true"'
+          # HeadlessMCの--jvmは値1個をそのままJVM引数として渡す。空白区切りで2個を
+          # まとめると後半がjava.awt.headlessの値に入り、probe propertyにならない。
+          headlessmc-command: '--jvm "-Dxaeronav-ci.runtimeHookProbe=true"'
 
       # 起動に失敗・ハングしたときは、まずここを読めば分かるようにする
       # （artifactを落とさなくてもジョブのログで完結させる）
