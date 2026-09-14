@@ -12,6 +12,9 @@ where to go next.
 - Client-only. Nothing to install on the server.
 - MIT licensed
 
+Contributor-facing design contracts are collected in the
+[architecture decision records](docs/architecture/README.md).
+
 This is still a 0.x release, and routing is the part still worth stress-testing. If a route detours,
 stops short, never appears, or sends you somewhere you cannot follow, run
 `/xaeronav debug probe <x> <y> <z>` where it happens and

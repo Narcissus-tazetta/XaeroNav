@@ -3,6 +3,9 @@
 XaeroNav は 1 つのソースツリーから、対応するローダーとバージョンのぶんだけ jar を作ります。
 その仕組みと、増やすときに触る場所をまとめます。
 
+設計上の不変条件は [ADR-003: Loader, Xaero hook, and distribution contracts](architecture/003-platform-integration.md)
+を参照してください。この文書は、各ノードを追加・保守する具体的な手順を扱います。
+
 ## いまのターゲット
 
 | ノード | Minecraft | ローダー |
