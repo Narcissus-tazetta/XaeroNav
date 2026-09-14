@@ -79,6 +79,11 @@ final class GroundMoves {
         if (!CellData.standable(owner.view.cell(x, from.y, z))) {
             return;
         }
+        // 梯子・ツタに掴まったままではジャンプできない（addJumpGapと同じ理由：onGround()がfalseで
+        // jumpFromGround()が呼ばれない）
+        if (CellData.climbable(owner.view.cell(from.x, from.y, from.z))) {
+            return;
+        }
         // 踏み切り地点の頭上。塞がっていればそのままではジャンプできないが、洞窟では天井を1マス
         // 崩して上がるのが普通の手段なので、掘れるなら掘るという選択肢として残す
         double clearanceCost = owner.columnCost(from.x, from.y + 2, from.y + 2, from.z, null);
@@ -132,6 +137,10 @@ final class GroundMoves {
         int z = from.z + dz;
 
         if (!CellData.standable(owner.view.cell(x, from.y, z))) {
+            return;
+        }
+        // 梯子・ツタに掴まったままではジャンプできない（addJumpGapと同じ理由）
+        if (CellData.climbable(owner.view.cell(from.x, from.y, from.z))) {
             return;
         }
         // 角2列を到着高さで見る。踏み出し高さの角は段差そのものなので塞がっていて構わない

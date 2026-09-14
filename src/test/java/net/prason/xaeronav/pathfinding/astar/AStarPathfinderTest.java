@@ -1159,6 +1159,39 @@ class AStarPathfinderTest {
     }
 
     /**
+     * addJumpGapと同じ理由（onGround()がfalseでjumpFromGround()が呼ばれない）で、
+     * addAscendも梯子・ツタを掴んだままでは踏み切れない。
+     */
+    @Test
+    void doesNotAscendWhileHangingOnAClimbable() {
+        // x=2,3に1マスの段差がある地形（掘って迂回できないよう岩盤で作る）。
+        // 踏み切り位置(x=1)を梯子で覆う
+        CellSource cells = FakeCells.of(0, 60, 0, """
+                ......
+                .HBB..
+                BBBBBB""");
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(3, 62, 0));
+
+        assertFalse(result.complete(), "梯子を掴んだままでは跳んで段差へ登れない: " + result.steps());
+    }
+
+    /**
+     * 斜め昇り(addDiagonalAscend)も同じ理由でaddAscendと同じ制約を受ける。
+     */
+    @Test
+    void doesNotDiagonalAscendWhileHangingOnAClimbable() {
+        SearchBounds bounds = new SearchBounds(-2, 55, -2, 8, 75, 8);
+        CellSource cells = FakeCells.empty(bounds)
+                .set(0, 61, 0, FakeCells.LADDER)
+                .set(1, 61, 1, FakeCells.STONE);
+
+        PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 62, 1));
+
+        assertFalse(result.complete(), "梯子を掴んだままでは斜めにも跳んで登れない: " + result.steps());
+    }
+
+    /**
      * 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中はほとんど加速
      * できないので、到達距離は踏み切り速度でそのまま決まる。1マス幅の足場からは自分のマスの中しか
      * 助走できない。
