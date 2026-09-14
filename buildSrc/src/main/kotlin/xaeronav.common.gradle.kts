@@ -1,4 +1,5 @@
 import dev.kikugie.stonecutter.build.StonecutterBuildExtension
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
 
 plugins {
     id("java-library")
@@ -40,6 +41,18 @@ tasks.withType<JavaCompile>().configureEach {
 repositories {
     mavenCentral()
     maven("https://chocolateminecraft.com/maven") { name = "Xaero's Maven" }
+}
+
+// Fletching Tableはmixin設定を初期化すると、全依存に対して有効なmavenLocalと
+// KikuGie Snapshotsを自動追加する。後者が遅延するとFabric APIまでそこで待たされ、
+// Gradleが全Stonecutterノードを構成する都合でForge/NeoForgeのジョブも巻き添えになる。
+// Fletching Table自身のgroupだけに限定し、他の依存は本来のrepositoryへ直行させる。
+repositories.withType<MavenArtifactRepository>().configureEach {
+    if (name == "MavenLocal" || name == "KikuGie Snapshots") {
+        content {
+            includeGroupByRegex("dev\\.kikugie(?:\\..*)?")
+        }
+    }
 }
 
 // Java APTで@Mixinクラスを収集し、既存のconfigをテンプレートとしてclient一覧へ登録する。

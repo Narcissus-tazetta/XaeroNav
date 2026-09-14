@@ -5,8 +5,14 @@ plugins {
 repositories {
     mavenCentral()
     gradlePluginPortal()
-    maven("https://maven.kikugie.dev/releases") { name = "KikuGie" }
-    maven("https://maven.kikugie.dev/snapshots") { name = "KikuGie Snapshots" }
+    maven("https://maven.kikugie.dev/releases") {
+        name = "KikuGie"
+        content { includeGroupByRegex("dev\\.kikugie(?:\\..*)?") }
+    }
+    maven("https://maven.kikugie.dev/snapshots") {
+        name = "KikuGie Snapshots"
+        content { includeGroupByRegex("dev\\.kikugie(?:\\..*)?") }
+    }
 }
 
 dependencies {

@@ -213,12 +213,12 @@ public final class ChunkView implements CellSource {
         // そのままEnchantmentHelperへ渡す旧モデル（フィールド名もBLOCK_EFFICIENCYで別物）。
         // vanilla APIの形そのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
         //? if >=1.21 {
-        Holder<Enchantment> efficiency = level.registryAccess()
+        /*Holder<Enchantment> efficiency = level.registryAccess()
                 .registryOrThrow(Registries.ENCHANTMENT)
                 .getHolderOrThrow(Enchantments.EFFICIENCY);
-        //?} else {
-        /*Enchantment efficiency = Enchantments.BLOCK_EFFICIENCY;
-        *///?}
+        *///?} else {
+        Enchantment efficiency = Enchantments.BLOCK_EFFICIENCY;
+        //?}
         ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
         int[] hotbarEfficiency = new int[hotbar.length];
         for (int slot = 0; slot < hotbar.length; slot++) {
@@ -232,10 +232,10 @@ public final class ChunkView implements CellSource {
             // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
             // その2つはgetItemEnchantmentLevelのままでよい
             //? if (forge && <1.21) || neoforge {
-            hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
-            //?} else {
-            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
-            *///?}
+            /*hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
+            *///?} else {
+            hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            //?}
         }
         // 置ける枚数は持ち物<b>全体</b>で数える。ホットバーだけを見ていた頃は、インベントリに
         // 1スタック持っていても橋の案内が出ず、逆にホットバーの1個だけで64マスの橋が出ていた。

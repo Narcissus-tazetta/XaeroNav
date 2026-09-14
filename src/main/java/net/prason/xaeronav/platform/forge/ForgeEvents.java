@@ -23,7 +23,7 @@ public final class ForgeEvents {
             return;
         }
         //? if >=1.21 {
-        // Forge 1.21.1のRenderLevelStageEventはPoseStackではなくMatrix4fを持つ（Mojang側がGUI描画で
+        /^// Forge 1.21.1のRenderLevelStageEventはPoseStackではなくMatrix4fを持つ（Mojang側がGUI描画で
         // PoseStackの受け渡しをやめたため）。PathRendererはPoseStackのpush/pop APIに依存しているので、
         // 単体のPoseStackへ積み直して渡す（回転・並進が乗った行列を1回複製するだけ、毎フレームの負荷は軽い）。
         // event.getPoseStack()はforRemoval=trueで削除予定（Forge 1.21〜）。同じ値は
@@ -31,10 +31,10 @@ public final class ForgeEvents {
         // 引数からPoseStackを外した際、Forge側は値をイベントへ残しつつ取得口だけ非推奨にした）
         PoseStack poseStack = new PoseStack();
         poseStack.last().pose().set(RenderSystem.getModelViewMatrix());
-        //?} else {
-        /^// 1.20.1のRenderLevelStageEventはPoseStackをそのまま持っている（1.21のMatrix4f化以前）
+        ^///?} else {
+        // 1.20.1のRenderLevelStageEventはPoseStackをそのまま持っている（1.21のMatrix4f化以前）
         PoseStack poseStack = event.getPoseStack();
-        ^///?}
+        //?}
         XaeroNavClient.PATH_RENDERER.render(poseStack, event.getCamera());
     }
 
@@ -43,16 +43,16 @@ public final class ForgeEvents {
     @SubscribeEvent
     public void onClientTick(
             //? if >=1.21 {
-            TickEvent.ClientTickEvent.Post event
-            //?} else {
-            /^TickEvent.ClientTickEvent event
-            ^///?}
+            /^TickEvent.ClientTickEvent.Post event
+            ^///?} else {
+            TickEvent.ClientTickEvent event
+            //?}
     ) {
         //? if <1.21 {
-        /^if (event.phase != TickEvent.Phase.END) {
+        if (event.phase != TickEvent.Phase.END) {
             return;
         }
-        ^///?}
+        //?}
         XaeroNavClient.TICK_HANDLER.onClientTick();
     }
 

@@ -6,13 +6,13 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.OptionInstance;
 import net.minecraft.client.gui.screens.Screen;
 //? if >=1.21 {
-import net.minecraft.client.gui.screens.options.OptionsSubScreen;
-//?} else {
-/*import net.minecraft.client.gui.components.Button;
+/*import net.minecraft.client.gui.screens.options.OptionsSubScreen;
+*///?} else {
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.OptionsList;
 import net.minecraft.client.gui.screens.OptionsSubScreen;
 import net.minecraft.network.chat.CommonComponents;
-*///?}
+//?}
 import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.config.XaeroNavConfig;
 
@@ -34,20 +34,20 @@ import net.prason.xaeronav.config.XaeroNavConfig;
 public final class XaeroNavConfigScreen extends OptionsSubScreen {
 
     //? if <1.21 {
-    /*private OptionsList list;
-    *///?}
+    private OptionsList list;
+    //?}
 
     public XaeroNavConfigScreen(Screen parent) {
         super(parent, Minecraft.getInstance().options, Component.translatable("gui.xaeronav.config.title"));
     }
 
     //? if >=1.21 {
-    @Override
+    /*@Override
     protected void addOptions() {
         addAllOptions(XaeroNavConfig.INSTANCE, this.list::addBig);
     }
-    //?} else {
-    /*@Override
+    *///?} else {
+    @Override
     protected void init() {
         this.list = new OptionsList(this.minecraft, this.width, this.height, 32, this.height - 32, 25);
         addAllOptions(XaeroNavConfig.INSTANCE, this.list::addBig);
@@ -56,7 +56,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 .bounds(this.width / 2 - 100, this.height - 27, 200, 20)
                 .build());
     }
-    *///?}
+    //?}
 
     // 日本語ラベルは長く、2列（addSmall）だと見切れるため全項目1列（addBig）で並べる。
     // 呼び出し方（this.list.addBig の参照先）だけがバージョンで違うので、一覧そのものは1箇所にする。

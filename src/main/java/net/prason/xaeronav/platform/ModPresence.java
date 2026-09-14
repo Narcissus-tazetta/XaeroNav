@@ -1,12 +1,12 @@
 package net.prason.xaeronav.platform;
 
 //? neoforge {
-import net.neoforged.fml.ModList;
-//?} forge {
+/*import net.neoforged.fml.ModList;
+*///?} forge {
 /*import net.minecraftforge.fml.ModList;
 *///?} fabric {
-/*import net.fabricmc.loader.api.FabricLoader;
-*///?}
+import net.fabricmc.loader.api.FabricLoader;
+//?}
 
 /**
  * 「そのMODが読み込まれているか」をローダーの違いを跨いで答える。
@@ -23,28 +23,28 @@ public final class ModPresence {
 
     public static boolean isLoaded(String modId) {
         //? neoforge {
-        return ModList.get().isLoaded(modId);
-        //?} forge {
+        /*return ModList.get().isLoaded(modId);
+        *///?} forge {
         /*return ModList.get().isLoaded(modId);
         *///?} fabric {
-        /*return FabricLoader.getInstance().isModLoaded(modId);
-        *///?}
+        return FabricLoader.getInstance().isModLoaded(modId);
+        //?}
     }
 
     /** 読み込まれているMODのバージョン文字列。未導入なら {@code "unknown"}。 */
     public static String version(String modId) {
         //? neoforge {
-        return ModList.get().getModContainerById(modId)
+        /*return ModList.get().getModContainerById(modId)
                 .map(container -> container.getModInfo().getVersion().toString())
                 .orElse("unknown");
-        //?} forge {
+        *///?} forge {
         /*return ModList.get().getModContainerById(modId)
                 .map(container -> container.getModInfo().getVersion().toString())
                 .orElse("unknown");
         *///?} fabric {
-        /*return FabricLoader.getInstance().getModContainer(modId)
+        return FabricLoader.getInstance().getModContainer(modId)
                 .map(container -> container.getMetadata().getVersion().getFriendlyString())
                 .orElse("unknown");
-        *///?}
+        //?}
     }
 }

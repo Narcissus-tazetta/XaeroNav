@@ -1,7 +1,7 @@
 package net.prason.xaeronav.config;
 
 //? neoforge {
-import static org.junit.jupiter.api.Assertions.assertEquals;
+/*import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,16 +17,16 @@ import com.electronwill.nightconfig.core.UnmodifiableConfig;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-/**
+/^*
  * 設定の定義（パス・型・既定値・レンジ・コメント）が意図せず変わっていないことを見る。
  *
  * <p>設定の定義をローダー非依存の記述へ移し替える作業では、38項目を手で書き写すことになる。
  * 既定値やレンジを1つ取り違えても、コンパイルは通り、他のテストも落ちず、ユーザーの手元で
  * 設定が静かに別の値になるだけになる。それを防ぐための突き合わせ。
- */
+ ^/
 class ConfigSpecGoldenTest {
 
-    /** 実際の中身。作業ディレクトリ（build/test-run）へ出すので、cleanで一緒に消える。 */
+    /^* 実際の中身。作業ディレクトリ（build/test-run）へ出すので、cleanで一緒に消える。 ^/
     private static final Path ACTUAL = Path.of("config-spec.actual");
 
     @Test
@@ -76,4 +76,4 @@ class ConfigSpecGoldenTest {
                 + " | comment=" + String.valueOf(spec.getComment()).replace("\n", "\\n");
     }
 }
-//?}
+*///?}

@@ -1,7 +1,7 @@
 package net.prason.xaeronav.platform.fabric;
 
 //? fabric {
-/*import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.context.CommandContext;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -20,7 +20,7 @@ import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;
 import net.prason.xaeronav.client.XaeroNavKeys;
 
-/^* Fabricのイベントを、ローダー非依存の処理へ繋ぐだけの層。 ^/
+/** Fabricのイベントを、ローダー非依存の処理へ繋ぐだけの層。 */
 public final class FabricEntry implements ClientModInitializer {
 
     @Override
@@ -45,11 +45,11 @@ public final class FabricEntry implements ClientModInitializer {
                         ctx -> sink(ctx.getSource()), FabricEntry::blockPos)));
     }
 
-    /^*
+    /**
      * `~`相対座標の解決には{@code CommandSourceStack}が要るが、Fabricのクライアントコマンドの
      * sourceはそれではない。プレイヤーから作った{@code CommandSourceStack}で代用する
      * ——{@code WorldCoordinates}が見るのは位置と向きだけで、ワールドやサーバーには触らない。
-     ^/
+     */
     private static BlockPos blockPos(CommandContext<FabricClientCommandSource> ctx, String name) {
         return ctx.getArgument(name, Coordinates.class)
                 .getBlockPos(ctx.getSource().getPlayer().createCommandSourceStack());
@@ -69,4 +69,4 @@ public final class FabricEntry implements ClientModInitializer {
         };
     }
 }
-*///?}
+//?}

@@ -2,11 +2,11 @@ package net.prason.xaeronav.platform.forge;
 
 //? forge {
 /*//? if >=1.21 {
-import net.minecraft.resources.ResourceLocation;
+/^import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
-//?} else {
-/^import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
-^///?}
+^///?} else {
+import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
+//?}
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
@@ -78,16 +78,16 @@ public final class ForgeEntry {
         // 別クラス（AddGuiOverlayLayersEvent / RegisterGuiOverlaysEvent）かつシグネチャも違う
         @SubscribeEvent
         //? if >=1.21 {
-        public static void onAddGuiOverlayLayers(AddGuiOverlayLayersEvent event) {
+        /^public static void onAddGuiOverlayLayers(AddGuiOverlayLayersEvent event) {
             event.getLayeredDraw().add(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                     (graphics, partialTick) -> XaeroNavClient.HUD.render(graphics));
         }
-        //?} else {
-        /^public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
+        ^///?} else {
+        public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
             event.registerAboveAll("hud",
                     (gui, graphics, partialTick, screenWidth, screenHeight) -> XaeroNavClient.HUD.render(graphics));
         }
-        ^///?}
+        //?}
     }
 }
 *///?}
