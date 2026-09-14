@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongPredicate;
 
+import org.jspecify.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
@@ -1026,7 +1027,7 @@ public final class AStarPathfinder {
     /**
      * 立った姿勢で占有する2セル（足元・頭）の破壊コスト。
      */
-    double standingBodyCost(int x, int y, int z, List<BlockPos> cells) {
+    double standingBodyCost(int x, int y, int z, @Nullable List<BlockPos> cells) {
         return columnCost(x, y, y + 1, z, cells);
     }
 
@@ -1034,7 +1035,7 @@ public final class AStarPathfinder {
      * 一段降りる移動で身体が通過する3セル分。{@code y}は降りる手前の高さ（足元が{@code y}、頭が{@code y+1}、
      * 降りた先が{@code y-1}）。
      */
-    double descendingBodyCost(int x, int y, int z, List<BlockPos> cells) {
+    double descendingBodyCost(int x, int y, int z, @Nullable List<BlockPos> cells) {
         return columnCost(x, y - 1, y + 1, z, cells);
     }
 
@@ -1046,7 +1047,7 @@ public final class AStarPathfinder {
      * <p>{@code cells}が非nullなら、実際に壊すセルをそこへ集める。コストを払う判断と壊すセルの列挙を
      * 同じ経路で行うためのもので、これを分けて書くと表示と探索が食い違う。
      */
-    double columnCost(int x, int bottomY, int topY, int z, List<BlockPos> cells) {
+    double columnCost(int x, int bottomY, int topY, int z, @Nullable List<BlockPos> cells) {
         double total = 0.0;
         boolean doorCharged = false;
         for (int y = bottomY; y <= topY; y++) {
@@ -1067,7 +1068,7 @@ public final class AStarPathfinder {
         return total + fallingChainCost(x, topY + 1, z, cells);
     }
 
-    private double fallingChainCost(int x, int startY, int z, List<BlockPos> cells) {
+    private double fallingChainCost(int x, int startY, int z, @Nullable List<BlockPos> cells) {
         double total = 0.0;
         for (int i = 0; i < MAX_FALLING_CHAIN_SCAN; i++) {
             int y = startY + i;
@@ -1084,7 +1085,7 @@ public final class AStarPathfinder {
         return total;
     }
 
-    private double occupyCost(long cell, int x, int y, int z, List<BlockPos> cells) {
+    private double occupyCost(long cell, int x, int y, int z, @Nullable List<BlockPos> cells) {
         if (!CellData.present(cell)) {
             return ActionCosts.INFEASIBLE;
         }
