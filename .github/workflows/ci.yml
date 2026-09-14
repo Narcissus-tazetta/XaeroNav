@@ -252,6 +252,7 @@ jobs:
           # （modloader引数の"forge"とは別物。headlesshq/mc-runtime-testのaction.yml参照）
           mc-runtime-test: ${{ matrix.node.loader == 'forge' && 'lexforge' || matrix.node.loader }}
           fabric-api: ${{ matrix.node.loader == 'fabric' && steps.deps.outputs.fabric_api || 'none' }}
+          headlessmc-command: '--jvm "-Djava.awt.headless=true -Dxaeronav-ci.runtimeHookProbe=true"'
 
       # 起動に失敗・ハングしたときは、まずここを読めば分かるようにする
       # （artifactを落とさなくてもジョブのログで完結させる）
@@ -316,6 +317,33 @@ jobs:
             fi
           done
           echo "XaeroNavの全mixin適用成功を確認"
+
+      # 上のmarkerは対象クラスへmixin interfaceが付いたことだけを見る。実際の描画・キー・
+      # menu注入点をruntime probeで通し、各callbackから出たmarkerを別にpositive assertionする。
+      - name: Check that every Xaero hook executed
+        if: always()
+        run: |
+          LOG=run/logs/latest.log
+          if [ ! -f "$LOG" ]; then
+            echo "::error::$LOG が無い。runtime hook probeを確認できない"
+            exit 1
+          fi
+          if grep -Fq "XAERONAV_RUNTIME_HOOK_PROBE_FAILED" "$LOG"; then
+            grep -F "XAERONAV_RUNTIME_HOOK_PROBE_FAILED" "$LOG"
+            echo "::error::Xaero runtime hook probeが失敗した"
+            exit 1
+          fi
+          for HOOK in WORLD_MAP_RENDER MINIMAP_RENDER WORLD_MAP_KEY WORLD_MAP_MENU WAYPOINT_MENU; do
+            if ! grep -Fq "XAERONAV_HOOK_EXECUTED $HOOK" "$LOG"; then
+              echo "::error::XaeroNavのmixin実行成功マーカーが無い: $HOOK"
+              exit 1
+            fi
+          done
+          if ! grep -Fq "XAERONAV_RUNTIME_HOOK_PROBE_SUCCESS" "$LOG"; then
+            echo "::error::Xaero runtime hook probeの完了マーカーが無い"
+            exit 1
+          fi
+          echo "XaeroNavの全mixin注入点の実行を確認"
 
       - name: Upload client logs
         if: failure()

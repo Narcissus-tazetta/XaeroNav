@@ -8,10 +8,14 @@ import net.minecraft.network.chat.MutableComponent;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.platform.ModPresence;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
+import net.prason.xaeronav.xaero.XaeroHookProbe;
+import net.prason.xaeronav.xaero.XaeroHookRuntimeProbe;
 import net.prason.xaeronav.xaero.XaeroHooks;
 
 /** 再計算トリガー（逸脱検知・定期実行）と、案内表示用の実測速度を毎tick駆動する。 */
 public final class ClientTickHandler {
+
+    private static final boolean RUNTIME_HOOK_PROBE = Boolean.getBoolean(XaeroHookProbe.PROPERTY);
 
     /** 連携の欠落を知らせたか。ワールドへ入るたびに繰り返すと、直しようが無い警告を毎回読ませることになる。 */
     private boolean hookNoticeShown;
@@ -21,6 +25,10 @@ public final class ClientTickHandler {
         PathfindingState.INSTANCE.onClientTick();
         NavPace.INSTANCE.onClientTick();
         XaeroHookHealth.onClientTick();
+        // XaeroHookRuntimeProbeはXaero型を直接参照するため、通常起動ではクラス自体をloadしない。
+        if (RUNTIME_HOOK_PROBE) {
+            XaeroHookRuntimeProbe.onClientTick();
+        }
     }
 
     /**

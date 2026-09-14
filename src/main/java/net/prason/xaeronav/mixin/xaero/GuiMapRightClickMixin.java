@@ -17,6 +17,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.xaero.XaeroMapCoords;
+import net.prason.xaeronav.xaero.XaeroHookProbe;
 import xaero.map.gui.GuiMap;
 import xaero.map.gui.dropdown.rightclick.RightClickOption;
 
@@ -67,6 +68,7 @@ public abstract class GuiMapRightClickMixin {
     // Xaero自身のメソッドなのでSRGの対応が無い。remapさせると1.20.1-forgeのAPがビルドを止める
     @ModifyReturnValue(method = "getRightClickOptions", at = @At("RETURN"), remap = false)
     private ArrayList<RightClickOption> xaeronav$addGoHereOption(ArrayList<RightClickOption> original) {
+        XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_MENU);
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) {
             return original;

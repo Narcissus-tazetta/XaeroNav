@@ -13,6 +13,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.prason.xaeronav.client.MapPathOverlay;
 import net.prason.xaeronav.xaero.XaeroHookMarker;
+import net.prason.xaeronav.xaero.XaeroHookProbe;
 import xaero.common.graphics.CustomRenderTypes;
 import xaero.common.minimap.render.MinimapFBORenderer;
 import xaero.hud.render.util.RenderBufferUtil;
@@ -54,6 +55,7 @@ public abstract class MinimapFBORendererMixin implements XaeroHookMarker {
                                     @Local(name = "matrixStack") PoseStack matrixStack,
                                     @Local(name = "xFloored") int xFloored,
                                     @Local(name = "zFloored") int zFloored) {
+        XaeroHookProbe.record(XaeroHookProbe.Point.MINIMAP_RENDER);
         MapPathOverlay.Snapshot snapshot = MapPathOverlay.snapshot();
         if (!snapshot.isEmpty()) {
             VertexConsumer overlayBuffer = renderTypeBuffers.getBuffer(CustomRenderTypes.MAP_CHUNK_OVERLAY);

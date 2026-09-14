@@ -14,6 +14,7 @@ import net.minecraft.world.level.Level;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.client.XaeroNavKeys;
 import net.prason.xaeronav.xaero.XaeroMapCoords;
+import net.prason.xaeronav.xaero.XaeroHookProbe;
 import xaero.map.gui.GuiMap;
 
 /**
@@ -57,6 +58,7 @@ public abstract class GuiMapKeyMixin {
     //?}
     private void xaeronav$onKeyPressed(int keyCode, int scanCode, int modifiers,
                                         CallbackInfoReturnable<Boolean> cir) {
+        XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_KEY);
         if (this.isUsingTextField() || !XaeroNavKeys.GOTO_MAP_CURSOR.matches(keyCode, scanCode)) {
             return;
         }
