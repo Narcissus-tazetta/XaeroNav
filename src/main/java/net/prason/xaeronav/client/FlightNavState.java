@@ -349,7 +349,8 @@ final class FlightNavState {
         CompletableFuture
                 .supplyAsync(() -> {
                     FlightRoute solved = routing
-                            ? FlightRouter.route(view, start, detailTarget, rockets, tuning)
+                            ? FlightRouter.route(view, start, detailTarget, rockets, tuning,
+                                    () -> jobGeneration != myJob)
                             : FlightRoute.NONE;
                     // 曲がり点線は経路が引けなかったときだけ要る。引けているときに重ねると、
                     // 末端から目的地へ伸ばす点線が遠くの山を避けて曲がってしまう
@@ -664,7 +665,8 @@ final class FlightNavState {
 
         long startedAt = System.nanoTime();
         CompletableFuture
-                .supplyAsync(() -> FlightRouter.route(view, tail, target, rockets, tuning), executor)
+                .supplyAsync(() -> FlightRouter.route(view, tail, target, rockets, tuning,
+                        () -> jobGeneration != myJob), executor)
                 .whenComplete((extension, error) -> Minecraft.getInstance().execute(() -> {
                     if (jobGeneration != myJob) {
                         return;

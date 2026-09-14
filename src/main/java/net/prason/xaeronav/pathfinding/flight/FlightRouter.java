@@ -1,5 +1,6 @@
 package net.prason.xaeronav.pathfinding.flight;
 
+import java.util.function.BooleanSupplier;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.CellSource;
@@ -41,10 +42,13 @@ public final class FlightRouter {
      * （呼び出し側は従来どおり目的地への点線へ落とすこと）。
      */
     public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
-                                     FlightTuning tuning) {
+                                     FlightTuning tuning, BooleanSupplier cancelled) {
         FlightRoute best = FlightRoute.NONE;
         long deadline = MonotonicTime.millis() + tuning.limits().timeLimitMillis();
         for (int cells = tuning.cellBlocks(); cells >= MIN_CELL_BLOCKS; cells /= 2) {
+            if (cancelled.getAsBoolean()) {
+                return best;
+            }
             long remaining = deadline - MonotonicTime.millis();
             if (best != FlightRoute.NONE && remaining < MIN_RETRY_BUDGET_MILLIS) {
                 // 既に何か出せていて時間も無い。ここで粘るより今ある線を返す
@@ -53,7 +57,7 @@ public final class FlightRouter {
             SearchLimits limits = new SearchLimits(tuning.limits().maxExpandedNodes(),
                     Math.max(MIN_RETRY_BUDGET_MILLIS, remaining), tuning.limits().heuristicWeight());
             FlightRoute route = new FlightPathfinder(new AirGrid(view, cells), rockets, limits,
-                    tuning.clearancePenaltyTicks()).search(start, goal, cells * GOAL_RADIUS_CELLS);
+                    tuning.clearancePenaltyTicks()).search(start, goal, cells * GOAL_RADIUS_CELLS, cancelled);
             if (route.complete()) {
                 return route;
             }

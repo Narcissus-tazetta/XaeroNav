@@ -1100,7 +1100,11 @@ public final class PathfindingExecutor {
         // 実行中1件は協調cancelへ任せ、まだ始まっていない旧jobは捨てる。待機列には常に最新だけ。
         executor.getQueue().clear();
 
-        executor.submit(() -> {
+        // executor.submit(Runnable)ではなくexecute(Runnable)を使う。submitはFutureTaskで
+        // ラップするため、下のcatch (Error)からのrethrowはFutureTask#run内のcatch (Throwable)に
+        // 飲まれ、スレッドの未捕捉例外ハンドラへ届かない。executeなら本当に伝播し、
+        // ThreadPoolExecutorが死んだworkerを補充する（DiagnosticJobRunner.submitと同じ方針）。
+        executor.execute(() -> {
             try {
                 PathResult result = work.apply(job::isCancelled);
                 if (job.isCancelled()) {

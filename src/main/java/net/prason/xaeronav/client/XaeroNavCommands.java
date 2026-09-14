@@ -561,9 +561,7 @@ public final class XaeroNavCommands {
         long generation = DIAGNOSTIC.begin();
         long startedAt = System.nanoTime();
         DIAGNOSTIC.submit(generation,
-                // FlightRouter.routeは外部からの協調cancelを受け付けない（内部の時間上限だけで終わる）。
-                // cancelledは渡さず、世代照合だけで古い結果を捨てる（FlightNavStateのjob世代管理と同じ考え方）
-                cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning()),
+                cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning(), cancelled),
                 (route, error) -> {
                     if (error != null) {
                         XaeroNav.LOGGER.error("XaeroNav: flight診断の経路計算に失敗しました", error);
