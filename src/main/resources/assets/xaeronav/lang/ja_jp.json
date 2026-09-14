@@ -15,6 +15,10 @@
   "commands.xaeronav.hooks_not_applied": "%s: mixinが当たっていない（Xaeroの版が対応範囲の外の可能性）",
   "commands.xaeronav.hooks_render_broken": "世界地図を開いている間、経路の描画処理が一度も呼ばれていない",
   "commands.xaeronav.cleared": "XaeroNav: 案内を終了しました",
+  "commands.xaeronav.summary_splice_refusal": "直近の合流拒否: %s",
+  "commands.xaeronav.summary_seam_repair_refusal": "直近の繋ぎ目解き直し見送り: %s",
+  "commands.xaeronav.summary_unstandable_target": "直近の立てない目標: %s",
+  "commands.xaeronav.summary_none": "なし",
 
   "hud.xaeronav.searching": "経路を計算中…",
   "hud.xaeronav.no_route": "経路が見つかりません",

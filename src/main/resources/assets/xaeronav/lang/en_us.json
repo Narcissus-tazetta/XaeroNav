@@ -15,6 +15,10 @@
   "commands.xaeronav.hooks_not_applied": "%s: the mixin did not apply (your Xaero version may be out of the supported range)",
   "commands.xaeronav.hooks_render_broken": "the route drawing hook was never called while the world map was open",
   "commands.xaeronav.cleared": "XaeroNav: route cleared",
+  "commands.xaeronav.summary_splice_refusal": "last splice refusal: %s",
+  "commands.xaeronav.summary_seam_repair_refusal": "last seam repair refusal: %s",
+  "commands.xaeronav.summary_unstandable_target": "last unstandable target: %s",
+  "commands.xaeronav.summary_none": "none",
 
   "hud.xaeronav.searching": "Finding a route...",
   "hud.xaeronav.no_route": "No route found",

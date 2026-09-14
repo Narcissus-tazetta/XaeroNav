@@ -144,6 +144,8 @@ public final class XaeroNavCommands {
                                                 blockPos.read(ctx, "pos")))))
                         .then(XaeroNavCommands.<S>literal("hooks")
                                 .executes(ctx -> reportHooks(sink.apply(ctx))))
+                        .then(XaeroNavCommands.<S>literal("summary")
+                                .executes(ctx -> reportSummary(sink.apply(ctx))))
                         .then(XaeroNavCommands.<S>literal("flight")
                                 .then(XaeroNavCommands.<S, Coordinates>argument("pos", BlockPosArgument.blockPos())
                                         .executes(ctx -> reportFlight(sink.apply(ctx),
@@ -169,6 +171,26 @@ public final class XaeroNavCommands {
         if (XaeroHookHealth.worldMapRenderBroken()) {
             out.failure(Component.translatable("commands.xaeronav.hooks_render_broken"));
         }
+        return 1;
+    }
+
+    /**
+     * 直近の再計算判断の要約を出す。合流拒否・繋ぎ目解き直し見送り・立てない目標は
+     * いずれも「同じ理由が続く間は黙る」ログなので、実機で今の状態を知るには
+     * ログを遡るしかなかった。ここで1コマンドにまとめて出す。
+     */
+    private static int reportSummary(NavCommandSink out) {
+        PathfindingState.DiagnosticSummary summary = PathfindingState.INSTANCE.diagnosticSummary();
+        out.success(Component.translatable("commands.xaeronav.summary_splice_refusal",
+                summary.spliceRefusal() != null
+                        ? summary.spliceRefusal() : Component.translatable("commands.xaeronav.summary_none")));
+        out.success(Component.translatable("commands.xaeronav.summary_seam_repair_refusal",
+                summary.seamRepairRefusal() != null
+                        ? summary.seamRepairRefusal() : Component.translatable("commands.xaeronav.summary_none")));
+        out.success(Component.translatable("commands.xaeronav.summary_unstandable_target",
+                summary.unstandableTarget() != null
+                        ? summary.unstandableTarget().toShortString()
+                        : Component.translatable("commands.xaeronav.summary_none")));
         return 1;
     }
 

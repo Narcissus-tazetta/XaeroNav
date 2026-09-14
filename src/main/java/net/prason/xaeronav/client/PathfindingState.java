@@ -791,6 +791,19 @@ public final class PathfindingState {
         return goal;
     }
 
+    /**
+     * 直近の再計算判断の要約。実機デバッグで「今何が起きているか」をログを遡らず
+     * 把握するためのもの（{@code /xaeronav debug summary}）。状態は変えない。
+     */
+    public record DiagnosticSummary(@Nullable String spliceRefusal, @Nullable String seamRepairRefusal,
+                                     @Nullable BlockPos unstandableTarget) {
+    }
+
+    public DiagnosticSummary diagnosticSummary() {
+        return new DiagnosticSummary(spliceRefusalGate.current(), seamRepairRefusalGate.current(),
+                unstandableTargetGate.current());
+    }
+
     public PathResult currentResult() {
         if (flying) {
             return null;

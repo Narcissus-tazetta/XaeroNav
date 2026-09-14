@@ -44,4 +44,9 @@ public final class ChangeGate<T> {
     public void reset() {
         last = null;
     }
+
+    /** 直近に通知した値。まだ何も通知していない、または{@link #reset}済みなら{@code null}。 */
+    public @Nullable T current() {
+        return last;
+    }
 }
