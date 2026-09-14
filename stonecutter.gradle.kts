@@ -44,7 +44,7 @@ tasks.register<Sync>("collectJars") {
     into(layout.buildDirectory.dir("libs"))
 }
 
-// ReleaseとCIが同じ成果物契約を見る。ファイルが5個あるだけでなく、各ローダーのmetadataと
+// Release前に集約した成果物の契約を見る。ファイルが5個あるだけでなく、各ローダーのmetadataと
 // Xaero mixin configが正しいjarへ入っていることまで、公開前に機械的に検査する。
 tasks.register("verifyDistribution") {
     group = "verification"

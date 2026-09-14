@@ -48,8 +48,13 @@ jobs:
           cache-read-only: true
 
       # runtimeを全ノードへ広げる条件: mainへのpush・週次スケジュール・
-      # ノード定義やXaero mixinを触ったPR。それ以外の通常PRは正典ノードだけに絞り、
-      # MCバージョンノードが増えてもruntimeジョブの総数が線形に膨らまないようにする
+      # ノード定義、Xaero mixin、またはruntime probeの実行経路を触ったPR。
+      # それ以外の通常PRは正典ノードだけに絞り、MCバージョンノードが増えても
+      # runtimeジョブの総数が線形に膨らまないようにする。
+      #
+      # Forge server smokeは、outer entrypointから直接参照するクラスだけでなく、その先の
+      # 共通クラスにclient型が混入しても壊れる。Java/resource変更は一律対象にして、将来の
+      # 依存関係変更をこの正規表現へ追加し忘れて取りこぼさないようにする
       - name: Decide whether to run the full runtime matrix
         id: full
         run: |
@@ -63,10 +68,10 @@ jobs:
             SERVER=true
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")
-            if echo "$CHANGED" | grep -qE '^(stonecutter\.properties\.toml|settings\.gradle\.kts|src/main/java/net/prason/xaeronav/mixin/|src/main/resources/.*\.mixins\.json)'; then
+            if echo "$CHANGED" | grep -qE '^(stonecutter\.properties\.toml|settings\.gradle\.kts|src/main/java/net/prason/xaeronav/mixin/|src/main/java/net/prason/xaeronav/client/ClientTickHandler\.java|src/main/java/net/prason/xaeronav/xaero/XaeroHook(Probe|RuntimeProbe)\.java|src/main/resources/.*\.mixins\.json)'; then
               FULL=true
             fi
-            if echo "$CHANGED" | grep -qE '^(\.github/workflows/ci\.yml|stonecutter\.properties\.toml|settings\.gradle\.kts|build\.forge(-legacy)?\.gradle\.kts|src/main/java/net/prason/xaeronav/platform/forge/|src/main/resources/META-INF/mods\.toml)'; then
+            if echo "$CHANGED" | grep -qE '^(\.github/workflows/ci\.yml|stonecutter\.properties\.toml|settings\.gradle\.kts|gradle\.properties|gradle/|buildSrc/|build(\.forge(-legacy)?)?\.gradle\.kts|stonecutter\.gradle\.kts|src/main/(java|resources)/)'; then
               SERVER=true
             fi
           fi

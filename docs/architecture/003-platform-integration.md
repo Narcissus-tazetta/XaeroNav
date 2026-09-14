@@ -22,8 +22,8 @@ Xaero連携Mixinは`required=false`とし、外部modの変更で注入に失敗
   持ち込まない。
 - Forgeへ同梱するMixinExtrasを含む統合jarを配布し、slim jarを配布対象にしない。
 - Xaeroの最低対応版は、各Mixinの実際の注入先を確認した版に合わせる。推測で下限を広げない。
-- CIとReleaseは同じ`verifyDistribution`契約を使い、jar数、名前、version、metadata、manifest、refmapを
-  公開前に検査する。
+- Releaseは`verifyDistribution`で、jar数、名前、version、metadata、manifest、refmapを公開前に検査する。
+- CIは全ノードをmatrixでビルドし、client runtimeとForge dedicated-server smokeで実行時の契約を検査する。
 - 外部GitHub Actionはcommit SHAへ固定し、build jobにはリポジトリ書き込み権限を与えない。
 
 ## Client-only contract
@@ -36,7 +36,7 @@ NeoForgeはentrypointのdist指定でクライアントに限定します。Forg
 
 ## Verification
 
-- `./gradlew build verifyDistribution`: 全ノードのテストと配布jar契約
+- Releaseの`./gradlew build verifyDistribution`: 全ノードのテストと集約した配布jar契約
 - `.github/workflows/ci.yml`のbuild matrix: 全ノードのコンパイル
 - 同workflowのclient runtime matrix: Minecraft起動とXaero hook適用
 - Forge dedicated-server smoke matrix: クライアントクラスの早期ロード防止
