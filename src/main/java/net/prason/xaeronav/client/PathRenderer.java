@@ -94,7 +94,7 @@ public final class PathRenderer {
     private static final float STRAIGHT_ALPHA = 0.8f;
     private static final float STRAIGHT_OCCLUDED_ALPHA = 0.3f;
 
-    private PathGeometry geometry;
+    private final PathCache<PathGeometry> geometryCache = new PathCache<>();
 
     // 筒の断面4頂点。区間ごとに作り直さず使い回す（描画スレッド専用）。
     private final double[] ringX = new double[4];
@@ -137,9 +137,6 @@ public final class PathRenderer {
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
         boolean hasStraight = goal != null && !arrived && XaeroNavConfig.INSTANCE.straightLineEnabled();
-        if (!hasGround) {
-            geometry = null;
-        }
         if (!hasGround && !hasFlight && !hasStraight) {
             return;
         }
@@ -165,11 +162,7 @@ public final class PathRenderer {
 
         PathGeometry current = null;
         if (hasGround) {
-            current = geometry;
-            if (current == null || !current.matches(groundResult)) {
-                current = PathGeometry.build(mc.level, groundResult, playerPos);
-                geometry = current;
-            }
+            current = geometryCache.get(groundResult, r -> PathGeometry.build(mc.level, r, playerPos));
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);
         }
         if (hasFlight) {

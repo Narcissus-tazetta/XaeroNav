@@ -1,6 +1,5 @@
 package net.prason.xaeronav.client;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -62,8 +61,6 @@ final class PathGeometry {
      */
     private static final int MAX_FLUID_SHORTCUT_BLOCKS = 32;
 
-    private final PathResult source;
-
     /** 区間の端点。要素数は「区間数 + 1」。 */
     final double[] pointX;
     final double[] pointY;
@@ -110,12 +107,11 @@ final class PathGeometry {
     /** この区間から先は打ち切られた末端。手前から順に薄くしていく。到達済みの経路では区間数と同じ。 */
     final int fadeFromSegment;
 
-    private PathGeometry(PathResult source, double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
+    private PathGeometry(double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
                          int[] segmentEndStep, boolean[] segmentSunk,
                          double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
                          boolean[] highlightPlacement, int[] highlightStep, int fadeFromSegment) {
-        this.source = source;
         this.pointX = pointX;
         this.pointY = pointY;
         this.pointZ = pointZ;
@@ -229,10 +225,6 @@ final class PathGeometry {
         out[2] = az + dz * t;
     }
 
-    boolean matches(PathResult result) {
-        return this.source == result;
-    }
-
     static PathGeometry build(Level level, PathResult result, BlockPos start) {
         List<PathStep> steps = result.steps();
         int count = steps.size();
@@ -314,47 +306,52 @@ final class PathGeometry {
             startRaw = endRaw;
         }
 
-        List<BlockPos> highlightCells = new ArrayList<>();
-        List<float[]> highlightColors = new ArrayList<>();
-        List<Boolean> highlightPlacements = new ArrayList<>();
-        List<Integer> highlightSteps = new ArrayList<>();
+        // 上限は事前に数えられる（1手につきdigCells()の数＋bridging分1個）ので、ArrayList<Boolean>/
+        // <Integer>のboxingを経由せずプリミティブ配列へ直接書き込む
+        int highlightCapacity = 0;
+        for (int i = 0; i < count; i++) {
+            PathStep step = steps.get(i);
+            highlightCapacity += step.digCells().size();
+            if (step.bridging()) {
+                highlightCapacity++;
+            }
+        }
+
+        int[] hx = new int[highlightCapacity];
+        int[] hy = new int[highlightCapacity];
+        int[] hz = new int[highlightCapacity];
+        float[] hColor = new float[highlightCapacity * 3];
+        boolean[] hPlacement = new boolean[highlightCapacity];
+        int[] hStep = new int[highlightCapacity];
+        int highlights = 0;
         for (int i = 0; i < count; i++) {
             PathStep step = steps.get(i);
             for (BlockPos cell : step.digCells()) {
-                highlightCells.add(cell);
-                highlightColors.add(PathColors.DIGGING);
-                highlightPlacements.add(false);
-                highlightSteps.add(i);
+                hx[highlights] = cell.getX();
+                hy[highlights] = cell.getY();
+                hz[highlights] = cell.getZ();
+                hColor[highlights * 3] = PathColors.DIGGING[0];
+                hColor[highlights * 3 + 1] = PathColors.DIGGING[1];
+                hColor[highlights * 3 + 2] = PathColors.DIGGING[2];
+                hPlacement[highlights] = false;
+                hStep[highlights] = i;
+                highlights++;
             }
             if (step.bridging()) {
-                highlightCells.add(step.placedBlockPos());
-                highlightColors.add(PathColors.BRIDGE);
-                highlightPlacements.add(true);
-                highlightSteps.add(i);
+                BlockPos cell = step.placedBlockPos();
+                hx[highlights] = cell.getX();
+                hy[highlights] = cell.getY();
+                hz[highlights] = cell.getZ();
+                hColor[highlights * 3] = PathColors.BRIDGE[0];
+                hColor[highlights * 3 + 1] = PathColors.BRIDGE[1];
+                hColor[highlights * 3 + 2] = PathColors.BRIDGE[2];
+                hPlacement[highlights] = true;
+                hStep[highlights] = i;
+                highlights++;
             }
         }
 
-        int highlights = highlightCells.size();
-        int[] hx = new int[highlights];
-        int[] hy = new int[highlights];
-        int[] hz = new int[highlights];
-        float[] hColor = new float[highlights * 3];
-        boolean[] hPlacement = new boolean[highlights];
-        int[] hStep = new int[highlights];
-        for (int i = 0; i < highlights; i++) {
-            BlockPos cell = highlightCells.get(i);
-            hx[i] = cell.getX();
-            hy[i] = cell.getY();
-            hz[i] = cell.getZ();
-            float[] color = highlightColors.get(i);
-            hColor[i * 3] = color[0];
-            hColor[i * 3 + 1] = color[1];
-            hColor[i * 3 + 2] = color[2];
-            hPlacement[i] = highlightPlacements.get(i);
-            hStep[i] = highlightSteps.get(i);
-        }
-
-        return new PathGeometry(result,
+        return new PathGeometry(
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, rawX, rawY, rawZ,
                 hx, hy, hz, hColor, hPlacement, hStep, Math.min(fadeFromSegment, segments));
