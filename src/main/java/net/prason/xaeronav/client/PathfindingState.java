@@ -9,6 +9,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.IntPredicate;
 
 import org.jspecify.annotations.Nullable;
@@ -37,6 +38,7 @@ import net.prason.xaeronav.pathfinding.astar.PathLoops;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
+import net.prason.xaeronav.pathfinding.async.GenerationGate;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
@@ -606,7 +608,23 @@ public final class PathfindingState {
     private int ticksSinceValidation;
     private int arrivedTicks;
 
+    /**
+     * 非同期結果をメインスレッドへ戻す経路。本番は{@code Minecraft.getInstance()::execute}だが、
+     * 注入可能にしてあるのはテスト用（{@link GenerationGate}のcancel伝播を実クライアント無しで
+     * 検証するため、TEST-01）。このクラス自体は他の箇所でMinecraft.getInstance()を直接使い続ける
+     * ——注入するのはこの1点だけで十分（世代管理・非同期完了順の検証がここに集約されているため）。
+     */
+    private final Consumer<Runnable> onMainThread;
+    /** 5箇所の非同期完了処理が同じ「世代チェック→メインスレッドへ戻す」を個別に書いていたので共通化する。 */
+    private final GenerationGate generationGate;
+
     private PathfindingState() {
+        this(runnable -> Minecraft.getInstance().execute(runnable));
+    }
+
+    PathfindingState(Consumer<Runnable> onMainThread) {
+        this.onMainThread = onMainThread;
+        this.generationGate = new GenerationGate(generation, onMainThread);
     }
 
     /** 今のフレームで使うべき、地上ナビ関連stateの合成snapshot。{@link #publishNavigationView()}参照。 */
@@ -1872,11 +1890,7 @@ public final class PathfindingState {
             future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius,
                     Carryover.NONE, prepared);
         }
-        future.whenComplete((result, error) -> Minecraft.getInstance().execute(() -> {
-            if (generation.get() != myGeneration) {
-                // 追い越された古いリクエスト。computingは今走っているリクエストのものなので触らない
-                return;
-            }
+        generationGate.whenStillCurrent(future, myGeneration, (result, error) -> {
             try {
                 computing = false;
                 if (error != null) {
@@ -2007,7 +2021,7 @@ public final class PathfindingState {
             } finally {
                 publishNavigationView();
             }
-        }));
+        });
     }
 
     /**
@@ -2334,12 +2348,9 @@ public final class PathfindingState {
         // 合流点から先はそのまま残るので、そこで置くと決まっているぶんは合流区間には使えない。
         // 引き継がないと、合流のたびに予算が満額に戻って手持ちを超える経路が組み上がる
         Carryover carried = new Carryover(0, Carryover.placements(result.steps(), joinIndex + 1));
-        executor.submit(view, playerAt, joinPos, limits, tuning.costToGoGuideEnabled(), 0,
-                        carried)
-                .whenComplete((splice, error) -> Minecraft.getInstance().execute(() -> {
-            if (generation.get() != myGeneration) {
-                return;
-            }
+        CompletableFuture<PathResult> spliceFuture = executor.submit(view, playerAt, joinPos, limits,
+                tuning.costToGoGuideEnabled(), 0, carried);
+        generationGate.whenStillCurrent(spliceFuture, myGeneration, (splice, error) -> {
             try {
                 computing = false;
                 if (error != null) {
@@ -2375,7 +2386,7 @@ public final class PathfindingState {
             } finally {
                 publishNavigationView();
             }
-        }));
+        });
         return true;
     }
 
@@ -2514,11 +2525,9 @@ public final class PathfindingState {
         // 1つも変わらなかった（5地形すべてで完全一致）
         PlannedCellSource repairTerrain = new PlannedCellSource(view, steps.subList(0, sectionFrom),
                 walkedTo + 1);
-        executor.submit(repairTerrain, fromPos, toPos, limits, false, 0, carried)
-                .whenComplete((repaired, error) -> Minecraft.getInstance().execute(() -> {
-            if (generation.get() != myGeneration) {
-                return;
-            }
+        CompletableFuture<PathResult> repairFuture =
+                executor.submit(repairTerrain, fromPos, toPos, limits, false, 0, carried);
+        generationGate.whenStillCurrent(repairFuture, myGeneration, (repaired, error) -> {
             try {
                 computing = false;
                 if (error != null) {
@@ -2549,7 +2558,7 @@ public final class PathfindingState {
             } finally {
                 publishNavigationView();
             }
-        }));
+        });
         return true;
     }
 
@@ -2712,12 +2721,9 @@ public final class PathfindingState {
         PlannedCellSource futureTerrain = new PlannedCellSource(view, steps,
                 PathProgress.INSTANCE.indexFor(shown.result()) + 1);
         CostToGo prepared = preparedVoxelGuide(level, playerAt, currentGoal, target, false);
-        executor.submit(futureTerrain, from, target, limits, costToGoGuideEnabled, detail.goalRadius(), carried,
-                        prepared)
-                .whenComplete((result, error) -> Minecraft.getInstance().execute(() -> {
-            if (generation.get() != myGeneration) {
-                return;
-            }
+        CompletableFuture<PathResult> extendFuture = executor.submit(futureTerrain, from, target, limits,
+                costToGoGuideEnabled, detail.goalRadius(), carried, prepared);
+        generationGate.whenStillCurrent(extendFuture, myGeneration, (result, error) -> {
             try {
                 computing = false;
                 if (error != null) {
@@ -2768,7 +2774,7 @@ public final class PathfindingState {
             } finally {
                 publishNavigationView();
             }
-        }));
+        });
     }
 
     /**
@@ -3188,7 +3194,7 @@ public final class PathfindingState {
                     ? CorridorWaypoints.downsample(CorridorWaypoints.stitch(legPoints),
                             REFINED_WAYPOINT_MIN_SPACING_BLOCKS)
                     : null;
-            Minecraft.getInstance().execute(() -> {
+            onMainThread.accept(() -> {
                 if (refiningRoute == forRoute) {
                     refiningRoute = null;
                 }
