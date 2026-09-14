@@ -13,6 +13,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.prason.xaeronav.client.MapPathOverlay;
 import net.prason.xaeronav.xaero.XaeroHookMarker;
+import net.prason.xaeronav.xaero.XaeroHookProbe;
 import xaero.map.graphics.CustomRenderTypes;
 import xaero.map.graphics.MapRenderHelper;
 import xaero.map.gui.GuiMap;
@@ -41,6 +42,7 @@ public abstract class GuiMapMixin implements XaeroHookMarker {
                                     @Local(name = "matrixStack") PoseStack matrixStack,
                                     @Local(name = "flooredCameraX") int flooredCameraX,
                                     @Local(name = "flooredCameraZ") int flooredCameraZ) {
+        XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_RENDER);
         MapPathOverlay.Snapshot snapshot = MapPathOverlay.snapshot();
         if (!snapshot.isEmpty()) {
             VertexConsumer overlayBuffer = renderTypeBuffers.getBuffer(CustomRenderTypes.MAP_COLOR_OVERLAY);

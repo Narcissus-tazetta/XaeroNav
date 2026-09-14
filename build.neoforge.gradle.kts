@@ -9,11 +9,9 @@ fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 
 val minecraftVersion = dep("minecraft")
 
-// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線。xaeronav-xaero.mixins.jsonの
-// compatibilityLevelへ渡す（このノードは今のところ常に1.21.1系なのでJAVA_21固定）
-val mixinCompatibilityLevel = if (minecraftVersion.startsWith("1.20.")) "JAVA_17" else "JAVA_21"
-// リソースパックのpack_format（Minecraft Wikiのpack format表どおり、1.20.1系は15・1.21.1系は34）
-val packFormat = if (minecraftVersion.startsWith("1.20.")) 15 else 34
+// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線（このノードは今のところ常に1.21.1系なのでJAVA_21固定）
+val mixinCompatibilityLevel = mixinCompatibilityLevelFor(minecraftVersion)
+val packFormat = packFormatFor(minecraftVersion)
 
 neoForge {
     version = dep("neoforge")
@@ -49,25 +47,20 @@ neoForge {
 
 // artifactIdは "-forge-" ではなく "-neoforge-"。chocolateminecraft.comのmavenには両方存在し、
 // "-forge-"版はNeoForge実行時に「Forge用/古いNeoForge用のため読み込めません」で無視される。
-val xaeroModules = listOf(
-    "xaero.lib:xaerolib-neoforge-$minecraftVersion:${dep("xaerolib")}",
-    "xaero.map:xaeroworldmap-neoforge-$minecraftVersion:${dep("xaero_worldmap")}",
-    "xaero.minimap:xaerominimap-neoforge-$minecraftVersion:${dep("xaero_minimap")}"
-)
+val xaeroModules = xaeroModuleCoordinates(
+    "neoforge", minecraftVersion, dep("xaerolib"), dep("xaero_worldmap"), dep("xaero_minimap"))
 
 // Xaeroを開発実行（runClient）へ載せるか。`./gradlew runClient -Pwith_xaero=false` で外せる。
 // このMODはXaero未導入でもワールド内描画だけで動く設計なので、その前提を実際に確かめる手段を残す
 // （xaeronav-xaero.mixins.jsonはrequired=falseなので、Xaeroが無ければ地図連携だけが黙って無効になる）。
-val withXaero = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
+val withXaero = withXaeroProperty()
 
 // XaeroはMODとして読み込ませる必要があるので、実行時クラスパスではなくrun/modsへ置く。
 // additionalRuntimeClasspathに載せるとクラスパスには現れるがFMLがMODとして検出せず、
 // Xaeroのクラスだけが「Minecraftのクラスを解決できないレイヤー」に置かれる。すると
 // ModList上は未導入なのにClass.forNameは成功するという食い違いが生まれ、触った瞬間に
 // NoClassDefFoundErrorでゲームごと落ちる。
-val xaeroRuntimeMods: Configuration by configurations.creating {
-    isTransitive = false
-}
+val xaeroRuntimeMods: Configuration = createXaeroRuntimeModsConfiguration()
 
 dependencies {
     annotationProcessor("org.spongepowered:mixin:0.8.7:processor")
@@ -83,7 +76,7 @@ dependencies {
 
 // Syncではなくコピーにして、手で入れた他のMODを消さない。バージョンを上げたときに古いjarが
 // 残るが、mods以下を消して入れ直せば済む。
-val installXaeroMods by tasks.registering(Copy::class) {
+val installXaeroMods = tasks.register<Copy>("installXaeroMods") {
     from(xaeroRuntimeMods)
     into(rootProject.layout.projectDirectory.dir("run/mods"))
 }
@@ -93,20 +86,16 @@ tasks.matching { it.name == "runClient" }.configureEach {
 }
 
 // CIの起動スモークテスト（mc-runtime-test）へ渡す一式。配布jarとXaeroを1箇所へ集める
-val stageRuntimeTestMods by tasks.registering(Copy::class) {
+val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
     from(tasks.named("jar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
 tasks.named<ProcessResources>("processResources").configure {
-    val replaceProperties = modResourceProperties() + mapOf(
-        "minecraft_version" to minecraftVersion,
-        "neoforge_loader_version_range" to dep("neoforge_loader_range"),
-        "xaero_worldmap_version" to dep("xaero_worldmap"),
-        "xaero_minimap_version" to dep("xaero_minimap"),
-        "mixin_compatibility_level" to mixinCompatibilityLevel,
-        "pack_format" to packFormat.toString()
+    val replaceProperties = commonNodeResourceProperties(
+        minecraftVersion, dep("xaero_worldmap"), dep("xaero_minimap"), mixinCompatibilityLevel, packFormat) + mapOf(
+        "neoforge_loader_version_range" to dep("neoforge_loader_range")
     )
 
     inputs.properties(replaceProperties)

@@ -44,7 +44,7 @@ class SpliceJoinTest {
     }
 
     private static int join(List<PathStep> steps, Vec3 position) {
-        return PathfindingState.joinableStepIndex(steps, position, 0, i -> true);
+        return Splice.joinableStepIndex(steps, position, 0, i -> true);
     }
 
     /**
@@ -104,7 +104,7 @@ class SpliceJoinTest {
             steps.add(step(x, 0));
         }
         // x >= 22 が塞がっている
-        int index = PathfindingState.joinableStepIndex(steps, new Vec3(20.5, Y + 0.5, 0.5), 0,
+        int index = Splice.joinableStepIndex(steps, new Vec3(20.5, Y + 0.5, 0.5), 0,
                 i -> steps.get(i).pos().getX() < 22);
 
         assertEquals(21, steps.get(index).pos().getX(),
@@ -123,7 +123,7 @@ class SpliceJoinTest {
             steps.add(step(x, 0));
         }
         // プレイヤーの周り（余裕8ブロックぶん）がまるごと塞がっている
-        int index = PathfindingState.joinableStepIndex(steps, new Vec3(20.5, Y + 0.5, 0.5), 0,
+        int index = Splice.joinableStepIndex(steps, new Vec3(20.5, Y + 0.5, 0.5), 0,
                 i -> steps.get(i).pos().getX() < 8 || steps.get(i).pos().getX() > 32);
 
         assertTrue(steps.get(index).pos().getX() > 32,
@@ -134,7 +134,7 @@ class SpliceJoinTest {
     @Test
     void respectsTheMinimumIndex() {
         List<PathStep> steps = corner();
-        int index = PathfindingState.joinableStepIndex(steps, new Vec3(1.5, Y + 0.5, 0.5), 15,
+        int index = Splice.joinableStepIndex(steps, new Vec3(1.5, Y + 0.5, 0.5), 15,
                 i -> true);
 
         assertTrue(index >= 15, "minIndexより手前へ合流している: " + index);

@@ -44,13 +44,13 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     //? if >=1.21 {
     @Override
     protected void addOptions() {
-        addAllOptions(this.list::addBig);
+        addAllOptions(XaeroNavConfig.INSTANCE, this.list::addBig);
     }
     //?} else {
     /*@Override
     protected void init() {
         this.list = new OptionsList(this.minecraft, this.width, this.height, 32, this.height - 32, 25);
-        addAllOptions(this.list::addBig);
+        addAllOptions(XaeroNavConfig.INSTANCE, this.list::addBig);
         this.addWidget(this.list);
         this.addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose())
                 .bounds(this.width / 2 - 100, this.height - 27, 200, 20)
@@ -59,21 +59,23 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     *///?}
 
     // 日本語ラベルは長く、2列（addSmall）だと見切れるため全項目1列（addBig）で並べる。
-    // 呼び出し方（this.list.addBig の参照先）だけがバージョンで違うので、一覧そのものは1箇所にする
-    private static void addAllOptions(Consumer<OptionInstance<?>> addBig) {
-        XaeroNavConfig cfg = XaeroNavConfig.INSTANCE;
-
-        addBig.accept(boolOption("gui.xaeronav.config.digging_enabled",
-                cfg.diggingEnabled(), cfg::setDiggingEnabled));
-        addBig.accept(boolOption("gui.xaeronav.config.bridging_enabled",
-                cfg.bridgingEnabled(), cfg::setBridgingEnabled));
-        addBig.accept(boolOption("gui.xaeronav.config.lava_bridging_enabled",
+    // 呼び出し方（this.list.addBig の参照先）だけがバージョンで違うので、一覧そのものは1箇所にする。
+    // cfgを引数化しているのはテスト用（XaeroNavConfigScreenTest）——本番はXaeroNavConfig.INSTANCEを渡すだけ。
+    // publicなのは、load済みのXaeroNavConfigをNightConfigStore経由で作るテストがconfigパッケージ側にあるため
+    public static void addAllOptions(XaeroNavConfig cfg, Consumer<OptionInstance<?>> addBig) {
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.digging_enabled",
+                "gui.xaeronav.config.digging_enabled.tooltip", cfg.diggingEnabled(), cfg::setDiggingEnabled));
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.bridging_enabled",
+                "gui.xaeronav.config.bridging_enabled.tooltip", cfg.bridgingEnabled(), cfg::setBridgingEnabled));
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.lava_bridging_enabled",
+                "gui.xaeronav.config.lava_bridging_enabled.tooltip",
                 cfg.lavaBridgingEnabled(), cfg::setLavaBridgingEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.block_budget_enabled",
                 cfg.blockBudgetEnabled(), cfg::setBlockBudgetEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.jump_gap_enabled",
                 cfg.jumpGapEnabled(), cfg::setJumpGapEnabled));
-        addBig.accept(boolOption("gui.xaeronav.config.fall_damage_tolerance_enabled",
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.fall_damage_tolerance_enabled",
+                "gui.xaeronav.config.fall_damage_tolerance_enabled.tooltip",
                 cfg.fallDamageToleranceEnabled(), cfg::setFallDamageToleranceEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.deep_look_ahead_enabled",
                 cfg.deepLookAheadEnabled(), cfg::setDeepLookAheadEnabled));
@@ -87,10 +89,23 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 cfg.straightLineEnabled(), cfg::setStraightLineEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.goal_marker_enabled",
                 cfg.goalMarkerEnabled(), cfg::setGoalMarkerEnabled));
+        addBig.accept(boolOption("gui.xaeronav.config.danger_dashed_enabled",
+                cfg.dangerDashedEnabled(), cfg::setDangerDashedEnabled));
     }
 
     private static OptionInstance<Boolean> boolOption(String key, boolean initial, Consumer<Boolean> setter) {
         return OptionInstance.createBoolean(key, initial, setter::accept);
+    }
+
+    /**
+     * 安全性・所持品への影響がある項目にだけ付ける短い補足。全項目に付けると
+     * どれも同じ重みに見えて読み飛ばされるので、実際に結果が変わる項目に絞る。
+     */
+    private static OptionInstance<Boolean> boolOptionWithTooltip(String key, String tooltipKey, boolean initial,
+                                                                  Consumer<Boolean> setter) {
+        return OptionInstance.createBoolean(key,
+                OptionInstance.cachedConstantTooltip(Component.translatable(tooltipKey)),
+                initial, setter::accept);
     }
 
     /**

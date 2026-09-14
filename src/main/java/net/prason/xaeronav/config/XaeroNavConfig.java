@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.List;
 
 import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
+import net.prason.xaeronav.pathfinding.astar.NavigationTuning;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 
@@ -86,6 +87,7 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue hudEnabled;
     private final NavConfigSpec.BoolValue straightLineEnabled;
     private final NavConfigSpec.BoolValue goalMarkerEnabled;
+    private final NavConfigSpec.BoolValue dangerDashedEnabled;
 
     // package-private: 2つの保存先が同じ定義から同じ設定ファイルを作ることをテストが確かめる
     XaeroNavConfig(NavConfigSpec spec) {
@@ -373,6 +375,11 @@ public final class XaeroNavConfig {
                 .comment("Xaeroの世界地図・ミニマップの目的地にピンを立てるか")
                 .define("goalMarkerEnabled", true);
 
+        dangerDashedEnabled = spec
+                .comment("危険区間（溶岩・奈落・溺水・落下ダメージ等）の線を破線で強調するか",
+                        "色だけでは色覚特性や画面の色調補正で判別しづらい場面があるための、色以外の識別手段")
+                .define("dangerDashedEnabled", true);
+
         spec.pop();
     }
 
@@ -580,6 +587,15 @@ public final class XaeroNavConfig {
         return new SearchLimits(maxExpandedNodes(), AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS, heuristicWeight());
     }
 
+    /**
+     * 探索を投げる直前にまとめて読む値一式。{@link #movementOptions}・{@link #searchLimits}と
+     * 同じ理由（呼び出し箇所を増やすたびに同じ並びを写すことになる）でまとめている。
+     */
+    public NavigationTuning navigationTuning() {
+        return new NavigationTuning(searchHorizontalMargin(), movementOptions(), searchLimits(),
+                costToGoGuideEnabled());
+    }
+
     public boolean hudEnabled() {
         return hudEnabled.get();
     }
@@ -606,5 +622,13 @@ public final class XaeroNavConfig {
 
     public void setGoalMarkerEnabled(boolean value) {
         goalMarkerEnabled.set(value);
+    }
+
+    public boolean dangerDashedEnabled() {
+        return dangerDashedEnabled.get();
+    }
+
+    public void setDangerDashedEnabled(boolean value) {
+        dangerDashedEnabled.set(value);
     }
 }

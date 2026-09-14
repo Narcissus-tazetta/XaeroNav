@@ -11,6 +11,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.xaero.XaeroHookMarker;
+import net.prason.xaeronav.xaero.XaeroHookProbe;
 import xaero.map.gui.IRightClickableElement;
 import xaero.map.gui.dropdown.rightclick.RightClickOption;
 import xaero.map.mods.gui.Waypoint;
@@ -34,6 +35,7 @@ public abstract class WaypointReaderMixin implements XaeroHookMarker {
     )
     private ArrayList<RightClickOption> xaeronav$addGoHereOption(ArrayList<RightClickOption> original,
                                                                    Waypoint element, IRightClickableElement target) {
+        XaeroHookProbe.record(XaeroHookProbe.Point.WAYPOINT_MENU);
         if (original == null) {
             return null;
         }

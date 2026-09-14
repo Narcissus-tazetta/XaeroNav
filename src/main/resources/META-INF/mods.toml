@@ -12,6 +12,9 @@ displayURL="${mod_display_url}"
 description='''${mod_description}'''
 logoFile="xaeronav_icon.png"
 
+# クライアント専用modだが、Forgeの@Modにはdist指定が無いのでouter entrypointは専用サーバーでも
+# 読み込まれる。client class参照はDist.CLIENTのnested setupへ隔離し、誤導入でも起動を妨げない。
+
 # Xaero連携だけを持つ専用config（required=false）。Xaero未導入・注入先が変わった場合は
 # この機能だけが無効になり、MOD本体はワールド内描画で動き続ける
 [[mixins]]

@@ -9,13 +9,13 @@ import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
 
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.prason.xaeronav.pathfinding.world.BlockRegistryCompat;
 
 /**
  * 掘って通ってよいブロックの定義。
@@ -117,11 +117,12 @@ public final class DiggableBlocks {
         Set<Block> blocks = new HashSet<>();
         for (String id : ids) {
             ResourceLocation location = ResourceLocation.tryParse(id);
-            if (location == null || !BuiltInRegistries.BLOCK.containsKey(location)) {
+            Block block = location == null ? null : BlockRegistryCompat.byId(location);
+            if (block == null) {
                 LOGGER.warn("XaeroNav config: 未知のブロックIDを無視しました: {}", id);
                 continue;
             }
-            blocks.add(BuiltInRegistries.BLOCK.get(location));
+            blocks.add(block);
         }
         return Set.copyOf(blocks);
     }

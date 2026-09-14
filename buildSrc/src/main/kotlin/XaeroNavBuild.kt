@@ -1,8 +1,46 @@
 import org.gradle.api.Project
+import org.gradle.api.artifacts.Configuration
 
 /** `gradle.properties` に置いたMOD自身のメタデータ。ノードによらず同じ値。 */
 fun Project.modProperty(key: String): String =
     findProperty(key) as String? ?: error("Property `$key` not set.")
+
+/**
+ * MC 1.20.x系かどうかで揃うMixin互換レベルの分岐点。4つの`build.*.gradle.kts`に
+ * 同じ`if (minecraftVersion.startsWith("1.20."))`が並行してコピーされていたので1箇所にする。
+ */
+fun mixinCompatibilityLevelFor(minecraftVersion: String): String =
+    if (minecraftVersion.startsWith("1.20.")) "JAVA_17" else "JAVA_21"
+
+/** リソースパックのpack_format（Minecraft Wikiのpack format表どおり）。上記と同じ分岐点。 */
+fun packFormatFor(minecraftVersion: String): Int =
+    if (minecraftVersion.startsWith("1.20.")) 15 else 34
+
+/**
+ * Xaeroの3モジュール（lib/worldmap/minimap）の依存座標。artifactId中のloader名部分
+ * （fabric/forge/neoforge）だけが4ノードで違う。
+ */
+fun xaeroModuleCoordinates(
+    loader: String,
+    minecraftVersion: String,
+    xaerolibVersion: String,
+    worldmapVersion: String,
+    minimapVersion: String,
+): List<String> = listOf(
+    "xaero.lib:xaerolib-$loader-$minecraftVersion:$xaerolibVersion",
+    "xaero.map:xaeroworldmap-$loader-$minecraftVersion:$worldmapVersion",
+    "xaero.minimap:xaerominimap-$loader-$minecraftVersion:$minimapVersion",
+)
+
+/** `./gradlew runClient -Pwith_xaero=false` でXaeroを外せるようにする開発実行の共通判定。 */
+fun Project.withXaeroProperty(): Boolean = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
+
+/**
+ * XaeroはMODとして読み込ませる必要があるので、実行時クラスパスではなくrun/modsへ置く
+ * （4ノード共通の理由。各ノードのbuild.*.gradle.ktsコメント参照）。
+ */
+fun Project.createXaeroRuntimeModsConfiguration(): Configuration =
+    configurations.create("xaeroRuntimeMods") { isTransitive = false }
 
 /**
  * 実機デバッグ用に、バージョンへgitの短縮ハッシュを付ける（例: "0.1.2+f118060"）。
@@ -74,4 +112,23 @@ fun Project.modResourceProperties(): Map<String, String> = mapOf(
     "mod_license" to modProperty("mod_license"),
     "mod_display_url" to modProperty("mod_display_url"),
     "mod_issue_tracker_url" to modProperty("mod_issue_tracker_url")
+)
+
+/**
+ * 4ノード共通のresource置換値（{@link #modResourceProperties}に加え、Xaeroバージョンと
+ * pack_format/mixin互換レベル）。loader固有のキー（loaderのバージョン範囲など）は
+ * 各build.<loader>.gradle.ktsが呼び出し側で足す。
+ */
+fun Project.commonNodeResourceProperties(
+    minecraftVersion: String,
+    worldmapVersion: String,
+    minimapVersion: String,
+    mixinCompatibilityLevel: String,
+    packFormat: Int,
+): Map<String, String> = modResourceProperties() + mapOf(
+    "minecraft_version" to minecraftVersion,
+    "xaero_worldmap_version" to worldmapVersion,
+    "xaero_minimap_version" to minimapVersion,
+    "mixin_compatibility_level" to mixinCompatibilityLevel,
+    "pack_format" to packFormat.toString(),
 )

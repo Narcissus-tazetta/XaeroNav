@@ -11,8 +11,8 @@ fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 
 val mcVersion = dep("minecraft")
 // xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線。1.17〜1.20.1専用のノードなので今のところ常にJava 17
-val mixinCompatibilityLevel = if (mcVersion.startsWith("1.20.")) "JAVA_17" else "JAVA_21"
-val packFormat = if (mcVersion.startsWith("1.20.")) 15 else 34
+val mixinCompatibilityLevel = mixinCompatibilityLevelFor(mcVersion)
+val packFormat = packFormatFor(mcVersion)
 
 legacyForge {
     // enable{}の中でmods/runs等（外側の拡張のメンバー）に触ると、enable()自身がまだ
@@ -56,18 +56,13 @@ tasks.named<Jar>("jar") {
     manifest.attributes("MixinConfigs" to "${modProperty("mod_id")}-xaero.mixins.json")
 }
 
-val xaeroModules = listOf(
-    "xaero.lib:xaerolib-forge-$mcVersion:${dep("xaerolib")}",
-    "xaero.map:xaeroworldmap-forge-$mcVersion:${dep("xaero_worldmap")}",
-    "xaero.minimap:xaerominimap-forge-$mcVersion:${dep("xaero_minimap")}"
-)
+val xaeroModules = xaeroModuleCoordinates(
+    "forge", mcVersion, dep("xaerolib"), dep("xaero_worldmap"), dep("xaero_minimap"))
 
 // Xaeroを開発実行（runClient）へ載せるか。`./gradlew runClient -Pwith_xaero=false` で外せる。
-val withXaero = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
+val withXaero = withXaeroProperty()
 
-val xaeroRuntimeMods: Configuration by configurations.creating {
-    isTransitive = false
-}
+val xaeroRuntimeMods: Configuration = createXaeroRuntimeModsConfiguration()
 
 dependencies {
     annotationProcessor("org.spongepowered:mixin:0.8.7:processor")
@@ -90,20 +85,22 @@ dependencies {
     "jarJar"("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
 }
 
-val stageRuntimeTestMods by tasks.registering(Copy::class) {
+val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
     from(tasks.named("jar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
+// 専用サーバーのproduction smoke testにはXaeroを入れず、利用者へ配るjarだけを渡す。
+tasks.register<Sync>("stageServerTestMod") {
+    from(tasks.named("jar"))
+    into(rootProject.layout.buildDirectory.dir("server-test/${stonecutter.current.project}/mods"))
+}
+
 tasks.named<ProcessResources>("processResources").configure {
-    val replaceProperties = modResourceProperties() + mapOf(
-        "minecraft_version" to mcVersion,
-        "forge_loader_version_range" to dep("forge_loader_range"),
-        "xaero_worldmap_version" to dep("xaero_worldmap"),
-        "xaero_minimap_version" to dep("xaero_minimap"),
-        "mixin_compatibility_level" to mixinCompatibilityLevel,
-        "pack_format" to packFormat.toString()
+    val replaceProperties = commonNodeResourceProperties(
+        mcVersion, dep("xaero_worldmap"), dep("xaero_minimap"), mixinCompatibilityLevel, packFormat) + mapOf(
+        "forge_loader_version_range" to dep("forge_loader_range")
     )
 
     inputs.properties(replaceProperties)

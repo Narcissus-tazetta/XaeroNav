@@ -94,7 +94,7 @@ public final class PathRenderer {
     private static final float STRAIGHT_ALPHA = 0.8f;
     private static final float STRAIGHT_OCCLUDED_ALPHA = 0.3f;
 
-    private PathGeometry geometry;
+    private final PathCache<PathGeometry> geometryCache = new PathCache<>();
 
     // 筒の断面4頂点。区間ごとに作り直さず使い回す（描画スレッド専用）。
     private final double[] ringX = new double[4];
@@ -124,18 +124,19 @@ public final class PathRenderer {
             return;
         }
 
-        PathResult groundResult = PathfindingState.INSTANCE.currentResult();
-        FlightRoute flight = PathfindingState.INSTANCE.flightRoute();
-        BlockPos goal = PathfindingState.INSTANCE.goal();
+        // 1度だけ取得し、以降はこのsnapshotだけを読む。個々のgetterを描画中に何度も呼ぶと、
+        // その間にワーカーcallbackが割り込んで「どの瞬間にも存在しなかった組み合わせ」
+        // （例: 新しいgoalと古いcurrentResult）を1フレームだけ描きうる
+        PathfindingState.NavigationView view = PathfindingState.INSTANCE.navigationView();
+        PathResult groundResult = view.currentResult();
+        FlightRoute flight = view.flightRoute();
+        BlockPos goal = view.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
         boolean hasFlight = !flight.isEmpty();
-        boolean arrived = PathfindingState.INSTANCE.arrived();
+        boolean arrived = view.arrived();
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
         boolean hasStraight = goal != null && !arrived && XaeroNavConfig.INSTANCE.straightLineEnabled();
-        if (!hasGround) {
-            geometry = null;
-        }
         if (!hasGround && !hasFlight && !hasStraight) {
             return;
         }
@@ -161,11 +162,7 @@ public final class PathRenderer {
 
         PathGeometry current = null;
         if (hasGround) {
-            current = geometry;
-            if (current == null || !current.matches(groundResult)) {
-                current = PathGeometry.build(mc.level, groundResult, playerPos);
-                geometry = current;
-            }
+            current = geometryCache.get(groundResult, r -> PathGeometry.build(mc.level, r, playerPos));
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);
         }
         if (hasFlight) {
@@ -437,6 +434,12 @@ public final class PathRenderer {
         double toX = geometry.pointX[index + 1];
         double toY = geometry.pointY[index + 1];
         double toZ = geometry.pointZ[index + 1];
+        // 危険区間は色だけに頼らない識別として破線にする（A11Y-01）。カメラ近傍を避ける
+        // sunk処理より視認性を優先する——危険は目立たせる方が正しい
+        if (geometry.segmentDashed[index] && XaeroNavConfig.INSTANCE.dangerDashedEnabled()) {
+            drawDashedTube(buffer, pose, fromX, fromY, fromZ, toX, toY, toZ, red, green, blue, segmentAlpha);
+            return;
+        }
         if (!geometry.segmentSunk[index]) {
             drawTube(buffer, pose, TUBE_RADIUS, fromX, fromY, fromZ, toX, toY, toZ,
                     red, green, blue, segmentAlpha);
@@ -444,6 +447,34 @@ public final class PathRenderer {
         }
         drawTubeOutsideCamera(buffer, pose, fromX, fromY, fromZ, toX, toY, toZ, camera,
                 red, green, blue, segmentAlpha);
+    }
+
+    /**
+     * 区間を{@link #DASH_LENGTH}/{@link #DASH_GAP}の破線として描く。短い区間（1手ぶんの長さ程度）
+     * では最初のダッシュだけで全長を覆うので、見た目は実線のままになる——長い区間だけがはっきり
+     * 破線として見える。
+     */
+    private void drawDashedTube(VertexConsumer buffer, PoseStack.Pose pose,
+                                double fromX, double fromY, double fromZ,
+                                double toX, double toY, double toZ,
+                                float red, float green, float blue, float alpha) {
+        double dx = toX - fromX;
+        double dy = toY - fromY;
+        double dz = toZ - fromZ;
+        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (length < 1.0e-6) {
+            return;
+        }
+        double dirX = dx / length;
+        double dirY = dy / length;
+        double dirZ = dz / length;
+        for (double start = 0.0; start < length; start += DASH_LENGTH + DASH_GAP) {
+            double end = Math.min(start + DASH_LENGTH, length);
+            drawTube(buffer, pose, TUBE_RADIUS,
+                    fromX + dirX * start, fromY + dirY * start, fromZ + dirZ * start,
+                    fromX + dirX * end, fromY + dirY * end, fromZ + dirZ * end,
+                    red, green, blue, alpha);
+        }
     }
 
     /**

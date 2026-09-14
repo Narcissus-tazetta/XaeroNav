@@ -78,7 +78,7 @@ class CliffSpliceTest {
         assertTrue(onTheCliff.complete(), "高台を西へ向かう経路が出るはず");
 
         BlockPos player = new BlockPos(140, BOTTOM + 1, 34);
-        int join = PathfindingState.joinableStepIndex(onTheCliff.steps(),
+        int join = Splice.joinableStepIndex(onTheCliff.steps(),
                 new net.minecraft.world.phys.Vec3(player.getX() + 0.5, player.getY() + 0.5,
                         player.getZ() + 0.5), 0, i -> true);
         BlockPos joinPos = onTheCliff.steps().get(join).pos();
@@ -87,7 +87,7 @@ class CliffSpliceTest {
         PathResult toJoin = solve(cells, player, joinPos);
         assertTrue(toJoin.complete(), "登り直す道自体は存在する（だから黙って採用されてしまう）");
 
-        assertFalse(PathfindingState.spliceWorthTaking(cost(toJoin.steps()), player, joinPos, goal),
+        assertFalse(Splice.spliceWorthTaking(cost(toJoin.steps()), player, joinPos, goal),
                 "崖を登り直す合流が採用されている: 合流区間=" + Math.round(cost(toJoin.steps())) + "tick");
     }
 
@@ -99,13 +99,13 @@ class CliffSpliceTest {
         PathResult path = solve(cells, new BlockPos(190, TOP + 1, 10), goal);
 
         BlockPos player = new BlockPos(140, TOP + 1, 16);
-        int join = PathfindingState.joinableStepIndex(path.steps(),
+        int join = Splice.joinableStepIndex(path.steps(),
                 new net.minecraft.world.phys.Vec3(player.getX() + 0.5, player.getY() + 0.5,
                         player.getZ() + 0.5), 0, i -> true);
         BlockPos joinPos = path.steps().get(join).pos();
         PathResult toJoin = solve(cells, player, joinPos);
 
-        assertTrue(PathfindingState.spliceWorthTaking(cost(toJoin.steps()), player, joinPos, goal),
+        assertTrue(Splice.spliceWorthTaking(cost(toJoin.steps()), player, joinPos, goal),
                 "普通の逸脱で合流が拒まれている: 合流区間=" + Math.round(cost(toJoin.steps())) + "tick");
     }
 }

@@ -59,6 +59,20 @@ final class PathColors {
     private PathColors() {
     }
 
+    /** 色だけに頼らない識別（A11Y-01）。線種・記号を選ぶ側が色を逆引きせずに済む。 */
+    enum Kind { DANGER, WORK, MOVEMENT }
+
+    /** {@link #forStep}と同じ優先順位（危険→作業→移動）で分類する。 */
+    static Kind kindFor(PathStep step) {
+        if (step.risk() != PathRisk.NONE) {
+            return Kind.DANGER;
+        }
+        if (step.bridging() || step.digging()) {
+            return Kind.WORK;
+        }
+        return Kind.MOVEMENT;
+    }
+
     /**
      * 危険 → 作業（設置・掘削）→ 移動の種類、の順に見る。網羅switchにしてあるので、
      * {@link PathRisk}や{@link MovementType}に値が増えたときはここがコンパイルエラーになる

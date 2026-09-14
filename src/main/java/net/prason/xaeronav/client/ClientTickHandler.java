@@ -7,20 +7,44 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.platform.ModPresence;
+import net.prason.xaeronav.util.ChangeGate;
+import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
+import net.prason.xaeronav.xaero.XaeroHookProbe;
+import net.prason.xaeronav.xaero.XaeroHookRuntimeProbe;
 import net.prason.xaeronav.xaero.XaeroHooks;
 
 /** 再計算トリガー（逸脱検知・定期実行）と、案内表示用の実測速度を毎tick駆動する。 */
 public final class ClientTickHandler {
 
+    private static final boolean RUNTIME_HOOK_PROBE = Boolean.getBoolean(XaeroHookProbe.PROPERTY);
+
+    /** tickが「遅い」とみなす所要時間。1tick(20TPS)相当。 */
+    private static final long SLOW_TICK_THRESHOLD_MILLIS = 50L;
+    /** 遅いtickが続く間、警告を再度出すまでの間隔。毎回だとログが洪水になる。 */
+    private static final long SLOW_TICK_LOG_INTERVAL_MILLIS = 5_000L;
+
     /** 連携の欠落を知らせたか。ワールドへ入るたびに繰り返すと、直しようが無い警告を毎回読ませることになる。 */
     private boolean hookNoticeShown;
 
+    private final ChangeGate<Boolean> slowTickGate = new ChangeGate<>();
+
     public void onClientTick() {
+        long startMillis = MonotonicTime.millis();
         XaeroNavKeys.handleInput();
         PathfindingState.INSTANCE.onClientTick();
         NavPace.INSTANCE.onClientTick();
         XaeroHookHealth.onClientTick();
+        // XaeroHookRuntimeProbeはXaero型を直接参照するため、通常起動ではクラス自体をloadしない。
+        if (RUNTIME_HOOK_PROBE) {
+            XaeroHookRuntimeProbe.onClientTick();
+        }
+        long nowMillis = MonotonicTime.millis();
+        long elapsedMillis = nowMillis - startMillis;
+        if (elapsedMillis > SLOW_TICK_THRESHOLD_MILLIS
+                && slowTickGate.changed(true, nowMillis, SLOW_TICK_LOG_INTERVAL_MILLIS)) {
+            XaeroNav.LOGGER.warn("XaeroNav: tick処理が遅い ({}ms > {}ms)", elapsedMillis, SLOW_TICK_THRESHOLD_MILLIS);
+        }
     }
 
     /**

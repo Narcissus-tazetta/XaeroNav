@@ -9,8 +9,12 @@ where to go next.
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
   Fabric API)
 - Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
-- Client-only. Nothing to install on the server.
+- Client-only. Nothing to install on the server. If the Forge jar is accidentally placed in a
+  dedicated server's `mods` folder, it has no server-side feature and does not block startup.
 - MIT licensed
+
+Contributor-facing design contracts are collected in the
+[architecture decision records](docs/architecture/README.md).
 
 This is still a 0.x release, and routing is the part still worth stress-testing. If a route detours,
 stops short, never appears, or sends you somewhere you cannot follow, run
@@ -104,7 +108,8 @@ Clear the route with `/xaeronav clear` or its keybind.
 anywhere: `mapdata [radiusChunks]` for how much of Xaero's map data is available around you,
 `route` and `corridor` for the coarse waypoint chain and its per-leg refinement, `probe` for what
 the detailed search reached and why it stopped, and `flight` for the aerial route. They are there
-to explain a route that came out wrong, so attach their output to a bug report.
+to explain a route that came out wrong, so attach their output to a bug report — but review it
+first, since it includes your current position, destination, and nearby terrain.
 
 ### Keybinds
 

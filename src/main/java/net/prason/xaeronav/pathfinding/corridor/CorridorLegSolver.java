@@ -17,7 +17,7 @@ import net.prason.xaeronav.xaero.XaeroMapReader;
  * <p><b>スレッド契約:</b> {@link #prepare}は{@link XaeroMapReader}経由でXaeroの地図データを読むため
  * メインスレッド専用（{@link XaeroMapReader}のクラスJavadoc参照）。結果の{@link PreparedLeg#view()}は
  * 不変な{@link SurfaceCellSource}なので、それを使ったA*探索自体はワーカースレッドで行ってよい
- * （探索の実行は呼び出し側に委ねる——診断コマンドは同期実行、ライブナビは非同期実行したいため）。
+ * （探索の実行は呼び出し側に委ねる——診断コマンド・ライブナビとも非同期実行したいため）。
  */
 public final class CorridorLegSolver {
 
@@ -33,7 +33,7 @@ public final class CorridorLegSolver {
 
     /**
      * 区間ごとの探索時間上限（ミリ秒）。層2は掘削・ドア・蜘蛛の巣を扱わずノード単価が軽いので、
-     * 上限を切り詰めても大抵の区間は十分な時間で解ける。診断コマンドは同期実行なので特に重要
+     * 上限を切り詰めても大抵の区間は十分な時間で解ける
      * （waypointの多い長いルートで合計が数十秒に膨らむのを防ぐ）。
      */
     public static final long LEG_TIME_LIMIT_MILLIS = 300;

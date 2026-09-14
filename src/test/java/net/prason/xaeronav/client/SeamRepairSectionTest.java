@@ -54,7 +54,7 @@ class SeamRepairSectionTest {
         // x=4..8（添字3..7）を、コストの安い2ステップへ差し替える
         List<PathStep> section = List.of(step(20, 1.0), step(8, 1.0));
 
-        List<PathStep> after = PathfindingState.withSection(before, section, 3, 7).result().steps();
+        List<PathStep> after = SeamRepair.withSection(before, section, 3, 7).result().steps();
 
         assertEquals(steps.subList(0, 3), after.subList(0, 3));
         assertEquals(steps.subList(8, 12), after.subList(after.size() - 4, after.size()));
@@ -71,7 +71,7 @@ class SeamRepairSectionTest {
                 new PathfindingState.PathSegment(11, 2)));
         List<PathStep> section = List.of(step(20, 1.0), step(8, 1.0));
 
-        PathfindingState.DisplayedPath after = PathfindingState.withSection(before, section, 3, 7);
+        PathfindingState.DisplayedPath after = SeamRepair.withSection(before, section, 3, 7);
 
         assertEquals(List.of(new PathfindingState.PathSegment(2, 0),
                         new PathfindingState.PathSegment(after.result().steps().size() - 1, 2)),
@@ -87,7 +87,7 @@ class SeamRepairSectionTest {
                 new PathfindingState.PathSegment(11, 2)));
         List<PathStep> section = List.of(step(20, 1.0));
 
-        PathfindingState.DisplayedPath after = PathfindingState.withSection(before, section, 8, 11);
+        PathfindingState.DisplayedPath after = SeamRepair.withSection(before, section, 8, 11);
 
         List<PathfindingState.PathSegment> segments = after.segments();
         assertEquals(after.result().steps().size() - 1, segments.get(segments.size() - 1).endStep());
@@ -103,7 +103,7 @@ class SeamRepairSectionTest {
         // 差し替えた区間が、手前で通ったx=2へ戻ってから進む
         List<PathStep> section = List.of(step(2, 1.0), step(8, 1.0));
 
-        List<PathStep> after = PathfindingState.withSection(before, section, 3, 7).result().steps();
+        List<PathStep> after = SeamRepair.withSection(before, section, 3, 7).result().steps();
 
         long visits = after.stream().filter(s -> s.pos().getX() == 2).count();
         assertEquals(1, visits);

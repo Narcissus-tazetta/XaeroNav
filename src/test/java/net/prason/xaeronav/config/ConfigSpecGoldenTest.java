@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +20,7 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 /**
  * 設定の定義（パス・型・既定値・レンジ・コメント）が意図せず変わっていないことを見る。
  *
- * <p>設定の定義をローダー非依存の記述へ移し替える作業では、37項目を手で書き写すことになる。
+ * <p>設定の定義をローダー非依存の記述へ移し替える作業では、38項目を手で書き写すことになる。
  * 既定値やレンジを1つ取り違えても、コンパイルは通り、他のテストも落ちず、ユーザーの手元で
  * 設定が静かに別の値になるだけになる。それを防ぐための突き合わせ。
  */
@@ -53,7 +52,7 @@ class ConfigSpecGoldenTest {
     }
 
     private static void collect(UnmodifiableConfig config, String prefix, List<String> out) {
-        for (Map.Entry<String, Object> entry : config.valueMap().entrySet()) {
+        for (UnmodifiableConfig.Entry entry : config.entrySet()) {
             String path = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
             Object value = entry.getValue();
             if (value instanceof UnmodifiableConfig nested) {

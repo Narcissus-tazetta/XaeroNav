@@ -23,7 +23,7 @@
     "fabricloader": "${fabric_loader_range}",
     "minecraft": "${minecraft_version}",
     "java": ">=${java_version}",
-    "fabric-api": "*"
+    "fabric-api": ">=${fabric_api_range}"
   },
   "suggests": {
     "xaeroworldmap": ">=${xaero_worldmap_version}",

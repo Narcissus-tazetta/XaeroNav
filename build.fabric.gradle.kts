@@ -10,11 +10,10 @@ fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 val minecraftVersion = dep("minecraft")
 
 // xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線（MC 1.20.5以降がJava 21）。
-// fabric.mod.jsonの"java"依存とxaeronav-xaero.mixins.jsonのcompatibilityLevelへ渡す
+// fabric.mod.jsonの"java"依存へ渡す（xaeronav-xaero.mixins.jsonのcompatibilityLevelはmixinCompatibilityLevelFor）
 val javaVersion = if (minecraftVersion.startsWith("1.20.")) 17 else 21
-val mixinCompatibilityLevel = "JAVA_$javaVersion"
-// リソースパックのpack_format（Minecraft Wikiのpack format表どおり、1.20.1系は15・1.21.1系は34）
-val packFormat = if (minecraftVersion.startsWith("1.20.")) 15 else 34
+val mixinCompatibilityLevel = mixinCompatibilityLevelFor(minecraftVersion)
+val packFormat = packFormatFor(minecraftVersion)
 
 repositories {
     maven("https://maven.terraformersmc.com/releases") { name = "TerraformersMC" }
@@ -36,20 +35,15 @@ loom {
     }
 }
 
-val xaeroModules = listOf(
-    "xaero.lib:xaerolib-fabric-$minecraftVersion:${dep("xaerolib")}",
-    "xaero.map:xaeroworldmap-fabric-$minecraftVersion:${dep("xaero_worldmap")}",
-    "xaero.minimap:xaerominimap-fabric-$minecraftVersion:${dep("xaero_minimap")}"
-)
+val xaeroModules = xaeroModuleCoordinates(
+    "fabric", minecraftVersion, dep("xaerolib"), dep("xaero_worldmap"), dep("xaero_minimap"))
 
 // Xaeroを開発実行（runClient）へ載せるか。`./gradlew runClient -Pwith_xaero=false` で外せる。
 // このMODはXaero未導入でもワールド内描画だけで動く設計なので、その前提を実際に確かめる手段を残す。
-val withXaero = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
+val withXaero = withXaeroProperty()
 
 // XaeroはMODとして読み込ませる必要があるので、実行時クラスパスではなくrun/modsへ置く。
-val xaeroRuntimeMods: Configuration by configurations.creating {
-    isTransitive = false
-}
+val xaeroRuntimeMods: Configuration = createXaeroRuntimeModsConfiguration()
 
 dependencies {
     minecraft("com.mojang:minecraft:$minecraftVersion")
@@ -83,7 +77,7 @@ dependencies {
 }
 
 // Syncではなくコピーにして、手で入れた他のMODを消さない。
-val installXaeroMods by tasks.registering(Copy::class) {
+val installXaeroMods = tasks.register<Copy>("installXaeroMods") {
     from(xaeroRuntimeMods)
     into(layout.projectDirectory.dir("run/mods"))
 }
@@ -94,21 +88,21 @@ tasks.matching { it.name == "runClient" }.configureEach {
 
 // CIの起動スモークテスト（mc-runtime-test）へ渡す一式。配布jarとXaeroを1箇所へ集める。
 // Fabricで配るのは中間マッピングへ戻したremapJarの方で、素のjarではない
-val stageRuntimeTestMods by tasks.registering(Copy::class) {
+val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
     from(tasks.named("remapJar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
 tasks.named<ProcessResources>("processResources").configure {
-    val replaceProperties = modResourceProperties() + mapOf(
-        "minecraft_version" to minecraftVersion,
+    val replaceProperties = commonNodeResourceProperties(
+        minecraftVersion, dep("xaero_worldmap"), dep("xaero_minimap"), mixinCompatibilityLevel, packFormat) + mapOf(
         "fabric_loader_range" to dep("fabric_loader_range"),
-        "xaero_worldmap_version" to dep("xaero_worldmap"),
-        "xaero_minimap_version" to dep("xaero_minimap"),
-        "java_version" to javaVersion.toString(),
-        "mixin_compatibility_level" to mixinCompatibilityLevel,
-        "pack_format" to packFormat.toString()
+        // fabric-apiは"*"のままだと古いAPIでもloaderが起動を許してしまう。開発・CIで実際に
+        // ビルド・テストしている版（deps.fabric_api）を下限として宣言する——それより下は
+        // 検証していないので「動く保証がある最も低い版」とは言えない
+        "fabric_api_range" to dep("fabric_api"),
+        "java_version" to javaVersion.toString()
     )
 
     inputs.properties(replaceProperties)
