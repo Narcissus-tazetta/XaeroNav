@@ -26,6 +26,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
+import net.prason.xaeronav.util.ChangeGate;
 import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
@@ -537,7 +538,7 @@ public final class PathfindingState {
     private volatile BlockPos spliceBlockedFrom;
 
     /** 直近に報告した合流拒否の理由。同じ理由を毎tick出さないための重複除去。 */
-    private String lastSpliceRefusal;
+    private final ChangeGate<String> spliceRefusalGate = new ChangeGate<>();
 
     /**
      * まだ解き直していない繋ぎ目の座標（継ぎ足しの根元、または合流点）。
@@ -552,13 +553,13 @@ public final class PathfindingState {
     private final Queue<BlockPos> seamsToRepair = new ConcurrentLinkedQueue<>();
 
     /** 直近に報告した繋ぎ目の解き直し見送りの理由。同じ理由を毎回出さないための重複除去。 */
-    private volatile String lastSeamRepairRefusal;
+    private final ChangeGate<String> seamRepairRefusalGate = new ChangeGate<>();
 
     /**
      * 直近に「立てない」と報告した探索目標。同じ目標を毎回ログに出さないための重複除去
      * （{@link #noteTargetStandability}）。
      */
-    private BlockPos lastUnstandableTarget;
+    private final ChangeGate<BlockPos> unstandableTargetGate = new ChangeGate<>();
 
     /** 予算を積んだ探索を次tickで投げ直すか。{@link #pendingCoarseGuideRetry}の一段手前。 */
     private volatile boolean pendingDeepRetry;
@@ -770,7 +771,7 @@ public final class PathfindingState {
         this.plainBudgetExhaustedAt = null;
         this.spliceBlockedFrom = null;
         this.seamsToRepair.clear();
-        this.lastSeamRepairRefusal = null;
+        this.seamRepairRefusalGate.reset();
         this.stuckTracker.reset();
         this.extendBlockedAt = null;
         this.extendBlockedFrom = null;
@@ -2347,7 +2348,7 @@ public final class PathfindingState {
                     return;
                 }
                 spliceBlockedFrom = null;
-                lastSpliceRefusal = null;
+                spliceRefusalGate.reset();
                 noteSeam(joinPos);
                 displayed = spliced(shown, splice, joinIndex);
                 LOGGER.info("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
@@ -2377,10 +2378,9 @@ public final class PathfindingState {
      * <p>同じ理由を毎tick出さないよう、直前と違うときだけ出す。
      */
     private void noteSpliceRefused(String reason, int steps, int minJoinIndex, int joinIndex) {
-        if (reason.equals(lastSpliceRefusal)) {
+        if (!spliceRefusalGate.changed(reason)) {
             return;
         }
-        lastSpliceRefusal = reason;
         LOGGER.info("XaeroNav: 経路への合流を諦めました ({}, 経路={}ステップ, 最小添字={}, 合流点添字={})",
                 reason, steps, minJoinIndex, joinIndex);
     }
@@ -2522,7 +2522,7 @@ public final class PathfindingState {
                             + Math.round(replacement) + "tick)");
                     return;
                 }
-                lastSeamRepairRefusal = null;
+                seamRepairRefusalGate.reset();
                 displayed = withSection(shown, repaired.steps(), sectionFrom, sectionTo);
                 LOGGER.info("XaeroNav: 繋ぎ目を解き直しました (繋ぎ目={}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
                         seam.toShortString(), Math.round(current), Math.round(replacement),
@@ -2540,10 +2540,9 @@ public final class PathfindingState {
      * 分からない。同じ理由を毎回出さないよう、直前と違うときだけ出す。
      */
     private void noteSeamRepairRefused(String reason) {
-        if (reason.equals(lastSeamRepairRefusal)) {
+        if (!seamRepairRefusalGate.changed(reason)) {
             return;
         }
-        lastSeamRepairRefusal = reason;
         LOGGER.info("XaeroNav: 繋ぎ目の解き直しを見送りました ({})", reason);
     }
 
@@ -2954,13 +2953,12 @@ public final class PathfindingState {
      */
     private void noteTargetStandability(ChunkView view, BlockPos target, PathMode mode, int waypointIndex) {
         if (StanceFinder.resolveGoal(view, target) != null) {
-            lastUnstandableTarget = null;
+            unstandableTargetGate.reset();
             return;
         }
-        if (target.equals(lastUnstandableTarget)) {
+        if (!unstandableTargetGate.changed(target)) {
             return;
         }
-        lastUnstandableTarget = target;
         LOGGER.info("XaeroNav: 探索目標に立てません (目標={}, 種別={}, 中間目標#{}, 層2の精緻版={})",
                 target.toShortString(), mode, waypointIndex,
                 refinedRouteInUse() ? "使用中" : "無し");
