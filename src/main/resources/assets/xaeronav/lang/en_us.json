@@ -82,6 +82,7 @@
   "gui.xaeronav.config.hud_enabled": "Guidance HUD",
   "gui.xaeronav.config.straight_line_enabled": "Show dotted line for unsearched sections",
   "gui.xaeronav.config.goal_marker_enabled": "Pin the destination on Xaero's maps",
+  "gui.xaeronav.config.danger_dashed_enabled": "Dash dangerous sections of the line",
   "hud.xaeronav.hud_on": "XaeroNav: guidance HUD on",
   "hud.xaeronav.hud_off": "XaeroNav: guidance HUD off",
   "hud.xaeronav.no_block_in_view": "XaeroNav: no block in view",

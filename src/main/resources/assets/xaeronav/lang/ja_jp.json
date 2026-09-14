@@ -82,6 +82,7 @@
   "gui.xaeronav.config.hud_enabled": "案内HUDを表示する",
   "gui.xaeronav.config.straight_line_enabled": "未探索区間を点線で表示する",
   "gui.xaeronav.config.goal_marker_enabled": "Xaeroの地図に目的地マーカーを表示する",
+  "gui.xaeronav.config.danger_dashed_enabled": "危険区間の線を破線にする",
   "hud.xaeronav.hud_on": "XaeroNav: 案内表示 オン",
   "hud.xaeronav.hud_off": "XaeroNav: 案内表示 オフ",
   "hud.xaeronav.no_block_in_view": "XaeroNav: 視線の先にブロックがありません",

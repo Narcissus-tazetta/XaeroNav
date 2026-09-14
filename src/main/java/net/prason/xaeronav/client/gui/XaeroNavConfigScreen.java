@@ -89,6 +89,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 cfg.straightLineEnabled(), cfg::setStraightLineEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.goal_marker_enabled",
                 cfg.goalMarkerEnabled(), cfg::setGoalMarkerEnabled));
+        addBig.accept(boolOption("gui.xaeronav.config.danger_dashed_enabled",
+                cfg.dangerDashedEnabled(), cfg::setDangerDashedEnabled));
     }
 
     private static OptionInstance<Boolean> boolOption(String key, boolean initial, Consumer<Boolean> setter) {

@@ -434,6 +434,12 @@ public final class PathRenderer {
         double toX = geometry.pointX[index + 1];
         double toY = geometry.pointY[index + 1];
         double toZ = geometry.pointZ[index + 1];
+        // 危険区間は色だけに頼らない識別として破線にする（A11Y-01）。カメラ近傍を避ける
+        // sunk処理より視認性を優先する——危険は目立たせる方が正しい
+        if (geometry.segmentDashed[index] && XaeroNavConfig.INSTANCE.dangerDashedEnabled()) {
+            drawDashedTube(buffer, pose, fromX, fromY, fromZ, toX, toY, toZ, red, green, blue, segmentAlpha);
+            return;
+        }
         if (!geometry.segmentSunk[index]) {
             drawTube(buffer, pose, TUBE_RADIUS, fromX, fromY, fromZ, toX, toY, toZ,
                     red, green, blue, segmentAlpha);
@@ -441,6 +447,34 @@ public final class PathRenderer {
         }
         drawTubeOutsideCamera(buffer, pose, fromX, fromY, fromZ, toX, toY, toZ, camera,
                 red, green, blue, segmentAlpha);
+    }
+
+    /**
+     * 区間を{@link #DASH_LENGTH}/{@link #DASH_GAP}の破線として描く。短い区間（1手ぶんの長さ程度）
+     * では最初のダッシュだけで全長を覆うので、見た目は実線のままになる——長い区間だけがはっきり
+     * 破線として見える。
+     */
+    private void drawDashedTube(VertexConsumer buffer, PoseStack.Pose pose,
+                                double fromX, double fromY, double fromZ,
+                                double toX, double toY, double toZ,
+                                float red, float green, float blue, float alpha) {
+        double dx = toX - fromX;
+        double dy = toY - fromY;
+        double dz = toZ - fromZ;
+        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (length < 1.0e-6) {
+            return;
+        }
+        double dirX = dx / length;
+        double dirY = dy / length;
+        double dirZ = dz / length;
+        for (double start = 0.0; start < length; start += DASH_LENGTH + DASH_GAP) {
+            double end = Math.min(start + DASH_LENGTH, length);
+            drawTube(buffer, pose, TUBE_RADIUS,
+                    fromX + dirX * start, fromY + dirY * start, fromZ + dirZ * start,
+                    fromX + dirX * end, fromY + dirY * end, fromZ + dirZ * end,
+                    red, green, blue, alpha);
+        }
     }
 
     /**

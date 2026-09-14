@@ -84,6 +84,12 @@ final class PathGeometry {
      * （{@code PathRenderer#SWIM_NEAR_CLIP_BLOCKS}）。
      */
     final boolean[] segmentSunk;
+    /**
+     * 危険区間か（{@link PathColors.Kind#DANGER}）。色だけに頼らない識別のため、描画側が
+     * 破線で強調する（A11Y-01）。区間内のステップは同じ色＝同じ分類にまとめられているので、
+     * 区間ごとに1つ持てば足りる。
+     */
+    final boolean[] segmentDashed;
 
     final int[] highlightX;
     final int[] highlightY;
@@ -108,7 +114,7 @@ final class PathGeometry {
     final int fadeFromSegment;
 
     private PathGeometry(double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
-                         int[] segmentEndStep, boolean[] segmentSunk,
+                         int[] segmentEndStep, boolean[] segmentSunk, boolean[] segmentDashed,
                          double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
                          boolean[] highlightPlacement, int[] highlightStep, int fadeFromSegment) {
@@ -121,6 +127,7 @@ final class PathGeometry {
         this.segmentColor = segmentColor;
         this.segmentEndStep = segmentEndStep;
         this.segmentSunk = segmentSunk;
+        this.segmentDashed = segmentDashed;
         this.highlightX = highlightX;
         this.highlightY = highlightY;
         this.highlightZ = highlightZ;
@@ -239,6 +246,8 @@ final class PathGeometry {
 
         // 沈めて描いた点。区間ごとの印（segmentSunk）を後から組み立てるために持つ
         boolean[] rawSunk = new boolean[count + 1];
+        // 危険区間か（区間ごとの印segmentDashedを後から組み立てるために持つ、A11Y-01）
+        boolean[] rawDangerous = new boolean[count];
 
         rawBlock[0] = start;
         // 始点は、そこから出ていく1手と同じ扱いにする。別扱いにすると先頭の1区間だけ段差になる
@@ -248,6 +257,7 @@ final class PathGeometry {
             rawBlock[i + 1] = step.pos();
             rawSunk[i + 1] = center(level, step.pos(), step, rawX, rawY, rawZ, i + 1);
             rawColor[i] = PathColors.forStep(step);
+            rawDangerous[i] = PathColors.kindFor(step) == PathColors.Kind.DANGER;
         }
 
         double[] outX = new double[count + 1];
@@ -296,6 +306,7 @@ final class PathGeometry {
 
         float[] flatSegmentColor = new float[segments * 3];
         boolean[] flatSegmentSunk = new boolean[segments];
+        boolean[] flatSegmentDashed = new boolean[segments];
         int startRaw = 0;
         for (int i = 0; i < segments; i++) {
             flatSegmentColor[i * 3] = outColor[i][0];
@@ -303,6 +314,8 @@ final class PathGeometry {
             flatSegmentColor[i * 3 + 2] = outColor[i][2];
             int endRaw = outEndStep[i] + 1;
             flatSegmentSunk[i] = rawSunk[startRaw] && rawSunk[endRaw];
+            // 区間内は同じ色＝同じ分類にまとめられているので、末尾ステップの判定で区間全体を代表できる
+            flatSegmentDashed[i] = rawDangerous[outEndStep[i]];
             startRaw = endRaw;
         }
 
@@ -353,7 +366,8 @@ final class PathGeometry {
 
         return new PathGeometry(
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
-                flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, rawX, rawY, rawZ,
+                flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentDashed,
+                rawX, rawY, rawZ,
                 hx, hy, hz, hColor, hPlacement, hStep, Math.min(fadeFromSegment, segments));
     }
 

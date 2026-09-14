@@ -35,3 +35,4 @@ pathfinding.additionalForbiddenBlocks | class= | type=EmptyList | default=[] | r
 display.hudEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=画面上部に案内（次の曲がり角・残りの道のり・所要時間）を表示するか
 display.straightLineEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=経路が分からない区間（未読み込みチャンクの先など）を目的地までの点線で示すか
 display.goalMarkerEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=Xaeroの世界地図・ミニマップの目的地にピンを立てるか
+display.dangerDashedEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=危険区間（溶岩・奈落・溺水・落下ダメージ等）の線を破線で強調するか\n色だけでは色覚特性や画面の色調補正で判別しづらい場面があるための、色以外の識別手段
