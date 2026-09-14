@@ -31,7 +31,7 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `stonecutter.properties.toml` | ノードごとの依存バージョン。**ノードを増やすとここにテーブルが 1 つ増える** |
 | `stonecutter.gradle.kts` | 全ノード共通の入口（`buildAll` / `collectJars` / `printNodes`）と spotless |
 | `build.neoforge.gradle.kts` / `build.fabric.gradle.kts` / `build.forge.gradle.kts` | ローダーごとのビルド。ローダーが増えたときだけ増える |
-| `buildSrc/src/main/kotlin/xaeronav.common.gradle.kts` | 全ノード共通のビルド設定（Java toolchain・テスト・jar 名）。Java版はMCバージョンで分岐（1.20.5未満は17・以降は21） |
+| `buildSrc/src/main/kotlin/xaeronav.common.gradle.kts` | 全ノード共通のビルド設定（Java toolchain・テスト・jar 名・Fletching Tableによるmixin登録）。Java版はMCバージョンで分岐（1.20.5未満は17・以降は21） |
 | `src/main/java/net/prason/xaeronav/platform/` | ローダーごとの起動処理とイベント配線 |
 | `src/main/resources/xaeronav.accesswidener` | Fabric専用。Mojang公式マッピングの一部ネストクラス（`RenderType.CompositeState`等）は自クラスの宣言とInnerClasses属性の宣言が食い違っており、外部から参照するには開放が要る（NeoForge/Forgeの`accesstransformer.cfg`のFabric版） |
 | `build.forge-legacy.gradle.kts` | 1.20.1のForgeノード専用。1.21.1-forgeとは違うツールチェーン（`net.neoforged.moddev.legacyforge`、ForgeGradleではない） |
@@ -39,6 +39,19 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 `gradle.properties` にあるのは MOD 自身のメタデータ（id・名前・バージョン）だけです。
 Minecraft / ローダー / Xaero の版は `stonecutter.properties.toml` が唯一の情報源で、
 `neoforge.mods.toml` / `fabric.mod.json` / `mods.toml`（Forge）へもそこから流し込まれます。
+
+## Mixin一覧の生成
+
+[Fletching Table](https://stonecutter.kikugie.dev/wiki/fletching-table) のJava annotation processorが
+各ノードのコンパイル時に`@Mixin`クラスを検出し、`xaeronav-xaero.mixins.json`の`client`一覧へ
+自動登録します。このJSONは生成元のテンプレートでもあり、`required`・`minVersion`・`package`・
+`refmap`・`injectors`など、クラス一覧以外の設定は引き続きここで管理します。テンプレートの
+`client`は空のままにし、クラス名を手で追加しないでください。追加・改名・削除はJava側の
+`@Mixin`から生成結果へ反映されます。
+
+生成は`processResources`より前に行われるため、`${mixin_compatibility_level}`の版別展開も維持されます。
+Forge固有のrefmap生成やMANIFESTの`MixinConfigs`登録はFletching Tableの対象外なので、
+`build.forge.gradle.kts` / `build.forge-legacy.gradle.kts`側の設定を削除しないでください。
 
 ## ノードを増やす
 

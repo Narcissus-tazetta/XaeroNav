@@ -2,6 +2,7 @@ import dev.kikugie.stonecutter.build.StonecutterBuildExtension
 
 plugins {
     id("java-library")
+    id("dev.kikugie.fletching-table")
 }
 
 // Stonecutterは各ノードへ自分のビルドプラグインを先に当てるので、ここで参照できる。
@@ -39,6 +40,18 @@ tasks.withType<JavaCompile>().configureEach {
 repositories {
     mavenCentral()
     maven("https://chocolateminecraft.com/maven") { name = "Xaero's Maven" }
+}
+
+// Java APTで@Mixinクラスを収集し、既存のconfigをテンプレートとしてclient一覧へ登録する。
+// テンプレートの${'$'}{mixin_compatibility_level}は有効なJSON文字列なので、Fletching Tableが
+// 一覧を生成した後も各ローダーのprocessResourcesによる展開をそのまま適用できる。
+// Forge 1.20.1のrefmap生成とMANIFEST登録は別の責務なので、各ローダー側の設定を維持する。
+fletchingTable {
+    mixins.configure("main") {
+        mixin("xaeronav-xaero.mixins.json") {
+            env("client")
+        }
+    }
 }
 
 // null契約を型で表す注釈のみ。注釈処理を使わないマーカーアノテーションなので、

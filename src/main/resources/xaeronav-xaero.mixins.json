@@ -4,13 +4,7 @@
   "package": "net.prason.xaeronav.mixin.xaero",
   "refmap": "xaeronav.refmap.json",
   "compatibilityLevel": "${mixin_compatibility_level}",
-  "client": [
-    "GuiMapKeyMixin",
-    "GuiMapMixin",
-    "GuiMapRightClickMixin",
-    "MinimapFBORendererMixin",
-    "WaypointReaderMixin"
-  ],
+  "client": [],
   "injectors": {
     "defaultRequire": 1
   }
