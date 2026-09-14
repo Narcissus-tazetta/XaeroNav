@@ -347,7 +347,8 @@ jobs:
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: ${{ startsWith(matrix.node.minecraft, '1.20.') && '17' || '21' }}
+          # Gradle 9.7.1とStonecutter 0.9.8を動かすJVM。1.20.1のmod自体はtoolchainでJava 17になる。
+          java-version: 21
 
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
@@ -360,6 +361,13 @@ jobs:
         run: |
           mkdir -p run/mods
           cp build/server-test/${{ matrix.node.node }}/mods/*.jar run/mods/
+
+      # HeadlessMCはこの時点のJAVA_HOMEをserver JVMとして登録する。Gradleとは分け、
+      # Minecraft 1.20.1だけJava 17、1.21.1はJava 21で実行する。
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ startsWith(matrix.node.minecraft, '1.20.') && '17' || '21' }}
 
       # mc-server-testはworldのload完了をpositiveに待ち、到達後にstopを送る。
       # 可変tagではなく、内容を確認したv1.1.1の署名済みcommitへ固定する。
