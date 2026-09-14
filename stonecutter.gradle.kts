@@ -64,6 +64,7 @@ tasks.register("verifyDistribution") {
         expected.forEach { (name, loader) ->
             java.util.jar.JarFile(actual.getValue(name)).use { jar ->
                 check(jar.getEntry("xaeronav-xaero.mixins.json") != null) { "$name: mixin configがありません" }
+                val entryNames = jar.entries().asSequence().map { it.name }.toSet()
                 when (loader) {
                     "fabric" -> {
                         check(jar.getEntry("fabric.mod.json") != null) { "$name: fabric.mod.jsonがありません" }
@@ -71,15 +72,26 @@ tasks.register("verifyDistribution") {
                                 && jar.getEntry("META-INF/neoforge.mods.toml") == null) {
                             "$name: 他loaderのmetadataが混入しています"
                         }
+                        // FabricはLoomのinclude()でMETA-INF/jars/へネストしたjarのまま同梱する
+                        // （@Local/@WrapOperation等mixinextrasのmixinが依存、本体には含まれない）
+                        check(entryNames.any { it.startsWith("META-INF/jars/mixinextras-fabric-") }) {
+                            "$name: mixinextrasが同梱されていません"
+                        }
                     }
                     "forge" -> {
                         check(jar.getEntry("META-INF/mods.toml") != null) { "$name: mods.tomlがありません" }
                         check(jar.manifest.mainAttributes.getValue("MixinConfigs")
                                 == "xaeronav-xaero.mixins.json") { "$name: MixinConfigs manifestが不正です" }
+                        // ForgeはFG7のjarJar（またはlegacyforgeの同名機構）でMETA-INF/jarjar/へ
+                        // ネストしたjarのまま同梱する（Forge本体はmixinextrasを同梱していない）
+                        check(entryNames.any { it.startsWith("META-INF/jarjar/mixinextras-forge-") }) {
+                            "$name: mixinextrasがjarJarで同梱されていません"
+                        }
                     }
                     "neoforge" -> check(jar.getEntry("META-INF/neoforge.mods.toml") != null) {
                         "$name: neoforge.mods.tomlがありません"
                     }
+                    // NeoForge本体はmixinextrasを同梱済みなので、ここでの同梱検査は不要
                 }
             }
         }
