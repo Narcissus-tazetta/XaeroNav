@@ -141,6 +141,13 @@ val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
+// 専用サーバーのproduction smoke testにはXaeroを入れず、利用者へ配る統合jarだけを渡す。
+// client runtimeと同じstage先を共有すると、任意依存のXaeroがサーバーへ混ざって検査にならない。
+tasks.register<Sync>("stageServerTestMod") {
+    from(tasks.named("jarJar"))
+    into(rootProject.layout.buildDirectory.dir("server-test/${stonecutter.current.project}/mods"))
+}
+
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = modResourceProperties() + mapOf(
         "minecraft_version" to minecraftVersion,

@@ -96,6 +96,12 @@ val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
+// 専用サーバーのproduction smoke testにはXaeroを入れず、利用者へ配るjarだけを渡す。
+tasks.register<Sync>("stageServerTestMod") {
+    from(tasks.named("jar"))
+    into(rootProject.layout.buildDirectory.dir("server-test/${stonecutter.current.project}/mods"))
+}
+
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = modResourceProperties() + mapOf(
         "minecraft_version" to mcVersion,

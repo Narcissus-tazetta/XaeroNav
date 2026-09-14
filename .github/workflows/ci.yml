@@ -28,6 +28,8 @@ jobs:
     outputs:
       nodes: ${{ steps.nodes.outputs.nodes }}
       runtime_nodes: ${{ steps.nodes.outputs.runtime_nodes }}
+      server_nodes: ${{ steps.nodes.outputs.server_nodes }}
+      server_required: ${{ steps.full.outputs.server_required }}
       canonical_node: ${{ steps.nodes.outputs.canonical_node }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,17 +54,24 @@ jobs:
         id: full
         run: |
           FULL=false
+          SERVER=false
           if [ "${{ github.event_name }}" = "schedule" ]; then
             FULL=true
+            SERVER=true
           elif [ "${{ github.event_name }}" = "push" ]; then
             FULL=true
+            SERVER=true
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")
             if echo "$CHANGED" | grep -qE '^(stonecutter\.properties\.toml|settings\.gradle\.kts|src/main/java/net/prason/xaeronav/mixin/|src/main/resources/.*\.mixins\.json)'; then
               FULL=true
             fi
+            if echo "$CHANGED" | grep -qE '^(\.github/workflows/ci\.yml|stonecutter\.properties\.toml|settings\.gradle\.kts|build\.forge(-legacy)?\.gradle\.kts|src/main/java/net/prason/xaeronav/platform/forge/|src/main/resources/META-INF/mods\.toml)'; then
+              SERVER=true
+            fi
           fi
           echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          echo "server_required=$SERVER" >> "$GITHUB_OUTPUT"
 
       # ノードの定義はsettings.gradle.ktsにしか無い状態を保つ
       - id: nodes
@@ -82,6 +91,8 @@ jobs:
           # matrixコンテキストを参照できず、ワークフローファイルが丸ごと不正になる
           RUNTIME=$(echo "$RUNTIME" | jq -c '[.[] | select(.node != "1.20.1-forge")]')
           echo "runtime_nodes=$RUNTIME" >> "$GITHUB_OUTPUT"
+          SERVER=$(echo "$NODES" | jq -c '[.[] | select(.loader == "forge")]')
+          echo "server_nodes=$SERVER" >> "$GITHUB_OUTPUT"
 
   # 全ノードの配布jarをコンパイルする。フォーマット確認とテスト（slowTestを含む）は、
   # ソースを共有する正典ノードでだけ行う（stonecutter.properties.tomlのcanonical_test_node）。
@@ -311,6 +322,59 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: client-log-${{ matrix.node.node }}
+          path: |
+            run/logs
+            run/crash-reports
+          if-no-files-found: warn
+          retention-days: 7
+
+  # XaeroNavはクライアント専用でサーバーへ入れる必要はない。ただしForgeの@Modには
+  # client限定の指定がなくouter entrypointは専用サーバーでも読み込まれるため、誤って
+  # 配布jarをserver modsへ置いてもclient classの早期loadで起動を妨げないことを確認する。
+  server:
+    needs: discover
+    if: needs.discover.outputs.server_required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJson(needs.discover.outputs.server_nodes) }}
+    name: server (${{ matrix.node.node }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ startsWith(matrix.node.minecraft, '1.20.') && '17' || '21' }}
+
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: true
+
+      - name: Build and stage the production mod jar
+        run: ./gradlew :${{ matrix.node.node }}:stageServerTestMod --console=plain
+
+      - name: Put XaeroNav into the test server
+        run: |
+          mkdir -p run/mods
+          cp build/server-test/${{ matrix.node.node }}/mods/*.jar run/mods/
+
+      # mc-server-testはworldのload完了をpositiveに待ち、到達後にstopを送る。
+      # 可変tagではなく、内容を確認したv1.1.1の署名済みcommitへ固定する。
+      - name: Run the Forge dedicated server
+        uses: headlesshq/mc-server-test@42de00da95e997b046a43eb9beb516494e542ba9 # v1.1.1
+        with:
+          mc: ${{ matrix.node.minecraft }}
+          modloader: forge
+          java: ${{ startsWith(matrix.node.minecraft, '1.20.') && '17' || '21' }}
+
+      - name: Upload server logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-log-${{ matrix.node.node }}
           path: |
             run/logs
             run/crash-reports

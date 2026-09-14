@@ -8,7 +8,8 @@
 - Minecraft 1.21.1 / NeoForge 21.1.228 以降、Forge 52.1.16 以降、または Fabric（Fabric Loader
   0.15.11 以降 + Fabric API）
 - Minecraft 1.20.1 / Forge 47.4.23 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）
-- クライアント専用。サーバー側に入れるものはありません
+- クライアント専用。サーバー側に入れるものはありません。Forge版を誤って専用サーバーの`mods`へ
+  入れてもサーバー側の機能は持たず、起動を妨げません
 - ライセンスは MIT
 
 開発者向けの設計契約は[アーキテクチャ判断記録](docs/architecture/README.md)にまとめています。

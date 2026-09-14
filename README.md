@@ -9,7 +9,8 @@ where to go next.
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
   Fabric API)
 - Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
-- Client-only. Nothing to install on the server.
+- Client-only. Nothing to install on the server. If the Forge jar is accidentally placed in a
+  dedicated server's `mods` folder, it has no server-side feature and does not block startup.
 - MIT licensed
 
 Contributor-facing design contracts are collected in the
