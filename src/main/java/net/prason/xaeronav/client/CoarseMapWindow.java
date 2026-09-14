@@ -2,6 +2,7 @@ package net.prason.xaeronav.client;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
+import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 
 /**
@@ -41,8 +42,11 @@ final class CoarseMapWindow {
      * @param map             範囲が広すぎて読めなかったときは{@code null}
      * @param pendingRegions  0より大きければ、少し待って読み直せば地図が増えるということ
      * @param layerBreakdown  洞窟レイヤーごとの取り分（{@link XaeroMapReader.SurfaceRead}）
+     * @param readMillis      {@link XaeroMapReader#readSurfaceReporting}だけにかかった時間。
+     *                        範囲が広すぎて読まなかった回は0（実機のカクつきがメインスレッド側の
+     *                        地図読みに由来するかを継続的に見るためのもの）
      */
-    record Window(CoarseMap map, int pendingRegions, String layerBreakdown) {
+    record Window(CoarseMap map, int pendingRegions, String layerBreakdown, long readMillis) {
     }
 
     /**
@@ -69,7 +73,7 @@ final class CoarseMapWindow {
         int chunksZ = maxChunkZ - minChunkZ + 1;
         if (chunksX > MAX_SPAN_CHUNKS || chunksZ > MAX_SPAN_CHUNKS
                 || (long) chunksX * chunksZ * statesPerCell > MAX_STATES) {
-            return new Window(null, 0, "");
+            return new Window(null, 0, "", 0L);
         }
         int referenceY = (from.getY() + to.getY()) / 2;
         int pending = XaeroMapReader
@@ -79,8 +83,10 @@ final class CoarseMapWindow {
             // pendingRegionsを見て引き直す（PathfindingState#cachedOrFreshRoute）
             XaeroMapReader.requestLoad(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
         }
+        long startMillis = MonotonicTime.millis();
         XaeroMapReader.SurfaceRead read =
                 XaeroMapReader.readSurfaceReporting(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
-        return new Window(read.map(), pending, read.layerBreakdown());
+        long readMillis = MonotonicTime.millis() - startMillis;
+        return new Window(read.map(), pending, read.layerBreakdown(), readMillis);
     }
 }

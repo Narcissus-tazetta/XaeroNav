@@ -280,6 +280,12 @@ public final class PathfindingState {
      */
     private static final int SPLICE_MAX_EXPANDED_NODES = 30_000;
 
+    /** 長距離ルートの地図読み取りが「遅い」とみなす所要時間。1tick(20TPS)相当。 */
+    private static final long SLOW_MAP_READ_THRESHOLD_MILLIS = 50L;
+    /** 遅い読み取りが続く間、警告を再度出すまでの間隔。毎回だとログが洪水になる。 */
+    private static final long SLOW_MAP_READ_LOG_INTERVAL_MILLIS = 5_000L;
+    private static final ChangeGate<Boolean> slowMapReadGate = new ChangeGate<>();
+
     /**
      * 合流点として認める距離の余裕（ブロック）。<b>最も近いステップから</b>これだけの範囲を
      * 同じくらい近いとみなし、その中でいちばん先のステップへ合流する。
@@ -3429,12 +3435,20 @@ public final class PathfindingState {
         // 未知セルはCoarseRouterでほぼ最安なので、見えていなければ溶岩の海を直進するルートが
         // 引かれる。読み込み待ちのリージョンがあるときだけINFOにする（普段は静かにしておく）
         if (window.pendingRegions() > 0) {
-            LOGGER.info("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン={})",
+            LOGGER.info("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン={}, 読み取り={}ms)",
                     map.knownCells(), map.totalCells(), map.kindBreakdown(), window.layerBreakdown(),
-                    window.pendingRegions());
+                    window.pendingRegions(), window.readMillis());
         } else if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン=0)",
-                    map.knownCells(), map.totalCells(), map.kindBreakdown(), window.layerBreakdown());
+            LOGGER.debug("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン=0, 読み取り={}ms)",
+                    map.knownCells(), map.totalCells(), map.kindBreakdown(), window.layerBreakdown(),
+                    window.readMillis());
+        }
+        // 実機のカクつきがメインスレッドの地図読み取り側かを継続的に見張る。1tick(20TPS)相当の
+        // 50msを超えたら、閾値以下に戻るまでの間も5秒おきに知らせる（毎回だと洪水になる）
+        if (window.readMillis() > SLOW_MAP_READ_THRESHOLD_MILLIS
+                && slowMapReadGate.changed(true, MonotonicTime.millis(), SLOW_MAP_READ_LOG_INTERVAL_MILLIS)) {
+            LOGGER.warn("XaeroNav: 長距離ルートの地図読み取りが遅い ({}ms > {}ms)",
+                    window.readMillis(), SLOW_MAP_READ_THRESHOLD_MILLIS);
         }
         CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.AVOID);
