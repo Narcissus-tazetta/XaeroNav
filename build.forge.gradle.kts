@@ -11,11 +11,9 @@ fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 
 val minecraftVersion = dep("minecraft")
 
-// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線。xaeronav-xaero.mixins.jsonの
-// compatibilityLevelへ渡す（このノードは今のところ常に1.21.1系なのでJAVA_21固定）
-val mixinCompatibilityLevel = if (minecraftVersion.startsWith("1.20.")) "JAVA_17" else "JAVA_21"
-// リソースパックのpack_format（Minecraft Wikiのpack format表どおり、1.20.1系は15・1.21.1系は34）
-val packFormat = if (minecraftVersion.startsWith("1.20.")) 15 else 34
+// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線（このノードは今のところ常に1.21.1系なのでJAVA_21固定）
+val mixinCompatibilityLevel = mixinCompatibilityLevelFor(minecraftVersion)
+val packFormat = packFormatFor(minecraftVersion)
 
 repositories {
     // Minecraft 1.21.1のmacOS用LWJGLにはMaven Centralに無い
@@ -95,20 +93,15 @@ tasks.named<Jar>("jar") {
     manifest.attributes("MixinConfigs" to "${modProperty("mod_id")}-xaero.mixins.json")
 }
 
-val xaeroModules = listOf(
-    "xaero.lib:xaerolib-forge-$minecraftVersion:${dep("xaerolib")}",
-    "xaero.map:xaeroworldmap-forge-$minecraftVersion:${dep("xaero_worldmap")}",
-    "xaero.minimap:xaerominimap-forge-$minecraftVersion:${dep("xaero_minimap")}"
-)
+val xaeroModules = xaeroModuleCoordinates(
+    "forge", minecraftVersion, dep("xaerolib"), dep("xaero_worldmap"), dep("xaero_minimap"))
 
 // Xaeroを開発実行（runClient）へ載せるか。`./gradlew runClient -Pwith_xaero=false` で外せる。
-val withXaero = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
+val withXaero = withXaeroProperty()
 
 // XaeroはMODとして読み込ませる必要があるので、実行時クラスパスではなくrun/modsへ置く
 // （他の2ノードと同じ理由。NeoForgeEntry.javaのコメント参照）。
-val xaeroRuntimeMods: Configuration = configurations.create("xaeroRuntimeMods") {
-    isTransitive = false
-}
+val xaeroRuntimeMods: Configuration = createXaeroRuntimeModsConfiguration()
 
 dependencies {
     // FG7はMinecraft依存と同じ解決構成上の外部modをmavenizerでnamedへ変換する。
@@ -149,13 +142,9 @@ tasks.register<Sync>("stageServerTestMod") {
 }
 
 tasks.named<ProcessResources>("processResources").configure {
-    val replaceProperties = modResourceProperties() + mapOf(
-        "minecraft_version" to minecraftVersion,
-        "forge_loader_version_range" to dep("forge_loader_range"),
-        "xaero_worldmap_version" to dep("xaero_worldmap"),
-        "xaero_minimap_version" to dep("xaero_minimap"),
-        "mixin_compatibility_level" to mixinCompatibilityLevel,
-        "pack_format" to packFormat.toString()
+    val replaceProperties = commonNodeResourceProperties(
+        minecraftVersion, dep("xaero_worldmap"), dep("xaero_minimap"), mixinCompatibilityLevel, packFormat) + mapOf(
+        "forge_loader_version_range" to dep("forge_loader_range")
     )
 
     inputs.properties(replaceProperties)
