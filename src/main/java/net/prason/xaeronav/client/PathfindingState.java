@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntPredicate;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -434,30 +435,30 @@ public final class PathfindingState {
     // currentResultを復活させてしまう競合を防ぐ)。
     private final AtomicLong generation = new AtomicLong();
 
-    private volatile BlockPos goal;
+    private volatile @Nullable BlockPos goal;
     // 目的地を設定した次元。座標だけを覚えていると、ネザーへ移動したあとも同じ座標を目指してしまう
-    private volatile ResourceKey<Level> goalDimension;
-    private volatile DisplayedPath displayed;
+    private volatile @Nullable ResourceKey<Level> goalDimension;
+    private volatile @Nullable DisplayedPath displayed;
     private volatile boolean computing;
     private volatile boolean arrived;
     // 地上へ出る経路が出せなかった地点。掘削を切っている・密閉された場所では中継区間そのものが
     // 成立しないので、その付近では地上優先ナビを諦めて本来の目的地へ直接向かう
-    private volatile BlockPos surfaceLegFailedAt;
+    private volatile @Nullable BlockPos surfaceLegFailedAt;
     // 長距離ルートの中間目標。地形は不変なので、目的地が変わらない限り引き直さない
-    private volatile CoarseRoute coarseRoute;
+    private volatile @Nullable CoarseRoute coarseRoute;
     // coarseRouteの各区間を層2廊下（ブロック解像度）で解決し直した精緻版。層1はチャンク平均でしか
     // 地形を見ないため、waypointが実際には崖の上や湖の中を指すことがある。用意でき次第
     // cachedOrFreshRoute/NavigationView#coarseRouteWaypointsがこちらへ差し替わる
     // （発動条件が一つでも欠けたら層1のcoarseRouteへフォールバックする、という既存の考え方の延長）
-    private volatile RefinedRoute refinedRoute;
+    private volatile @Nullable RefinedRoute refinedRoute;
     // 精緻化がバックグラウンドで完了したことを示す、次tickで拾うためのフラグ（pendingWideRetryと
     // 同じ構造）。whenComplete（ワーカースレッド）で立て、onClientTick（クライアントスレッド）で読む
     /** 完了した精緻化そのもの。由来元を照合してから現行routeへ公開する。 */
-    private volatile RefinedRoute pendingRefinedRouteReady;
+    private volatile @Nullable RefinedRoute pendingRefinedRouteReady;
     // 精緻化が進行中のcoarseRoute。進行中に長距離ルートを引き直すと、その結果は由来元の不一致で
     // 捨てられる——引き直しの間隔（最短0.5秒）は精緻化（区間ごとに最大300ms）より短くなりうるので、
     // 素通しにすると精緻版が一度も完成しないまま、メインスレッドの地図読みだけを回し続けることになる
-    private volatile CoarseRoute refiningRoute;
+    private volatile @Nullable CoarseRoute refiningRoute;
     // 地図の読み込み待ちで引き直す番（COARSE_MAP_RETRY_INTERVAL_MILLIS）。クライアントスレッドだけが触る
     private long coarseMapRetryAfterMillis;
     // 地図の読み込み待ちで引き直した回数（COARSE_MAP_RETRY_LIMIT）。クライアントスレッドだけが触る
@@ -678,7 +679,7 @@ public final class PathfindingState {
      *
      * @return 実際に採用した、立てる高さへ解決済みの目的地。ワールドが無ければ {@code null}
      */
-    public BlockPos setGoal(BlockPos goal) {
+    public @Nullable BlockPos setGoal(BlockPos goal) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
@@ -3199,7 +3200,7 @@ public final class PathfindingState {
      * <p>「届く範囲」は描画距離ではなく{@code reach}（{@link #updateDetailReach}の実測値）で切る。
      * 描画距離まで読み込み済みとは限らないうえ、同じ予算で解ける距離は地形の密度で何倍も変わる。
      */
-    private DetailTarget reachableWaypointTarget(BlockPos start, BlockPos currentGoal,
+    private @Nullable DetailTarget reachableWaypointTarget(BlockPos start, BlockPos currentGoal,
                                                   List<BlockPos> waypoints, int renderRadius, int reach,
                                                   boolean playerAnchored, int minWaypointIndex) {
         int farthestInRadius = -1;

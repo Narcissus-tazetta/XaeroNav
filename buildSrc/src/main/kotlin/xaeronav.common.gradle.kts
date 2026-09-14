@@ -41,6 +41,13 @@ repositories {
     maven("https://chocolateminecraft.com/maven") { name = "Xaero's Maven" }
 }
 
+// null契約を型で表す注釈のみ。注釈処理を使わないマーカーアノテーションなので、
+// annotationProcessorには足さない（mixinextrasのように公式マッピングランタイムで
+// ビルドを止める類の罠には該当しない）。
+dependencies {
+    compileOnly("org.jspecify:jspecify:1.0.0")
+}
+
 testing {
     suites {
         named<JvmTestSuite>("test") {
