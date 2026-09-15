@@ -4,6 +4,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.jspecify.annotations.Nullable;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
@@ -31,8 +33,21 @@ final class PathValidator {
      * <p>理由の文字列は診断用。<b>添字</b>の方は迂回の判断に要る——変化が「もう歩き終えた区間」
      * なのか「これから通る区間」なのか、これから通るならどこから先を作り直せば足りるのかは、
      * どのステップで壊れたかが分からないと決められない。
+     *
+     * <p>{@code unusableCell}は<b>探索が使えると判断したのに実際は使えなかったセル</b>
+     * （足場なら足元、身体が通る前提のセルならそのセル）。ステップ自身の座標とは限らない。
+     * 次の探索がそこを選び直さないために要る（{@link
+     * net.prason.xaeronav.pathfinding.world.AvoidedCellSource}）。
+     *
+     * <p><b>{@code null}になるのは「掘る前提のセルが既に空いている」場合だけ。</b>そこは世界が
+     * 通りやすく変わっただけで、避ける理由が無い——避けると、もう掘らなくてよくなったセルを
+     * わざわざ迂回する経路になる。
      */
-    record Failure(int stepIndex, String reason) {
+    record Failure(int stepIndex, @Nullable BlockPos unusableCell, String reason) {
+    }
+
+    /** 不成立だったセルと、その理由。{@link Failure}からステップの添字を除いたもの。 */
+    private record CellFailure(@Nullable BlockPos unusableCell, String reason) {
     }
 
     /**
@@ -82,9 +97,9 @@ final class PathValidator {
                 // 先のステップも見る。近傍へ戻ってくる経路ならそこは検証される
                 continue;
             }
-            String reason = stepFailure(level, step, i, cursor, plannedDigs);
-            if (reason != null) {
-                return new Failure(i, reason);
+            CellFailure failure = cellFailure(level, step, i, cursor, plannedDigs);
+            if (failure != null) {
+                return new Failure(i, failure.unusableCell(), failure.reason());
             }
         }
         return null;
@@ -97,7 +112,9 @@ final class PathValidator {
      * いきなりここへ入れるか」を問う用途に使う。経路を順に辿る検査は{@link #firstFailureFrom}。
      */
     static String stepFailure(Level level, PathStep step, int index) {
-        return stepFailure(level, step, index, new BlockPos.MutableBlockPos(), Set.copyOf(step.digCells()));
+        CellFailure failure = cellFailure(level, step, index, new BlockPos.MutableBlockPos(),
+                Set.copyOf(step.digCells()));
+        return failure == null ? null : failure.reason();
     }
 
     /**
@@ -133,8 +150,8 @@ final class PathValidator {
         return step.bodyCells().stream().filter(cell -> !plannedDigs.contains(cell)).toList();
     }
 
-    private static String stepFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
-                                      Set<BlockPos> plannedDigs) {
+    private static CellFailure cellFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
+                                           Set<BlockPos> plannedDigs) {
         BlockPos pos = step.pos();
         if (!readable(level, pos)) {
             // このステップの周りは丸ごと読めない。1セルずつの門番でも同じ結論になるが、
@@ -144,19 +161,23 @@ final class PathValidator {
         if (step.swimming() || step.boating()) {
             // 泳ぐ区間もボートの区間も、足場ではなく水そのものが前提
             if (!CellData.water(CellData.flagsOf(level.getBlockState(pos)))) {
-                return "ステップ%d(%s) 泳ぐ/ボート前提の水が無い pos=%s".formatted(i, step.movement(), pos.toShortString());
+                return new CellFailure(pos, "ステップ%d(%s) 泳ぐ/ボート前提の水が無い pos=%s"
+                        .formatted(i, step.movement(), pos.toShortString()));
             }
         } else if (step.climbing()) {
             // 梯子・ツタの区間も足場ではなく掴めるもの自体が前提
             if (!CellData.climbable(CellData.flagsOf(level.getBlockState(pos)))) {
-                return "ステップ%d(%s) 掴める物が無い pos=%s".formatted(i, step.movement(), pos.toShortString());
+                return new CellFailure(pos, "ステップ%d(%s) 掴める物が無い pos=%s"
+                        .formatted(i, step.movement(), pos.toShortString()));
             }
         } else if (!step.bridging()) {
             // ブロックを置いて渡る区間は、足元が空いていることが前提なので床を確認しない
             cursor.set(pos.getX(), pos.getY() - 1, pos.getZ());
             if (readable(level, cursor)
                     && !CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
-                return "ステップ%d(%s) 足場が無い pos=%s".formatted(i, step.movement(), cursor.immutable().toShortString());
+                BlockPos footing = cursor.immutable();
+                return new CellFailure(footing, "ステップ%d(%s) 足場が無い pos=%s"
+                        .formatted(i, step.movement(), footing.toShortString()));
             }
         }
         // 掘り終えた区間を「まだ掘る場所」として提示し続けないよう、掘る前提のセルが
@@ -164,8 +185,9 @@ final class PathValidator {
         for (BlockPos cell : step.digCells()) {
             if (readable(level, cell)
                     && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(cell)))) {
-                return "ステップ%d(%s) 掘る前提のセルが既に空いている cell=%s"
-                        .formatted(i, step.movement(), cell.toShortString());
+                // 通りやすく変わっただけなので避けるセルは無い（Failure#unusableCell参照）
+                return new CellFailure(null, "ステップ%d(%s) 掘る前提のセルが既に空いている cell=%s"
+                        .formatted(i, step.movement(), cell.toShortString()));
             }
         }
         for (BlockPos cell : unexcavatedBodyCells(step, plannedDigs)) {
@@ -175,9 +197,9 @@ final class PathValidator {
             long flags = CellData.flagsOf(level.getBlockState(cell));
             // 閉じたドアは通れる前提（開けて通る）なので、塞がっているとは見なさない
             if (!CellData.occupiableWithoutDigging(flags) && !CellData.openable(flags)) {
-                return "ステップ%d(%s, bridging=%s) 身体が通るセルが塞がっている cell=%s state=%s"
+                return new CellFailure(cell, "ステップ%d(%s, bridging=%s) 身体が通るセルが塞がっている cell=%s state=%s"
                         .formatted(i, step.movement(), step.bridging(), cell.toShortString(),
-                                level.getBlockState(cell));
+                                level.getBlockState(cell)));
             }
         }
         return null;

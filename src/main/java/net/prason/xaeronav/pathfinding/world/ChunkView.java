@@ -498,6 +498,21 @@ public final class ChunkView implements CellSource {
         return chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) + 1;
     }
 
+    /**
+     * {@link #openSkyY}と同じ値を、{@link ChunkView}を組む<b>前に</b>1列だけ知りたいときに。
+     * 読み込まれていない列は{@link Integer#MAX_VALUE}（空の下だと言い切れないなら地上として扱わない）。
+     *
+     * <p>探索範囲を決める前に地表の高さが要る場面がある——どこを地上とみなすかで探索の箱そのものが
+     * 決まるので、箱から組み立てる{@link ChunkView}では間に合わない。メインスレッド専用。
+     */
+    public static int openSkyY(Level level, int x, int z) {
+        LevelChunk chunk = level.getChunkSource().getChunkNow(x >> 4, z >> 4);
+        if (chunk == null) {
+            return Integer.MAX_VALUE;
+        }
+        return chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) + 1;
+    }
+
     @Override
     public SearchBounds bounds() {
         return bounds;

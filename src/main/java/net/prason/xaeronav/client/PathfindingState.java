@@ -41,6 +41,7 @@ import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -471,6 +472,8 @@ public final class PathfindingState {
     private final Splice splice;
     /** 経路の末端からの継ぎ足し（{@link Extend}参照）。長距離ルート選定への問い合わせもHost経由。 */
     private final Extend extend;
+    /** 直前に再確認が不成立と判定したセル（{@link RecentFailures}参照）。地上の探索はここを避ける。 */
+    private final RecentFailures recentFailures = new RecentFailures();
 
     private PathfindingState() {
         this(runnable -> Minecraft.getInstance().execute(runnable));
@@ -500,7 +503,7 @@ public final class PathfindingState {
                     public void setComputing(boolean value) {
                         computing = value;
                     }
-                });
+                }, recentFailures);
         this.splice = new Splice(executor, generation, generationGate, this::publishNavigationView,
                 new Splice.Host() {
                     @Override
@@ -522,7 +525,7 @@ public final class PathfindingState {
                     public void setComputing(boolean value) {
                         computing = value;
                     }
-                }, seamRepair);
+                }, seamRepair, recentFailures);
         this.extend = new Extend(executor, generation, generationGate, this::publishNavigationView,
                 new Extend.Host() {
                     @Override
@@ -571,7 +574,7 @@ public final class PathfindingState {
                     public void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result) {
                         PathfindingState.this.noteSearchOutcome(start, planEnd, result);
                     }
-                }, seamRepair);
+                }, seamRepair, recentFailures);
     }
 
     /** 今のフレームで使うべき、地上ナビ関連stateの合成snapshot。{@link #publishNavigationView()}参照。 */
@@ -741,6 +744,7 @@ public final class PathfindingState {
         this.plainBudgetExhaustedAt = null;
         this.splice.clearBlock();
         this.seamRepair.clear();
+        this.recentFailures.clear();
         this.stuckTracker.reset();
         this.extend.clear();
         this.rerouteNoticeTicks = 0;
@@ -1102,6 +1106,7 @@ public final class PathfindingState {
                 PathValidator.Failure failure = PathValidator.firstFailureFrom(mc.level, result,
                         PathProgress.INSTANCE.indexFor(result), mc.player.blockPosition(), validationHorizon);
                 if (failure != null) {
+                    noteUnusableCell(failure);
                     handleBlockedPath(mc.level, mc.player, shown, failure);
                 }
             }
@@ -1240,8 +1245,8 @@ public final class PathfindingState {
      * 終端を見ておかないと、そこに立ったまま次の区間へ進めなくなる。
      */
     private boolean surfaceLegDone(Level level, Player player, BlockPos currentGoal, DisplayedPath shown) {
-        if (!shouldClimbToSurface(level, player.blockPosition(), currentGoal,
-                XaeroNavConfig.INSTANCE.groundLevelY())) {
+        BlockPos at = player.blockPosition();
+        if (!shouldClimbToSurface(level, at, currentGoal, surfaceReferenceY(level, at))) {
             return true;
         }
         return reachedPathEnd(player, shown);
@@ -1558,8 +1563,8 @@ public final class PathfindingState {
         lastStart = start;
         boolean boatAvailable = ChunkView.boatAvailable(player);
 
-        int groundLevel = XaeroNavConfig.INSTANCE.groundLevelY();
-        boolean climbing = shouldClimbToSurface(level, start, currentGoal, groundLevel);
+        int surfaceY = surfaceReferenceY(level, start);
+        boolean climbing = shouldClimbToSurface(level, start, currentGoal, surfaceY);
         int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
         // 判定はメインスレッドでしかできない（ワールドの参照・経路への対応づけ）。結果が返る頃には
         // 別の判断材料になってしまうので、投げる時点の答えを写し取ってワーカーへ渡す
@@ -1574,9 +1579,9 @@ public final class PathfindingState {
         if (climbing) {
             mode = PathMode.TO_SURFACE;
             // 地上優先ナビ中は、遠い本来の目的地の箱に広げても意味が無い（ゴールが1点ではなく
-            // 「空の下ならどこでも」なので）。垂直方向はgroundLevelまで確実に届くよう、同じ列で
-            // groundLevelにある仮想ゴールとして範囲を組み立てる
-            target = new BlockPos(start.getX(), groundLevel, start.getZ());
+            // 「空の下ならどこでも」なので）。垂直方向は地表まで確実に届くよう、同じ列で
+            // その高さにある仮想ゴールとして範囲を組み立てる
+            target = new BlockPos(start.getX(), surfaceY, start.getZ());
             waypointIndex = -1;
             // searchToSurfaceが自前の領域ゴール（y >= surfaceY）を使うので、この値は読まれない
             goalRadius = 0;
@@ -1682,18 +1687,23 @@ public final class PathfindingState {
         // 3D粗層は最終目的地に対して1つだけ組む。中間目標を狙う探索には掛けない——
         // 起点が目的地に固定された表なので、別の点を狙う探索では方向がずれる
         CostToGo prepared = preparedVoxelGuide(level, start, currentGoal, finalTarget, climbing);
+        // 直前の再確認が不成立と判定したセルは、この探索でも選ばせない。避けないと、引き直した
+        // 経路がまた同じセルを通って即座に無効と判断される（{@link RecentFailures}参照）
+        List<BlockPos> avoided = recentFailures.avoided();
         if (climbing) {
-            future = executor.submitToSurface(view.withoutDigging(), view, start, groundLevel, limits);
+            future = executor.submitToSurface(AvoidedCellSource.wrap(view.withoutDigging(), avoided),
+                    AvoidedCellSource.wrap(view, avoided), start, surfaceY, limits);
         } else if (coarseGuided) {
-            future = executor.submitCoarseGuided(view, bounds, start, finalTarget, limits, costToGoGuideEnabled,
-                    goalRadius);
+            future = executor.submitCoarseGuided(AvoidedCellSource.wrap(view, avoided), bounds, start,
+                    finalTarget, limits, costToGoGuideEnabled, goalRadius);
         } else if (deepBudgetInParallel) {
             // 深い予算は別スレッドで同時に走るので、セルのキャッシュを共有させない
-            future = executor.submitWithDeepFallback(view, view.forParallelSearch(), start, finalTarget,
+            future = executor.submitWithDeepFallback(AvoidedCellSource.wrap(view, avoided),
+                    AvoidedCellSource.wrap(view.forParallelSearch(), avoided), start, finalTarget,
                     qualityLimits(limits), deepLimits, costToGoGuideEnabled, goalRadius, prepared);
         } else {
-            future = executor.submit(view, start, finalTarget, limits, costToGoGuideEnabled, goalRadius,
-                    Carryover.NONE, prepared);
+            future = executor.submit(AvoidedCellSource.wrap(view, avoided), start, finalTarget, limits,
+                    costToGoGuideEnabled, goalRadius, Carryover.NONE, prepared);
         }
         generationGate.whenStillCurrent(future, myGeneration, (result, error) -> {
             try {
@@ -1878,6 +1888,9 @@ public final class PathfindingState {
             dropped = "地形が変わった";
         }
         if (dropped != null) {
+            if (validationFailure != null) {
+                noteUnusableCell(validationFailure);
+            }
             LOGGER.info("XaeroNav: 完走した経路を手放しました"
                             + " (理由={}, {}ステップ, 経路までの距離={}, 対応づけ={}, 現在地={}, 経路の先頭={}{})",
                     dropped, result.steps().size(), Math.round(offPath), tracked,
@@ -1886,6 +1899,17 @@ public final class PathfindingState {
             return null;
         }
         return shown;
+    }
+
+    /**
+     * 探索が使えると判断したのに再確認で使えなかったセルを覚える。次の探索はここを避ける
+     * （{@link RecentFailures}参照）。
+     */
+    private void noteUnusableCell(PathValidator.Failure failure) {
+        BlockPos cell = failure.unusableCell();
+        if (cell != null) {
+            recentFailures.note(cell);
+        }
     }
 
     /**
@@ -2713,9 +2737,14 @@ public final class PathfindingState {
      * <p>判断にYだけを使わないのは、Yが低いことと地下にいることが別だから。川底・谷底・海岸は
      * 既定の{@code groundLevelY}(60)より下にいくらでもあり、そこを歩くたびに中継区間が挟まると、
      * 案内が目的地と関係ない方向へ振れる。空が見えているならそこはもう地上として扱う。
+     *
+     * <p>{@code surfaceY}は<b>プレイヤーの列の地表</b>（{@link #surfaceReferenceY}）。設定の
+     * {@code groundLevelY}は世界に1つの定数なので、山の下では地表がそれより遥かに上にある
+     * ——既定(60)のままだと、山中の洞窟でy=70にいるプレイヤーが「もう地上の高さ」と判定され、
+     * 60ブロック下の地下にいても中継区間に入らなかった（#45）。
      */
-    private boolean shouldClimbToSurface(Level level, BlockPos start, BlockPos goal, int groundLevel) {
-        if (goal.getY() < groundLevel || start.getY() > groundLevel - MIN_UNDERGROUND_DEPTH) {
+    private boolean shouldClimbToSurface(Level level, BlockPos start, BlockPos goal, int surfaceY) {
+        if (!climbWorthwhile(start.getY(), goal.getY(), surfaceY)) {
             return false;
         }
         // 空の無い次元・天井のある次元（ジ・エンド／ネザー）では、そもそも「地上」が存在しない。
@@ -2737,6 +2766,33 @@ public final class PathfindingState {
         BlockPos failedAt = surfaceLegFailedAt;
         return failedAt == null
                 || failedAt.distSqr(start) > SURFACE_RETRY_MOVE_BLOCKS * SURFACE_RETRY_MOVE_BLOCKS;
+    }
+
+    /**
+     * 高さだけで見た「まず地上へ出る」区間の要否。{@code surfaceY}は出ていく先の地表
+     * （{@link #surfaceReferenceY}）。
+     *
+     * <p>{@code Level}を切り離してあるのは、ここだけ取り出せばワールド無しで振る舞いを固定できるから
+     * （{@code Splice#joinableStepIndex}と同じ）。
+     *
+     * <p>目的地を<b>同じ基準</b>で見るのが要点。地表より下の目的地＝洞窟から洞窟への移動なので、
+     * わざわざ地上へ出てから潜り直す道理が無い(#45「洞窟内から洞窟内なら洞窟を通るのは良い」)。
+     */
+    static boolean climbWorthwhile(int startY, int goalY, int surfaceY) {
+        return goalY >= surfaceY && startY <= surfaceY - MIN_UNDERGROUND_DEPTH;
+    }
+
+    /**
+     * 「まず地上へ出る」区間が出ていく先のY。<b>プレイヤーの列の地表</b>で、読めない列では
+     * 設定の{@code groundLevelY}へ落ちる。
+     *
+     * <p>ここを世界に1つの定数に戻してはいけない——山・海・高原では実際の地表がそこから
+     * 何十ブロックも離れる。中継区間のゴールだけでなく<b>探索の箱</b>もこの値から組み立てるので
+     * （{@code recalculate}の仮想ゴール）、ずれていると箱がプレイヤーの下側へ寄る。
+     */
+    private static int surfaceReferenceY(Level level, BlockPos start) {
+        int local = ChunkView.openSkyY(level, start.getX(), start.getZ());
+        return local == Integer.MAX_VALUE ? XaeroNavConfig.INSTANCE.groundLevelY() : local;
     }
 
     /**

@@ -25,6 +25,7 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.GenerationGate;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
+import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -117,6 +118,7 @@ final class SeamRepair {
     private final GenerationGate generationGate;
     private final Runnable onChanged;
     private final Host host;
+    private final RecentFailures recentFailures;
 
     /**
      * まだ解き直していない繋ぎ目の座標（継ぎ足しの根元、または合流点）。
@@ -134,12 +136,13 @@ final class SeamRepair {
     private final ChangeGate<String> refusalGate = new ChangeGate<>();
 
     SeamRepair(PathfindingExecutor executor, AtomicLong generation, GenerationGate generationGate,
-               Runnable onChanged, Host host) {
+               Runnable onChanged, Host host, RecentFailures recentFailures) {
         this.executor = executor;
         this.generation = generation;
         this.generationGate = generationGate;
         this.onChanged = onChanged;
         this.host = host;
+        this.recentFailures = recentFailures;
     }
 
     /** 解き直し待ちの繋ぎ目が1つも無いか。 */
@@ -243,8 +246,9 @@ final class SeamRepair {
         // 1つも変わらなかった（5地形すべてで完全一致）
         PlannedCellSource repairTerrain = new PlannedCellSource(view, steps.subList(0, sectionFrom),
                 walkedTo + 1);
-        CompletableFuture<PathResult> repairFuture =
-                executor.submit(repairTerrain, fromPos, toPos, limits, false, 0, carried);
+        CompletableFuture<PathResult> repairFuture = executor.submit(
+                AvoidedCellSource.wrap(repairTerrain, recentFailures.avoided()),
+                fromPos, toPos, limits, false, 0, carried);
         generationGate.whenStillCurrent(repairFuture, myGeneration, (repaired, error) -> {
             try {
                 host.setComputing(false);

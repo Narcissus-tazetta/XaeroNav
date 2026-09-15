@@ -26,6 +26,7 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.GenerationGate;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
+import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -96,6 +97,7 @@ final class Extend {
     private final Runnable onChanged;
     private final Host host;
     private final SeamRepair seamRepair;
+    private final RecentFailures recentFailures;
 
     /**
      * 経路の末端から先へ伸ばせなかった地点。同じ末端で延長を試み続けないための歯止めで、
@@ -110,13 +112,14 @@ final class Extend {
     private boolean heldForStreaming;
 
     Extend(PathfindingExecutor executor, AtomicLong generation, GenerationGate generationGate,
-           Runnable onChanged, Host host, SeamRepair seamRepair) {
+           Runnable onChanged, Host host, SeamRepair seamRepair, RecentFailures recentFailures) {
         this.executor = executor;
         this.generation = generation;
         this.generationGate = generationGate;
         this.onChanged = onChanged;
         this.host = host;
         this.seamRepair = seamRepair;
+        this.recentFailures = recentFailures;
     }
 
     /** 目的地の変更・全引き直しで、継ぎ足しに関する歯止めを全て捨てる。 */
@@ -340,7 +343,8 @@ final class Extend {
         PlannedCellSource futureTerrain = new PlannedCellSource(view, steps,
                 PathProgress.INSTANCE.indexFor(shown.result()) + 1);
         CostToGo prepared = host.preparedVoxelGuide(level, playerAt, currentGoal, target, false);
-        CompletableFuture<PathResult> extendFuture = executor.submit(futureTerrain, from, target, limits,
+        CompletableFuture<PathResult> extendFuture = executor.submit(
+                AvoidedCellSource.wrap(futureTerrain, recentFailures.avoided()), from, target, limits,
                 costToGoGuideEnabled, detail.goalRadius(), carried, prepared);
         generationGate.whenStillCurrent(extendFuture, myGeneration, (result, error) -> {
             try {

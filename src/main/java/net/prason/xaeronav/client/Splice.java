@@ -28,6 +28,7 @@ import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.GenerationGate;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
+import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.util.ChangeGate;
@@ -127,6 +128,7 @@ final class Splice {
     private final Runnable onChanged;
     private final Host host;
     private final SeamRepair seamRepair;
+    private final RecentFailures recentFailures;
 
     /** {@link #trySplice}が合流に失敗したときのプレイヤー位置。{@link #SPLICE_RETRY_MOVE_BLOCKS}で失効。 */
     private volatile BlockPos blockedFrom;
@@ -135,13 +137,14 @@ final class Splice {
     private final ChangeGate<String> refusalGate = new ChangeGate<>();
 
     Splice(PathfindingExecutor executor, AtomicLong generation, GenerationGate generationGate,
-           Runnable onChanged, Host host, SeamRepair seamRepair) {
+           Runnable onChanged, Host host, SeamRepair seamRepair, RecentFailures recentFailures) {
         this.executor = executor;
         this.generation = generation;
         this.generationGate = generationGate;
         this.onChanged = onChanged;
         this.host = host;
         this.seamRepair = seamRepair;
+        this.recentFailures = recentFailures;
     }
 
     /**
@@ -226,7 +229,8 @@ final class Splice {
         // 合流点から先はそのまま残るので、そこで置くと決まっているぶんは合流区間には使えない。
         // 引き継がないと、合流のたびに予算が満額に戻って手持ちを超える経路が組み上がる
         Carryover carried = new Carryover(0, Carryover.placements(result.steps(), joinIndex + 1));
-        CompletableFuture<PathResult> spliceFuture = executor.submit(view, playerAt, joinPos, limits,
+        CompletableFuture<PathResult> spliceFuture = executor.submit(
+                AvoidedCellSource.wrap(view, recentFailures.avoided()), playerAt, joinPos, limits,
                 tuning.costToGoGuideEnabled(), 0, carried);
         generationGate.whenStillCurrent(spliceFuture, myGeneration, (splice, error) -> {
             try {
