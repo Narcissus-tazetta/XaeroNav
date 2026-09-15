@@ -173,6 +173,15 @@ public final class ActionCosts {
 
     public static final double LADDER_DOWN_ONE_BLOCK = 20.0 / 3.0;
 
+    /**
+     * ツタ・梯子を掴んだ地点から水平に離れるときの、疾走基準の踏み切り速度倍率。
+     * {@code handleOnClimbable}は水平速度も{@link #LADDER_DOWN_ONE_BLOCK}と同じ±0.15ブロック/tickで
+     * 頭打ちにするため、そこから離れる一歩は疾走ではなくこのクランプ速度が律速になる。
+     * ソウルサンド・蜂蜜と同じ「踏み切り速度倍率」として
+     * {@link net.prason.xaeronav.pathfinding.astar.AStarPathfinder#takeoffSpeedFactor}へ渡す。
+     */
+    public static final double CLIMBABLE_TAKEOFF_SPEED_FACTOR = SPRINT_ONE_BLOCK / LADDER_DOWN_ONE_BLOCK;
+
     /** ドア・フェンスゲートを開けて通る追加コスト。立ち止まって向き直り、開けるまで。ドアは上下2マスぶん掛かる。 */
     public static final double OPEN_DOOR_OVERHEAD_TICKS = 5.0;
 

@@ -937,6 +937,37 @@ class AStarPathfinderTest {
                 "溶岩の上は跳ばない: " + movements(result));
     }
 
+    /**
+     * 蜘蛛の巣は{@code WebBlock#entityInside}が移動量そのものに0.25を掛けるので、踏み切り地点が
+     * 巣の中では疾走で乗せた速度もジャンプの初速も踏み出した瞬間に大きく削られる。理論上届く
+     * 場合もあるが、外して落ちる確率が高すぎるので跳べとは案内しない。
+     */
+    @Test
+    void doesNotJumpFromACobweb() {
+        // 1マスの割れ目。踏み切り地点(x=1)そのものを蜘蛛の巣にする
+        CellSource cells = chasm(1).set(1, 61, 0, FakeCells.COBWEB);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(3, 61, 0));
+
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "蜘蛛の巣の上からは跳ばない: " + movements(result));
+    }
+
+    /**
+     * 蜘蛛の巣は当たり判定が無いので{@code clearWithoutDigging}は素通りするが、滞空中に体が
+     * かすめれば同じ理由で速度を削られる。踏み切りだけ見ていては防げない。
+     */
+    @Test
+    void doesNotJumpThroughACobwebInTheGap() {
+        // 3マスの割れ目のうち、跳び越える空間の手前(x=2)を蜘蛛の巣で埋める
+        CellSource cells = chasm(3).set(2, 61, 0, FakeCells.COBWEB);
+
+        PathResult result = search(cells, new BlockPos(1, 61, 0), new BlockPos(5, 61, 0));
+
+        assertFalse(movements(result).contains(MovementType.JUMP),
+                "蜘蛛の巣をかすめる跳躍は生成しない: " + movements(result));
+    }
+
     @Test
     void stillJumpsWhenThereIsAFloorAboveTheLava() {
         // 溶岩はあるが、その上に床がある割れ目。落ちても溶岩には触れないので跳んでよい
@@ -1189,6 +1220,34 @@ class AStarPathfinderTest {
         PathResult result = search(cells, new BlockPos(0, 61, 0), new BlockPos(1, 62, 1));
 
         assertFalse(result.complete(), "梯子を掴んだままでは斜めにも跳んで登れない: " + result.steps());
+    }
+
+    /**
+     * 降りる・落ちる側はジャンプを要らないので生成そのものは禁止しないが（addAscend系と違い
+     * {@code onGround()}は無関係）、{@code handleOnClimbable}が水平速度を±0.15ブロック/tickに
+     * 固定するぶん、疾走前提の値段より確実に高くつく必要がある
+     * （{@link ActionCosts#CLIMBABLE_TAKEOFF_SPEED_FACTOR}）。
+     */
+    @Test
+    void costsMoreToDescendOffAClimbableThanOffOrdinaryGround() {
+        SearchBounds bounds = new SearchBounds(-2, 55, -2, 8, 75, 8);
+        CellSource ordinaryGround = FakeCells.empty(bounds)
+                .set(0, 61, 0, FakeCells.STONE)
+                .set(1, 60, 0, FakeCells.STONE);
+        CellSource climbable = FakeCells.empty(bounds)
+                .set(0, 62, 0, FakeCells.LADDER)
+                .set(1, 60, 0, FakeCells.STONE);
+
+        PathResult ordinaryResult = search(ordinaryGround, new BlockPos(0, 62, 0), new BlockPos(1, 61, 0));
+        PathResult climbableResult = search(climbable, new BlockPos(0, 62, 0), new BlockPos(1, 61, 0));
+
+        assertTrue(ordinaryResult.complete());
+        assertTrue(climbableResult.complete());
+        assertEquals(List.of(MovementType.DESCEND), movements(ordinaryResult));
+        assertEquals(List.of(MovementType.DESCEND), movements(climbableResult));
+        assertTrue(climbableResult.steps().get(0).cost() > ordinaryResult.steps().get(0).cost(),
+                "梯子を掴んだ地点から降りる方が疾走前提より高くつくはず: "
+                        + climbableResult.steps().get(0).cost() + " vs " + ordinaryResult.steps().get(0).cost());
     }
 
     /**

@@ -868,7 +868,14 @@ public final class AStarPathfinder {
         if (speedFactor == 1.0) {
             speedFactor = CellData.speedFactor(view.cell(x, y - 1, z));
         }
-        return Math.min(1.0, speedFactor);
+        speedFactor = Math.min(1.0, speedFactor);
+        // ツタ・梯子を掴んだ地点から離れる一歩は、ジャンプ系の移動が呼び出し元で禁止済み（onGround()が
+        // falseで踏み切れない）なので、ここへ来るのはaddDescend・addDiagonalDescend・addFallだけ。
+        // それらは疾走前提の値段のままだと実際より速く見積もる——ActionCosts#CLIMBABLE_TAKEOFF_SPEED_FACTOR参照
+        if (CellData.climbable(view.cell(x, y, z))) {
+            speedFactor = Math.min(speedFactor, ActionCosts.CLIMBABLE_TAKEOFF_SPEED_FACTOR);
+        }
+        return speedFactor;
     }
 
     /**

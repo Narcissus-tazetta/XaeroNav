@@ -231,6 +231,12 @@ final class GroundMoves {
         if (slowedTakeoff(from.x, y, from.z)) {
             return;
         }
+        // 蜘蛛の巣の上からは跳べない。WebBlock#entityInsideが移動量に0.25を掛け続けるので、
+        // 疾走の助走で乗せた速度もジャンプ自体の初速も踏み切った瞬間に大きく削られる——
+        // 理論上は隙間の向こうへ届く場合もあるが、外して落ちる確率が高すぎて案内として出す価値が無い
+        if (CellData.cobweb(owner.view.cell(from.x, y, from.z))) {
+            return;
+        }
         // 梯子・ツタに掴まったままでは跳べない。onGround()がfalseなのでjumpFromGround()自体が
         // 呼ばれず（LivingEntity#aiStep）、掴まったまま接地していてもhandleOnClimbableが
         // 水平速度を±0.15に固定するので、疾走の0.286も踏み切り加算の0.2も残らない
@@ -255,6 +261,13 @@ final class GroundMoves {
             // 跳び越える空間が塞がっていれば、その先へはどれだけ助走しても届かない
             if (!owner.clearWithoutDigging(gapX, y, gapZ)
                     || !CellData.occupiableWithoutDigging(owner.view.cell(gapX, y + 2, gapZ))) {
+                return;
+            }
+            // 蜘蛛の巣は当たり判定が無いのでclearWithoutDiggingは素通りするが、滞空中に体が
+            // かすめると速度をまた0.25倍に削られる。踏み切りだけ見ても、経路の途中に巣があれば
+            // 同じ理由で隙間に落ちる
+            if (CellData.cobweb(owner.view.cell(gapX, y, gapZ))
+                    || CellData.cobweb(owner.view.cell(gapX, y + 1, gapZ))) {
                 return;
             }
             // 下が溶岩の隙間は跳ばない。跳躍は外せば落ちるという前提でコストを積んであるが、

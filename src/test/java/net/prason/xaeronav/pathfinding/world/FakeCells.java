@@ -52,6 +52,8 @@ public final class FakeCells implements CellSource {
     public static final char NETHER_VINE = 'N';
     /** 梯子。掴んで上下できる。 */
     public static final char LADDER = 'H';
+    /** 蜘蛛の巣。当たり判定が無く歩いて通れるが、通過中は大きく減速する。 */
+    public static final char COBWEB = 'W';
     /** 範囲外・未ロード扱い（{@link CellData#ABSENT}）。 */
     public static final char ABSENT = '?';
 
@@ -266,6 +268,8 @@ public final class FakeCells implements CellSource {
                             CellData.PRESENT | CellData.STANDABLE | CellData.SNEAK_REQUIRED, STONE_DIG_TICKS),
                     MAGMA_SPEED_FACTOR);
             case LADDER -> CellData.withDigTicks(CellData.PRESENT | CellData.CLIMBABLE, 0.0);
+            case COBWEB -> CellData.withDigTicks(
+                    CellData.PRESENT | CellData.PASSABLE_EMPTY | CellData.COBWEB, STONE_DIG_TICKS);
             case VINE -> CellData.withDigTicks(CellData.PRESENT | CellData.PASSABLE_EMPTY
                     | CellData.CLIMBABLE | CellData.REPLACEABLE, 0.0);
             case NETHER_VINE -> CellData.withDigTicks(
