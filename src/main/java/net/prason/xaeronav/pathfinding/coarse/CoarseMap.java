@@ -191,15 +191,28 @@ public final class CoarseMap {
      * <p>実機（ジ・エンド、2026-08-28）で必要になった: 奈落を挟んだ経路選択が試行ごとに揺れるのに、
      * ログには{@code knownCells}（床が1枚でもあるセルの数）しか出ておらず、<b>奈落が奈落として
      * 見えているのか、そもそもデータが無いのか</b>を切り分けられなかった。{@code NO_DATA}は
-     * {@code UNKNOWN_MULTIPLIER}(1.6倍)＝ほぼ最安で通れてしまうので、奈落が{@code NO_DATA}に
-     * 倒れていれば「奈落を突っ切る線が安く見える」の説明がそれだけで付く。
+     * 最安でも陸の1.6倍で通れてしまうので、奈落が{@code NO_DATA}に倒れていれば
+     * 「奈落を突っ切る線が安く見える」の説明がそれだけで付く。<b>この内訳は説明だけでなく
+     * 値段そのものを動かす</b>——{@link CoarseRouter}は既知の陸:奈落比で{@code NO_DATA}の倍率を
+     * 較正するので、奈落が{@code NO_DATA}へ倒れると較正の材料まで同時に失われる。
      */
     public String kindBreakdown() {
+        int[] counts = kindCounts();
+        return "陸=" + counts[LAND] + ", 奈落=" + counts[VOID] + ", 水=" + counts[WATER]
+                + ", 溶岩=" + (counts[LAVA] + counts[LAVA_MIXED])
+                + ", データ無し=" + counts[NO_DATA];
+    }
+
+    /**
+     * 種類ごとのセル数（添字は{@link #NO_DATA}〜{@link #VOID}の定数値）。1セルに複数の床が
+     * あるときは最初の床で代表させる。{@link #kindBreakdown}の内部集計を{@link CoarseRouter}の
+     * 未知セル較正（既知の陸:奈落比から{@code NO_DATA}の値段を見積もる）とも共有する。
+     */
+    int[] kindCounts() {
         int[] counts = new int[VOID + 1];
-        int empty = 0;
         for (int index = 0; index < chunksX * chunksZ; index++) {
             if (floorCount[index] == 0) {
-                empty++;
+                counts[NO_DATA]++;
                 continue;
             }
             byte cellKind = kind[index * MAX_FLOORS];
@@ -207,9 +220,7 @@ public final class CoarseMap {
                 counts[cellKind]++;
             }
         }
-        return "陸=" + counts[LAND] + ", 奈落=" + counts[VOID] + ", 水=" + counts[WATER]
-                + ", 溶岩=" + (counts[LAVA] + counts[LAVA_MIXED])
-                + ", データ無し=" + (counts[NO_DATA] + empty);
+        return counts;
     }
 
     /**

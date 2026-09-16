@@ -104,6 +104,29 @@ public final class CoarseRouter {
                     + ActionCosts.VOID_BRIDGE_PENALTY_TICKS) / ActionCosts.SPRINT_ONE_BLOCK;
 
     /**
+     * {@link #UNKNOWN_MULTIPLIER}を奈落比に読み替えた値——{@code 1.6 = (1-r) + r·}
+     * {@link #VOID_BRIDGE_MULTIPLIER}を{@code r}について解いたもの（約0.067）。
+     * 「未知セルの7%弱は奈落」という見積もりが元の1.6倍の正体だった、と言い換えている。
+     */
+    private static final double UNKNOWN_PRIOR_VOID_RATIO =
+            (UNKNOWN_MULTIPLIER - 1.0) / (VOID_BRIDGE_MULTIPLIER - 1.0);
+
+    /**
+     * {@link #calibratedUnknownMultiplier}で、既知セルの実測に対抗させる
+     * {@link #UNKNOWN_PRIOR_VOID_RATIO}の重み（セル数に換算した値）。
+     *
+     * <p><b>閾値ではなく重みにしてあるのが要点。</b>「既知がN個未満なら較正しない」と切ると、
+     * N個目の1セルが陸か奈落かだけで倍率が1.6から10近くまで跳ぶ段差ができる——層1は移動の
+     * たびに引き直されるので、その段差は「行きは未知を直進、帰りは既知を大回り」と経路が
+     * 揺れる形で表に出る。先に奈落比{@link #UNKNOWN_PRIOR_VOID_RATIO}の既知セルをこの数だけ
+     * 見たことにして混ぜれば、既知が増えるほど実測へ滑らかに寄り、段差は出ない。
+     *
+     * <p>50セルという重みは、奈落比40%前後を想定したとき標準誤差がおよそ7ポイントに収まる数
+     * （実測に基づく厳密な統計的閾値ではない）。
+     */
+    private static final double UNKNOWN_PRIOR_WEIGHT_CELLS = 50.0;
+
+    /**
      * 高低差1ブロックあたりの追加コスト。登りも下りも同じだけ掛ける。
      * 粗いセルでは崖と緩斜面を区別できないので、どちらつかずの中間の重みにしておき、
      * 「同じくらいの距離なら平坦な方」を選ばせるためだけに使う。
@@ -268,6 +291,7 @@ public final class CoarseRouter {
             return new Route(List.of(), false);
         }
         double waterMultiplier = boatAvailable ? BOAT_MULTIPLIER : WATER_MULTIPLIER;
+        double unknownMultiplier = calibratedUnknownMultiplier(map, bridgePolicy);
 
         int cells = map.chunksX() * map.chunksZ();
         int states = cells * CoarseMap.MAX_FLOORS;
@@ -313,7 +337,7 @@ public final class CoarseRouter {
                         continue;
                     }
                     relaxHorizontal(map, cost, previous, closed, open, x, z, floor, dx, dz, goalX, goalZ,
-                            bestSoFar, bestHeuristic, waterMultiplier, bridgePolicy);
+                            bestSoFar, bestHeuristic, waterMultiplier, unknownMultiplier, bridgePolicy);
                 }
             }
             relaxVertical(map, cost, previous, closed, open, x, z, floor, goalX, goalZ,
@@ -357,7 +381,8 @@ public final class CoarseRouter {
      * <ul>
      * <li>{@link #cliffPenalty} — セル内の起伏が大きいだけで、平坦な棚を通れることもある</li>
      * <li>{@link #SMALL_ISLAND_PENALTY} — 「大きい島を渡りたい」という人間の好み</li>
-     * <li>{@link #UNKNOWN_MULTIPLIER} — 分からないことは高くつく理由にならない</li>
+     * <li>{@code NO_DATA}の倍率（{@link #calibratedUnknownMultiplier}） — 分からないことは
+     *     高くつく理由にならない</li>
      * <li>{@link #LAYER_TRANSITION_PENALTY} — 縦穴があるか分からないぶんの割増</li>
      * <li>下りの{@link #HEIGHT_COST_PER_BLOCK} — 降りは走り抜けられて実コストが増えない</li>
      * <li>水・{@link CoarseMap#LAVA_MIXED}の倍率 — セルの過半数が水でも、乾いた帯を通って
@@ -525,8 +550,10 @@ public final class CoarseRouter {
         int neighborFloorCount = Math.max(map.floorCount(neighborX, neighborZ), 1);
         for (int neighborFloor = 0; neighborFloor < neighborFloorCount; neighborFloor++) {
             // from/toを入れ替え: 「neighborからxへ入るコスト」を計算する（逆走なので）
+            // lowerBound=trueなので、渡した値は捨てられる（下限は常に1.0）。較正値ではなく
+            // 定数を渡して「ガイドは較正の対象外」という契約を呼び出し側にも書いておく
             double step = horizontalStepCost(map, neighborX, neighborZ, neighborFloor, x, z, floor, diagonal,
-                    waterMultiplier, bridgePolicy, true);
+                    waterMultiplier, UNKNOWN_MULTIPLIER, bridgePolicy, true);
             if (Double.isInfinite(step)) {
                 continue;
             }
@@ -589,7 +616,8 @@ public final class CoarseRouter {
     private static void relaxHorizontal(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
                                         PriorityQueue<Candidate> open, int x, int z, int floor, int dx, int dz,
                                         int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
-                                        double waterMultiplier, BridgePolicy bridgePolicy) {
+                                        double waterMultiplier, double unknownMultiplier,
+                                        BridgePolicy bridgePolicy) {
         int nextX = x + dx;
         int nextZ = z + dz;
         if (!map.containsChunk(nextX, nextZ)) {
@@ -598,7 +626,7 @@ public final class CoarseRouter {
         boolean diagonal = dx != 0 && dz != 0;
         int nextFloor = nearestConnectableFloor(map, x, z, floor, nextX, nextZ);
         double step = horizontalStepCost(map, x, z, floor, nextX, nextZ, nextFloor, diagonal, waterMultiplier,
-                bridgePolicy, false);
+                unknownMultiplier, bridgePolicy, false);
         if (Double.isInfinite(step)) {
             return;
         }
@@ -690,16 +718,55 @@ public final class CoarseRouter {
     }
 
     /**
+     * {@link #UNKNOWN_MULTIPLIER}を、この{@code map}で<b>既に分かっている</b>陸:奈落比から
+     * 較正する。{@code findRoute}が引く経路（好みを含む値）だけが対象——{@link #costToGo}の
+     * ガイドは下限の契約を守るため触らない（呼び出し側で{@code lowerBound}のときはこの戻り値を
+     * 使わせない）。
+     *
+     * <p><b>固定の次元別定数ではなく、その場のマップの実測から出す。</b>ジ・エンドの実機地形
+     * ダンプ3件（{@code EndUnknownVoidRatioBenchTest}）を集計すると、既知セルの奈落比は
+     * 35〜53%（全体で約42%）——「未知はほぼ陸」という前提で付けた1.6倍は体系的に楽観的すぎる。
+     * かといって「エンドだけ倍率を上げる」と決め打つと、同じジ・エンドでも島の密集地と
+     * 開けた奈落地帯で実態が違う（このテストのサンプルだけでも35%〜53%と幅がある）のに
+     * 反映できない。<b>既知の内訳をそのまま使えば、次元を問わず自己較正する。</b>
+     *
+     * <p>既知セルが少ないうちは{@link #UNKNOWN_PRIOR_WEIGHT_CELLS}ぶんの「元の1.6倍」が効いて
+     * 実測へ寄りきらない（段差なしで過学習を抑える理由はそちら）。較正後の値が1.6を下回ることは
+     * ない——「未知は多少高くつくとみなす」という元の設計意図（通れないと決めつけない）は
+     * 崩さない。上限も{@link #VOID_BRIDGE_MULTIPLIER}（既知が全部奈落のとき）で頭打ちになる。
+     *
+     * <p><b>代償は探索の広さ。</b>{@link #heuristic}は倍率1.0を前提にした幾何学的下限なので、
+     * 未知が10倍近くまで上がるほどhが実コストから離れ、層1の展開セル数が増える。層1は
+     * チャンク単位で最悪でも地図全体のDijkstraに落ちるだけなので、予算を焼く心配は無い。
+     */
+    private static double calibratedUnknownMultiplier(CoarseMap map, BridgePolicy bridgePolicy) {
+        double voidMultiplier = bridgeMultiplier(CoarseMap.VOID, bridgePolicy);
+        if (Double.isInfinite(voidMultiplier)) {
+            // AVOIDでは奈落そのものが通行不能。混ぜる相手が無いので素通しする
+            return UNKNOWN_MULTIPLIER;
+        }
+        int[] counts = map.kindCounts();
+        int sample = counts[CoarseMap.LAND] + counts[CoarseMap.VOID];
+        double voidRatio = (counts[CoarseMap.VOID] + UNKNOWN_PRIOR_WEIGHT_CELLS * UNKNOWN_PRIOR_VOID_RATIO)
+                / (sample + UNKNOWN_PRIOR_WEIGHT_CELLS);
+        return Math.max(UNKNOWN_MULTIPLIER, (1.0 - voidRatio) + voidRatio * voidMultiplier);
+    }
+
+    /**
      * 1セル進むコスト。
      *
      * @param lowerBound 実コストの<b>下限</b>として使う値を求める（{@link #costToGo}のガイド用）。
      *                   {@code false}なら好みを含んだ計画用の値（{@link #findRoute}用）。
      *                   違いは{@link #costToGo}のjavadoc参照
+     * @param unknownMultiplier {@code lowerBound}が{@code false}のときだけ使う{@code NO_DATA}の
+     *                          値段（{@link #calibratedUnknownMultiplier}）。{@code lowerBound}が
+     *                          {@code true}のときは無視される（下限は常に1.0）ので、
+     *                          {@link #costToGo}の呼び出し側は任意の値を渡してよい
      */
     private static double horizontalStepCost(CoarseMap map, int fromX, int fromZ, int fromFloor,
                                              int toX, int toZ, int toFloor, boolean diagonal,
-                                             double waterMultiplier, BridgePolicy bridgePolicy,
-                                             boolean lowerBound) {
+                                             double waterMultiplier, double unknownMultiplier,
+                                             BridgePolicy bridgePolicy, boolean lowerBound) {
         byte kind = stateKind(map, toX, toZ, toFloor);
         double bridgeMultiplier = bridgeMultiplier(kind, bridgePolicy);
         if (Double.isInfinite(bridgeMultiplier)) {
@@ -712,9 +779,9 @@ public final class CoarseRouter {
             // 上振れしていた（GuideAdmissibilityTest）。溶岩まじりの25%も同じ形
             case CoarseMap.WATER -> lowerBound ? 1.0 : waterMultiplier;
             case CoarseMap.LAVA_MIXED -> lowerBound ? 1.0 : bridgeMultiplier;
-            // 「分からない」は下限を上げる理由にならない。1.6のまま使うと、読み取り範囲の外側が
-            // 一律に高く見えて経路が範囲の内側へ引き寄せられる
-            case CoarseMap.NO_DATA -> lowerBound ? 1.0 : UNKNOWN_MULTIPLIER;
+            // 「分からない」は下限を上げる理由にならない。計画側の倍率をそのまま下限にすると、
+            // 読み取り範囲の外側が一律に高く見えて経路が範囲の内側へ引き寄せられる
+            case CoarseMap.NO_DATA -> lowerBound ? 1.0 : unknownMultiplier;
             case CoarseMap.LAVA, CoarseMap.VOID -> bridgeMultiplier;
             default -> 1.0;
         };
