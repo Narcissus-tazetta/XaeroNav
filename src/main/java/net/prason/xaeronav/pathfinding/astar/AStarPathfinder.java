@@ -60,8 +60,46 @@ public final class AStarPathfinder {
      */
     private static final double[] COEFFICIENTS = {1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0};
 
+    /**
+     * 1区間で賭けてよい歩行コスト（tick）。
+     *
+     * <p><b>これが無いと、ガイドが正確になるほど経路が悪くなる。</b>{@link #COEFFICIENTS}の採点
+     * {@code h + g/c}は、ガイドを定数倍すると答えが変わる——無駄{@code w = g - (h0 - h)}に対する
+     * 実効的な許容度は{@code k/(k - 1/c)}（kはガイドと真値の比）で、ネザーの実測では
+     * k=0.8でλ≒6、k=1.0（完璧なガイド）でλ=3まで緩む。緩むと1区間で遠くまで賭けて
+     * 悪い部分経路に乗る（繋ぎ目5本→2本、1.03倍→1.34倍）。
+     *
+     * <p><b>絶対値であることが要点。</b>「貪欲に選んだ場合のコストの何割」にすると、
+     * 貪欲解が遠いほど予算も増えて上限として働かない（実測: 繋ぎ目が2本へ戻り1.22〜1.31倍）。
+     */
+    private static final double FALLBACK_BUDGET_TICKS = 400.0;
+
+    /**
+     * 上限を効かせてよい、元の選択に対する前進距離の下限（割合）。
+     *
+     * <p><b>上限は賭けすぎを止めるためのもので、前進そのものを捨ててよいわけではない。</b>
+     * これが無いと、薄い地図のネザーで梯子の「142ブロック先(6889tick)」が
+     * 「25ブロック先(313tick)」へ差し替わり、先読みを埋めるだけで区間を使い果たす
+     * （{@code NetherThinMapGuideTest}）。0.5まで上げると今度は上限が効くべき場面でも
+     * 効かなくなり、改善が丸ごと消える（実測: k≒1で1.127倍＝現行と同じ）。
+     */
+    private static final double MIN_CAPPED_PROGRESS_SHARE = 0.25;
+
+    /** 上限を効かせるか。{@code NetherFallbackBenchTest}が変更前の挙動と比べるためだけに倒す。 */
+    static boolean fallbackBudgetEnabled = true;
+
     /** これ未満しか進めない暫定経路は提示する価値がない（ブロック）。 */
     private static final double MIN_DIST_PATH = 5.0;
+
+    /**
+     * 予算内の候補を「差し替える価値がある」と認める前進距離（ブロック）。
+     * {@code PathfindingState#MIN_EXTEND_PROGRESS_BLOCKS}（12）に余裕を持たせた値。
+     *
+     * <p><b>これが無いと掘削地形で這う。</b>予算はtickなので、1ブロックが高く付く地形
+     * （掘削は疾走の約7倍、橋は約11倍）では同じ予算が数ブロックしか買わない。
+     * そこまで出ていない候補は採らず、制限なしの梯子の選択をそのまま使う。
+     */
+    private static final double MIN_USEFUL_PROGRESS = 16.0;
 
     /**
      * 平坦地では直進と斜めの組み合わせで 10^-16 オーダーのコスト差が生まれることがある。
@@ -251,8 +289,16 @@ public final class AStarPathfinder {
     /** 作ったノードの総数（展開したノードの周りも含む）。 */
     private int createdNodes;
     private final BinaryHeapOpenSet open = new BinaryHeapOpenSet();
-    private final PathNode[] bestSoFar = new PathNode[COEFFICIENTS.length];
-    private final double[] bestHeuristic = new double[COEFFICIENTS.length];
+    /**
+     * 終点の候補。<b>同じ梯子を2組</b>——前半は{@link #FALLBACK_BUDGET_TICKS}以内に限った組、
+     * 後半は制限なしの組（＝この変更の前と同じもの）。
+     *
+     * <p>2組持つのが要点。予算内の組だけにすると、制限なしの梯子の後ろ（c=5・c=10）が持っていた
+     * <b>遠くて別方向の候補</b>が消える。あれは近い候補が全部架けかけの橋の上にいるときの
+     * 唯一の逃げ道で、落とすと「経路が1本も出ない」が3つの番人で再発した。
+     */
+    private final PathNode[] bestSoFar = new PathNode[2 * COEFFICIENTS.length];
+    private final double[] bestHeuristic = new double[bestSoFar.length];
 
     int goalX;
     private int goalY;
@@ -589,9 +635,13 @@ public final class AStarPathfinder {
     }
 
     /**
-     * ゴールに届かなかったときの到達点を選ぶ。係数の小さい（＝実際に進んだ距離を重く見る）ものから順に、
-     * 始点から{@link #MIN_DIST_PATH}以上離れている候補を採用する。どれも届かない場合は始点自身を返し、
-     * 空の経路＝「提示できる経路なし」として扱う。
+     * ゴールに届かなかったときの到達点を選ぶ。まず{@link #selectByLadder}で係数の小さい
+     * （＝実際に進んだ距離を重く見る）ものから順に、始点から{@link #MIN_DIST_PATH}以上離れている
+     * 候補を採る。どれも届かない場合は始点自身を返し、空の経路＝「提示できる経路なし」として扱う。
+     *
+     * <p>その選択が{@link #FALLBACK_BUDGET_TICKS}より多く賭けている場合だけ、予算内の候補へ
+     * 差し替える。<b>ガイドが正確になるほど採点{@code h + g/c}が賭けに寛容になる</b>のを
+     * ここで止める——差し替えの条件は{@link #FALLBACK_BUDGET_TICKS}の項に書いてある。
      *
      * <p><b>距離は{@link #trimUnfinishedPlacements}で切り落とした後で測る。</b>候補そのものは
      * 架けかけの橋の上にいることがあり、その橋は渡り切れると証明できていないので提示できない
@@ -601,17 +651,58 @@ public final class AStarPathfinder {
      * 岸まで戻して測れば、次の候補（徒歩で進める向き）へ移れる。
      */
     private PathNode selectFallback(PathNode startNode) {
-        double threshold = MIN_DIST_PATH * MIN_DIST_PATH;
-        for (PathNode candidate : bestSoFar) {
-            PathNode landed = backOffUnfinishedBridge(candidate);
-            double dx = landed.x - startNode.x;
-            double dy = landed.y - startNode.y;
-            double dz = landed.z - startNode.z;
-            if (dx * dx + dy * dy + dz * dz > threshold) {
+        PathNode ladder = selectByLadder(startNode);
+        // 現行の選ぶ点が予算内なら、そこは賭けすぎていない＝触る理由が無い
+        if (!fallbackBudgetEnabled || ladder.cost <= FALLBACK_BUDGET_TICKS) {
+            return ladder;
+        }
+        // 賭けすぎているときだけ上限を効かせる。予算内の梯子から、継ぎ足しが成立するだけ
+        // 前へ出ていて、かつ元の選択の前進を大きくは捨てない最初の候補へ差し替える
+        double ladderProgress = horizontalFrom(startNode, ladder);
+        for (int i = 0; i < COEFFICIENTS.length; i++) {
+            PathNode landed = backOffUnfinishedBridge(bestSoFar[i]);
+            if (movedForward(startNode, landed)
+                    && horizontalFrom(startNode, landed)
+                            >= MIN_CAPPED_PROGRESS_SHARE * ladderProgress) {
+                return landed;
+            }
+        }
+        return ladder;
+    }
+
+    /** 現行の選び方。係数の小さい（＝実際に進んだ距離を重く見る）ものから順に。 */
+    private PathNode selectByLadder(PathNode startNode) {
+        for (int i = COEFFICIENTS.length; i < bestSoFar.length; i++) {
+            PathNode landed = backOffUnfinishedBridge(bestSoFar[i]);
+            if (farEnough(startNode, landed, MIN_DIST_PATH)) {
                 return landed;
             }
         }
         return startNode;
+    }
+
+    private static double horizontalFrom(PathNode from, PathNode to) {
+        double dx = to.x - from.x;
+        double dz = to.z - from.z;
+        return Math.sqrt(dx * dx + dz * dz);
+    }
+
+    /**
+     * 継ぎ足しが成立するだけ前へ出たか。<b>水平で測る</b>——
+     * {@code PathfindingState#MIN_EXTEND_PROGRESS_BLOCKS}が水平距離で見ているので、
+     * ここで縦を混ぜると、縦に動いただけの区間を「前へ出た」と数えて繋いでもらえない尻尾を作る。
+     */
+    private static boolean movedForward(PathNode startNode, PathNode landed) {
+        double dx = landed.x - startNode.x;
+        double dz = landed.z - startNode.z;
+        return dx * dx + dz * dz > MIN_USEFUL_PROGRESS * MIN_USEFUL_PROGRESS;
+    }
+
+    private static boolean farEnough(PathNode startNode, PathNode landed, double blocks) {
+        double dx = landed.x - startNode.x;
+        double dy = landed.y - startNode.y;
+        double dz = landed.z - startNode.z;
+        return dx * dx + dy * dy + dz * dz > blocks * blocks;
     }
 
     /** 末尾で自分が置いた足場に乗っている間、手前へ戻る（{@link #trimUnfinishedPlacements}と同じ範囲）。 */
@@ -1011,11 +1102,17 @@ public final class AStarPathfinder {
             open.insert(neighbor);
         }
 
+        boolean withinBudget = neighbor.cost <= FALLBACK_BUDGET_TICKS;
         for (int i = 0; i < COEFFICIENTS.length; i++) {
             double heuristic = neighbor.estimatedCostToGoal + neighbor.cost / COEFFICIENTS[i];
-            if (bestHeuristic[i] - heuristic > MIN_IMPROVEMENT) {
+            if (withinBudget && bestHeuristic[i] - heuristic > MIN_IMPROVEMENT) {
                 bestHeuristic[i] = heuristic;
                 bestSoFar[i] = neighbor;
+            }
+            int free = COEFFICIENTS.length + i;
+            if (bestHeuristic[free] - heuristic > MIN_IMPROVEMENT) {
+                bestHeuristic[free] = heuristic;
+                bestSoFar[free] = neighbor;
             }
         }
     }

@@ -36,13 +36,13 @@ import net.prason.xaeronav.pathfinding.world.TerrainFixture;
 @Tag("slow")
 class NetherLiveWalkTest {
 
-    private static final int WINDOW_RADIUS = 160;
+    static final int WINDOW_RADIUS = 160;
 
     /** ネザーの実際の高さ。フィクスチャの書き出し範囲は天井の上まで含むので、そのままは使えない。 */
     static final int NETHER_MIN_Y = 0;
     static final int NETHER_MAX_Y = 127;
 
-    private static List<BlockPos[]> routes() {
+    static List<BlockPos[]> routes() {
         return List.of(
                 new BlockPos[] {new BlockPos(-447, 74, 525), new BlockPos(-259, 65, 379)},
                 new BlockPos[] {new BlockPos(-505, 71, 836), new BlockPos(-538, 67, 496)},
@@ -50,7 +50,7 @@ class NetherLiveWalkTest {
                 new BlockPos[] {new BlockPos(-474, 69, 629), new BlockPos(-271, 73, 482)});
     }
 
-    private static FakeCells terrain() throws IOException {
+    static FakeCells terrain() throws IOException {
         return TerrainFixture.load("/nether_wide.txt.gz", bounds -> FakeCells.empty(bounds)
                 .canPlaceBlocks(true).maxFallDamagePoints(6)
                 .maxBridgeRunBlocks(96).maxVoidBridgeRunBlocks(96));
