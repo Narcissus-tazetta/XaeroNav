@@ -64,6 +64,9 @@ class PathOptimalityTest {
     /** 基準の探索に渡す予算。実測で最大30万ノード程度なので、実質無制限。 */
     private static final int UNLIMITED_NODE_BUDGET = 3_000_000;
 
+    /** {@code PathfindingState#DEEP_SEARCH_BUDGET_FACTOR}と同じ値。deep fallbackの予算倍率。 */
+    private static final int DEEP_SEARCH_BUDGET_FACTOR = 8;
+
     /**
      * 乱数の種。<b>固定するのが要点</b>——毎回違う経路を測ると、落ちたときに再現できないうえ、
      * たまたま厳しい組が引かれただけなのか本当に悪化したのかを区別できない。
@@ -100,6 +103,16 @@ class PathOptimalityTest {
      * ネザー0.43〜1.00・エンド1.40。
      */
     private static final double WOBBLE_LIMIT = 1.50;
+
+    /**
+     * 地形1本あたり、基準が届いたのに実運用(深い予算フォールバック込み)が届かない本数の許容数。
+     *
+     * <p>0にはできない——ネザー/ソウルサンドバレーに探索空間が桁違いに広い経路が1本あり
+     * （深い予算80万でもガイド有無に関わらず届かず、重み1.5・無制限予算でようやく100万ノード超で
+     * 到達する）、20本中1本はその地形固有の限界。原因（Soul Sandの減速とネザー特有の入り組んだ
+     * 地形が絡んで探索が肥大化している）は未調査。ここでは悪化（2本以上）だけを検知する。
+     */
+    private static final int UNREACHABLE_LIMIT_PER_TERRAIN = 1;
 
     private record Terrain(String name, String resource, boolean ceiling) {
     }
@@ -158,6 +171,22 @@ class PathOptimalityTest {
                 .search(start, goal, NEVER);
     }
 
+    /**
+     * {@code PathfindingState#submitWithDeepFallback}と同じ二段構え。通常予算(重み
+     * {@link #PRODUCTION_WEIGHT})が届かなければ、深い予算(倍率{@link #DEEP_SEARCH_BUDGET_FACTOR}・
+     * 重み{@link AStarPathfinder#DEFAULT_HEURISTIC_WEIGHT})を試す。実機はこの2つを並列に走らせるが、
+     * 採用される結果（通常が届けばそれ、届かなければ深い方）は直列でも同じなのでそのまま模せる。
+     */
+    private static PathResult solveProduction(FakeCells cells, BlockPos start, BlockPos goal) {
+        PathResult normal = solve(cells, start, goal, PRODUCTION_WEIGHT, true, PRODUCTION_NODE_BUDGET);
+        if (normal.complete()) {
+            return normal;
+        }
+        PathResult deep = solve(cells, start, goal, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT, true,
+                PRODUCTION_NODE_BUDGET * DEEP_SEARCH_BUDGET_FACTOR);
+        return deep.complete() ? deep : normal;
+    }
+
     @Test
     void routesStayCloseToTheBestThisSearcherCanFind() throws IOException {
         List<String> report = new ArrayList<>();
@@ -171,14 +200,20 @@ class PathOptimalityTest {
             int measured = 0;
             int bestWobble = 0;
             int productionWobble = 0;
+            int unreachable = 0;
+            String unreachableRoute = "";
             for (BlockPos[] route : TerrainFixture.randomRoutes(cells, cells.bounds(), SEED,
                     ROUTES_PER_TERRAIN, MIN_ROUTE_BLOCKS, MAX_ROUTE_BLOCKS)) {
                 PathResult best = solve(cells, route[0], route[1], 1.0, false, UNLIMITED_NODE_BUDGET);
                 if (!best.complete()) {
                     continue;
                 }
-                PathResult production = solve(cells, route[0], route[1], PRODUCTION_WEIGHT, true,
-                        PRODUCTION_NODE_BUDGET);
+                PathResult production = solveProduction(cells, route[0], route[1]);
+                if (!production.complete()) {
+                    unreachable++;
+                    unreachableRoute = route[0].toShortString() + "→" + route[1].toShortString();
+                    continue;
+                }
                 measured++;
                 bestWobble += wobble(route[0], best);
                 productionWobble += wobble(route[0], production);
@@ -198,9 +233,9 @@ class PathOptimalityTest {
             double mean = total / measured;
             double wobbleRatio = bestWobble == 0 ? 1.0 : (double) productionWobble / bestWobble;
             report.add(String.format(Locale.ROOT,
-                    "%-12s %2d本 平均%.3f倍 最悪%.3f倍 無駄な上下%d/%d(%.2f倍) %s",
+                    "%-12s %2d本 平均%.3f倍 最悪%.3f倍 無駄な上下%d/%d(%.2f倍) 未到達%d本 %s",
                     terrain.name(), measured, mean, worst, productionWobble, bestWobble,
-                    wobbleRatio, worstRoute));
+                    wobbleRatio, unreachable, worstRoute));
             if (mean > MEAN_LIMIT) {
                 failures.add(terrain.name() + ": 経路が全体に遠回りになっている");
             }
@@ -210,6 +245,10 @@ class PathOptimalityTest {
             if (wobbleRatio > WOBBLE_LIMIT) {
                 failures.add(terrain.name() + ": 無駄な上下が基準より多い " + productionWobble
                         + " 対 " + bestWobble);
+            }
+            if (unreachable > UNREACHABLE_LIMIT_PER_TERRAIN) {
+                failures.add(terrain.name() + ": 基準到達済みなのに実運用が届かない経路が増えている "
+                        + unreachable + "本 " + unreachableRoute);
             }
         }
         System.out.println(String.join("\n", report));
