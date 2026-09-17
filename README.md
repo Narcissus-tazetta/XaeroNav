@@ -59,10 +59,10 @@ lava, digging that lets water flow in, a void below, a swim longer than your bre
 deals damage when those are allowed.
 
 Long distances are handled in stages. Beyond the loaded chunks a coarse route is drawn from
-Xaero's map data, and the detailed search is stitched onto it one segment at a time. In the Overworld
-and the End, the loaded area itself is turned into a navigation graph in the background, built from
-the same moves the search uses, so the search aims straight at the destination instead of detouring
-through the coarse route's waypoints. That also
+Xaero's map data, and the detailed search is stitched onto it one segment at a time. The loaded area
+itself is turned into a navigation graph in the background, built from the same moves the search
+uses, so the search aims straight at the destination instead of detouring through the coarse
+route's waypoints. That also
 covers dimensions where several floors stack at the same XZ, like the Nether. If you are
 underground and the destination is on the surface, the route heads for the nearest cave mouth or
 cliff first instead of digging straight up under the target. Dimensions without a sky are the
@@ -182,7 +182,7 @@ Other markings:
 | `blockBudgetReserve` | `0` | Blocks held back from that budget |
 | `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
-| `costToGoGuideEnabled` | `true` | Guide the detailed search with a cost-to-go estimate. In the Overworld and the End this builds a navigation graph of the loaded area in the background and aims straight at the destination (uses spare CPU cores and roughly 150–250 MB); elsewhere, and until the graph is ready, the coarse route's estimate is used. `false` falls back to straight-line distance |
+| `costToGoGuideEnabled` | `true` | Guide the detailed search with a cost-to-go estimate. This builds a navigation graph of the loaded area in the background and aims straight at the destination (uses spare CPU cores and roughly 150–250 MB); until the graph is ready, the coarse route's estimate is used. `false` falls back to straight-line distance |
 | `detailHorizonBlocks` | `96` | Max horizontal distance the detailed search targets in one shot; farther destinations get intermediate waypoints |
 | `maxBridgeRunBlocks` | `96` | How many consecutive blocks a bridge over open air can run before it's abandoned for a detour (`0` = unlimited) |
 | `maxLavaBridgeRunBlocks` | `30` | Same, but specifically for bridges over lava (`0` = unlimited) |
@@ -238,7 +238,7 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 - Surface-first routing doesn't work in dimensions without a sky (Nether, the End).
 - The navigation graph covers up to 160 blocks around you and ignores block changes it hasn't
   rebuilt yet; it is rebuilt as you walk and when a search stops making progress. Building it keeps
-  spare CPU cores busy for a moment every 16 blocks you walk.
+  spare CPU cores busy for about a second every 8 blocks you walk.
 
 ## Building
 

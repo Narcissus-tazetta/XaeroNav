@@ -41,6 +41,7 @@ import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.pathfinding.navgraph.FarField;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.CellData;
@@ -2109,8 +2110,8 @@ public final class PathfindingState {
     }
 
     /**
-     * 目的地をそのまま狙う探索へ渡すガイド。天井のある次元は3D粗層、それ以外は航法グラフ。
-     * 組み上がるまでは{@code null}で、その回は従来どおり探す（天井の無い次元なら中間目標へ寄る）。
+     * 目的地をそのまま狙う探索へ渡すガイド。航法グラフが組み上がっていればそれ（窓の外の推定は、ネザーは3D粗層・現世は層1・
+     * エンドは直線距離）、まだなら天井のある次元は3D粗層、それ以外は{@code null}で中間目標へ寄る従来の探索になる。
      *
      * <p>中間目標を狙う探索に掛けてはいけない——表の起点は最終目的地に固定されているので、
      * 別の点を狙う探索では見積もりが「そちらへ寄り道してから目的地へ」の形になり、
@@ -2123,23 +2124,40 @@ public final class PathfindingState {
         if (climbing) {
             return null;
         }
+        boolean navGraphEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
+        NavGraphGuide.Far far;
+        CostToGo fallback = null;
         if (level.dimensionType().hasCeiling()) {
             if (!XaeroPresence.mapPresent()) {
                 return null;
             }
             CostToGo voxel = voxelGuide.forGoal(level, level.dimension(), player.blockPosition(), currentGoal,
                     XaeroNavConfig.INSTANCE.movementOptions().lavaBridgingEnabled());
-            return voxel == null ? null : new GoalGuide(voxel, false);
-        }
-        if (!XaeroNavConfig.INSTANCE.costToGoGuideEnabled()) {
+            if (voxel == null || !navGraphEnabled) {
+                return voxel == null ? null : new GoalGuide(voxel, false);
+            }
+            // 窓の外が幾何下限だとネザーは3D粗層だけより悪い（実測1.257倍）。3D粗層が組み上がってから航法グラフを使う
+            fallback = voxel;
+            far = new NavGraphGuide.Far("3D粗層", voxel, () -> FarField.of(
+                    (x, y, z) -> NavGraphGuide.VOXEL_FAR_SCALE * voxel.estimate(x, y, z)));
+        } else if (!navGraphEnabled) {
             return null;
+        } else {
+            CoarseRoute route = coarseRoute;
+            CoarseMap map = route != null && route.goal().equals(currentGoal) ? route.map() : null;
+            // 層1を窓の外の推定に使うのは現世だけ。エンドの層1は奈落と島を2.5Dの床で持つだけで、窓の境界に置くと
+            // 幾何下限より悪い（実測: 1.197倍に対して1.009倍）
+            far = map == null || level.dimension() == Level.END ? null
+                    : new NavGraphGuide.Far("層1", map, () -> FarField.of(
+                            CoarseRouter.costToGo(map, currentGoal, false, CoarseRouter.BridgePolicy.BRIDGE)));
         }
-        CoarseRoute route = coarseRoute;
-        CoarseMap far = route != null && route.goal().equals(currentGoal) ? route.map() : null;
         WindowField field = navGraphGuide.forGoal(level, player, currentGoal, renderRadius,
                 XaeroNavConfig.INSTANCE.movementOptions(), far);
         // 窓の中の目的地が殻に繋がっていない回は使わない。窓全体の値が縁の外の推定だけから来る
-        return field == null || !field.reachesGoal() ? null : new GoalGuide(field, true);
+        if (field != null && field.reachesGoal()) {
+            return new GoalGuide(field, true);
+        }
+        return fallback == null ? null : new GoalGuide(fallback, false);
     }
 
     /**

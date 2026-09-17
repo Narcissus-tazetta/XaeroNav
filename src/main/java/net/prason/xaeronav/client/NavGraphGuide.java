@@ -7,6 +7,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import com.mojang.logging.LogUtils;
 import org.jspecify.annotations.Nullable;
@@ -16,8 +17,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
-import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
-import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
 import net.prason.xaeronav.pathfinding.navgraph.LoadedArea;
 import net.prason.xaeronav.pathfinding.navgraph.NavGraph;
@@ -29,14 +28,15 @@ import net.prason.xaeronav.util.ChangeGate;
 import net.prason.xaeronav.util.MonotonicTime;
 
 /**
- * 天井の無い次元（現世・エンド）で使う航法グラフのガイドの作りかけ・出来上がりを持つ。
+ * 航法グラフのガイドの作りかけ・出来上がりを持つ。
  *
  * <p>読み込み済みの窓の中を、探索と同じ移動生成でセクションごとに組み（{@link NavGraph}）、目的地までの残りコストを
  * 逆Dijkstraで作る（{@link WindowField}）。窓の中は正確なので、探索は目的地をそのまま重み1.0で狙える
- * （歩き通しの実測: 広域長距離1.017/1.030倍・エンド1.014/1.032倍、層1の中間目標へ寄る現行は1.067/1.165・1.122/未到達）。
+ * （歩き通しの実測: 広域長距離1.016/1.030倍・エンド1.013/1.029倍・ネザー1.013/1.023倍。層1の中間目標へ寄る探索は
+ * 1.067/1.165・1.122/未到達、3D粗層だけのネザーは1.048/1.104）。
  *
  * <p>スレッドの境目は{@link NetherVoxelGuide}と同じ形——メインスレッドでチャンクの参照だけを集め、組むのはワーカー。
- * 組み上がるまでは{@code null}を返し、呼び出し側は従来の探索（中間目標へ寄る）で進む。
+ * 組み上がるまでは{@code null}を返し、呼び出し側は従来の探索で進む。
  */
 final class NavGraphGuide {
 
@@ -51,11 +51,13 @@ final class NavGraphGuide {
     static final int WINDOW_BLOCKS = 160;
 
     /**
-     * 組んだ中心からこれだけ歩いたら組み直す。
+     * 組んだ中心からこれだけ歩いたら組み直す。組み直しは帯の組み足し（0.02〜0.3秒）とガイド作り（0.5〜1.3秒）で、
+     * 組んでいる間は次を始めないので、実際の遅れはこれに組み直しの間に歩く分が足される。
      *
-     * <p>歩き通しの模型は区間ごとに今の位置で組み直していて（1区間で歩くのは16ブロック）、測った質はその前提。
+     * <p>歩き通しの模型（広域長距離4本）では8ブロックで遅れ無しと同じ経路になった。16ブロックでは1本が1.030→1.101倍に落ち、
+     * 32ブロックでは戻る——窓の縁が区間の始点と噛み合う位相で外れるので、間隔を詰めて噛み合う幅を小さくしておく。
      */
-    private static final int REBUILD_MOVE_BLOCKS = 16;
+    private static final int REBUILD_MOVE_BLOCKS = 8;
 
     /** 詰まったときに捨てるチャンクの半径。掘る・置くはたいてい自分の足元で起きる。 */
     private static final int STALL_INVALIDATE_CHUNKS = 1;
@@ -108,6 +110,22 @@ final class NavGraphGuide {
     private record Built(Key key, BlockPos center, WindowField field) {
     }
 
+    /**
+     * 窓の外の推定の出どころ。{@code source}が同じ間は作り直さない（層1の逆Dijkstraは地図全体を回すので、組み直しのたびには払わない）。
+     *
+     * @param name ログに出す名前
+     * @param make 段取りの1本で呼ぶ
+     */
+    record Far(String name, Object source, Supplier<FarField> make) {
+    }
+
+    /**
+     * 3D粗層を窓の外の推定に使うときに掛ける倍率。3D粗層は真の残りの0.77倍前後に縮んでいて、窓の中の正確な値と尺度が食い違う。
+     *
+     * <p>実測（ネザー4本、平均/最悪）: 1.0倍で1.016/1.035、1.3倍で1.013/1.023（3D粗層だけの現行は1.048/1.104）。
+     */
+    static final double VOXEL_FAR_SCALE = 1.3;
+
     private volatile @Nullable Built built;
     private volatile boolean building;
     // 直近の探索が前進できなかった。ワーカースレッド（whenComplete）が立て、forGoalが落とす
@@ -117,17 +135,17 @@ final class NavGraphGuide {
     /** 段取りの1本だけが触る。 */
     private @Nullable NavGraph graph;
     private @Nullable Key graphKey;
-    private @Nullable CoarseMap farSource;
+    private @Nullable Object farSource;
     private FarField far = FarField.UNKNOWN;
 
     /**
      * 今の目的地のガイド。無ければ組み始めて{@code null}を返す。<b>メインスレッドから呼ぶこと。</b>
      *
-     * @param coarseMap 窓の外の推定に使う層1の地図。無ければ{@code null}（窓の外は幾何下限）
+     * @param far 窓の外の推定。{@code null}なら目的地までの直線距離（目的地が窓の外のときだけ置く）
      * @return 組み直し中でも、同じ条件の古いガイドがあればそれ
      */
     @Nullable WindowField forGoal(Level level, Player player, BlockPos goal, int renderRadius, MovementOptions options,
-                               @Nullable CoarseMap coarseMap) {
+                                  @Nullable Far far) {
         BlockPos at = player.blockPosition();
         int window = Math.min(WINDOW_BLOCKS, renderRadius);
         Key key = new Key(level.dimension(), goal, options, canPlaceBlocks(player, options), window);
@@ -137,7 +155,7 @@ final class NavGraphGuide {
                 Math.abs(at.getZ() - current.center().getZ())) >= REBUILD_MOVE_BLOCKS;
         boolean stallRebuild = stalled && MonotonicTime.millis() >= nextStallRebuildMillis;
         if ((moved || stallRebuild) && !building) {
-            start(level, player, key, at, coarseMap);
+            start(level, player, key, at, far);
         }
         return usable ? current.field() : null;
     }
@@ -158,7 +176,7 @@ final class NavGraphGuide {
         stalled = true;
     }
 
-    private void start(Level level, Player player, Key key, BlockPos at, @Nullable CoarseMap coarseMap) {
+    private void start(Level level, Player player, Key key, BlockPos at, @Nullable Far farMap) {
         boolean invalidateAround = stalled && MonotonicTime.millis() >= nextStallRebuildMillis;
         if (invalidateAround) {
             nextStallRebuildMillis = MonotonicTime.millis() + STALL_REBUILD_INTERVAL_MILLIS;
@@ -170,9 +188,6 @@ final class NavGraphGuide {
         ChunkView view = ChunkView.capture(level, player, bounds, key.options());
         int minY = level.getMinBuildHeight();
         int maxY = level.getMaxBuildHeight() - 1;
-        // 層1を窓の外の推定に使うのは現世だけ。エンドの層1は奈落と島を2.5Dの床で持つだけで、窓の境界に置くと
-        // 幾何下限より悪い（実測: 1.197倍に対して1.009倍）
-        CoarseMap farMap = level.dimension() == Level.END ? null : coarseMap;
         building = true;
         long myGeneration = generation.incrementAndGet();
         CompletableFuture.supplyAsync(() -> refresh(key, view, at, minY, maxY, farMap, invalidateAround,
@@ -198,14 +213,14 @@ final class NavGraphGuide {
                                 refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
                                 refreshed.field().edges(), refreshed.field().nodes(),
                                 current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
-                                WORKERS, farMap == null ? "直線距離" : "層1");
+                                WORKERS, farMap == null ? "直線距離" : farMap.name());
                     }
                 });
     }
 
     /** 段取りの1本で走る。 */
     private NavGraph.@Nullable Refreshed refresh(Key key, ChunkView view, BlockPos at, int minY, int maxY,
-                                                 @Nullable CoarseMap farMap, boolean invalidateAround,
+                                                 @Nullable Far farMap, boolean invalidateAround,
                                                  BooleanSupplier cancelled) {
         NavGraph current = graph;
         if (current == null || !key.equals(graphKey)) {
@@ -225,10 +240,10 @@ final class NavGraphGuide {
                 }
             }
         }
-        if (farMap != farSource || far == FarField.UNKNOWN) {
-            far = farMap == null ? FarField.straightLineTo(key.goal())
-                    : FarField.of(CoarseRouter.costToGo(farMap, key.goal(), false, CoarseRouter.BridgePolicy.BRIDGE));
-            farSource = farMap;
+        Object source = farMap == null ? null : farMap.source();
+        if (source != farSource || far == FarField.UNKNOWN) {
+            far = farMap == null ? FarField.straightLineTo(key.goal()) : farMap.make().get();
+            farSource = source;
         }
         int window = key.window();
         return current.refresh(view::forGraphBuild, at.getX(), at.getZ(), window,
