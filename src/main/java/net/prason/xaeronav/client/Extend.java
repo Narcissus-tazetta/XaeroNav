@@ -81,11 +81,12 @@ final class Extend {
         /** 詳細探索のゴールを決める（{@code PathfindingState#selectDetailTarget}への委譲）。 */
         PathfindingState.DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
                                                            int reach, boolean boatAvailable, boolean playerAnchored,
-                                                           int minWaypointIndex, boolean ceilingDimension);
+                                                           int minWaypointIndex, boolean ceilingDimension,
+                                                           boolean navGraphGuided);
 
-        /** 天井のある次元の3D粗層ガイド（{@code PathfindingState#preparedVoxelGuide}への委譲）。 */
-        CostToGo preparedVoxelGuide(Level level, BlockPos player, BlockPos currentGoal, BlockPos target,
-                                     boolean climbing);
+        /** 目的地をそのまま狙う探索のガイド（{@code PathfindingState#goalGuide}への委譲）。 */
+        PathfindingState.@Nullable GoalGuide goalGuide(Level level, Player player, BlockPos from,
+                                                       BlockPos currentGoal, int renderRadius);
 
         /** この探索の結果を詰みの判定へ反映する（{@code PathfindingState#noteSearchOutcome}への委譲）。 */
         void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result);
@@ -308,8 +309,10 @@ final class Extend {
         // 探索の地平と、読み込み済みチャンクの残りの小さい方。どちらも地形の実測ではないので、
         // かつての detailReach のように成功／失敗で振動することがない
         int reach = Math.min(PathfindingState.detailHorizon(renderRadius), lead);
+        PathfindingState.GoalGuide goalGuide = host.goalGuide(level, player, from, currentGoal, renderRadius);
+        boolean navGraphGuided = goalGuide != null && goalGuide.navGraph();
         PathfindingState.DetailTarget detail = host.selectDetailTarget(from, currentGoal, lead, reach,
-                boatAvailable, false, shown.waypointIndex(), ceilingDimension);
+                boatAvailable, false, shown.waypointIndex(), ceilingDimension, navGraphGuided);
         BlockPos target = detail.target();
         // 目的地をそのまま狙っているときは、遠くても止めない（箱が切るので探索は有限）。
         // 中間目標を狙うときだけ「伸ばす先が読み込み済みチャンクの外」を歯止めにする
@@ -325,11 +328,14 @@ final class Extend {
         }
 
         NavigationTuning tuning = XaeroNavConfig.INSTANCE.navigationTuning();
-        SearchBounds bounds = SearchBounds.around(level, from, target,
-                tuning.searchHorizontalMargin(),
-                PathfindingState.verticalSearchMargin(level, false), renderRadius);
+        SearchBounds bounds = navGraphGuided
+                ? PathfindingState.navGraphBounds(level, from, target, playerAt, renderRadius,
+                        tuning.searchHorizontalMargin())
+                : SearchBounds.around(level, from, target, tuning.searchHorizontalMargin(),
+                        PathfindingState.verticalSearchMargin(level, false), renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
-        SearchLimits limits = tuning.searchLimits();
+        SearchLimits limits = navGraphGuided ? PathfindingState.navGraphLimits(tuning.searchLimits())
+                : tuning.searchLimits();
 
         long myGeneration = generation.incrementAndGet();
         host.setComputing(true);
@@ -342,7 +348,7 @@ final class Extend {
                 Carryover.placements(steps, PathProgress.INSTANCE.indexFor(shown.result()) + 1));
         PlannedCellSource futureTerrain = new PlannedCellSource(view, steps,
                 PathProgress.INSTANCE.indexFor(shown.result()) + 1);
-        CostToGo prepared = host.preparedVoxelGuide(level, playerAt, currentGoal, target, false);
+        CostToGo prepared = goalGuide != null && aimingAtGoal ? goalGuide.costToGo() : null;
         CompletableFuture<PathResult> extendFuture = executor.submit(
                 AvoidedCellSource.wrap(futureTerrain, recentFailures.avoided()), from, target, limits,
                 costToGoGuideEnabled, detail.goalRadius(), carried, prepared);

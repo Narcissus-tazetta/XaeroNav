@@ -34,7 +34,7 @@ class StuckTrackerTest {
     void firstOutcomeNeverCountsAsStalled() {
         StuckTracker tracker = new StuckTracker();
         tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false,
-                new NetherVoxelGuide());
+                new NetherVoxelGuide()::noteStalled);
 
         assertFalse(tracker.stranded(), "比較対象がまだ無い最初の探索は前進扱いになる");
         assertNull(tracker.reason());
@@ -45,16 +45,16 @@ class StuckTrackerTest {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
         // 1回目でベースライン(1000ブロック)を作る
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
 
         // 同じ地点・同じ距離のまま3回はまだ詰みと判断しない（SEARCH_STREAK=4回目で確定）
         for (int i = 0; i < 3; i++) {
-            tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+            tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
             assertNull(tracker.reason(), "streak " + i + "回目ではまだ確定しない");
             assertTrue(tracker.stranded());
         }
 
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertEquals(PathfindingState.StuckReason.NO_WAY_THROUGH, tracker.reason());
         assertEquals(PathfindingState.StuckReason.NO_WAY_THROUGH, tracker.takePendingNotice(),
                 "詰みが確定した回はチャット通知も一緒に立つ");
@@ -65,9 +65,9 @@ class StuckTrackerTest {
     void routeUnmappedTakesPriorityOverTerminationReason() {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.NODE_BUDGET), true, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.NODE_BUDGET), true, voxelGuide::noteStalled);
         for (int i = 0; i < 4; i++) {
-            tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.NODE_BUDGET), true, voxelGuide);
+            tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.NODE_BUDGET), true, voxelGuide::noteStalled);
         }
         assertEquals(PathfindingState.StuckReason.UNMAPPED, tracker.reason(),
                 "層1が目的地まで届いていないなら、打ち切り理由に関わらずUNMAPPEDを優先する");
@@ -77,9 +77,9 @@ class StuckTrackerTest {
     void resourceExhaustionWithoutUnmappedRouteIsSearchTooHard() {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.NODE_BUDGET), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.NODE_BUDGET), false, voxelGuide::noteStalled);
         for (int i = 0; i < 4; i++) {
-            tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.NODE_BUDGET), false, voxelGuide);
+            tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.NODE_BUDGET), false, voxelGuide::noteStalled);
         }
         assertEquals(PathfindingState.StuckReason.SEARCH_TOO_HARD, tracker.reason());
     }
@@ -88,15 +88,15 @@ class StuckTrackerTest {
     void movingFarBetweenAttemptsResetsTheStreak() {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertTrue(tracker.stranded());
 
         // 遠く離れた地点からの失敗は「別の実験」なので連続に数えない
-        tracker.noteOutcome(FAR_START, FAR_START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(FAR_START, FAR_START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(FAR_START, FAR_START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(FAR_START, FAR_START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(FAR_START, FAR_START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(FAR_START, FAR_START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertNull(tracker.reason(), "同じ地点で4連続にならない限り確定しない");
     }
 
@@ -104,14 +104,14 @@ class StuckTrackerTest {
     void meaningfulProgressResetsTheStreak() {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertTrue(tracker.stranded());
 
         // 目的地に10ブロック（PROGRESS_BLOCKS=8を超える）近づいた地点からの探索は前進とみなす
         BlockPos closer = new BlockPos(10, 64, 0);
-        tracker.noteOutcome(closer, closer, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(closer, closer, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertFalse(tracker.stranded(), "意味のある前進で連続カウントが戻る");
     }
 
@@ -119,15 +119,15 @@ class StuckTrackerTest {
     void completeGroundRouteOverridesStuckState() {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertEquals(PathfindingState.StuckReason.NO_WAY_THROUGH, tracker.reason());
 
         // 完走した地上経路が出ている間は、詰みの探索がその先で何回失敗しても詰みではない
-        tracker.noteOutcome(START, START, GOAL, true, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, true, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertNull(tracker.reason());
         assertFalse(tracker.stranded());
     }
@@ -136,11 +136,11 @@ class StuckTrackerTest {
     void resetClearsEverythingIncludingReason() {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertEquals(PathfindingState.StuckReason.NO_WAY_THROUGH, tracker.reason());
 
         tracker.reset();
@@ -149,7 +149,7 @@ class StuckTrackerTest {
         assertNull(tracker.takePendingNotice());
 
         // resetの後は最接近距離もリセットされているので、遠い目的地からでもまたベースラインを作り直す
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertFalse(tracker.stranded(), "reset後の最初の探索はまた前進扱いになる");
     }
 
@@ -157,9 +157,9 @@ class StuckTrackerTest {
     void clearReasonOnlyClearsTheVerdictNotTheStreak() {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
-        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
+        tracker.noteOutcome(START, START, GOAL, false, incomplete(Termination.EXHAUSTED), false, voxelGuide::noteStalled);
         assertTrue(tracker.stranded());
 
         // 到着時はclearReason()だけを呼ぶ（reason判定は無いのでこの時点で影響は無いが、
