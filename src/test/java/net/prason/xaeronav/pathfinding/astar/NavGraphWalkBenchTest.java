@@ -55,6 +55,10 @@ class NavGraphWalkBenchTest {
                         LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
                         Runtime.getRuntime().availableProcessors(), () -> false);
                 WindowField field = refreshed.field();
+                if (Boolean.getBoolean("xaeronav.navGraphVerbose")) {
+                    System.out.printf(Locale.ROOT, "  組み直し %s セクション%d 構築%dms ガイド%dms%n", player.toShortString(),
+                            refreshed.sectionsBuilt(), refreshed.buildMillis(), field.buildMillis());
+                }
                 stats.buildMillis()[0] += refreshed.buildMillis();
                 stats.fieldMillis()[0] += field.buildMillis();
                 stats.fieldMillis()[1] = Math.max(stats.fieldMillis()[1], field.buildMillis());
@@ -127,7 +131,7 @@ class NavGraphWalkBenchTest {
     private static void measure(String name, FakeCells cells, List<BlockPos[]> routes, ProgressiveWalk.Mode mode,
                                 ProgressiveWalk.Aim currentAim, Function<BlockPos[], FarField> farFor) {
         List<List<Double>> ratios = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
-        for (BlockPos[] route : routes) {
+        for (BlockPos[] route : routes.subList(0, Math.min(routes.size(), Integer.getInteger("xaeronav.routeLimit", 99)))) {
             BlockPos start = StanceFinder.resolveStart(cells, route[0]);
             BlockPos goal = StanceFinder.resolveGoal(cells, route[1]);
             double best = ProgressiveWalk.fullVisibilityBest(cells, start, goal);

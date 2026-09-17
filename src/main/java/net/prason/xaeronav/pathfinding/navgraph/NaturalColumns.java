@@ -20,6 +20,13 @@ public final class NaturalColumns {
     private final int height;
     private final int words;
     private final ConcurrentHashMap<Long, long[]> chunks = new ConcurrentHashMap<>();
+    /**
+     * 読み込まれていないセルを含んでいたチャンク。{@link #forgetIncomplete}までの間だけ覚える。
+     *
+     * <p><b>覚えずに毎回読み直してはいけない。</b>殻1つが32×32列を引くので、窓の縁のチャンクを列ごとに丸ごと読み直すことになり、
+     * 窓全体の構築が15倍遅くなった（実測: ネザーの窓4,410セクションで41.9秒、読み直さなければ数秒）。
+     */
+    private final ConcurrentHashMap<Long, long[]> incomplete = new ConcurrentHashMap<>();
 
     /** @param minY ビット0に当たる高さ。{@code maxY}まで含む */
     public NaturalColumns(int minY, int maxY) {
@@ -48,6 +55,9 @@ public final class NaturalColumns {
         long key = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
         long[] bits = chunks.get(key);
         if (bits == null) {
+            bits = incomplete.get(key);
+        }
+        if (bits == null) {
             bits = scan(cells, chunkX, chunkZ, key);
         }
         return bits[(Math.floorMod(x, 16) + Math.floorMod(z, 16) * 16) * words + word];
@@ -55,11 +65,19 @@ public final class NaturalColumns {
 
     /** チャンクの中身が変わった。次に引かれたときに読み直す。 */
     public void invalidateChunk(int chunkX, int chunkZ) {
-        chunks.remove(((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL));
+        long key = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+        chunks.remove(key);
+        incomplete.remove(key);
+    }
+
+    /** 読み込みの途中だったチャンクを忘れる。読める範囲が変わる前（組み直しの頭）に呼ぶ。 */
+    public void forgetIncomplete() {
+        incomplete.clear();
     }
 
     public void clear() {
         chunks.clear();
+        incomplete.clear();
     }
 
     private long[] scan(CellSource cells, int chunkX, int chunkZ, long key) {
@@ -83,9 +101,7 @@ public final class NaturalColumns {
                 }
             }
         }
-        if (!absent) {
-            chunks.put(key, bits);
-        }
+        (absent ? incomplete : chunks).put(key, bits);
         return bits;
     }
 

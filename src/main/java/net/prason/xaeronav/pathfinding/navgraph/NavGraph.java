@@ -218,6 +218,7 @@ public final class NavGraph {
                                        LoadedArea loaded, FarField far, @Nullable Executor pool, int workers,
                                        BooleanSupplier cancelled) {
         long began = MonotonicTime.millis();
+        naturals.forgetIncomplete();
         retainWithin(centerX, centerZ, radius + RETAIN_MARGIN);
         long[] missing = missingSections(centerX, centerZ, radius, loaded);
         Parallel parallel = new Parallel(pool, workers);

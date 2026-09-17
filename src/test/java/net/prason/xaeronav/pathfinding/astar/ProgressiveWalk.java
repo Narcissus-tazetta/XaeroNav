@@ -56,7 +56,7 @@ final class ProgressiveWalk {
      * <b>結果の値ではなく暴走の歯止め</b>なので、CIの速度で答えが変わる心配はしなくてよい
      * （ここへ当たった時点でその測定は「届かなかった」として捨てる）。
      */
-    private static final long TRACE_BUDGET_MILLIS = 120_000;
+    private static final long TRACE_BUDGET_MILLIS = Long.getLong("xaeronav.traceBudgetSeconds", 120L) * 1000L;
 
     /** {@code PathfindingState#INTERPOLATED_GOAL_RADIUS_BLOCKS}。補間した中間目標は領域で狙う。 */
     static final int INTERPOLATED_GOAL_RADIUS = 16;
