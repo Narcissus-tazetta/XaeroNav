@@ -20,6 +20,10 @@ final class DistanceHeap {
         size = 0;
     }
 
+    long bytes() {
+        return 12L * keys.length;
+    }
+
     double topKey() {
         return keys[0];
     }

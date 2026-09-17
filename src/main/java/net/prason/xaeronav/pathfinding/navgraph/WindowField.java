@@ -41,22 +41,22 @@ public final class WindowField implements CostToGo {
      */
     private static final int EDGE_SEED_BAND = 2;
 
+    /** 窓の外・まだ組んでいないセクション。 */
+    private static final int OUTSIDE = -1;
+    /** 組んだセクションの中だが、ノードではない（殻の外）。 */
+    private static final int NOT_A_NODE = -2;
+
     private final BlockPos goal;
     private final FarField far;
-    private final Long2IntOpenHashMap slotOf;
-    private final short[][] localOf;
-    private final int[] offsets;
+    private final Index index;
     private final double[] distance;
     private final int edges;
     private final long buildMillis;
 
-    private WindowField(BlockPos goal, FarField far, Long2IntOpenHashMap slotOf, short[][] localOf, int[] offsets,
-                        double[] distance, int edges, long buildMillis) {
+    private WindowField(BlockPos goal, FarField far, Index index, double[] distance, int edges, long buildMillis) {
         this.goal = goal;
         this.far = far;
-        this.slotOf = slotOf;
-        this.localOf = localOf;
-        this.offsets = offsets;
+        this.index = index;
         this.distance = distance;
         this.edges = edges;
         this.buildMillis = buildMillis;
@@ -74,15 +74,20 @@ public final class WindowField implements CostToGo {
         return buildMillis;
     }
 
+    /** 組み立て後も覚えている配列のおおよそのバイト数。 */
+    public long bytes() {
+        return 8L * distance.length + index.bytes();
+    }
+
     /**
-     * 組み立てにだけ使う大きな配列。区間ごとに数千万要素を作り直すと、そのたびに数百MBのごみになる。
+     * 組み立てにだけ使う大きな配列。区間ごとに数千万要素を作り直すと、そのたびに数十MBのごみになる。
      * 組み立て後のガイドはこれを参照しないので、次の組み立てで上書きしてよい。
      */
     static final class Buffers {
         private int[] start = new int[0];
-        private int[] fill = new int[0];
-        private int[] predecessor = new int[0];
-        private float[] weight = new float[0];
+        private int[] position = new int[0];
+        private char[] inMove = new char[0];
+        private final DistanceHeap heap = new DistanceHeap();
 
         int[] start(int size) {
             if (start.length < size) {
@@ -92,26 +97,91 @@ public final class WindowField implements CostToGo {
             return start;
         }
 
-        int[] fill(int[] source, int size) {
-            if (fill.length < size) {
-                fill = new int[size + size / 4];
+        int[] position(int size) {
+            if (position.length < size) {
+                position = new int[size + size / 4];
             }
-            System.arraycopy(source, 0, fill, 0, size);
-            return fill;
+            return position;
         }
 
-        int[] predecessor(int size) {
-            if (predecessor.length < size) {
-                predecessor = new int[size + size / 4];
+        char[] inMove(int size) {
+            if (inMove.length < size) {
+                inMove = new char[size + size / 4];
             }
-            return predecessor;
+            return inMove;
         }
 
-        float[] weight(int size) {
-            if (weight.length < size) {
-                weight = new float[size + size / 4];
+        DistanceHeap heap() {
+            heap.clear();
+            return heap;
+        }
+
+        long bytes() {
+            return 4L * start.length + 4L * position.length + 2L * inMove.length + heap.bytes();
+        }
+    }
+
+    /**
+     * 窓のセクションと、その中のノードの通し番号。セクション{@code s}のノードは
+     * {@code offsets[s]..offsets[s+1]}。
+     */
+    private static final class Index {
+        final long[] keys;
+        final SectionEdges[] sections;
+        final Long2IntOpenHashMap slotOf;
+        final int[] offsets;
+        /** セクション{@code s}の隣（各軸-1〜1）のセクションの番号。無ければ-1。 */
+        final int[] neighbor;
+
+        Index(long[] keys, SectionEdges[] sections, Long2IntOpenHashMap slotOf, int[] offsets, int[] neighbor) {
+            this.keys = keys;
+            this.sections = sections;
+            this.slotOf = slotOf;
+            this.offsets = offsets;
+            this.neighbor = neighbor;
+        }
+
+        /** セクション{@code slot}の原点から({@code x},{@code y},{@code z})の点のノード番号。 */
+        int resolve(int slot, int x, int y, int z) {
+            if (((x | y | z) & ~15) == 0) {
+                // 辺の大半は同じセクションの中で閉じる
+                int node = sections[slot].nodeOf(x | z << 4 | y << 8);
+                return node < 0 ? NOT_A_NODE : offsets[slot] + node;
             }
-            return weight;
+            int sdx = x >> 4;
+            int sdy = y >> 4;
+            int sdz = z >> 4;
+            int target;
+            if (isNear(sdx) && isNear(sdy) && isNear(sdz)) {
+                target = neighbor[slot * 27 + (sdx + 1) * 9 + (sdy + 1) * 3 + sdz + 1];
+            } else {
+                long key = keys[slot];
+                target = slotOf.get(NavGraph.key(BlockPos.getX(key) + sdx, BlockPos.getY(key) + sdy,
+                        BlockPos.getZ(key) + sdz));
+            }
+            if (target < 0) {
+                return OUTSIDE;
+            }
+            int node = sections[target].nodeOf(x & 15 | (z & 15) << 4 | (y & 15) << 8);
+            return node < 0 ? NOT_A_NODE : offsets[target] + node;
+        }
+
+        private static boolean isNear(int d) {
+            return d >= -1 && d <= 1;
+        }
+
+        int resolveAbsolute(int x, int y, int z) {
+            int slot = slotOf.get(NavGraph.key(Math.floorDiv(x, SectionMoves.SIZE), Math.floorDiv(y, SectionMoves.SIZE),
+                    Math.floorDiv(z, SectionMoves.SIZE)));
+            if (slot < 0) {
+                return OUTSIDE;
+            }
+            int node = sections[slot].nodeOf(SectionEdges.local(x, y, z));
+            return node < 0 ? NOT_A_NODE : offsets[slot] + node;
+        }
+
+        long bytes() {
+            return 8L * keys.length + 12L * sections.length + 4L * offsets.length + 4L * neighbor.length;
         }
     }
 
@@ -119,107 +189,127 @@ public final class WindowField implements CostToGo {
                                        FarField far, BooleanSupplier cancelled) {
         long began = MonotonicTime.millis();
         BlockPos goal = graph.goal();
-        LongArrayList keys = new LongArrayList();
+        LongArrayList keyList = new LongArrayList();
         graph.forEachWindowSection(centerX, centerZ, radius, (sx, sy, sz) -> {
             long key = NavGraph.key(sx, sy, sz);
             if (graph.section(key) != null) {
-                keys.add(key);
+                keyList.add(key);
             }
         });
-        int slots = keys.size();
+        long[] keys = keyList.toLongArray();
+        int slots = keys.length;
         SectionEdges[] sections = new SectionEdges[slots];
         Long2IntOpenHashMap slotOf = new Long2IntOpenHashMap(slots);
         slotOf.defaultReturnValue(-1);
-        short[][] localOf = new short[slots][];
         int[] offsets = new int[slots + 1];
         for (int s = 0; s < slots; s++) {
-            long key = keys.getLong(s);
-            SectionEdges edges = graph.section(key);
+            SectionEdges edges = graph.section(keys[s]);
             // 組み立ての途中で捨てられた（チャンクの更新）なら、まだ組んでいないのと同じに扱う
             sections[s] = edges == null ? SectionEdges.EMPTY : edges;
-            slotOf.put(key, s);
-            localOf[s] = sections[s].localOf;
+            slotOf.put(keys[s], s);
             offsets[s + 1] = offsets[s] + sections[s].nodes;
         }
+        // 辺の移動の番号は、セクションを覚える前に表へ載っている。セクションを集め終えてから表を取れば全部引ける
+        MoveTable.View moves = graph.moves().view();
+        int[] neighbor = new int[slots * 27];
+        for (int s = 0; s < slots; s++) {
+            int sx = BlockPos.getX(keys[s]);
+            int sy = BlockPos.getY(keys[s]);
+            int sz = BlockPos.getZ(keys[s]);
+            for (int k = 0; k < 27; k++) {
+                neighbor[s * 27 + k] = slotOf.get(NavGraph.key(sx + k / 9 - 1, sy + k / 3 % 3 - 1, sz + k % 3 - 1));
+            }
+        }
+        Index index = new Index(keys, sections, slotOf, offsets, neighbor);
+
         int n = offsets[slots];
-        double[] seed = new double[n];
-        Arrays.fill(seed, Double.POSITIVE_INFINITY);
-        int[] start = buffers.start(n + 1);
-        int goalId = idOf(slotOf, localOf, offsets, goal.getX(), goal.getY(), goal.getZ());
+        int[] position = buffers.position(n);
+        for (int s = 0; s < slots; s++) {
+            sections[s].positions(position, offsets[s]);
+        }
+        double[] distance = new double[n];
+        Arrays.fill(distance, Double.POSITIVE_INFINITY);
+        int goalId = index.resolveAbsolute(goal.getX(), goal.getY(), goal.getZ());
         if (goalId >= 0) {
-            seed[goalId] = 0.0;
+            distance[goalId] = 0.0;
         }
 
-        // 1周目: 窓の中へ入る辺を数え、窓から出る辺は種にする
+        // 1周目: 窓の中へ入る辺を行き先ごとに数え（start[行き先+2]）、窓から出る辺は種にする
+        int[] start = buffers.start(n + 2);
         for (int s = 0; s < slots; s++) {
             if (cancelled.getAsBoolean()) {
                 return null;
             }
             SectionEdges section = sections[s];
-            long key = keys.getLong(s);
+            long key = keys[s];
             int baseX = BlockPos.getX(key) * SectionMoves.SIZE;
             int baseY = BlockPos.getY(key) * SectionMoves.SIZE;
             int baseZ = BlockPos.getZ(key) * SectionMoves.SIZE;
-            for (int i = 0; i < section.size(); i++) {
-                int local = section.from[i];
-                int fromId = offsets[s] + localOf[s][local];
-                int fx = baseX + (local & 15);
-                int fz = baseZ + (local >> 4 & 15);
-                if (Math.abs(fx - centerX) > radius - EDGE_SEED_BAND || Math.abs(fz - centerZ) > radius - EDGE_SEED_BAND) {
-                    double value = far.at(fx, baseY + (local >> 8 & 15), fz);
+            for (int i = 0; i < section.nodes; i++) {
+                int from = offsets[s] + i;
+                int local = position[from];
+                int lx = local & 15;
+                int ly = local >> 8 & 15;
+                int lz = local >> 4 & 15;
+                if (Math.abs(baseX + lx - centerX) > radius - EDGE_SEED_BAND
+                        || Math.abs(baseZ + lz - centerZ) > radius - EDGE_SEED_BAND) {
+                    double value = far.at(baseX + lx, baseY + ly, baseZ + lz);
                     if (Double.isFinite(value)) {
-                        seed[fromId] = Math.min(seed[fromId], value);
+                        distance[from] = Math.min(distance[from], value);
                     }
                 }
-                int tx = baseX + (local & 15) + section.dx[i];
-                int ty = baseY + (local >> 8 & 15) + section.dy[i];
-                int tz = baseZ + (local >> 4 & 15) + section.dz[i];
-                if (tx == goal.getX() && ty == goal.getY() && tz == goal.getZ()) {
-                    // 目的地そのものは殻の外（展開しないセル）にあってもよい。そこへ入る辺は目的地までの値段そのもの
-                    seed[fromId] = Math.min(seed[fromId], section.cost[i]);
-                }
-                int target = targetId(slotOf, localOf, offsets, tx, ty, tz);
-                if (target >= 0) {
-                    start[target + 1]++;
-                } else if (target == OUTSIDE) {
-                    double value = far.at(tx, ty, tz);
-                    if (Double.isFinite(value)) {
-                        seed[fromId] = Math.min(seed[fromId], section.cost[i] + value);
+                for (int e = section.edgeStart[i]; e < section.edgeStart[i + 1]; e++) {
+                    int m = section.move[e];
+                    int tx = lx + moves.dx[m];
+                    int ty = ly + moves.dy[m];
+                    int tz = lz + moves.dz[m];
+                    if (baseX + tx == goal.getX() && baseY + ty == goal.getY() && baseZ + tz == goal.getZ()) {
+                        // 目的地そのものは殻の外（展開しないセル）にあってもよい。そこへ入る辺は目的地までの値段そのもの
+                        distance[from] = Math.min(distance[from], moves.cost[m]);
+                    }
+                    int target = index.resolve(s, tx, ty, tz);
+                    if (target >= 0) {
+                        start[target + 2]++;
+                    } else if (target == OUTSIDE) {
+                        double value = far.at(baseX + tx, baseY + ty, baseZ + tz);
+                        if (Double.isFinite(value)) {
+                            distance[from] = Math.min(distance[from], moves.cost[m] + value);
+                        }
                     }
                 }
             }
         }
-        for (int i = 0; i < n; i++) {
-            start[i + 1] += start[i];
+        for (int i = 2; i <= n + 1; i++) {
+            start[i] += start[i - 1];
         }
-        int m = start[n];
-        int[] fill = buffers.fill(start, n);
-        int[] predecessor = buffers.predecessor(m);
-        float[] weight = buffers.weight(m);
-        // 2周目: 逆向きの隣接表を埋める
+        int m = start[n + 1];
+        char[] inMove = buffers.inMove(m);
+        // 2周目: 行き先ごとに、入ってくる辺の移動を埋める。出発点は行き先から移動を引き戻せば分かる
         for (int s = 0; s < slots; s++) {
             if (cancelled.getAsBoolean()) {
                 return null;
             }
             SectionEdges section = sections[s];
-            long key = keys.getLong(s);
-            int baseX = BlockPos.getX(key) * SectionMoves.SIZE;
-            int baseY = BlockPos.getY(key) * SectionMoves.SIZE;
-            int baseZ = BlockPos.getZ(key) * SectionMoves.SIZE;
-            for (int i = 0; i < section.size(); i++) {
-                int local = section.from[i];
-                int target = targetId(slotOf, localOf, offsets, baseX + (local & 15) + section.dx[i],
-                        baseY + (local >> 8 & 15) + section.dy[i], baseZ + (local >> 4 & 15) + section.dz[i]);
-                if (target >= 0) {
-                    int slot = fill[target]++;
-                    predecessor[slot] = offsets[s] + localOf[s][local];
-                    weight[slot] = section.cost[i];
+            for (int i = 0; i < section.nodes; i++) {
+                int local = position[offsets[s] + i];
+                for (int e = section.edgeStart[i]; e < section.edgeStart[i + 1]; e++) {
+                    int move = section.move[e];
+                    int target = index.resolve(s, (local & 15) + moves.dx[move], (local >> 8 & 15) + moves.dy[move],
+                            (local >> 4 & 15) + moves.dz[move]);
+                    if (target >= 0) {
+                        inMove[start[target + 1]++] = (char) move;
+                    }
                 }
             }
         }
+        // 埋め終えると start[t]..start[t+1] が行き先tへ入る辺になる
+        for (int s = 0; s < slots; s++) {
+            for (int i = offsets[s]; i < offsets[s + 1]; i++) {
+                position[i] |= s << 12;
+            }
+        }
 
-        double[] distance = seed;
-        DistanceHeap heap = new DistanceHeap();
+        DistanceHeap heap = buffers.heap();
         for (int i = 0; i < n; i++) {
             if (Double.isFinite(distance[i])) {
                 heap.push(distance[i], i);
@@ -235,42 +325,27 @@ public final class WindowField implements CostToGo {
             if (d > distance[node]) {
                 continue;
             }
-            for (int slot = start[node]; slot < start[node + 1]; slot++) {
-                int p = predecessor[slot];
-                double candidate = d + weight[slot];
+            int packed = position[node];
+            int slot = packed >>> 12;
+            int lx = packed & 15;
+            int ly = packed >> 8 & 15;
+            int lz = packed >> 4 & 15;
+            for (int k = start[node]; k < start[node + 1]; k++) {
+                int move = inMove[k];
+                int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
+                double candidate = d + moves.cost[move];
                 if (candidate < distance[p]) {
                     distance[p] = candidate;
                     heap.push(candidate, p);
                 }
             }
         }
-        return new WindowField(goal, far, slotOf, localOf, offsets, distance, m,
-                MonotonicTime.millis() - began);
-    }
-
-    /** 窓の外・まだ組んでいないセクション。 */
-    private static final int OUTSIDE = -1;
-    /** 組んだセクションの中だが、ノードではない（殻の外）。 */
-    private static final int NOT_A_NODE = -2;
-
-    private static int targetId(Long2IntOpenHashMap slotOf, short[][] localOf, int[] offsets, int x, int y, int z) {
-        int slot = slotOf.get(NavGraph.key(Math.floorDiv(x, SectionMoves.SIZE), Math.floorDiv(y, SectionMoves.SIZE),
-                Math.floorDiv(z, SectionMoves.SIZE)));
-        if (slot < 0) {
-            return OUTSIDE;
-        }
-        short local = localOf[slot][SectionEdges.local(x, y, z)];
-        return local < 0 ? NOT_A_NODE : offsets[slot] + local;
-    }
-
-    private static int idOf(Long2IntOpenHashMap slotOf, short[][] localOf, int[] offsets, int x, int y, int z) {
-        int id = targetId(slotOf, localOf, offsets, x, y, z);
-        return Math.max(id, -1);
+        return new WindowField(goal, far, index, distance, m, MonotonicTime.millis() - began);
     }
 
     @Override
     public double estimate(int x, int y, int z) {
-        int id = targetId(slotOf, localOf, offsets, x, y, z);
+        int id = index.resolveAbsolute(x, y, z);
         if (id >= 0 && Double.isFinite(distance[id])) {
             return distance[id];
         }
@@ -281,7 +356,7 @@ public final class WindowField implements CostToGo {
         for (int dx = -NEAREST_REACH; dx <= NEAREST_REACH; dx++) {
             for (int dy = -NEAREST_REACH; dy <= NEAREST_REACH; dy++) {
                 for (int dz = -NEAREST_REACH; dz <= NEAREST_REACH; dz++) {
-                    int near = targetId(slotOf, localOf, offsets, x + dx, y + dy, z + dz);
+                    int near = index.resolveAbsolute(x + dx, y + dy, z + dz);
                     if (near >= 0 && Double.isFinite(distance[near])) {
                         nearest = Math.min(nearest,
                                 distance[near] + Heuristic.estimate(x, y, z, x + dx, y + dy, z + dz));

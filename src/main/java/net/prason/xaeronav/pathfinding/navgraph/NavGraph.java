@@ -26,6 +26,7 @@ public final class NavGraph {
     private final int minSectionY;
     private final int maxSectionY;
     private final NaturalColumns naturals;
+    private final MoveTable moves = new MoveTable();
     private final ConcurrentHashMap<Long, SectionEdges> sections = new ConcurrentHashMap<>();
 
     /**
@@ -126,7 +127,7 @@ public final class NavGraph {
                 shellX = sx;
                 shellZ = sz;
             }
-            SectionEdges edges = SectionEdges.build(cells, shell, sx, sy, sz, goal.getX(), goal.getZ(), cancelled);
+            SectionEdges edges = SectionEdges.build(cells, shell, moves, sx, sy, sz, goal.getX(), goal.getZ(), cancelled);
             if (edges == null) {
                 return false;
             }
@@ -176,6 +177,18 @@ public final class NavGraph {
         });
     }
 
+    /** 覚えているセクションと、ガイドの組み立て用の配列のおおよそのバイト数。 */
+    public long bytes() {
+        long total;
+        synchronized (this) {
+            total = fieldBuffers.bytes();
+        }
+        for (SectionEdges edges : sections.values()) {
+            total += edges == SectionEdges.EMPTY ? 16 : edges.bytes();
+        }
+        return total;
+    }
+
     /** 覚えている辺の総数。 */
     public long edgeCount() {
         long total = 0;
@@ -197,6 +210,10 @@ public final class NavGraph {
 
     /** {@link #field}の組み立て用の配列。{@code field}は同期しているので1組でよい。 */
     private final WindowField.Buffers fieldBuffers = new WindowField.Buffers();
+
+    MoveTable moves() {
+        return moves;
+    }
 
     @Nullable SectionEdges section(long key) {
         return sections.get(key);

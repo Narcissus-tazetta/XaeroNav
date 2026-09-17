@@ -35,7 +35,7 @@ class NavGraphWalkBenchTest {
 
     private static final long SEED = 20260917L;
 
-    private record Stats(long[] buildMillis, long[] fieldMillis, int[] maxEdges) {
+    private record Stats(long[] buildMillis, long[] fieldMillis, int[] maxEdges, long[] maxBytes) {
     }
 
     private static Function<BlockPos, CostToGo> guide(FakeCells cells, BlockPos goal, FarField far, Stats stats) {
@@ -46,6 +46,8 @@ class NavGraphWalkBenchTest {
             if (!player.equals(last[0])) {
                 CellSource window = new WindowedCells(cells, player, WINDOW);
                 long began = System.currentTimeMillis();
+                // 実機と同じく、窓から離れたセクションは捨てる
+                graph.retainWithin(player.getX(), player.getZ(), WINDOW + 32);
                 long[] missing = graph.missingSections(player.getX(), player.getZ(), WINDOW);
                 // 実機と同じく並列に組む。FakeCellsは読むだけなら共有してよい
                 int batch = 64;
@@ -58,6 +60,8 @@ class NavGraphWalkBenchTest {
                 stats.fieldMillis()[0] += field.buildMillis();
                 stats.fieldMillis()[1] = Math.max(stats.fieldMillis()[1], field.buildMillis());
                 stats.maxEdges()[0] = Math.max(stats.maxEdges()[0], field.edges());
+                stats.maxBytes()[0] = Math.max(stats.maxBytes()[0], graph.bytes());
+                stats.maxBytes()[1] = Math.max(stats.maxBytes()[1], field.bytes());
                 cached[0] = field;
                 last[0] = player;
             }
@@ -114,24 +118,27 @@ class NavGraphWalkBenchTest {
             double best = ProgressiveWalk.fullVisibilityBest(cells, start, goal);
             FarField far = farFor.apply(new BlockPos[] {start, goal});
 
-            ProgressiveWalk.Trace current = ProgressiveWalk.trace(cells, start, goal, WINDOW, mode, currentAim, null);
-            ProgressiveWalk.Trace closureWalk = closureWalk(cells, start, goal, mode, far);
+            // 航法グラフの実装だけを測り直すときは、重い2本（現行・閉包の窓）を飛ばす
+            boolean graphOnly = Boolean.getBoolean("xaeronav.navGraphOnly");
+            ProgressiveWalk.Trace current = graphOnly ? null
+                    : ProgressiveWalk.trace(cells, start, goal, WINDOW, mode, currentAim, null);
+            ProgressiveWalk.Trace closureWalk = graphOnly ? null : closureWalk(cells, start, goal, mode, far);
 
-            Stats stats = new Stats(new long[1], new long[2], new int[1]);
+            Stats stats = new Stats(new long[1], new long[2], new int[1], new long[2]);
             ProgressiveWalk.Trace graphWalk = ProgressiveWalk.trace(cells, start, goal, WINDOW, mode,
                     ProgressiveWalk.Aim.GOAL, guide(cells, goal, far, stats), 1.0);
             double[] values = new double[3];
             ProgressiveWalk.Trace[] traces = {current, closureWalk, graphWalk};
             for (int i = 0; i < 3; i++) {
-                values[i] = traces[i].steps().isEmpty() ? Double.POSITIVE_INFINITY
+                values[i] = traces[i] == null || traces[i].steps().isEmpty() ? Double.POSITIVE_INFINITY
                         : ProgressiveWalk.cost(traces[i].steps()) / best;
                 ratios.get(i).add(values[i]);
             }
             System.out.printf(Locale.ROOT,
-                    "%s %s→%s 現行%.3f 閉包の窓%.3f 航法グラフ%.3f 繋ぎ目%d 構築計%dms ガイド計%dms(最大%dms) 辺最大%d %s%n",
+                    "%s %s→%s 現行%.3f 閉包の窓%.3f 航法グラフ%.5f 繋ぎ目%d 構築計%dms ガイド計%dms(最大%dms) 辺最大%d グラフ最大%dMB ガイド最大%dMB %s%n",
                     name, start.toShortString(), goal.toShortString(), values[0], values[1], values[2],
                     graphWalk.joints().size(), stats.buildMillis()[0], stats.fieldMillis()[0], stats.fieldMillis()[1],
-                    stats.maxEdges()[0], graphWalk.stopped());
+                    stats.maxEdges()[0], stats.maxBytes()[0] >> 20, stats.maxBytes()[1] >> 20, graphWalk.stopped());
         }
         String[] names = {"現行", "閉包の窓", "航法グラフ"};
         for (int i = 0; i < 3; i++) {

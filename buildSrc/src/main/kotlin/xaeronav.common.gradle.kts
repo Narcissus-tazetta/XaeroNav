@@ -132,6 +132,8 @@ val bench = tasks.register<Test>("bench") {
     forkEvery = 1
     systemProperty("xaeronav.profileOut",
             layout.buildDirectory.dir("bench").get().asFile.absolutePath)
+    // 計測の切り替え（-Pxaeronav.navGraphOnly=true）。テストのJVMへは明示しないと届かない
+    providers.gradleProperty("xaeronav.navGraphOnly").orNull?.let { systemProperty("xaeronav.navGraphOnly", it) }
 }
 
 // テストは正典ノードでだけ実行する。経路探索コアはローダーにもMCバージョンにも依存せず
