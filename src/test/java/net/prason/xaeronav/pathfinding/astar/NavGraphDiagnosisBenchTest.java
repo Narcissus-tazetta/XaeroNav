@@ -3,6 +3,7 @@ package net.prason.xaeronav.pathfinding.astar;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ForkJoinPool;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
+import net.prason.xaeronav.pathfinding.navgraph.LoadedArea;
 import net.prason.xaeronav.pathfinding.navgraph.NavGraph;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
@@ -43,12 +45,10 @@ class NavGraphDiagnosisBenchTest {
         java.util.function.Function<BlockPos, CostToGo> guide = player -> {
             if (!player.equals(last[0])) {
                 WindowedCells view = new WindowedCells(cells, player, WINDOW);
-                long[] keys = graph.missingSections(player.getX(), player.getZ(), WINDOW);
-                int batch = 64;
-                java.util.stream.IntStream.range(0, (keys.length + batch - 1) / batch).parallel().forEach(b ->
-                        graph.build(view, keys, b * batch, Math.min(keys.length, (b + 1) * batch), player.getX(),
-                                player.getZ(), WINDOW, () -> false));
-                WindowField field = graph.field(player.getX(), player.getZ(), WINDOW, far, () -> false);
+                NavGraph.Refreshed refreshed = graph.refresh(() -> view, player.getX(), player.getZ(), WINDOW,
+                        LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
+                        Runtime.getRuntime().availableProcessors(), () -> false);
+                WindowField field = refreshed.field();
                 CostToGo closureWindow = closure.windowGuide(goal, player, WINDOW, far::at);
                 int worse = 0;
                 int sampled = 0;
@@ -77,7 +77,7 @@ class NavGraphDiagnosisBenchTest {
                     }
                 }
                 System.out.printf(Locale.ROOT, "区間%d 位置%s 5%%超の食い違い%d/%d 最大%.2f(%s) 再構築%d%n", leg[0]++,
-                        player.toShortString(), worse, sampled, worst, worstAt, keys.length);
+                        player.toShortString(), worse, sampled, worst, worstAt, refreshed.sectionsBuilt());
                 cached[0] = field;
                 last[0] = player;
             }
@@ -109,13 +109,15 @@ class NavGraphDiagnosisBenchTest {
 
         NavGraph windowed = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
         WindowedCells view = new WindowedCells(cells, start, WINDOW);
-        long[] keys = windowed.missingSections(start.getX(), start.getZ(), WINDOW);
-        windowed.build(view, keys, 0, keys.length, start.getX(), start.getZ(), WINDOW, () -> false);
+        LoadedArea loaded = LoadedArea.square(start.getX(), start.getZ(), WINDOW);
+        long[] keys = windowed.missingSections(start.getX(), start.getZ(), WINDOW, loaded);
+        windowed.build(view, keys, 0, keys.length, loaded, () -> false);
         WindowField field = windowed.field(start.getX(), start.getZ(), WINDOW, far, () -> false);
 
         NavGraph full = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
-        long[] fullKeys = full.missingSections(start.getX(), start.getZ(), WINDOW);
-        full.build(cells, fullKeys, 0, fullKeys.length, start.getX(), start.getZ(), 1 << 20, () -> false);
+        LoadedArea everything = LoadedArea.square(start.getX(), start.getZ(), 1 << 20);
+        long[] fullKeys = full.missingSections(start.getX(), start.getZ(), WINDOW, everything);
+        full.build(cells, fullKeys, 0, fullKeys.length, everything, () -> false);
         WindowField fullField = full.field(start.getX(), start.getZ(), WINDOW, far, () -> false);
 
         System.out.printf(Locale.ROOT, "%s→%s 最適%.0f 閉包窓の辺? 航法グラフ辺%d(全視界で組むと%d)%n",

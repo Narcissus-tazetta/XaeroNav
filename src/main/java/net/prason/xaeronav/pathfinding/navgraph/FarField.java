@@ -1,6 +1,8 @@
 package net.prason.xaeronav.pathfinding.navgraph;
 
+import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
+import net.prason.xaeronav.pathfinding.astar.Heuristic;
 
 /**
  * 窓（読み込み範囲）の外の、目的地までの残りコストの推定。窓の境界の種にだけ使う。
@@ -12,6 +14,36 @@ import net.prason.xaeronav.pathfinding.astar.CostToGo;
 public interface FarField {
 
     FarField UNKNOWN = (x, y, z) -> Double.POSITIVE_INFINITY;
+
+    /**
+     * 目的地までの幾何下限。推定の材料が無いときの外の値。
+     *
+     * <p>{@link #UNKNOWN}を窓の縁に置くと、目的地が窓の外にある限り種が1つも無く、ガイドが丸ごと使えない
+     * （実測: エンドで目的地が窓の外に出るルートが1.022→1.235倍、従来の区間へ落ちた）。
+     */
+    static FarField straightLineTo(BlockPos goal) {
+        return new FarField() {
+            @Override
+            public double at(int x, int y, int z) {
+                return Heuristic.estimate(x, y, z, goal.getX(), goal.getY(), goal.getZ());
+            }
+
+            @Override
+            public boolean onlyWhenGoalOutside() {
+                return true;
+            }
+        };
+    }
+
+    /**
+     * 目的地が窓の中にあるときは使わない（{@link #UNKNOWN}として扱う）か。
+     *
+     * <p>幾何下限は窓の外の地形を何も知らないので、目的地が窓の中にあっても縁の点に「そこから直線で着く」という
+     * 過小な値を置き、探索を縁へ吸い寄せる。
+     */
+    default boolean onlyWhenGoalOutside() {
+        return false;
+    }
 
     double at(int x, int y, int z);
 

@@ -1,6 +1,7 @@
 package net.prason.xaeronav.pathfinding.navgraph;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -47,8 +48,9 @@ class WindowFieldTest {
 
     private static NavGraph built(FakeCells cells, BlockPos goal, int centerX, int centerZ, int radius) {
         NavGraph graph = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
-        long[] keys = graph.missingSections(centerX, centerZ, radius);
-        assertTrue(graph.build(cells, keys, 0, keys.length, centerX, centerZ, 1 << 20, () -> false));
+        LoadedArea everything = LoadedArea.square(centerX, centerZ, 1 << 20);
+        long[] keys = graph.missingSections(centerX, centerZ, radius, everything);
+        assertTrue(graph.build(cells, keys, 0, keys.length, everything, () -> false));
         return graph;
     }
 
@@ -97,5 +99,42 @@ class WindowFieldTest {
         assertNotNull(field);
         double optimal = optimalCost(cells, start, goal);
         assertEquals(optimal, field.estimate(start.getX(), start.getY(), start.getZ()), optimal * 0.01);
+    }
+
+    @Test
+    void tellsASealedPocketApart() {
+        // 地面の16ブロック下に、掘らないと出られない小部屋。殻は立てる点の上下2までなので、地表と繋がらない
+        FakeCells cells = FakeCells.empty(new SearchBounds(0, 40, 0, 63, 96, 63));
+        for (int x = 0; x < 64; x++) {
+            for (int z = 0; z < 64; z++) {
+                for (int y = 40; y <= FLOOR_Y; y++) {
+                    cells.set(x, y, z, FakeCells.STONE);
+                }
+            }
+        }
+        int pocketY = FLOOR_Y - 16;
+        for (int x = 9; x <= 11; x++) {
+            for (int z = 49; z <= 51; z++) {
+                cells.set(x, pocketY, z, FakeCells.AIR);
+                cells.set(x, pocketY + 1, z, FakeCells.AIR);
+            }
+        }
+        BlockPos goal = new BlockPos(54, FLOOR_Y + 1, 50);
+        WindowField field = built(cells, goal, 32, 32, 40).field(32, 32, 40, FarField.UNKNOWN, () -> false);
+        assertNotNull(field);
+        assertTrue(field.connects(10, FLOOR_Y + 1, 50), "地表の点が繋がっていない");
+        assertFalse(field.connects(10, pocketY, 50), "地表と繋がっていない小部屋を繋がっているとした");
+        // 殻の外の空中（置いたブロックの上など）は、近くの値を延ばせばよいので断らない
+        assertTrue(field.connects(10, FLOOR_Y + 12, 50));
+    }
+
+    @Test
+    void refusesToGuideWhenTheGoalIsCutOff() {
+        FakeCells cells = world(false);
+        // 目的地は窓の中だが、岩盤に埋まっていて殻のどこからも入れない
+        BlockPos goal = new BlockPos(40, FLOOR_Y - 10, 32);
+        WindowField field = built(cells, goal, 32, 32, 40).field(32, 32, 40, FarField.UNKNOWN, () -> false);
+        assertNotNull(field);
+        assertFalse(field.reachesGoal());
     }
 }

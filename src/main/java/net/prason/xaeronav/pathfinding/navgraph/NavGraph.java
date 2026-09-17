@@ -1,7 +1,9 @@
 package net.prason.xaeronav.pathfinding.navgraph;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import org.jspecify.annotations.Nullable;
 
@@ -10,6 +12,7 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.SectionMoves;
 import net.prason.xaeronav.pathfinding.world.CellSource;
+import net.prason.xaeronav.util.MonotonicTime;
 
 /**
  * 1つの目的地に対する航法グラフ。読み込み済みの範囲をセクション（16³）ごとに、探索と同じ移動生成で組んで覚える。
@@ -64,7 +67,7 @@ public final class NavGraph {
      * 窓（中心から水平{@code radius}の正方形）に掛かるセクションのうち、組む必要があるものの鍵。
      * まだ組んでいないものと、周りが欠けたまま組んだが今の方が多く読める（{@link #readableColumns}）もの。
      */
-    public long[] missingSections(int centerX, int centerZ, int radius) {
+    public long[] missingSections(int centerX, int centerZ, int radius, LoadedArea loaded) {
         LongArrayList missing = new LongArrayList();
         forEachWindowSection(centerX, centerZ, radius, (sx, sy, sz) -> {
             long key = key(sx, sy, sz);
@@ -76,7 +79,7 @@ public final class NavGraph {
             if (readable == null) {
                 return;
             }
-            int now = readableColumns(sx, sz, centerX, centerZ, radius);
+            int now = readableColumns(sx, sz, loaded);
             // 読める列が少し増えるたびに組み直すと、窓が動くたびに縁の帯を丸ごと組み直すことになる
             if (now >= FULLY_READABLE || now - readable >= FULLY_READABLE / REBUILD_STEPS) {
                 missing.add(key);
@@ -85,16 +88,11 @@ public final class NavGraph {
         return missing.toLongArray();
     }
 
-    /**
-     * セクションの列とその外を読む幅のうち、中心から水平{@code radius}の正方形に入る列の数。
-     * 全部入っていれば{@link #FULLY_READABLE}。
-     */
-    static int readableColumns(int sectionX, int sectionZ, int centerX, int centerZ, int radius) {
-        int minX = Math.max(sectionX * SectionMoves.SIZE - READ_MARGIN, centerX - radius);
-        int maxX = Math.min((sectionX + 1) * SectionMoves.SIZE - 1 + READ_MARGIN, centerX + radius);
-        int minZ = Math.max(sectionZ * SectionMoves.SIZE - READ_MARGIN, centerZ - radius);
-        int maxZ = Math.min((sectionZ + 1) * SectionMoves.SIZE - 1 + READ_MARGIN, centerZ + radius);
-        return Math.max(0, maxX - minX + 1) * Math.max(0, maxZ - minZ + 1);
+    /** セクションの列とその外を読む幅のうち、読める列の数。全部読めれば{@link #FULLY_READABLE}。 */
+    static int readableColumns(int sectionX, int sectionZ, LoadedArea loaded) {
+        return loaded.columns(sectionX * SectionMoves.SIZE - READ_MARGIN,
+                (sectionX + 1) * SectionMoves.SIZE - 1 + READ_MARGIN, sectionZ * SectionMoves.SIZE - READ_MARGIN,
+                (sectionZ + 1) * SectionMoves.SIZE - 1 + READ_MARGIN);
     }
 
     /** 仮のセクションを組み直す刻み。読める列がこの割合ぶん増えるか、全部読めるようになったら組み直す。 */
@@ -104,12 +102,12 @@ public final class NavGraph {
 
     /**
      * {@code keys[from..to)}のセクションを組む。{@code cells}はこの呼び出しのスレッドが占有するビュー。
-     * 読める範囲（{@code loaded*}の正方形）から{@link #READ_MARGIN}以内のセクションは、周りが欠けた仮のものとして覚える。
+     * 周り{@link #READ_MARGIN}の列が全部は読めないセクションは、周りが欠けた仮のものとして覚える。
      *
      * @return 打ち切られたら{@code false}（組み終えたセクションは覚えている）
      */
-    public boolean build(CellSource cells, long[] keys, int from, int to, int loadedCenterX, int loadedCenterZ,
-                         int loadedRadius, BooleanSupplier cancelled) {
+    public boolean build(CellSource cells, long[] keys, int from, int to, LoadedArea loaded,
+                         BooleanSupplier cancelled) {
         SectionShell shell = null;
         int shellX = Integer.MIN_VALUE;
         int shellZ = Integer.MIN_VALUE;
@@ -132,7 +130,7 @@ public final class NavGraph {
                 return false;
             }
             sections.put(key, edges);
-            int readable = readableColumns(sx, sz, loadedCenterX, loadedCenterZ, loadedRadius);
+            int readable = readableColumns(sx, sz, loaded);
             if (readable >= FULLY_READABLE) {
                 provisional.remove(key);
             } else {
@@ -198,14 +196,54 @@ public final class NavGraph {
         return total;
     }
 
+    /** {@link #refresh}の結果と、実機のログに出す内訳。 */
+    public record Refreshed(WindowField field, int sectionsBuilt, long buildMillis) {
+    }
+
+    /** 窓からこれより離れたセクションは捨てる。窓が少し戻っただけで縁の帯を組み直さずに済む幅。 */
+    static final int RETAIN_MARGIN = 32;
+
+    /** 1つのビューで続けて組むセクションの数。セルを覚えるビューを渡されても、窓全体ぶん膨らまないように小分けで取り直す。 */
+    private static final int SECTIONS_PER_VIEW = 16;
+
+    /**
+     * 窓の中の足りないセクションを並列に組み、ガイドを作り直す。
+     *
+     * @param views    呼ぶたびに、そのスレッドが占有してよいビューを返す
+     * @param pool     {@code null}なら呼び出し元のスレッドだけで組む。プールのスレッドから呼んではいけない
+     * @param workers  呼び出し元を含めた並列度
+     * @return 打ち切られたら{@code null}
+     */
+    public @Nullable Refreshed refresh(Supplier<CellSource> views, int centerX, int centerZ, int radius,
+                                       LoadedArea loaded, FarField far, @Nullable Executor pool, int workers,
+                                       BooleanSupplier cancelled) {
+        long began = MonotonicTime.millis();
+        retainWithin(centerX, centerZ, radius + RETAIN_MARGIN);
+        long[] missing = missingSections(centerX, centerZ, radius, loaded);
+        Parallel parallel = new Parallel(pool, workers);
+        boolean built = parallel.forEach(missing.length, SECTIONS_PER_VIEW, cancelled,
+                (from, to) -> build(views.get(), missing, from, to, loaded, cancelled));
+        if (!built) {
+            return null;
+        }
+        long buildMillis = MonotonicTime.millis() - began;
+        WindowField field = field(centerX, centerZ, radius, far, parallel, cancelled);
+        return field == null ? null : new Refreshed(field, missing.length, buildMillis);
+    }
+
     /**
      * 窓の中を逆Dijkstraしてガイドを作る。窓の外・まだ組んでいないセクションへ出る辺の先には{@code far}の値を置く。
      *
      * @return 打ち切られたら{@code null}
      */
-    public synchronized @Nullable WindowField field(int centerX, int centerZ, int radius, FarField far,
-                                                    BooleanSupplier cancelled) {
-        return WindowField.build(this, fieldBuffers, centerX, centerZ, radius, far, cancelled);
+    public @Nullable WindowField field(int centerX, int centerZ, int radius, FarField far,
+                                       BooleanSupplier cancelled) {
+        return field(centerX, centerZ, radius, far, Parallel.INLINE, cancelled);
+    }
+
+    private synchronized @Nullable WindowField field(int centerX, int centerZ, int radius, FarField far,
+                                                     Parallel parallel, BooleanSupplier cancelled) {
+        return WindowField.build(this, fieldBuffers, centerX, centerZ, radius, far, parallel, cancelled);
     }
 
     /** {@link #field}の組み立て用の配列。{@code field}は同期しているので1組でよい。 */

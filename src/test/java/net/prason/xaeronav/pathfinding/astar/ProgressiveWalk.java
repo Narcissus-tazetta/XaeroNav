@@ -12,6 +12,7 @@ import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
+import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
@@ -211,6 +212,12 @@ final class ProgressiveWalk {
     private static SearchLimits withWeight(SearchLimits limits, double weight) {
         return new SearchLimits(limits.maxExpandedNodes(), limits.timeLimitMillis(), weight);
     }
+
+    /** 区間の始点が目的地へ繋がる殻の外にあるときも、航法グラフを使わないか（計測の切り替え）。 */
+    private static final boolean REFUSE_DISCONNECTED_START = Boolean.getBoolean("xaeronav.navGraphRefuseCut");
+
+    /** 航法グラフが始点に届かず、従来の区間で解いた数（計測用）。 */
+    static final java.util.concurrent.atomic.AtomicInteger UNGUIDED_LEGS = new java.util.concurrent.atomic.AtomicInteger();
 
     /** {@link #walk}のコストだけを見る版。届かなければ{@link Double#POSITIVE_INFINITY}。 */
     static double walkToGoal(CellSource all, BlockPos start, BlockPos goal, int radius,
@@ -437,15 +444,27 @@ final class ProgressiveWalk {
                 // 引き直しでは、これから足す区間の先頭がそのまま繋ぎ目になる（手前は捨てた）
                 plannedJoints.add(0);
             }
+            if (aim == Aim.GOAL) {
+                // 実機は区間を投げない再計算のたびにもガイドの組み直しを判定する（NavGraphGuide#forGoal）
+                guideAt.apply(player);
+            }
             BlockPos end = planned.isEmpty() ? player : planned.get(planned.size() - 1).pos();
             while (horizontal(player, end) <= radius - MIN_DETAIL_REACH && !end.equals(goal)) {
                 if (++legs > MAX_LEGS) {
                     return Trace.failed(String.format("区間%d本を超えた（%s、目的地まで%.0f）",
                             MAX_LEGS, player.toShortString(), horizontal(player, goal)));
                 }
-                PathResult result = aim == Aim.HORIZON
+                CostToGo guide = aim == Aim.HORIZON ? null : guideAt.apply(player);
+                // 実機（PathfindingState#goalGuide）は、航法グラフが区間の始点に届いていなければ使わず、
+                // 中間目標へ寄る従来の区間で解く
+                boolean unguided = guide instanceof WindowField field && (!field.reachesGoal()
+                        || REFUSE_DISCONNECTED_START && !field.connects(end.getX(), end.getY(), end.getZ()));
+                if (unguided) {
+                    UNGUIDED_LEGS.incrementAndGet();
+                }
+                PathResult result = aim == Aim.HORIZON || unguided
                         ? leg(new PlannedCellSource(view, planned, 0), end, goal)
-                        : legToGoal(executor, all, player, radius, end, goal, planned, guideAt.apply(player), weight);
+                        : legToGoal(executor, all, player, radius, end, goal, planned, guide, weight);
                 if (result.steps().isEmpty()) {
                     break;
                 }

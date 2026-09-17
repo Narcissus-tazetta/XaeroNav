@@ -1,6 +1,9 @@
 package net.prason.xaeronav.pathfinding.navgraph;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 import org.jspecify.annotations.Nullable;
@@ -41,6 +44,11 @@ public final class WindowField implements CostToGo {
      */
     private static final int EDGE_SEED_BAND = 2;
 
+    /** 並べて数える小分けの大きさ（セクション数）。 */
+    private static final int SLOTS_PER_TASK = 32;
+
+    private static final VarHandle INTS = MethodHandles.arrayElementVarHandle(int[].class);
+
     /** 窓の外・まだ組んでいないセクション。 */
     private static final int OUTSIDE = -1;
     /** 組んだセクションの中だが、ノードではない（殻の外）。 */
@@ -52,14 +60,17 @@ public final class WindowField implements CostToGo {
     private final double[] distance;
     private final int edges;
     private final long buildMillis;
+    private final boolean goalCut;
 
-    private WindowField(BlockPos goal, FarField far, Index index, double[] distance, int edges, long buildMillis) {
+    private WindowField(BlockPos goal, FarField far, Index index, double[] distance, int edges, long buildMillis,
+                        boolean goalCut) {
         this.goal = goal;
         this.far = far;
         this.index = index;
         this.distance = distance;
         this.edges = edges;
         this.buildMillis = buildMillis;
+        this.goalCut = goalCut;
     }
 
     public int nodes() {
@@ -186,9 +197,12 @@ public final class WindowField implements CostToGo {
     }
 
     static @Nullable WindowField build(NavGraph graph, Buffers buffers, int centerX, int centerZ, int radius,
-                                       FarField far, BooleanSupplier cancelled) {
+                                       FarField givenFar, Parallel parallel, BooleanSupplier cancelled) {
         long began = MonotonicTime.millis();
         BlockPos goal = graph.goal();
+        boolean goalInWindow = Math.abs(goal.getX() - centerX) <= radius - EDGE_SEED_BAND
+                && Math.abs(goal.getZ() - centerZ) <= radius - EDGE_SEED_BAND;
+        FarField far = goalInWindow && givenFar.onlyWhenGoalOutside() ? FarField.UNKNOWN : givenFar;
         LongArrayList keyList = new LongArrayList();
         graph.forEachWindowSection(centerX, centerZ, radius, (sx, sy, sz) -> {
             long key = NavGraph.key(sx, sy, sz);
@@ -233,74 +247,90 @@ public final class WindowField implements CostToGo {
         if (goalId >= 0) {
             distance[goalId] = 0.0;
         }
+        AtomicBoolean goalEntered = new AtomicBoolean();
 
-        // 1周目: 窓の中へ入る辺を行き先ごとに数え（start[行き先+2]）、窓から出る辺は種にする
+        // 1周目: 窓の中へ入る辺を行き先ごとに数え（start[行き先+2]）、窓から出る辺は種にする。
+        // 種はセクションの自分のノードにしか書かないので、数える所だけ並べたときに原子的に足す
         int[] start = buffers.start(n + 2);
-        for (int s = 0; s < slots; s++) {
-            if (cancelled.getAsBoolean()) {
-                return null;
-            }
-            SectionEdges section = sections[s];
-            long key = keys[s];
-            int baseX = BlockPos.getX(key) * SectionMoves.SIZE;
-            int baseY = BlockPos.getY(key) * SectionMoves.SIZE;
-            int baseZ = BlockPos.getZ(key) * SectionMoves.SIZE;
-            for (int i = 0; i < section.nodes; i++) {
-                int from = offsets[s] + i;
-                int local = position[from];
-                int lx = local & 15;
-                int ly = local >> 8 & 15;
-                int lz = local >> 4 & 15;
-                if (Math.abs(baseX + lx - centerX) > radius - EDGE_SEED_BAND
-                        || Math.abs(baseZ + lz - centerZ) > radius - EDGE_SEED_BAND) {
-                    double value = far.at(baseX + lx, baseY + ly, baseZ + lz);
-                    if (Double.isFinite(value)) {
-                        distance[from] = Math.min(distance[from], value);
-                    }
-                }
-                for (int e = section.edgeStart[i]; e < section.edgeStart[i + 1]; e++) {
-                    int m = section.move[e];
-                    int tx = lx + moves.dx[m];
-                    int ty = ly + moves.dy[m];
-                    int tz = lz + moves.dz[m];
-                    if (baseX + tx == goal.getX() && baseY + ty == goal.getY() && baseZ + tz == goal.getZ()) {
-                        // 目的地そのものは殻の外（展開しないセル）にあってもよい。そこへ入る辺は目的地までの値段そのもの
-                        distance[from] = Math.min(distance[from], moves.cost[m]);
-                    }
-                    int target = index.resolve(s, tx, ty, tz);
-                    if (target >= 0) {
-                        start[target + 2]++;
-                    } else if (target == OUTSIDE) {
-                        double value = far.at(baseX + tx, baseY + ty, baseZ + tz);
+        boolean concurrent = parallel.workers() > 1;
+        boolean counted = parallel.forEach(slots, SLOTS_PER_TASK, cancelled, (fromSlot, toSlot) -> {
+            for (int s = fromSlot; s < toSlot; s++) {
+                SectionEdges section = sections[s];
+                long key = keys[s];
+                int baseX = BlockPos.getX(key) * SectionMoves.SIZE;
+                int baseY = BlockPos.getY(key) * SectionMoves.SIZE;
+                int baseZ = BlockPos.getZ(key) * SectionMoves.SIZE;
+                for (int i = 0; i < section.nodes; i++) {
+                    int from = offsets[s] + i;
+                    int local = position[from];
+                    int lx = local & 15;
+                    int ly = local >> 8 & 15;
+                    int lz = local >> 4 & 15;
+                    if (Math.abs(baseX + lx - centerX) > radius - EDGE_SEED_BAND
+                            || Math.abs(baseZ + lz - centerZ) > radius - EDGE_SEED_BAND) {
+                        double value = far.at(baseX + lx, baseY + ly, baseZ + lz);
                         if (Double.isFinite(value)) {
-                            distance[from] = Math.min(distance[from], moves.cost[m] + value);
+                            distance[from] = Math.min(distance[from], value);
+                        }
+                    }
+                    for (int e = section.edgeStart[i]; e < section.edgeStart[i + 1]; e++) {
+                        int m = section.move[e];
+                        int tx = lx + moves.dx[m];
+                        int ty = ly + moves.dy[m];
+                        int tz = lz + moves.dz[m];
+                        if (baseX + tx == goal.getX() && baseY + ty == goal.getY() && baseZ + tz == goal.getZ()) {
+                            // 目的地そのものは殻の外（展開しないセル）にあってもよい。そこへ入る辺は目的地までの値段そのもの
+                            distance[from] = Math.min(distance[from], moves.cost[m]);
+                            goalEntered.set(true);
+                        }
+                        int target = index.resolve(s, tx, ty, tz);
+                        if (target >= 0) {
+                            if (concurrent) {
+                                INTS.getAndAdd(start, target + 2, 1);
+                            } else {
+                                start[target + 2]++;
+                            }
+                        } else if (target == OUTSIDE) {
+                            double value = far.at(baseX + tx, baseY + ty, baseZ + tz);
+                            if (Double.isFinite(value)) {
+                                distance[from] = Math.min(distance[from], moves.cost[m] + value);
+                            }
                         }
                     }
                 }
             }
+            return true;
+        });
+        if (!counted) {
+            return null;
         }
         for (int i = 2; i <= n + 1; i++) {
             start[i] += start[i - 1];
         }
         int m = start[n + 1];
         char[] inMove = buffers.inMove(m);
-        // 2周目: 行き先ごとに、入ってくる辺の移動を埋める。出発点は行き先から移動を引き戻せば分かる
-        for (int s = 0; s < slots; s++) {
-            if (cancelled.getAsBoolean()) {
-                return null;
-            }
-            SectionEdges section = sections[s];
-            for (int i = 0; i < section.nodes; i++) {
-                int local = position[offsets[s] + i];
-                for (int e = section.edgeStart[i]; e < section.edgeStart[i + 1]; e++) {
-                    int move = section.move[e];
-                    int target = index.resolve(s, (local & 15) + moves.dx[move], (local >> 8 & 15) + moves.dy[move],
-                            (local >> 4 & 15) + moves.dz[move]);
-                    if (target >= 0) {
-                        inMove[start[target + 1]++] = (char) move;
+        // 2周目: 行き先ごとに、入ってくる辺の移動を埋める。出発点は行き先から移動を引き戻せば分かる。
+        // 並べると入る辺の並び順は変わるが、距離は変わらない
+        boolean filled = parallel.forEach(slots, SLOTS_PER_TASK, cancelled, (fromSlot, toSlot) -> {
+            for (int s = fromSlot; s < toSlot; s++) {
+                SectionEdges section = sections[s];
+                for (int i = 0; i < section.nodes; i++) {
+                    int local = position[offsets[s] + i];
+                    for (int e = section.edgeStart[i]; e < section.edgeStart[i + 1]; e++) {
+                        int move = section.move[e];
+                        int target = index.resolve(s, (local & 15) + moves.dx[move],
+                                (local >> 8 & 15) + moves.dy[move], (local >> 4 & 15) + moves.dz[move]);
+                        if (target >= 0) {
+                            int slot = concurrent ? (int) INTS.getAndAdd(start, target + 1, 1) : start[target + 1]++;
+                            inMove[slot] = (char) move;
+                        }
                     }
                 }
             }
+            return true;
+        });
+        if (!filled) {
+            return null;
         }
         // 埋め終えると start[t]..start[t+1] が行き先tへ入る辺になる
         for (int s = 0; s < slots; s++) {
@@ -340,7 +370,43 @@ public final class WindowField implements CostToGo {
                 }
             }
         }
-        return new WindowField(goal, far, index, distance, m, MonotonicTime.millis() - began);
+        return new WindowField(goal, far, index, distance, m, MonotonicTime.millis() - began,
+                goalInWindow && !goalEntered.get());
+    }
+
+    /**
+     * 窓の中にある目的地へ、殻のどこかから入れるか。入れなければ窓全体の値が縁の外の推定だけから来るので、
+     * このガイドで探してはいけない。目的地が窓の外なら常に{@code true}。
+     */
+    public boolean reachesGoal() {
+        return !goalCut;
+    }
+
+    /**
+     * ({@code x},{@code y},{@code z})が、目的地へ繋がる殻の中にあるか。
+     *
+     * <p>殻（{@link SectionShell}）は自然に立てる点の周りの体積しか持たないので、閉じた洞窟の中や、16ブロックを超える奈落で
+     * 隔てられた島からは繋がらない。そこでは近くのノードがどれも値を持たず、値は外の推定か幾何下限へ落ちる。
+     *
+     * <p><b>近くにノードが1つも無い点は繋がっているものとして扱う。</b>奈落の上に架けた橋の先など、置いたブロックの上は
+     * 殻の外にあるのが普通で、そこでは近くの値を延ばす（{@link #estimate}）。
+     */
+    public boolean connects(int x, int y, int z) {
+        boolean nodeNearby = false;
+        for (int dx = -NEAREST_REACH; dx <= NEAREST_REACH; dx++) {
+            for (int dy = -NEAREST_REACH; dy <= NEAREST_REACH; dy++) {
+                for (int dz = -NEAREST_REACH; dz <= NEAREST_REACH; dz++) {
+                    int near = index.resolveAbsolute(x + dx, y + dy, z + dz);
+                    if (near >= 0) {
+                        if (Double.isFinite(distance[near])) {
+                            return true;
+                        }
+                        nodeNearby = true;
+                    }
+                }
+            }
+        }
+        return !nodeNearby;
     }
 
     @Override

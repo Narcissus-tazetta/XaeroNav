@@ -118,7 +118,8 @@ public final class ChunkView implements CellSource {
     private final int maxBuildHeight;
     private final int minSection;
 
-    private final Long2LongOpenHashMap cells = new Long2LongOpenHashMap(CELL_CACHE_CAPACITY, 0.75f);
+    /** {@code null}ならセルを覚えない（{@link #forGraphBuild}）。 */
+    private final Long2LongOpenHashMap cells;
 
     /**
      * ブロック状態ごとの判定結果。{@link BlockState}は不変のグローバルシングルトンなので、
@@ -137,7 +138,7 @@ public final class ChunkView implements CellSource {
                       int placedBlockBudget, int maxFallDamagePoints, int fatalFallBlocks,
                       boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
                       boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
-                      int maxBuildHeight, int minSection) {
+                      int maxBuildHeight, int minSection, boolean cacheCells) {
         this.deepFallPossible = deepFallPossible;
         this.chunks = chunks;
         this.totalChunksInBounds = totalChunksInBounds;
@@ -156,7 +157,10 @@ public final class ChunkView implements CellSource {
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
         this.minSection = minSection;
-        this.cells.defaultReturnValue(NOT_CACHED);
+        this.cells = cacheCells ? new Long2LongOpenHashMap(CELL_CACHE_CAPACITY, 0.75f) : null;
+        if (cacheCells) {
+            this.cells.defaultReturnValue(NOT_CACHED);
+        }
         // 実在するブロック状態はPRESENTが必ず立つので、0（＝ABSENT）を未計算の番兵に使える
         this.states.defaultReturnValue(CellData.ABSENT);
     }
@@ -287,7 +291,7 @@ public final class ChunkView implements CellSource {
                 canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
                 deepFallPossible, minDescentTicksPerBlock, level.getMinBuildHeight(),
-                level.getMaxBuildHeight(), level.getMinSection());
+                level.getMaxBuildHeight(), level.getMinSection(), true);
     }
 
     /**
@@ -308,6 +312,11 @@ public final class ChunkView implements CellSource {
             }
         }
         return total;
+    }
+
+    /** このビューがチャンクを掴んでいるか（読み込み済みで、範囲の中）。 */
+    public boolean chunkLoaded(int chunkX, int chunkZ) {
+        return chunks.containsKey(ChunkPos.asLong(chunkX, chunkZ));
     }
 
     public int loadedChunksInBounds() {
@@ -339,7 +348,24 @@ public final class ChunkView implements CellSource {
         return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
                 options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
                 canMlgWaterBucket, boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock,
-                minBuildHeight, maxBuildHeight, minSection);
+                minBuildHeight, maxBuildHeight, minSection, true);
+    }
+
+    /**
+     * 航法グラフを組むスレッドが占有するビュー。{@link #forParallelSearch}と違って<b>セルを覚えない</b>。
+     *
+     * <p>グラフは窓全体（数千セクション）を舐めるので、覚えると1本のビューが数十万〜数百万件の表を抱え、
+     * 並列の手の数だけ膨らむ。移動生成は探索の側（{@code MemoCells}）が区間ごとにセルを覚えるので、ここで覚えても速くならない。
+     */
+    public ChunkView forGraphBuild() {
+        ItemStack[] copiedHotbar = new ItemStack[hotbar.length];
+        for (int slot = 0; slot < hotbar.length; slot++) {
+            copiedHotbar[slot] = hotbar[slot].copy();
+        }
+        return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
+                options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
+                canMlgWaterBucket, boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock,
+                minBuildHeight, maxBuildHeight, minSection, false);
     }
 
     /**
@@ -353,7 +379,7 @@ public final class ChunkView implements CellSource {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency,
                 options.withoutDigging(), canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
                 canMlgWaterBucket, boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock,
-                minBuildHeight, maxBuildHeight, minSection);
+                minBuildHeight, maxBuildHeight, minSection, true);
     }
 
     /**
@@ -465,6 +491,9 @@ public final class ChunkView implements CellSource {
     /** 初回アクセス時に計算してキャッシュする。 */
     @Override
     public long cell(int x, int y, int z) {
+        if (cells == null) {
+            return computeCell(x, y, z);
+        }
         long key = BlockPos.asLong(x, y, z);
         long cached = cells.get(key);
         if (cached != NOT_CACHED) {
