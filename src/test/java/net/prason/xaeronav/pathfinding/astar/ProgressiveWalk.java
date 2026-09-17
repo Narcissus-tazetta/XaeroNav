@@ -189,22 +189,27 @@ final class ProgressiveWalk {
      */
     private static PathResult legToGoal(PathfindingExecutor executor, CellSource all, BlockPos player,
                                         int radius, BlockPos from, BlockPos goal, List<PathStep> planned,
-                                        CostToGo wide) {
+                                        CostToGo wide, double weight) {
         CellSource view = new PlannedCellSource(boxedView(all, player, radius, from, goal), planned, 0);
         Carryover carried = Carryover.after(planned);
         try {
             PathResult result =
-                    executor.submit(view, from, goal, LIVE_LIMITS, true, 0, carried, wide).get();
+                    executor.submit(view, from, goal, withWeight(LIVE_LIMITS, weight), true, 0, carried, wide).get();
             if (!result.steps().isEmpty()) {
                 return result;
             }
-            return executor.submit(view, from, goal, DEEP_LIVE_LIMITS, true, 0, carried, wide).get();
+            return executor.submit(view, from, goal, withWeight(DEEP_LIVE_LIMITS, weight), true, 0, carried, wide)
+                    .get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         } catch (ExecutionException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private static SearchLimits withWeight(SearchLimits limits, double weight) {
+        return new SearchLimits(limits.maxExpandedNodes(), limits.timeLimitMillis(), weight);
     }
 
     /** {@link #walk}のコストだけを見る版。届かなければ{@link Double#POSITIVE_INFINITY}。 */
@@ -387,6 +392,18 @@ final class ProgressiveWalk {
     /** ガイドのデータ源だけを差し替え、箱・予算・継ぎ足しを揃えて比較する。 */
     static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim,
                        CostToGo wide) {
+        return trace(all, start, goal, radius, mode, aim, wide, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
+    }
+
+    /** 区間探索の重みも指定する版。{@link Aim#GOAL}でだけ効く。 */
+    static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim,
+                       CostToGo wide, double weight) {
+        return trace(all, start, goal, radius, mode, aim, player -> wide, weight);
+    }
+
+    /** ガイドを区間ごとに、そのときのプレイヤーの位置から組み直す版（読み込み済みの窓が動くのを再現する）。 */
+    static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim,
+                       java.util.function.Function<BlockPos, CostToGo> guideAt, double weight) {
         CellSource original = all;
         goal = StanceFinder.resolveGoal(all, goal);
         PathfindingExecutor executor = new PathfindingExecutor();
@@ -428,7 +445,7 @@ final class ProgressiveWalk {
                 }
                 PathResult result = aim == Aim.HORIZON
                         ? leg(new PlannedCellSource(view, planned, 0), end, goal)
-                        : legToGoal(executor, all, player, radius, end, goal, planned, wide);
+                        : legToGoal(executor, all, player, radius, end, goal, planned, guideAt.apply(player), weight);
                 if (result.steps().isEmpty()) {
                     break;
                 }
