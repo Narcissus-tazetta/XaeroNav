@@ -127,14 +127,14 @@ val bench = tasks.register<Test>("bench") {
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     useJUnitPlatform { includeTags("bench") }
-    // 理由はslowTestと同じ
-    maxHeapSize = "3g"
+    // 理由はslowTestと同じ。閉包グラフを組む計測だけ足りないので、そのときだけ積めるようにしてある
+    maxHeapSize = providers.gradleProperty("xaeronav.heap").orNull ?: "3g"
     forkEvery = 1
     systemProperty("xaeronav.profileOut",
             layout.buildDirectory.dir("bench").get().asFile.absolutePath)
     // 計測の切り替え（-Pxaeronav.navGraphOnly=true など）。テストのJVMへは明示しないと届かない
     listOf("xaeronav.navGraphOnly", "xaeronav.navGraphLag", "xaeronav.navGraphFarScale", "xaeronav.navGraphFar", "xaeronav.navGraphRefuseCut",
-            "xaeronav.traceBudgetSeconds", "xaeronav.navGraphVerbose", "xaeronav.routeLimit", "xaeronav.skipClosure", "xaeronav.reviewTicks", "xaeronav.reviewRatio", "xaeronav.walkTrace").forEach { name ->
+            "xaeronav.traceBudgetSeconds", "xaeronav.navGraphVerbose", "xaeronav.routeLimit", "xaeronav.skipClosure", "xaeronav.reviewTicks", "xaeronav.reviewRatio", "xaeronav.walkTrace", "xaeronav.closure", "xaeronav.walkMode", "xaeronav.closureRadius", "xaeronav.window", "xaeronav.closureBox", "xaeronav.searchMargin", "xaeronav.blockLava", "xaeronav.voxelMargin", "xaeronav.keepFraction", "xaeronav.routes", "xaeronav.caveLayers").forEach { name ->
         providers.gradleProperty(name).orNull?.let { systemProperty(name, it) }
     }
 }

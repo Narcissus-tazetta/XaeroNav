@@ -149,7 +149,7 @@ final class ProgressiveWalk {
     }
 
     /** {@code XaeroNavConfig#searchHorizontalMargin}の既定。 */
-    private static final int SEARCH_HORIZONTAL_MARGIN = 64;
+    private static final int SEARCH_HORIZONTAL_MARGIN = Integer.getInteger("xaeronav.searchMargin", 64);
 
     /** 1区間に渡す予算（{@code XaeroNavConfig#searchLimits}の既定）。 */
     private static final SearchLimits LIVE_LIMITS =
