@@ -311,6 +311,13 @@ final class Extend {
         int reach = Math.min(PathfindingState.detailHorizon(renderRadius), lead);
         PathfindingState.GoalGuide goalGuide = host.goalGuide(level, player, from, currentGoal, renderRadius);
         boolean navGraphGuided = goalGuide != null && goalGuide.navGraph();
+        if (navGraphGuided && extendLead(player, from, Math.min(NavGraphGuide.WINDOW_BLOCKS, renderRadius))
+                < PathfindingState.MIN_DETAIL_REACH_BLOCKS) {
+            // 航法グラフで探す箱は描画距離ではなく窓で切られる（navGraphBounds）。描画距離で測った余地のまま投げると、
+            // 末端が箱の縁にある継ぎ足しが10万ノードを焼いて1歩も進まない（実機: 描画距離15のネザー・エンドで数秒おきに繰り返した）
+            blockExtend(from, playerAt);
+            return;
+        }
         PathfindingState.DetailTarget detail = host.selectDetailTarget(from, currentGoal, lead, reach,
                 boatAvailable, false, shown.waypointIndex(), ceilingDimension, navGraphGuided);
         BlockPos target = detail.target();

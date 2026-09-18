@@ -68,8 +68,15 @@ final class NavGraphGuide {
      */
     private static final long STALL_REBUILD_INTERVAL_MILLIS = 15_000L;
 
-    /** 並列度。メインスレッド（描画）に1コア残す。 */
+    /** 初回の並列度。メインスレッド（描画）に1コア残す。組み上がるまでは案内が出ないので、待たせる時間を優先する。 */
     private static final int WORKERS = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+
+    /**
+     * 歩きながらの組み直しの並列度。{@link Thread#MIN_PRIORITY}はmacOS・Linuxでは効かないので、全コアで組むと描画と
+     * 内蔵サーバーのスレッドを押しのける（実機: 10コア（高性能4）で8ブロックごとに9本が張り付き、歩いていて重かった）。
+     * 組み直しの間も古いガイドで探せるので、半分で遅れても案内は途切れない。
+     */
+    private static final int REBUILD_WORKERS = Math.max(1, Runtime.getRuntime().availableProcessors() / 2 - 1);
 
     /** 実機のログを出す間隔。組み直しは歩くたびに走るので、毎回出すと洪水になる。 */
     private static final long LOG_INTERVAL_MILLIS = 10_000L;
@@ -104,7 +111,7 @@ final class NavGraphGuide {
      * （{@link ChunkView}が移動生成に渡す）、奈落の上の橋は目的地へ向かう向きにしか張られない。
      */
     private record Key(ResourceKey<Level> dimension, BlockPos goal, MovementOptions options, boolean canPlaceBlocks,
-                       int window) {
+                       int window, int minY, int maxY) {
     }
 
     private record Built(Key key, BlockPos center, WindowField field) {
@@ -148,7 +155,15 @@ final class NavGraphGuide {
                                   @Nullable Far far) {
         BlockPos at = player.blockPosition();
         int window = Math.min(WINDOW_BLOCKS, renderRadius);
-        Key key = new Key(level.dimension(), goal, options, canPlaceBlocks(player, options), window);
+        int minY = level.getMinBuildHeight();
+        int maxY = level.getMaxBuildHeight() - 1;
+        int logicalTop = minY + level.dimensionType().logicalHeight() - 1;
+        if (level.dimensionType().hasCeiling() && at.getY() <= logicalTop && goal.getY() <= logicalTop) {
+            // ネザーの岩盤の天井より上は、下から掘って入れない（岩盤は掘れない）。そこを組むと窓のセクションが倍になり、
+            // 天井の上の平らな岩盤一面がノードになる（実機: 7,056セクション・初回構築7.2秒）
+            maxY = logicalTop;
+        }
+        Key key = new Key(level.dimension(), goal, options, canPlaceBlocks(player, options), window, minY, maxY);
         Built current = built;
         boolean usable = current != null && current.key().equals(key);
         boolean moved = !usable || Math.max(Math.abs(at.getX() - current.center().getX()),
@@ -158,6 +173,15 @@ final class NavGraphGuide {
             start(level, player, key, at, far);
         }
         return usable ? current.field() : null;
+    }
+
+    /**
+     * いま出来上がっている、この目的地のガイド。組み直しは始めない。{@link #forGoal}と違って条件（持ち物・設定）は照合しないので、
+     * 引いてある経路を見直すことにだけ使う。
+     */
+    @Nullable WindowField latest(BlockPos goal) {
+        Built current = built;
+        return current != null && current.key().goal().equals(goal) ? current.field() : null;
     }
 
     /** 持ち物は毎回見る。置けるブロックを拾った・使い切ったで橋の辺が生えたり消えたりする。 */
@@ -183,14 +207,16 @@ final class NavGraphGuide {
         }
         stalled = false;
         int window = key.window();
-        SearchBounds bounds = new SearchBounds(at.getX() - window, level.getMinBuildHeight(), at.getZ() - window,
-                at.getX() + window, level.getMaxBuildHeight() - 1, at.getZ() + window);
+        SearchBounds bounds = new SearchBounds(at.getX() - window, key.minY(), at.getZ() - window,
+                at.getX() + window, key.maxY(), at.getZ() + window);
         ChunkView view = ChunkView.capture(level, player, bounds, key.options());
-        int minY = level.getMinBuildHeight();
-        int maxY = level.getMaxBuildHeight() - 1;
+        int minY = key.minY();
+        int maxY = key.maxY();
+        // この目的地のガイドがまだ無い＝案内を待たせている間だけ全力で組む
+        int workers = built != null && built.key().equals(key) ? REBUILD_WORKERS : WORKERS;
         building = true;
         long myGeneration = generation.incrementAndGet();
-        CompletableFuture.supplyAsync(() -> refresh(key, view, at, minY, maxY, farMap, invalidateAround,
+        CompletableFuture.supplyAsync(() -> refresh(key, view, at, minY, maxY, farMap, invalidateAround, workers,
                         () -> generation.get() != myGeneration), coordinator)
                 .whenComplete((refreshed, error) -> {
                     if (generation.get() != myGeneration) {
@@ -213,14 +239,14 @@ final class NavGraphGuide {
                                 refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
                                 refreshed.field().edges(), refreshed.field().nodes(),
                                 current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
-                                WORKERS, farMap == null ? "直線距離" : farMap.name());
+                                workers, farMap == null ? "直線距離" : farMap.name());
                     }
                 });
     }
 
     /** 段取りの1本で走る。 */
     private NavGraph.@Nullable Refreshed refresh(Key key, ChunkView view, BlockPos at, int minY, int maxY,
-                                                 @Nullable Far farMap, boolean invalidateAround,
+                                                 @Nullable Far farMap, boolean invalidateAround, int workers,
                                                  BooleanSupplier cancelled) {
         NavGraph current = graph;
         if (current == null || !key.equals(graphKey)) {
@@ -247,7 +273,7 @@ final class NavGraphGuide {
         }
         int window = key.window();
         return current.refresh(view::forGraphBuild, at.getX(), at.getZ(), window,
-                LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), far, pool, WORKERS, cancelled);
+                LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), far, pool, workers, cancelled);
     }
 
     /** 目的地が変わった・案内を止めた。組みかけは打ち切り、覚えていたグラフも手放す。 */
