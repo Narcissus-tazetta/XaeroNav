@@ -261,9 +261,19 @@ final class Splice {
                 if (!spliceWorthTaking(spliceCost, playerAt, joinPos, currentGoal, guide)) {
                     // 合流できるが、そのために元の経路へ引き返すことになる。捨てて全部引き直す
                     // （次のtickでblockedFromが効いて、呼び出し側のrecalculateへ落ちる）
+                    //
+                    // 断った理由を数字で残す。実機(2026-09-18 23:20)で「経路から5ブロックずれただけで
+                    // 完走した233ステップの経路が捨てられる」が出たが、当時のログには合流区間のtickしか
+                    // 無く、ガイドが何を言って断ったのかが追えなかった。物差しの3項を並べておけば、
+                    // 「ガイドが合流点を過大評価した」のか「本当に引き返しだった」のかが1行で割れる
                     blockedFrom = playerAt;
-                    LOGGER.info("XaeroNav: 合流は引き返しになるので諦めました (合流点={}, 合流区間={}tick)",
-                            joinPos.toShortString(), Math.round(spliceCost));
+                    LOGGER.info("XaeroNav: 合流は引き返しになるので諦めました (合流点={}, 合流区間={}tick, "
+                                    + "残り 現在地={} 合流点={}, 経路の実残り={}tick, 物差し={})",
+                            joinPos.toShortString(), Math.round(spliceCost),
+                            remainingAt(playerAt, currentGoal, guide),
+                            remainingAt(joinPos, currentGoal, guide),
+                            Math.round(costAlong(result.steps(), joinIndex)),
+                            measuredInWindow(playerAt, joinPos, guide) ? "ガイド" : "幾何下限");
                     return;
                 }
                 blockedFrom = null;
@@ -364,6 +374,29 @@ final class Splice {
     static boolean spliceWorthTaking(double spliceCost, BlockPos player, BlockPos joinPos, BlockPos goal,
                                      @Nullable WindowField guide) {
         return spliceCost <= remainingGained(player, joinPos, goal, guide) + SPLICE_DETOUR_ALLOWANCE_TICKS;
+    }
+
+    /** 診断用。その点の「目的地までの残り」を、実際に使った物差しで。 */
+    private static String remainingAt(BlockPos at, BlockPos goal, @Nullable WindowField guide) {
+        if (guide != null && guide.measuredInWindow(at.getX(), at.getZ())) {
+            return Math.round(guide.estimate(at.getX(), at.getY(), at.getZ())) + "tick";
+        }
+        return Math.round(Heuristic.estimate(at.getX(), at.getY(), at.getZ(),
+                goal.getX(), goal.getY(), goal.getZ())) + "tick(幾何)";
+    }
+
+    /** 診断用。合流点から先を、いま引けている経路どおりに歩いたときの実費。 */
+    private static double costAlong(List<PathStep> steps, int from) {
+        double total = 0;
+        for (int i = from; i < steps.size(); i++) {
+            total += steps.get(i).cost();
+        }
+        return total;
+    }
+
+    private static boolean measuredInWindow(BlockPos player, BlockPos joinPos, @Nullable WindowField guide) {
+        return guide != null && guide.measuredInWindow(player.getX(), player.getZ())
+                && guide.measuredInWindow(joinPos.getX(), joinPos.getZ());
     }
 
     /** 合流点へ移ることで縮む「目的地までの残り」。 */

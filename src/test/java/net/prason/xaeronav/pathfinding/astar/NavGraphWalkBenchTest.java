@@ -33,7 +33,8 @@ import net.prason.xaeronav.pathfinding.world.WindowedCells;
 @Tag("bench")
 class NavGraphWalkBenchTest {
 
-    private static final int WINDOW = 160;
+    /** 実機の既定（{@code NavGraphGuide.WINDOW_BLOCKS}）。{@code -Pxaeronav.window=128}で振れる。 */
+    private static final int WINDOW = Integer.getInteger("xaeronav.window", 160);
 
     private static final long SEED = 20260917L;
 
