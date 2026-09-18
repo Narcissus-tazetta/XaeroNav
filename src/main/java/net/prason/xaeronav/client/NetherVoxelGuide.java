@@ -80,7 +80,27 @@ final class NetherVoxelGuide {
     private Key attempted;
     private long nextAttemptMillis;
 
-    /** 1回目の読みで測る、床のあるYの範囲。箱の高さをここから決める。 */
+    /**
+     * この目的地について<b>これまでに地図から見えた</b>床のYの範囲。箱の高さはここから決める
+     * （{@link FloorRange}の1回ぶんではなく、積み上げたもの）。
+     *
+     * <p><b>1回の読みで決めてはいけない。</b>{@code forEachCaveFloor}が見るのは
+     * 「そのときXaeroがメモリに載せているレイヤー」で、その集合は歩いている間に入れ替わる——
+     * 実機（2026-09-18 15:07〜15:10、プレイヤーは60ブロックしか動いていない）では
+     * 床の報告数が3.4万→13.3万→3.4万→8.9万と4倍で往復し、深いレイヤーが載った回では
+     * 箱が{@code Y=19..98}から{@code Y=0..89}へ<b>ずり下がって</b>、y90台の歩ける回廊が
+     * まるごと箱の外へ出た（格子の歩けるセルが8801→4310）。ガイドはそのたびに丸ごと
+     * 差し替わるので、東西どちらの回廊を選ぶかが約20秒ごとに振り直される＝実機の「ぐるぐる」。
+     *
+     * <p>地図から分かることは歩くほど増えるだけなので、<b>範囲は広がる一方にする</b>。
+     * 落下・崖登りでプレイヤーのYが跳んでも{@link VoxelTerrain#boxFor}が広げる側にしか
+     * 効かないため、箱は縮まない。
+     */
+    private Key floorRangeKey;
+    private int floorLowest = Integer.MAX_VALUE;
+    private int floorHighest = Integer.MIN_VALUE;
+
+    /** 1回目の読みで測る、床のあるYの範囲。{@link #rememberFloors}で積み上げてから箱に使う。 */
     private static final class FloorRange implements XaeroMapReader.FloorVisitor {
         private int lowest = Integer.MAX_VALUE;
         private int highest = Integer.MIN_VALUE;
@@ -200,7 +220,8 @@ final class NetherVoxelGuide {
             LOGGER.debug("XaeroNav: 3D粗層のもとになる地図がありません ({}, {})", minX, minZ);
             return;
         }
-        SearchBounds box = VoxelTerrain.boxFor(level, player, goal, range.lowest, range.highest);
+        rememberFloors(key, range);
+        SearchBounds box = VoxelTerrain.boxFor(level, player, goal, floorLowest, floorHighest);
         VoxelTerrain terrain = VoxelTerrain.of(box, key.lavaPassable());
         if (terrain == null) {
             // 目的地が遠すぎて、いちばん粗い格子でも収まらない
@@ -235,11 +256,27 @@ final class NetherVoxelGuide {
                     // ——1倍付近なら幾何ヒューリスティックと同じことしか言っていない。
                     // 箱も出す: Yの範囲が歩ける高さより広いと、格子の大半が天井の上の空きになる
                     LOGGER.info("XaeroNav: 3D粗層 (床={}, {}, セル={}, 辺={}, 膨らみ{}倍, 箱={}, "
-                                    + "地図{}ms, Dijkstra{}ms)",
+                                    + "今回の床Y={}..{}, 地図{}ms, Dijkstra{}ms)",
                             floors, terrain.breakdown(), terrain.cellCount(), terrain.cellBlocks(),
                             round(inflation(guide, player, goal)), box,
+                            range.lowest, range.highest,
                             read, MonotonicTime.millis() - began - read);
                 });
+    }
+
+    /**
+     * 今回見えた床のYを、この目的地についての範囲へ足す。目的地が変われば数え直す。
+     *
+     * <p>広げる側にしか動かさないのが要点（{@link #floorRangeKey}）。
+     */
+    private void rememberFloors(Key key, FloorRange range) {
+        if (!key.equals(floorRangeKey)) {
+            floorRangeKey = key;
+            floorLowest = Integer.MAX_VALUE;
+            floorHighest = Integer.MIN_VALUE;
+        }
+        floorLowest = Math.min(floorLowest, range.lowest);
+        floorHighest = Math.max(floorHighest, range.highest);
     }
 
     /** 始点での見積もりが直線距離の何倍か。1倍付近なら、この層は何も足していない。 */
@@ -262,5 +299,8 @@ final class NetherVoxelGuide {
         stalled = false;
         attempted = null;
         nextAttemptMillis = 0L;
+        floorRangeKey = null;
+        floorLowest = Integer.MAX_VALUE;
+        floorHighest = Integer.MIN_VALUE;
     }
 }
