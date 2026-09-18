@@ -12,13 +12,14 @@ import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathRisk;
+import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
 
 /**
- * 画面上部の案内表示。「次にどちらへ曲がるか」「残りの道のり・所要時間」を出す。
+ * 画面上部の案内表示。近くで必要になる操作と、残りの道のり・所要時間を出す。
  *
  * <p>探索は展開ノード数の上限で打ち切られるので、遠い目的地では経路が途中で終わる。そのことを
  * ここで明示しないと、線が何も無い場所で切れているようにしか見えない。
@@ -34,6 +35,7 @@ public final class NavHud {
     private static final int PRIMARY_COLOR = 0xFFFFFFFF;
     private static final int SECONDARY_COLOR = 0xFFB0B0B0;
     private static final int WARNING_COLOR = 0xFFFFC24D;
+    private static final double ACTION_NOTICE_BLOCKS = 12.0;
 
     private final List<Component> lines = new ArrayList<>(4);
     private final List<Integer> colors = new ArrayList<>(4);
@@ -109,7 +111,12 @@ public final class NavHud {
             PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
             int from = PathProgress.INSTANCE.indexFor(result) + 1;
             boolean endsAtDestination = view.currentPathEndsAtDestination();
-            add(instruction(guidance, climbing, endsAtDestination), PRIMARY_COLOR);
+            PathSuffixes.Action next = ahead.nextAction(from);
+            if (next != null && ahead.distanceToAction(from) <= ACTION_NOTICE_BLOCKS) {
+                add(Component.translatable(next.key()), PRIMARY_COLOR);
+            } else if (guidance.nearEnd) {
+                add(Component.translatable(endpointKey(climbing, endsAtDestination)), PRIMARY_COLOR);
+            }
             add(Component.translatable(remainingKey(endsAtDestination),
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
             // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
@@ -178,20 +185,52 @@ public final class NavHud {
 
     /** 経路変更時に一度だけ作る、各添字から末尾までのHUD集計。 */
     static final class PathSuffixes {
+        enum Action {
+            DIG("hud.xaeronav.action_dig"),
+            PLACE("hud.xaeronav.action_place"),
+            JUMP("hud.xaeronav.action_jump"),
+            CLIMB("hud.xaeronav.action_climb");
+
+            private final String key;
+
+            Action(String key) {
+                this.key = key;
+            }
+
+            String key() {
+                return key;
+            }
+        }
+
         private final int[] riskMasks;
         private final boolean[] boats;
         private final int[] placements;
+        private final int[] nextActionSteps;
+        private final Action[] actions;
+        private final double[] blocks;
 
         PathSuffixes(PathResult result) {
             List<PathStep> steps = result.steps();
             riskMasks = new int[steps.size() + 1];
             boats = new boolean[steps.size() + 1];
             placements = new int[steps.size() + 1];
+            nextActionSteps = new int[steps.size() + 1];
+            actions = new Action[steps.size()];
+            blocks = new double[steps.size()];
+            nextActionSteps[steps.size()] = -1;
+            for (int i = 1; i < steps.size(); i++) {
+                blocks[i] = blocks[i - 1] + Math.sqrt(steps.get(i - 1).pos().distSqr(steps.get(i).pos()));
+            }
             for (int i = steps.size() - 1; i >= 0; i--) {
                 PathStep step = steps.get(i);
                 riskMasks[i] = riskMasks[i + 1] | (1 << step.risk().ordinal());
                 boats[i] = boats[i + 1] || step.boating();
                 placements[i] = placements[i + 1] + (step.bridging() ? 1 : 0);
+                actions[i] = step.digging() ? Action.DIG
+                        : step.bridging() ? Action.PLACE
+                        : step.movement() == MovementType.JUMP ? Action.JUMP
+                        : step.climbing() ? Action.CLIMB : null;
+                nextActionSteps[i] = actions[i] != null ? i : nextActionSteps[i + 1];
             }
         }
 
@@ -207,16 +246,19 @@ public final class NavHud {
             return placements[index(from)];
         }
 
+        Action nextAction(int from) {
+            int step = nextActionSteps[index(from)];
+            return step < 0 ? null : actions[step];
+        }
+
+        double distanceToAction(int from) {
+            int step = nextActionSteps[index(from)];
+            return step < 0 ? Double.POSITIVE_INFINITY : blocks[step] - blocks[Math.max(0, index(from) - 1)];
+        }
+
         private int index(int from) {
             return Math.max(0, Math.min(from, riskMasks.length - 1));
         }
-    }
-
-    private static Component instruction(NavGuidance guidance, boolean climbing, boolean endsAtDestination) {
-        String key = instructionKey(guidance.turn, climbing, endsAtDestination);
-        return guidance.turn == NavGuidance.Turn.LEFT || guidance.turn == NavGuidance.Turn.RIGHT
-                ? Component.translatable(key, guidance.turnDistance)
-                : Component.translatable(key);
     }
 
     /** 表示中の実線が本来の目的地まで届くときだけ、距離を単に「残り」と呼べる。 */
@@ -227,15 +269,9 @@ public final class NavHud {
     /**
      * 経路末端の意味を取り違えない案内文を選ぶ。到達済みの中継経路でも、その末端は目的地ではない。
      */
-    static String instructionKey(NavGuidance.Turn turn, boolean climbing, boolean endsAtDestination) {
-        return switch (turn) {
-            case ARRIVE -> climbing
-                    ? "hud.xaeronav.surface_ahead"
-                    : endsAtDestination ? "hud.xaeronav.arriving" : "hud.xaeronav.route_continues";
-            case STRAIGHT -> "hud.xaeronav.straight";
-            case LEFT -> "hud.xaeronav.turn_left";
-            case RIGHT -> "hud.xaeronav.turn_right";
-        };
+    static String endpointKey(boolean climbing, boolean endsAtDestination) {
+        return climbing ? "hud.xaeronav.surface_ahead"
+                : endsAtDestination ? "hud.xaeronav.arriving" : "hud.xaeronav.route_continues";
     }
 
     /** 目的地までの直線距離。経路が出せないときでも、せめて遠いのか近いのかは分かるようにする。 */

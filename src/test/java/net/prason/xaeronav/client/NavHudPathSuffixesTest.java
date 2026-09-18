@@ -17,6 +17,24 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
 class NavHudPathSuffixesTest {
 
     @Test
+    void nextRequiredActionAdvancesWithThePathAndUsesRouteDistance() {
+        PathResult path = new PathResult(List.of(
+                step(0, MovementType.TRAVERSE, PathRisk.NONE, false),
+                step(1, MovementType.TRAVERSE, PathRisk.NONE, false),
+                step(2, MovementType.JUMP, PathRisk.NONE, false),
+                step(3, MovementType.TRAVERSE, PathRisk.NONE, true),
+                step(4, MovementType.CLIMB, PathRisk.NONE, false)),
+                PathResult.Termination.REACHED_GOAL, 5, 5);
+        NavHud.PathSuffixes suffixes = new NavHud.PathSuffixes(path);
+
+        assertEquals(NavHud.PathSuffixes.Action.JUMP, suffixes.nextAction(1));
+        assertEquals(2.0, suffixes.distanceToAction(1));
+        assertEquals(NavHud.PathSuffixes.Action.PLACE, suffixes.nextAction(3));
+        assertEquals(NavHud.PathSuffixes.Action.CLIMB, suffixes.nextAction(4));
+        assertEquals(null, suffixes.nextAction(5));
+    }
+
+    @Test
     void warningsAndPlacementsDisappearAfterTheirStepWasPassed() {
         PathResult path = new PathResult(List.of(
                 step(1, MovementType.TRAVERSE, PathRisk.DROWNING, true),

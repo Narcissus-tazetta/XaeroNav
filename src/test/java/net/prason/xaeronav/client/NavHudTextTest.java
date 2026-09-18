@@ -16,20 +16,10 @@ class NavHudTextTest {
     @Test
     void arrivalTextDistinguishesDestinationSurfaceAndIntermediateEnds() {
         assertEquals("hud.xaeronav.arriving",
-                NavHud.instructionKey(NavGuidance.Turn.ARRIVE, false, true));
+                NavHud.endpointKey(false, true));
         assertEquals("hud.xaeronav.surface_ahead",
-                NavHud.instructionKey(NavGuidance.Turn.ARRIVE, true, false));
+                NavHud.endpointKey(true, false));
         assertEquals("hud.xaeronav.route_continues",
-                NavHud.instructionKey(NavGuidance.Turn.ARRIVE, false, false));
-    }
-
-    @Test
-    void ordinaryDirectionsDoNotDependOnTheKindOfEndpoint() {
-        assertEquals("hud.xaeronav.straight",
-                NavHud.instructionKey(NavGuidance.Turn.STRAIGHT, false, false));
-        assertEquals("hud.xaeronav.turn_left",
-                NavHud.instructionKey(NavGuidance.Turn.LEFT, true, false));
-        assertEquals("hud.xaeronav.turn_right",
-                NavHud.instructionKey(NavGuidance.Turn.RIGHT, false, true));
+                NavHud.endpointKey(false, false));
     }
 }
