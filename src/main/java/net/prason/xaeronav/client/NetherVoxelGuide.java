@@ -6,6 +6,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.mojang.logging.LogUtils;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.slf4j.Logger;
 
 import net.minecraft.core.BlockPos;
@@ -100,16 +102,68 @@ final class NetherVoxelGuide {
     private int floorLowest = Integer.MAX_VALUE;
     private int floorHighest = Integer.MIN_VALUE;
 
-    /** 1回目の読みで測る、床のあるYの範囲。{@link #rememberFloors}で積み上げてから箱に使う。 */
+    /**
+     * これまでに地図から読めた床そのもの（{@link #packFloor}で1本のlongに詰めたもの）。
+     * 格子へ流すのはこれで、その回の読みだけではない。
+     *
+     * <p><b>箱を固定しただけでは足りない。</b>読むレイヤーが振れるのは変わらないので、箱の中身が
+     * 入れ替わる——実機（2026-09-18 22:38〜22:39）では溶岩が6,464→602→477、歩けるセルが
+     * 6,054→11,614、膨らみが2.22→3.16→1.4で振れ、その直後に経路が64ステップ（目的地まで229）から
+     * 259ステップ（目的地まで252）へ<b>遠回りに切り替わっている</b>。
+     *
+     * <p>模型で測った差（レイヤーの集合を歩きながら振らせた3本）:
+     * そのつど組むと最適の1.700/1.286/1.331倍、覚えておくと<b>1.060/1.127/1.205倍</b>で、
+     * 地図が完全なときの歩き通しとほぼ一致する＝<b>揺れで失っていた質はほぼ全部戻る</b>。
+     *
+     * <p>箱の外へ出たものは捨てる（{@link #forgetOutside}）。箱は目的地へ近づくほど縮むので、
+     * 覚えている量は歩いても際限なく増えない。
+     */
+    private final LongOpenHashSet rememberedFloors = new LongOpenHashSet();
+
+    /**
+     * 1回の読みで見えた床を全部覚えつつ、Yの範囲も測る。範囲は{@link #rememberFloors}で
+     * 積み上げてから箱に使い、床そのものは{@link #rememberedFloors}へ入れて格子へ流す。
+     */
     private static final class FloorRange implements XaeroMapReader.FloorVisitor {
+        private final LongOpenHashSet into;
         private int lowest = Integer.MAX_VALUE;
         private int highest = Integer.MIN_VALUE;
+
+        FloorRange(LongOpenHashSet into) {
+            this.into = into;
+        }
 
         @Override
         public void floor(int x, int z, int floorTopY, boolean lava) {
             lowest = Math.min(lowest, floorTopY);
             highest = Math.max(highest, floorTopY);
+            into.add(packFloor(x, z, floorTopY, lava));
         }
+    }
+
+    /**
+     * 床1つを1本のlongに詰める。X・Zは26ビット（ネザーの座標上限±3.75Mに足りる）、Yは10ビット
+     * （{@code -64..959}）、最後の1ビットが溶岩。
+     */
+    static long packFloor(int x, int z, int floorTopY, boolean lava) {
+        return ((long) (x & 0x3FF_FFFF) << 37) | ((long) (z & 0x3FF_FFFF) << 11)
+                | ((long) ((floorTopY + 64) & 0x3FF) << 1) | (lava ? 1L : 0L);
+    }
+
+    static int unpackX(long floor) {
+        return (int) (floor << 1 >> 38);
+    }
+
+    static int unpackZ(long floor) {
+        return (int) (floor << 27 >> 38);
+    }
+
+    static int unpackY(long floor) {
+        return (int) ((floor >>> 1) & 0x3FF) - 64;
+    }
+
+    static boolean unpackLava(long floor) {
+        return (floor & 1L) != 0L;
     }
 
     /** どの条件に対する表か。ここが変われば、間隔を待たずに組み直す。 */
@@ -209,12 +263,14 @@ final class NetherVoxelGuide {
                 ((minX + sizeX - 1) >> 4) - (minX >> 4) + 1,
                 ((minZ + sizeZ - 1) >> 4) - (minZ >> 4) + 1, referenceY);
 
-        // 1回目は<b>床のある高さを測るだけ</b>。箱のYを次元の全高に取ると、天井より上の空きが
-        // 格子の半分を占めて「天井の上を橋で走る」ガイドになる（VoxelTerrain#boxFor）
-        FloorRange range = new FloorRange();
+        // 地図は<b>1回だけ</b>読む。見えた床はそのまま覚えておき、箱が決まってから覚えている
+        // ぶんを格子へ流す。箱のYを次元の全高に取ると、天井より上の空きが格子の半分を占めて
+        // 「天井の上を橋で走る」ガイドになる（VoxelTerrain#boxFor）ので、高さは床から決める
+        forgetOutside(key, minX, minZ, sizeX, sizeZ);
+        FloorRange range = new FloorRange(rememberedFloors);
         int floors = XaeroMapReader.forEachCaveFloor(minX, minZ, sizeX, sizeZ, referenceY,
                 SAMPLE_STEP, range);
-        if (floors == 0) {
+        if (floors == 0 && rememberedFloors.isEmpty()) {
             // この範囲の地図をXaeroがまだ持っていない。床が1枚も無い格子から作る表は
             // 直線距離を一定倍しただけのもので、幾何ヒューリスティックと同じことしか言わない
             LOGGER.debug("XaeroNav: 3D粗層のもとになる地図がありません ({}, {})", minX, minZ);
@@ -228,9 +284,13 @@ final class NetherVoxelGuide {
             LOGGER.debug("XaeroNav: 3D粗層の箱が大きすぎます ({})", box);
             return;
         }
-        XaeroMapReader.forEachCaveFloor(minX, minZ, sizeX, sizeZ, referenceY, SAMPLE_STEP,
-                terrain::markFloor);
+        LongIterator remembered = rememberedFloors.iterator();
+        while (remembered.hasNext()) {
+            long floor = remembered.nextLong();
+            terrain.markFloor(unpackX(floor), unpackZ(floor), unpackY(floor), unpackLava(floor));
+        }
         long read = MonotonicTime.millis() - began;
+        int rememberedCount = rememberedFloors.size();
 
         building = true;
         long myGeneration = generation.incrementAndGet();
@@ -256,12 +316,33 @@ final class NetherVoxelGuide {
                     // ——1倍付近なら幾何ヒューリスティックと同じことしか言っていない。
                     // 箱も出す: Yの範囲が歩ける高さより広いと、格子の大半が天井の上の空きになる
                     LOGGER.info("XaeroNav: 3D粗層 (床={}, {}, セル={}, 辺={}, 膨らみ{}倍, 箱={}, "
-                                    + "今回の床Y={}..{}, 地図{}ms, Dijkstra{}ms)",
+                                    + "今回の床Y={}, 覚えている床={}, 地図{}ms, Dijkstra{}ms)",
                             floors, terrain.breakdown(), terrain.cellCount(), terrain.cellBlocks(),
                             round(inflation(guide, player, goal)), box,
-                            range.lowest, range.highest,
+                            floors == 0 ? "読めず" : range.lowest + ".." + range.highest, rememberedCount,
                             read, MonotonicTime.millis() - began - read);
                 });
+    }
+
+    /**
+     * 目的地が変わったら覚えている床を捨て、そうでなければ今度の走査範囲の外にあるものを捨てる。
+     *
+     * <p>走査範囲は目的地へ近づくほど縮むので、これだけで覚えている量は頭打ちになる。
+     */
+    private void forgetOutside(Key key, int minX, int minZ, int sizeX, int sizeZ) {
+        if (!key.equals(floorRangeKey)) {
+            rememberedFloors.clear();
+            return;
+        }
+        LongIterator floors = rememberedFloors.iterator();
+        while (floors.hasNext()) {
+            long floor = floors.nextLong();
+            int x = unpackX(floor);
+            int z = unpackZ(floor);
+            if (x < minX || x >= minX + sizeX || z < minZ || z >= minZ + sizeZ) {
+                floors.remove();
+            }
+        }
     }
 
     /**
@@ -302,5 +383,6 @@ final class NetherVoxelGuide {
         floorRangeKey = null;
         floorLowest = Integer.MAX_VALUE;
         floorHighest = Integer.MIN_VALUE;
+        rememberedFloors.clear();
     }
 }
