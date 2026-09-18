@@ -239,6 +239,7 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 付けると、各ターゲットの jar が `build/libs/` へ集まります。
 
 ターゲットの構成と増やし方は [docs/multiloader.md](docs/multiloader.md) にあります。
+リリースの公開手順と必要な設定は [docs/releasing.md](docs/releasing.md) にあります。
 
 テストは重さで分けてあります。`./gradlew test` は実機の保存データを使う探索以外の全部で数秒、
 その探索（1分ほどかかる）は `@Tag("slow")` を付けて `./gradlew slowTest` に分けてあります。

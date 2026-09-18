@@ -1,23 +1,24 @@
 name: Release
 
-# 手動実行（Actionsタブの "Run workflow"）で、好きなタイミング・好きなバージョンでリリースできる。
-# バージョンはgradle.propertiesを書き換えず `-Pmod_version` でビルド時に上書きするので、
-# リリースのたびにコミットが要らない。従来通り `git tag vX.Y.Z && git push --tags` で
-# 起動することもできる（その場合はタグ名がそのままバージョンになる）。
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "リリースするバージョン（例: 0.1.1）"
+        description: "Release version (X.Y.Z)"
         required: true
   push:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
+# Do not cancel a release after a platform has accepted a file.
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  # ビルドとタグ/Release作成を別jobに分ける。ビルドはGradleプラグイン・依存関係が
-  # 全部通る場所で、そのどれか1つが侵害されてもcontents:writeへ手が届かないよう、
-  # このjobにはwrite権限を渡さない。
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -25,97 +26,209 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
+      nodes: ${{ steps.nodes.outputs.nodes }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "21"
-
-      # CIと同じGradle User Home / build cacheを復元する。Minecraft本体や各ローダーの
-      # 変換済み成果物は大きいため、リリースのたびに一から生成しない。
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
-      # workflow_dispatch: 入力されたバージョンを使う。タグpush: タグ名から取り出す
-      - name: Resolve version and tag
+      - name: Resolve and validate release version
         id: release
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$REQUESTED_VERSION"
           else
-            VERSION="${GITHUB_REF#refs/tags/v}"
+            VERSION="${GITHUB_REF_NAME#v}"
+            if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::Expected a vX.Y.Z tag"
+              exit 1
+            fi
           fi
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::バージョンは X.Y.Z の形式で指定してください（入力値: $VERSION）"
-            exit 1
-          fi
+          python3 tools/release_notes.py "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      # 手動実行のときだけ確認する。タグpushでは、そのタグ自体が既にリモートにある
-      # のが正常なのでチェック対象外（同じタグを打ち直すのは別の問題として自然に失敗する）
-      - name: Ensure version doesn't collide with an existing release
+      - name: Reject an existing tag on manual release
         if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
-          TAG="${{ steps.release.outputs.tag }}"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
-            echo "::error::タグ $TAG は既に存在します。別のバージョンを指定してください。"
+            echo "::error::Tag $TAG already exists. Use 'Re-run failed jobs' to recover a failed release."
             exit 1
           fi
 
-      # 全ノード（MCバージョン×ローダー）をビルドして、jarをbuild/libsへ集める
-      - name: Build
-        run: ./gradlew build verifyDistribution -Prelease -Pmod_version=${{ steps.release.outputs.version }}
+      - name: Test release notes validation
+        run: python3 -m unittest discover -s tools -p 'test_release_notes.py' -v
 
-      - name: Upload distribution jars
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Discover release nodes
+        id: nodes
+        run: |
+          NODES=$(./gradlew printNodes -q --console=plain | tail -1)
+          echo "$NODES" | jq -e 'length > 0' > /dev/null
+          echo "nodes=$NODES" >> "$GITHUB_OUTPUT"
+
+      - name: Build and verify every distribution jar
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: ./gradlew build verifyDistribution -Prelease "-Pmod_version=$RELEASE_VERSION"
+
+      - name: Dry run every platform and node
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_NODES: ${{ steps.nodes.outputs.nodes }}
+          MODRINTH_PROJECT_ID: example
+          MODRINTH_TOKEN: example
+          CURSEFORGE_PROJECT_ID: "123456"
+          CURSEFORGE_TOKEN: example
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r NODE LOADER MINECRAFT; do
+            for PLATFORM in modrinth curseforge; do
+              OUTPUT=$(./gradlew publishMods --console=plain -Prelease \
+                "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" \
+                "-Ppublish_node=$NODE" -Ppublish_dry_run=true)
+              grep -Fq "Main file: xaeronav-$RELEASE_VERSION-$LOADER-$MINECRAFT.jar" <<< "$OUTPUT"
+              grep -Fq "Version: $RELEASE_VERSION-$LOADER-$MINECRAFT" <<< "$OUTPUT"
+              echo "Verified $PLATFORM / $NODE"
+            done
+          done < <(jq -r '.[] | [.node, .loader, .minecraft] | @tsv' <<< "$RELEASE_NODES")
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-jars
           path: build/libs/xaeronav-*.jar
-          retention-days: 1
+          if-no-files-found: error
+          retention-days: 30
 
-  # タグ作成とGitHub Releaseの公開だけを行う。contents:writeが要るのはこのjobだけ。
-  release:
-    needs: build
+  credentials:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify publishing configuration
+        env:
+          MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+        run: |
+          for NAME in MODRINTH_PROJECT_ID MODRINTH_TOKEN CURSEFORGE_PROJECT_ID CURSEFORGE_TOKEN; do
+            if [ -z "${!NAME}" ]; then
+              echo "::error::$NAME is not configured"
+              exit 1
+            fi
+          done
+          if ! curl -fsS --retry 3 --max-time 15 \
+            "https://api.modrinth.com/v2/project/$MODRINTH_PROJECT_ID" \
+            | jq -e '.slug == "xaeronav"' > /dev/null; then
+            echo "::error::MODRINTH_PROJECT_ID does not identify the XaeroNav project"
+            exit 1
+          fi
+
+  tag:
+    needs: [build, credentials]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      # 同じworkflow run内のartifactをdownload-artifactで取るのに要る
-      actions: read
     steps:
-      # タグのpushにはローカルにgitリポジトリが要る（ビルド成果物だけでは足りない）。
-      # buildジョブと同じ全履歴を取る（浅いcloneでのtag pushは対応済みだが、挙動をjob間で揃える）
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Create tag for a manual release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
 
-      - name: Download distribution jars
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+  publish:
+    needs: [build, tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        platform: [modrinth, curseforge]
+        node: ${{ fromJson(needs.build.outputs.nodes) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-jars
           path: build/libs
 
-      # 成果物がすべて検査を通った後で初めてタグを作る。ビルド失敗時には何もpushしない。
-      - name: Create and push tag
-        if: github.event_name == 'workflow_dispatch'
+      - name: Check publication inputs
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          MINECRAFT: ${{ matrix.node.minecraft }}
+          LOADER: ${{ matrix.node.loader }}
+          PLATFORM: ${{ matrix.platform }}
+          MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
         run: |
-          TAG="${{ needs.build.outputs.tag }}"
-          git tag "$TAG"
-          git push origin "$TAG"
+          python3 tools/release_notes.py "$RELEASE_VERSION"
+          test -f "build/libs/xaeronav-$RELEASE_VERSION-$LOADER-$MINECRAFT.jar"
+          if [ "$PLATFORM" = modrinth ]; then
+            test -n "$MODRINTH_PROJECT_ID" && test -n "$MODRINTH_TOKEN"
+          else
+            test -n "$CURSEFORGE_PROJECT_ID" && test -n "$CURSEFORGE_TOKEN"
+          fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      - name: Publish ${{ matrix.node.node }} to ${{ matrix.platform }}
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          NODE: ${{ matrix.node.node }}
+          PLATFORM: ${{ matrix.platform }}
+          MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+        run: ./gradlew publishMods -Prelease "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" "-Ppublish_node=$NODE"
+
+  github_release:
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-jars
+          path: build/libs
+      - name: Validate release assets and notes
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_NODES: ${{ needs.build.outputs.nodes }}
+        run: |
+          python3 tools/release_notes.py "$RELEASE_VERSION"
+          test "$(find build/libs -maxdepth 1 -name 'xaeronav-*.jar' | wc -l | tr -d ' ')" = "$(jq 'length' <<< "$RELEASE_NODES")"
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           name: ${{ needs.build.outputs.tag }}
-          draft: true
-          generate_release_notes: true
+          body_path: changelogs/${{ needs.build.outputs.version }}.md
+          draft: false
+          generate_release_notes: false
           files: build/libs/xaeronav-*.jar
-          # jar名とこのパターンが割れると、添付0個のままリリースだけ作られて緑になる（実際そうなった）
           fail_on_unmatched_files: true

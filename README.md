@@ -251,6 +251,7 @@ This builds every target (Minecraft version × loader) at once, and also runs `s
 each target's jar into `build/libs/`.
 
 How the targets are set up, and how to add one, is in [docs/multiloader.md](docs/multiloader.md).
+Release publishing and its required repository settings are documented in [docs/releasing.md](docs/releasing.md).
 
 The suite is split by cost. `./gradlew test` runs everything except the searches over real saved
 world data, which take about a minute; those carry `@Tag("slow")` and run as `./gradlew slowTest`.

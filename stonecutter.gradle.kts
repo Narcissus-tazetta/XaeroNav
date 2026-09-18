@@ -1,6 +1,7 @@
 plugins {
     id("dev.kikugie.stonecutter")
     id("com.diffplug.spotless") version "8.10.1"
+    id("me.modmuss50.mod-publish-plugin") version "2.2.0"
 }
 
 // spotlessの整形器（google-java-format）を落としてくるためだけのリポジトリ。
@@ -17,6 +18,52 @@ stonecutter.parameters {
     // ノード名 `1.21.1-neoforge` の末尾がそのままローダー名。これで各ソースの
     // `//? if neoforge {` / `//? if fabric {` / `//? if forge {` が切り替わる。
     constants.match(current.project.substringAfterLast('-'), "neoforge", "fabric", "forge")
+}
+
+// 公開は1ジョブにつき1サイト・1ノード。失敗したジョブだけを再実行でき、
+// 既に成功した別ノードを重複投稿しない。通常ビルドでは公開先を登録しない。
+val publishTarget = providers.gradleProperty("publish_target").orNull
+val publishNode = providers.gradleProperty("publish_node").orNull
+if (publishTarget != null || publishNode != null) {
+    check(publishTarget in setOf("modrinth", "curseforge") && publishNode != null) {
+        "公開には -Ppublish_target=modrinth|curseforge と -Ppublish_node=<ノード> の両方が必要です"
+    }
+    val node = stonecutter.versions.singleOrNull { it.project == publishNode }
+        ?: error("不明な公開ノード: $publishNode")
+    val loader = node.project.substringAfterLast('-')
+    val releaseVersion = modProperty("mod_version")
+    val releaseFile = layout.buildDirectory.file(
+        "libs/${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar")
+
+    publishMods {
+        file.set(releaseFile)
+        // 同じプロジェクトに5ファイルを投稿するため、サイト上のversion番号はノードごとに一意にする。
+        version.set("$releaseVersion-$loader-${node.version}")
+        displayName.set("XaeroNav $releaseVersion - $loader ${node.version}")
+        changelog.set(providers.fileContents(
+            layout.projectDirectory.file("changelogs/$releaseVersion.md")).asText)
+        type.set(STABLE)
+        dryRun.set(providers.gradleProperty("publish_dry_run").map(String::toBoolean).orElse(false))
+        modLoaders.add(loader)
+
+        when (publishTarget) {
+            "modrinth" -> modrinth {
+                projectId.set(providers.environmentVariable("MODRINTH_PROJECT_ID"))
+                accessToken.set(providers.environmentVariable("MODRINTH_TOKEN"))
+                minecraftVersions.add(node.version)
+                environment.set(CLIENT_ONLY)
+                if (loader == "fabric") requires("fabric-api")
+            }
+            "curseforge" -> curseforge {
+                projectId.set(providers.environmentVariable("CURSEFORGE_PROJECT_ID"))
+                accessToken.set(providers.environmentVariable("CURSEFORGE_TOKEN"))
+                minecraftVersions.add(node.version)
+                client.set(true)
+                server.set(false)
+                if (loader == "fabric") requires("fabric-api")
+            }
+        }
+    }
 }
 
 // 全ノードをまとめて回すための入口。ノードを増やしてもCIの記述は変わらない。
