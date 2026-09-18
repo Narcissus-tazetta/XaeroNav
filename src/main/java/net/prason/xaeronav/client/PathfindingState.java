@@ -570,6 +570,12 @@ public final class PathfindingState {
                     public void setComputing(boolean value) {
                         computing = value;
                     }
+
+                    @Override
+                    public @Nullable WindowField guide() {
+                        BlockPos currentGoal = goal;
+                        return currentGoal == null ? null : navGraphGuide.latest(currentGoal);
+                    }
                 }, seamRepair, recentFailures);
         this.extend = new Extend(executor, generation, generationGate, this::publishNavigationView,
                 new Extend.Host() {

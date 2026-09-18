@@ -16,11 +16,6 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
  */
 public final class RouteReview {
 
-    /**
-     * 窓の縁からこれより内側の点だけを比べる。縁の近くの値は窓の外の推定から来ていて、比べると推定の誤差を遠回りと取り違える。
-     */
-    private static final int EDGE_MARGIN_BLOCKS = 32;
-
     private RouteReview() {
     }
 
@@ -34,9 +29,8 @@ public final class RouteReview {
      * @param from  起点の次に踏むステップの添字
      */
     public static Detour detour(WindowField field, BlockPos start, List<PathStep> steps, int from) {
-        int limit = field.radius() - EDGE_MARGIN_BLOCKS;
         BlockPos goal = field.goal();
-        if (Math.abs(goal.getX() - field.centerX()) > limit || Math.abs(goal.getZ() - field.centerZ()) > limit) {
+        if (!field.measuredInWindow(goal.getX(), goal.getZ())) {
             // 目的地が窓の外なら、値は窓の縁に置いた外の推定から来る。推定のずれは場所ごとに違うので、差を取ると遠回りでない線を
             // 遠回りとする（実測: ネザーで3D粗層を外の推定にすると、始点の値が実際の最短全体より大きく、引き直して1.003→1.187倍）
             return Detour.NONE;
@@ -50,7 +44,7 @@ public final class RouteReview {
         for (int i = from; i < steps.size(); i++) {
             PathStep step = steps.get(i);
             BlockPos pos = step.pos();
-            if (Math.abs(pos.getX() - field.centerX()) > limit || Math.abs(pos.getZ() - field.centerZ()) > limit) {
+            if (!field.measuredInWindow(pos.getX(), pos.getZ())) {
                 break;
             }
             walked += step.cost();

@@ -87,7 +87,7 @@ class CliffSpliceTest {
         PathResult toJoin = solve(cells, player, joinPos);
         assertTrue(toJoin.complete(), "登り直す道自体は存在する（だから黙って採用されてしまう）");
 
-        assertFalse(Splice.spliceWorthTaking(cost(toJoin.steps()), player, joinPos, goal),
+        assertFalse(Splice.spliceWorthTaking(cost(toJoin.steps()), player, joinPos, goal, null),
                 "崖を登り直す合流が採用されている: 合流区間=" + Math.round(cost(toJoin.steps())) + "tick");
     }
 
@@ -105,7 +105,7 @@ class CliffSpliceTest {
         BlockPos joinPos = path.steps().get(join).pos();
         PathResult toJoin = solve(cells, player, joinPos);
 
-        assertTrue(Splice.spliceWorthTaking(cost(toJoin.steps()), player, joinPos, goal),
+        assertTrue(Splice.spliceWorthTaking(cost(toJoin.steps()), player, joinPos, goal, null),
                 "普通の逸脱で合流が拒まれている: 合流区間=" + Math.round(cost(toJoin.steps())) + "tick");
     }
 }

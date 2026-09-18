@@ -44,6 +44,13 @@ public final class WindowField implements CostToGo {
      */
     private static final int EDGE_SEED_BAND = 2;
 
+    /**
+     * 窓の縁からこの幅（ブロック）の中は、値が{@link FarField}の推定から来ているとみなす
+     * （{@link #measuredInWindow}）。縁のセクションは外へ出る辺の先に外の値を置いて種にしている
+     * （{@link #EDGE_SEED_BAND}）ので、その周りの値には推定がそのまま残る。
+     */
+    private static final int EDGE_MARGIN_BLOCKS = 32;
+
     /** 並べて数える小分けの大きさ（セクション数）。 */
     private static final int SLOTS_PER_TASK = 32;
 
@@ -432,6 +439,16 @@ public final class WindowField implements CostToGo {
             }
         }
         return !nodeNearby;
+    }
+
+    /**
+     * この点の値が、窓の中を実際に辿った結果から来ているか。<b>2点の値を引き算するなら、どちらもこれを満たすこと</b>
+     * ——縁の近くと窓の外の値は{@link FarField}の推定で、尺度が窓の中と揃っていない（ネザーの3D粗層は
+     * {@code NavGraphGuide.VOXEL_FAR_SCALE}倍して置いてある）。差を取ると推定のずれがそのまま結論になる。
+     */
+    public boolean measuredInWindow(int x, int z) {
+        int limit = radius - EDGE_MARGIN_BLOCKS;
+        return Math.abs(x - centerX) <= limit && Math.abs(z - centerZ) <= limit;
     }
 
     /** グラフのノードから直接引ける値。ノードでないか、目的地へ繋がらなければ{@link Double#NaN}。 */

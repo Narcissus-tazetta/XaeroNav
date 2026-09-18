@@ -28,6 +28,7 @@ import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.GenerationGate;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
+import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -120,6 +121,9 @@ final class Splice {
 
         /** 探索中フラグを立て下げする。 */
         void setComputing(boolean computing);
+
+        /** 目的地までの残りコスト（{@link #spliceWorthTaking}の物差し）。組み上がっていなければ{@code null}。 */
+        @Nullable WindowField guide();
     }
 
     private final PathfindingExecutor executor;
@@ -222,6 +226,9 @@ final class Splice {
         SearchLimits limits = new SearchLimits(Math.min(full.maxExpandedNodes(), SPLICE_MAX_EXPANDED_NODES),
                 full.timeLimitMillis(), full.heuristicWeight());
 
+        // ガイドは投げる前に取る。合流区間のコストは今の{@code playerAt}から測ったものなので、
+        // 完了時に窓が進んでいると、同じ点が窓の外に出て物差しが幾何下限へ落ちる
+        WindowField guide = host.guide();
         long myGeneration = generation.incrementAndGet();
         host.setComputing(true);
         // 合流点は実際に歩けるセル（この経路が通っている）なので、半径を与えずぴったり狙う。
@@ -251,7 +258,7 @@ final class Splice {
                     return;
                 }
                 double spliceCost = splice.steps().stream().mapToDouble(PathStep::cost).sum();
-                if (!spliceWorthTaking(spliceCost, playerAt, joinPos, currentGoal)) {
+                if (!spliceWorthTaking(spliceCost, playerAt, joinPos, currentGoal, guide)) {
                     // 合流できるが、そのために元の経路へ引き返すことになる。捨てて全部引き直す
                     // （次のtickでblockedFromが効いて、呼び出し側のrecalculateへ落ちる）
                     blockedFrom = playerAt;
@@ -331,19 +338,46 @@ final class Splice {
     /**
      * この合流は割に合うか。<b>払ったコストに見合うだけ目的地へ近づいているか</b>で見る。
      *
-     * <p>合流点まで実際に掛かるコストと、目的地までの幾何学的な下限がどれだけ縮んだかを比べる。
-     * 縮んだぶん＋{@link #SPLICE_DETOUR_ALLOWANCE_TICKS}を超えて払っているなら、その合流は
-     * 前へ進むためではなく<b>元の経路へ戻るため</b>に払っている。
+     * <p>合流点まで実際に掛かるコストと、目的地までの残りがどれだけ縮んだかを比べる。縮んだぶん＋
+     * {@link #SPLICE_DETOUR_ALLOWANCE_TICKS}を超えて払っているなら、その合流は前へ進むためではなく
+     * <b>元の経路へ戻るため</b>に払っている。
+     *
+     * <p><b>残りを測る物差しは、払ったコストと同じ単位でなければならない。</b>{@code guide}が無いときの
+     * {@link Heuristic}は<b>疾走で進める前提の幾何下限</b>で、地形を触る手間を1つも含まない——溶岩・奈落の上では
+     * 1ブロック進むのに橋1本（約35.6tick＝疾走10ブロック相当、{@code ActionCosts#LAVA_BRIDGE_PENALTY_TICKS}）
+     * 掛かるので、前へ進む合流でも実コストが下限の10倍に開き、{@link #SPLICE_DETOUR_ALLOWANCE_TICKS}(171tick)
+     * では埋まらない。実機ログ（2026-09-18、ネザーの溶岩の海）では<b>合流8回のうち5回</b>がここで断られ、
+     * うち2回はその場で完走ルート（259ステップ・129ステップ）の破棄に直結した。断られた1回は
+     * 15ブロック先へ前進する区間で、実コスト807tickに対し幾何下限で縮んだのは40tick。
+     * {@link Splice}の冒頭が「捨ててはいけない」と書いているエンドの島渡りと同じ壊れ方を、
+     * この判定自身が作っていたことになる。
+     *
+     * <p>そこで、窓の中の本物の残りコスト（{@link WindowField}）が両端で引けるならそちらで測る——
+     * 橋が要る地形なら<b>プレイヤー側の残りにも同じ橋が乗る</b>ので、差を取れば地形の値段が相殺される。
+     * 崖のケースは相殺されない（登り直すぶんだけ合流点の残りが縮まない）ので、止めたいものだけが残る。
      *
      * <p><b>探索の後に見るしかない。</b>合流点までの下限（幾何学）で先に判定しようとしても、
      * 崖のケースは下限では引き返しを見抜けない。
+     *
+     * @param guide 目的地までの残りコスト。{@code null}か、どちらかの点が窓の外なら幾何下限で測る
      */
-    static boolean spliceWorthTaking(double spliceCost, BlockPos player, BlockPos joinPos, BlockPos goal) {
-        double gained = Heuristic.estimate(player.getX(), player.getY(), player.getZ(),
+    static boolean spliceWorthTaking(double spliceCost, BlockPos player, BlockPos joinPos, BlockPos goal,
+                                     @Nullable WindowField guide) {
+        return spliceCost <= remainingGained(player, joinPos, goal, guide) + SPLICE_DETOUR_ALLOWANCE_TICKS;
+    }
+
+    /** 合流点へ移ることで縮む「目的地までの残り」。 */
+    private static double remainingGained(BlockPos player, BlockPos joinPos, BlockPos goal,
+                                          @Nullable WindowField guide) {
+        if (guide != null && guide.measuredInWindow(player.getX(), player.getZ())
+                && guide.measuredInWindow(joinPos.getX(), joinPos.getZ())) {
+            return guide.estimate(player.getX(), player.getY(), player.getZ())
+                    - guide.estimate(joinPos.getX(), joinPos.getY(), joinPos.getZ());
+        }
+        return Heuristic.estimate(player.getX(), player.getY(), player.getZ(),
                         goal.getX(), goal.getY(), goal.getZ())
                 - Heuristic.estimate(joinPos.getX(), joinPos.getY(), joinPos.getZ(),
                         goal.getX(), goal.getY(), goal.getZ());
-        return spliceCost <= gained + SPLICE_DETOUR_ALLOWANCE_TICKS;
     }
 
     private static int joinableStepIndex(Level level, List<PathStep> steps, Vec3 position, int minIndex) {
