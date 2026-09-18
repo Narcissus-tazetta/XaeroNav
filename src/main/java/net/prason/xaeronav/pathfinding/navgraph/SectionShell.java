@@ -1,5 +1,6 @@
 package net.prason.xaeronav.pathfinding.navgraph;
 
+import net.prason.xaeronav.pathfinding.astar.RunCaps;
 import net.prason.xaeronav.pathfinding.astar.SectionMoves;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 
@@ -10,6 +11,8 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
  * <p>閉包の99%は掘削と空中の体積で、それを丸ごと持つと窓の辺が数千万本になる。この幅なら質は落ちない
  * （実測: 窓160の中を殻にしてもネザー1.021・山岳1.000で殻なしと同じ、全体に掛けてもネザー1.012・エンド1.010）。
  * <b>水平8より狭めるとエンドの橋が切れる</b>（水平2で1.108）。
+ *
+ * <p>それより広い奈落・溶岩の海は、橋が通りうる列の高さだけを足す（{@link NaturalColumns#bridgeCorridor}）。
  */
 final class SectionShell implements SectionMoves.Mask {
 
@@ -29,7 +32,13 @@ final class SectionShell implements SectionMoves.Mask {
         this.allowed = allowed;
     }
 
-    static SectionShell of(NaturalColumns naturals, CellSource cells, int sectionX, int sectionZ) {
+    /**
+     * 奈落を渡る橋の途中を探す距離の上限（ブロック）。設定の橋の長さが無制限（0）のときに使う。窓の直径より長い橋は窓の中に収まらない。
+     */
+    private static final int UNLIMITED_BRIDGE_REACH = 320;
+
+    static SectionShell of(NaturalColumns naturals, CellSource cells, int sectionX, int sectionZ, int goalX,
+                           int goalZ) {
         int words = naturals.words();
         int span = SectionMoves.SIZE + 2 * HORIZONTAL;
         int originX = sectionX * SectionMoves.SIZE - HORIZONTAL;
@@ -72,6 +81,10 @@ final class SectionShell implements SectionMoves.Mask {
                 alongX[lx + az * SectionMoves.SIZE] = merged;
             }
         }
+        int reach = cells.maxVoidBridgeRunBlocks() > 0 ? cells.maxVoidBridgeRunBlocks() : UNLIMITED_BRIDGE_REACH;
+        int lavaCap = RunCaps.stricter(cells.maxBridgeRunBlocks(), cells.maxLavaBridgeRunBlocks());
+        int lavaReach = !cells.canPlaceBlocks() || !cells.lavaBridgingEnabled() ? 0
+                : lavaCap > 0 ? lavaCap : UNLIMITED_BRIDGE_REACH;
         long[][] allowed = new long[SectionMoves.SIZE * SectionMoves.SIZE][];
         for (int lx = 0; lx < SectionMoves.SIZE; lx++) {
             for (int lz = 0; lz < SectionMoves.SIZE; lz++) {
@@ -81,6 +94,11 @@ final class SectionShell implements SectionMoves.Mask {
                     for (int w = 0; w < words; w++) {
                         merged[w] |= bits[w];
                     }
+                }
+                long[] corridor = naturals.bridgeCorridor(cells, sectionX * SectionMoves.SIZE + lx,
+                        sectionZ * SectionMoves.SIZE + lz, goalX, goalZ, reach, lavaReach);
+                for (int w = 0; w < words; w++) {
+                    merged[w] |= corridor[w];
                 }
                 allowed[lx + lz * SectionMoves.SIZE] = merged;
             }

@@ -129,6 +129,59 @@ class WindowFieldTest {
     }
 
     @Test
+    void bridgesAVoidWiderThanTheShell() {
+        // ジ・エンドの外側の島。間の奈落（40ブロック）は殻の水平幅の2倍より広く、橋の途中が殻に入らない
+        FakeCells cells = FakeCells.empty(new SearchBounds(0, 40, 0, 79, 96, 31)).canPlaceBlocks(true)
+                .maxVoidBridgeRunBlocks(96);
+        for (int x = 0; x < 80; x++) {
+            if (x >= 16 && x < 56) {
+                continue;
+            }
+            for (int z = 0; z < 32; z++) {
+                for (int y = FLOOR_Y - 4; y <= FLOOR_Y; y++) {
+                    cells.set(x, y, z, FakeCells.STONE);
+                }
+            }
+        }
+        BlockPos start = new BlockPos(4, FLOOR_Y + 1, 16);
+        BlockPos goal = new BlockPos(72, FLOOR_Y + 1, 16);
+        WindowField field = built(cells, goal, 40, 16, 40).field(40, 16, 40, FarField.UNKNOWN, () -> false);
+        assertNotNull(field);
+        assertTrue(field.connects(start.getX(), start.getY(), start.getZ()), "向こう岸の島が目的地へ繋がっていない");
+        double optimal = optimalCost(cells, start, goal);
+        assertEquals(optimal, field.exact(start.getX(), start.getY(), start.getZ()), optimal * 0.01);
+    }
+
+    @Test
+    void bridgesALavaSeaWiderThanTheShell() {
+        // ネザーの溶岩の海を挟んだ島。間の溶岩（20ブロック）は殻の水平幅の2倍より広く、橋の上限（30）より狭い
+        FakeCells cells = FakeCells.empty(new SearchBounds(0, 40, 0, 63, 96, 31)).canPlaceBlocks(true)
+                .maxBridgeRunBlocks(96).maxLavaBridgeRunBlocks(30);
+        for (int x = 0; x < 64; x++) {
+            for (int z = 0; z < 32; z++) {
+                boolean sea = x >= 22 && x < 42;
+                for (int y = 40; y <= FLOOR_Y; y++) {
+                    cells.set(x, y, z, sea && y > FLOOR_Y - 8 ? FakeCells.LAVA : FakeCells.STONE);
+                }
+                if (!sea) {
+                    for (int y = FLOOR_Y + 1; y <= FLOOR_Y + 6; y++) {
+                        cells.set(x, y, z, FakeCells.STONE);
+                    }
+                }
+            }
+        }
+        // 島の上面は溶岩の面より7ブロック高い
+        BlockPos start = new BlockPos(4, FLOOR_Y + 7, 16);
+        BlockPos goal = new BlockPos(58, FLOOR_Y + 7, 16);
+        WindowField field = built(cells, goal, 32, 16, 40).field(32, 16, 40, FarField.UNKNOWN, () -> false);
+        assertNotNull(field);
+        assertTrue(Double.isFinite(field.exact(start.getX(), start.getY(), start.getZ())),
+                "溶岩の海の向こうの島が目的地へ繋がっていない");
+        double optimal = optimalCost(cells, start, goal);
+        assertEquals(optimal, field.exact(start.getX(), start.getY(), start.getZ()), optimal * 0.02);
+    }
+
+    @Test
     void refusesToGuideWhenTheGoalIsCutOff() {
         FakeCells cells = world(false);
         // 目的地は窓の中だが、岩盤に埋まっていて殻のどこからも入れない

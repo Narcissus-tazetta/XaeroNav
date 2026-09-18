@@ -141,10 +141,12 @@ class NavGraphWalkBenchTest {
             boolean graphOnly = Boolean.getBoolean("xaeronav.navGraphOnly");
             ProgressiveWalk.Trace current = graphOnly ? null
                     : ProgressiveWalk.trace(cells, start, goal, WINDOW, mode, currentAim, null);
-            ProgressiveWalk.Trace closureWalk = graphOnly ? null : closureWalk(cells, start, goal, mode, far);
+            ProgressiveWalk.Trace closureWalk = graphOnly || Boolean.getBoolean("xaeronav.skipClosure") ? null
+                    : closureWalk(cells, start, goal, mode, far);
 
             Stats stats = new Stats(new long[1], new long[2], new int[1], new long[2]);
             ProgressiveWalk.UNGUIDED_LEGS.set(0);
+            ProgressiveWalk.REVIEWS.set(0);
             ProgressiveWalk.Trace graphWalk = ProgressiveWalk.trace(cells, start, goal, WINDOW, mode,
                     ProgressiveWalk.Aim.GOAL, guide(cells, goal, far, stats), 1.0);
             double[] values = new double[3];
@@ -155,9 +157,11 @@ class NavGraphWalkBenchTest {
                 ratios.get(i).add(values[i]);
             }
             System.out.printf(Locale.ROOT,
-                    "%s %s→%s 現行%.3f 閉包の窓%.3f 航法グラフ%.5f 使えない区間%d 繋ぎ目%d 構築計%dms ガイド計%dms(最大%dms) 辺最大%d グラフ最大%dMB ガイド最大%dMB %s%n",
-                    name, start.toShortString(), goal.toShortString(), values[0], values[1], values[2],
-                    ProgressiveWalk.UNGUIDED_LEGS.get(), graphWalk.joints().size(), stats.buildMillis()[0], stats.fieldMillis()[0], stats.fieldMillis()[1],
+                    "%s %s→%s 基準%.0f tick 現行%.3f 閉包の窓%.3f 航法グラフ%.5f(%.0f tick) 使えない区間%d 見直し%d 描き変わり%d(足元%d) 繋ぎ目%d 構築計%dms ガイド計%dms(最大%dms) 辺最大%d グラフ最大%dMB ガイド最大%dMB %s%n",
+                    name, start.toShortString(), goal.toShortString(), best, values[0], values[1], values[2],
+                    graphWalk.steps().isEmpty() ? Double.POSITIVE_INFINITY : ProgressiveWalk.cost(graphWalk.steps()),
+                    ProgressiveWalk.UNGUIDED_LEGS.get(), ProgressiveWalk.REVIEWS.get(), graphWalk.redraws(),
+                    graphWalk.nearRedraws(), graphWalk.joints().size(), stats.buildMillis()[0], stats.fieldMillis()[0], stats.fieldMillis()[1],
                     stats.maxEdges()[0], stats.maxBytes()[0] >> 20, stats.maxBytes()[1] >> 20, graphWalk.stopped());
         }
         String[] names = {"現行", "閉包の窓", "航法グラフ"};
@@ -209,6 +213,36 @@ class NavGraphWalkBenchTest {
                 ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON,
                 route -> "unknown".equals(System.getProperty("xaeronav.navGraphFar")) ? FarField.UNKNOWN
                         : FarField.straightLineTo(route[1]));
+    }
+
+    /** 実機のエンドの外側の島（島の間が16ブロックを超える奈落）。実機で詰まった地点から。 */
+    @Test
+    void endOuterIslands() throws IOException {
+        FakeCells cells = TerrainFixture.load("/end_outer_islands.txt.gz", bounds -> FakeCells.empty(bounds)
+                .canPlaceBlocks(true).maxFallDamagePoints(6).maxBridgeRunBlocks(96).maxVoidBridgeRunBlocks(96));
+        List<BlockPos[]> routes = List.of(
+                new BlockPos[] {new BlockPos(2298, 57, 1149), new BlockPos(2440, 60, 1160)},
+                new BlockPos[] {new BlockPos(2163, 54, 1047), new BlockPos(2298, 57, 1149)},
+                new BlockPos[] {new BlockPos(2028, 57, 1098), new BlockPos(2440, 60, 1160)});
+        measure("エンド外側の島", cells, routes, ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON,
+                route -> FarField.straightLineTo(route[1]));
+    }
+
+    /** 実機のネザーで溶岩の海の周りを行き来した区間。溶岩を挟んだ小島を渡れないと、外周へ出ては引き返す。 */
+    @Test
+    void netherLavaSea() throws IOException {
+        // 実機の既定は溶岩の橋30ブロック（NetherLiveWalkTest#terrainは96）
+        FakeCells cells = NetherLiveWalkTest.terrain().maxLavaBridgeRunBlocks(30);
+        double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
+        List<BlockPos[]> routes = List.of(
+                new BlockPos[] {new BlockPos(-271, 64, 395), new BlockPos(-333, 59, 694)},
+                new BlockPos[] {new BlockPos(-261, 66, 448), new BlockPos(-333, 59, 694)},
+                new BlockPos[] {new BlockPos(-212, 48, 553), new BlockPos(-333, 59, 694)});
+        measure("ネザー溶岩の海", cells, routes, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, route -> {
+            CostToGo voxel = XaeroMapModel.guide(cells, route[0], route[1], NetherLiveWalkTest.NETHER_MIN_Y,
+                    NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L);
+            return FarField.of((x, y, z) -> scale * voxel.estimate(x, y, z));
+        });
     }
 
     @Test

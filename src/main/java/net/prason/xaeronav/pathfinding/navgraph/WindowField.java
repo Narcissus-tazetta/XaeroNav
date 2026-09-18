@@ -61,9 +61,15 @@ public final class WindowField implements CostToGo {
     private final int edges;
     private final long buildMillis;
     private final boolean goalCut;
+    private final int centerX;
+    private final int centerZ;
+    private final int radius;
 
     private WindowField(BlockPos goal, FarField far, Index index, double[] distance, int edges, long buildMillis,
-                        boolean goalCut) {
+                        boolean goalCut, int centerX, int centerZ, int radius) {
+        this.centerX = centerX;
+        this.centerZ = centerZ;
+        this.radius = radius;
         this.goal = goal;
         this.far = far;
         this.index = index;
@@ -71,6 +77,23 @@ public final class WindowField implements CostToGo {
         this.edges = edges;
         this.buildMillis = buildMillis;
         this.goalCut = goalCut;
+    }
+
+    public BlockPos goal() {
+        return goal;
+    }
+
+    /** 窓の中心と半径（ブロック）。 */
+    public int centerX() {
+        return centerX;
+    }
+
+    public int centerZ() {
+        return centerZ;
+    }
+
+    public int radius() {
+        return radius;
     }
 
     public int nodes() {
@@ -200,8 +223,10 @@ public final class WindowField implements CostToGo {
                                        FarField givenFar, Parallel parallel, BooleanSupplier cancelled) {
         long began = MonotonicTime.millis();
         BlockPos goal = graph.goal();
-        boolean goalInWindow = Math.abs(goal.getX() - centerX) <= radius - EDGE_SEED_BAND
-                && Math.abs(goal.getZ() - centerZ) <= radius - EDGE_SEED_BAND;
+        // 縁の近くの目的地は窓の外として扱う。縁のセクションは周りが読めないまま仮に組むので、目的地へ入る辺が生成されず、
+        // 窓の中なのに繋がらないと判定して従来の探索へ落ちる（実測: エンドで目的地が縁から5ブロックの区間が2回、1.022→1.050倍）
+        boolean goalInWindow = Math.abs(goal.getX() - centerX) <= radius - NavGraph.READ_MARGIN
+                && Math.abs(goal.getZ() - centerZ) <= radius - NavGraph.READ_MARGIN;
         FarField far = goalInWindow && givenFar.onlyWhenGoalOutside() ? FarField.UNKNOWN : givenFar;
         LongArrayList keyList = new LongArrayList();
         graph.forEachWindowSection(centerX, centerZ, radius, (sx, sy, sz) -> {
@@ -371,7 +396,7 @@ public final class WindowField implements CostToGo {
             }
         }
         return new WindowField(goal, far, index, distance, m, MonotonicTime.millis() - began,
-                goalInWindow && !goalEntered.get());
+                goalInWindow && !goalEntered.get(), centerX, centerZ, radius);
     }
 
     /**
@@ -407,6 +432,12 @@ public final class WindowField implements CostToGo {
             }
         }
         return !nodeNearby;
+    }
+
+    /** グラフのノードから直接引ける値。ノードでないか、目的地へ繋がらなければ{@link Double#NaN}。 */
+    public double exact(int x, int y, int z) {
+        int id = index.resolveAbsolute(x, y, z);
+        return id >= 0 && Double.isFinite(distance[id]) ? distance[id] : Double.NaN;
     }
 
     @Override

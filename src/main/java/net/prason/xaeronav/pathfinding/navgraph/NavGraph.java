@@ -121,7 +121,7 @@ public final class NavGraph {
             int sz = BlockPos.getZ(key);
             // 殻は列（sx, sz）ごとに同じ。鍵は列ごとに並んでいることが多いので直前のものを使い回す
             if (shell == null || sx != shellX || sz != shellZ) {
-                shell = SectionShell.of(naturals, cells, sx, sz);
+                shell = SectionShell.of(naturals, cells, sx, sz, goal.getX(), goal.getZ());
                 shellX = sx;
                 shellZ = sz;
             }
