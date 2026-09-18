@@ -1930,6 +1930,11 @@ public final class PathfindingState {
                             worthKeeping.result().steps().size(), result.steps().size(), result.termination());
                     return;
                 }
+                if (leadsBackward(result, currentGoal)) {
+                    // 経路そのものではなくプレイヤーの進み方を見る。案内どおりに歩くほど
+                    // 目的地から離れるなら、それは案内として成立していない
+                    return;
+                }
                 // 新しい経路に対する合流可否は測り直しになる。前の経路で失敗した記録は持ち越さない
                 splice.clearBlock();
                 noteSuspiciousShape(start, finalTarget, result);
@@ -2506,6 +2511,43 @@ public final class PathfindingState {
         LOGGER.debug("XaeroNav: 詳細探索 (目標 {} ({} ブロック先), 実到達 {} ブロック, {}, 展開 {})",
                 target.toShortString(), Math.round(horizontalDistance(start, target)),
                 Math.round(horizontalDistance(start, end)), result.termination(), result.expandedNodes());
+    }
+
+    /**
+     * この未到達の経路は、<b>いちばん近づいた所よりさらに遠くで終わる</b>か。終わるなら案内に使わない。
+     *
+     * <p>実機（2026-09-19 01:10、ネザー）で<b>プレイヤーが197ブロックの地点から277ブロックへ
+     * 80ブロック連れ戻された</b>。92%が溶岩の場所で詳細探索が32万ノード使って5〜11ステップしか
+     * 進めず、そこで選ばれた「途中までの経路」が東（目的地と反対）へ110ステップ伸びていた。
+     *
+     * <p><b>終点選び（{@code AStarPathfinder#selectFallback}）は壊れていない。</b>候補は
+     * {@code h(候補) + g/c < h(始点)}を満たすものしか採らないので、1回の探索は必ずガイドの上で
+     * 目的地に近づく点を選ぶ。問題は<b>ガイドがそう評価したこと</b>で、しかもプレイヤーが離れるほど
+     * 3D粗層の箱が広がって格子が粗くなる（実機で辺4→6）ため、離れるほどガイドが悪くなる。
+     * ガイドを信じ続ける限りこの正のフィードバックは止まらない。
+     *
+     * <p>そこで<b>ガイドではなく実際の進み方に上限を置く</b>。正しい迂回（溶岩の海の縁を回る）は
+     * 模型のネザー実測で最悪67ブロックの後退なので、{@link RetreatWatcher#RETREAT_BLOCKS}の
+     * 外側だけを弾く。弾かれると経路は出ないが、<b>間違った向きへ歩かされるよりは良い</b>
+     * ——最接近の記録は消さないので、前へ進む経路が出た時点でそのまま採られる。
+     *
+     * <p>完走した経路は対象外。目的地まで引けているなら、途中どれだけ迂回しても着く。
+     */
+    private boolean leadsBackward(PathResult result, BlockPos currentGoal) {
+        BlockPos anchor = retreatWatcher.closestAt();
+        if (result.complete() || result.steps().isEmpty() || anchor == null) {
+            return false;
+        }
+        if (!retreatWatcher.leadsAway(() -> result.steps().stream().map(PathStep::pos).iterator(),
+                currentGoal)) {
+            return false;
+        }
+        BlockPos end = result.steps().get(result.steps().size() - 1).pos();
+        LOGGER.info("XaeroNav: 目的地から遠ざかる案内なので採りません "
+                        + "(末端={}で{}, 最接近={}で{}, {}ステップ, {})",
+                end.toShortString(), Math.round(horizontalDistance(end, currentGoal)), anchor.toShortString(),
+                Math.round(retreatWatcher.closest()), result.steps().size(), result.termination());
+        return true;
     }
 
     /**

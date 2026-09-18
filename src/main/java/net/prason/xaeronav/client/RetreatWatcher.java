@@ -25,7 +25,7 @@ final class RetreatWatcher {
      * <p>実機の往復は約300ブロックで、正しい迂回（溶岩の海の縁を回る）は実測で最大
      * 60ブロック台だった（模型のネザー3本で最悪の後退が63/61/24）。その間に置いてある。
      */
-    private static final double RETREAT_BLOCKS = 80.0;
+    static final double RETREAT_BLOCKS = 80.0;
 
     /** 1回の後退で何度も書かないための間隔（ブロック）。 */
     private static final double REPORT_STEP_BLOCKS = 32.0;
@@ -72,6 +72,42 @@ final class RetreatWatcher {
         }
         reportedDistance = distance;
         return new Retreat(at, distance, closestAt, closest);
+    }
+
+    /**
+     * この案内は、<b>いちばん近づいた所よりさらに遠くへ連れて行く</b>か。
+     *
+     * <p>{@link #observe}が「起きたことを記録する」のに対し、こちらは「起こさせない」ために使う。
+     * 境界は同じ{@link #RETREAT_BLOCKS}——記録に値する後退は、案内として採ってもいけない。
+     *
+     * <p><b>末端だけを見てはいけない。</b>実機（2026-09-19 01:10）で80ブロック連れ戻されたとき、
+     * 経路の末端は最接近から55ブロックの所（帯の内側）だった。遠ざかったのは<b>途中で踏む位置</b>で、
+     * プレイヤーはそこを歩かされる。模型の「正しい迂回は最悪67ブロック」も経路上の全点の最大で
+     * 測った値なので、ここも同じ測り方に揃える。
+     *
+     * <p>まだ一度も観測していなければ基準が無いので{@code false}——最初の1本を弾いてはいけない。
+     */
+    boolean leadsAway(Iterable<BlockPos> positions, BlockPos goal) {
+        if (closestAt == null) {
+            return false;
+        }
+        double limit = closest + RETREAT_BLOCKS;
+        for (BlockPos position : positions) {
+            if (horizontal(position, goal) >= limit) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** いちばん近づいたときの水平距離。まだ一度も観測していなければ{@link Double#MAX_VALUE}。 */
+    double closest() {
+        return closest;
+    }
+
+    /** いちばん近づいた位置。まだ一度も観測していなければ{@code null}。 */
+    @Nullable BlockPos closestAt() {
+        return closestAt;
     }
 
     private static double horizontal(BlockPos a, BlockPos b) {

@@ -1,8 +1,12 @@
 package net.prason.xaeronav.client;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -72,5 +76,44 @@ class RetreatWatcherTest {
         watcher.observe(northOf(100), GOAL);
         watcher.reset();
         assertNull(watcher.observe(northOf(200), GOAL), "リセット後の最初の位置は最接近そのもの");
+    }
+
+    @Test
+    void acceptsAGuideThatEndsWithinAnOrdinaryDetour() {
+        RetreatWatcher watcher = new RetreatWatcher();
+        watcher.observe(northOf(100), GOAL);
+        // 溶岩の海の縁を回る迂回は模型実測で最悪67ブロック。ここは通す
+        assertFalse(watcher.leadsAway(List.of(northOf(167)), GOAL));
+    }
+
+    @Test
+    void refusesAGuideThatEndsFurtherThanTheClosestApproach() {
+        RetreatWatcher watcher = new RetreatWatcher();
+        watcher.observe(northOf(197), GOAL);
+        // 実機2026-09-19: 197ブロックの地点から、末端が277ブロックの経路を案内された
+        assertTrue(watcher.leadsAway(List.of(northOf(277)), GOAL));
+    }
+
+    @Test
+    void hasNoBarBeforeTheFirstObservation() {
+        // 基準が無いうちに弾くと、最初の1本が出なくなる
+        assertFalse(new RetreatWatcher().leadsAway(List.of(northOf(9999)), GOAL));
+    }
+
+    @Test
+    void movesTheBarWhenThePlayerGetsCloser() {
+        RetreatWatcher watcher = new RetreatWatcher();
+        watcher.observe(northOf(300), GOAL);
+        assertFalse(watcher.leadsAway(List.of(northOf(370)), GOAL));
+        watcher.observe(northOf(100), GOAL);
+        assertTrue(watcher.leadsAway(List.of(northOf(370)), GOAL), "近づいたら基準もそこへ動く");
+    }
+
+    @Test
+    void looksAtEveryPointOnTheGuideNotJustItsEnd() {
+        RetreatWatcher watcher = new RetreatWatcher();
+        watcher.observe(northOf(197), GOAL);
+        // 実機2026-09-19: 末端は252(帯の内側)だが、途中で277まで遠ざかる案内だった
+        assertTrue(watcher.leadsAway(List.of(northOf(230), northOf(277), northOf(252)), GOAL));
     }
 }
