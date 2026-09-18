@@ -65,13 +65,6 @@ final class PathGeometry {
     final double[] pointX;
     final double[] pointY;
     final double[] pointZ;
-    /**
-     * まとめる前の、ステップごとの描画位置（要素数は「ステップ数 + 1」）。
-     * 通り過ぎた区間を落とすとき、まとめられた長い区間を途中で切るために要る。
-     */
-    private final double[] stepX;
-    private final double[] stepY;
-    private final double[] stepZ;
     /** 区間ごとのRGB（区間数 × 3）。 */
     final float[] segmentColor;
     /**
@@ -115,15 +108,11 @@ final class PathGeometry {
 
     private PathGeometry(double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
                          int[] segmentEndStep, boolean[] segmentSunk, boolean[] segmentDashed,
-                         double[] stepX, double[] stepY, double[] stepZ,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
                          boolean[] highlightPlacement, int[] highlightStep, int fadeFromSegment) {
         this.pointX = pointX;
         this.pointY = pointY;
         this.pointZ = pointZ;
-        this.stepX = stepX;
-        this.stepY = stepY;
-        this.stepZ = stepZ;
         this.segmentColor = segmentColor;
         this.segmentEndStep = segmentEndStep;
         this.segmentSunk = segmentSunk;
@@ -193,10 +182,17 @@ final class PathGeometry {
         return highlightColor.length / 3;
     }
 
-    /** {@code step}をまだ通り過ぎていない最初の区間。すべて通り過ぎていれば区間数を返す。 */
+    /**
+     * {@code step}をまだ通り過ぎていない最初の区間。すべて通り過ぎていれば区間数を返す。
+     *
+     * <p>境界は{@code >=}(以上)。{@code step}は「プレイヤーに最も近いステップ」であって
+     * 「到達済みのステップ」ではない――経路計算直後は自分の足元が最初のステップに最も近く、
+     * 1歩も動いていなくても{@code step}は0になる。{@code >}(より大きい)にすると、その最初の
+     * ステップで終わる区間まるごとが「通り過ぎた」扱いになり、真下から線が生えなくなる。
+     */
     int firstSegmentFrom(int step) {
         for (int i = 0; i < segmentEndStep.length; i++) {
-            if (segmentEndStep[i] > step) {
+            if (segmentEndStep[i] >= step) {
                 return i;
             }
         }
@@ -204,15 +200,15 @@ final class PathGeometry {
     }
 
     /**
-     * {@code step}にいるプレイヤーに対応する、区間{@code segment}の描き始めの点を{@code out}へ書く。
+     * プレイヤーの現在地に対応する、区間{@code segment}の描き始めの点を{@code out}へ書く。
      *
-     * <p>まとめる前のステップ位置を<b>その区間の弦へ射影する</b>のが要点。陸の区間は一直線に
-     * まとめてあるので射影しても同じ点だが、水の区間は一直線でなくても畳む（{@link #fluidShortcut}）
-     * ため、生の点は弦から外れている——そのまま切り口にすると、1手進むごとに線の手前側が
-     * 弦とは違う向きへ振れる。
+     * <p><b>プレイヤーの連続座標そのもの</b>をその区間の弦へ射影する。以前は「最も近いステップの
+     * 位置」を代わりに射影していたが、その最寄りステップ探索は経路の始点(プレイヤー自身がまだ
+     * 立っている場所)を候補に含まない――そのため経路計算直後で1歩も動いていなくても最初の
+     * ステップが常に最寄りとなり、真下からではなくその1歩先から線が生え始めていた。
      */
-    void cutPoint(int segment, int step, double[] out) {
-        projectOntoSegment(stepX[step + 1], stepY[step + 1], stepZ[step + 1],
+    void cutPoint(int segment, double playerX, double playerY, double playerZ, double[] out) {
+        projectOntoSegment(playerX, playerY, playerZ,
                 pointX[segment], pointY[segment], pointZ[segment],
                 pointX[segment + 1], pointY[segment + 1], pointZ[segment + 1], out);
     }
@@ -367,7 +363,6 @@ final class PathGeometry {
         return new PathGeometry(
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentDashed,
-                rawX, rawY, rawZ,
                 hx, hy, hz, hColor, hPlacement, hStep, Math.min(fadeFromSegment, segments));
     }
 

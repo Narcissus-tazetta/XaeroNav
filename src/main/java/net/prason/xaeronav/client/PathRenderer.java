@@ -108,6 +108,10 @@ public final class PathRenderer {
     private double playerX;
     private double playerY;
     private double playerZ;
+    // 地上経路の区間切り詰めに使う、オフセット無しのプレイヤー足元Y（描画スレッド専用）。
+    // playerYは点線の起点用に2ブロック下げてあり、それをそのまま切り詰めに使うと区間の低い側が
+    // ずれる。
+    private double groundPlayerY;
 
     // 点線の経由点を x,y,z の3つ組で並べたもの。遮蔽側と通常側で同じ列を2度なぞるので、
     // 毎フレーム組み直さずに使い回す（描画スレッド専用）。
@@ -155,9 +159,10 @@ public final class PathRenderer {
         boolean playerInWater = mc.level.getFluidState(playerPos).is(FluidTags.WATER);
         double playerFeetY = playerPos.getY() + 0.55;
         playerX = mc.player.getX();
+        groundPlayerY = playerInWater ? playerFeetY : mc.player.getY() + 0.55;
         // 点線（ゴールへの直線）の起点だけ2マス下げる。目線の高さから引くと、飛行中など
         // 見下ろす形になる場面で自分の体に埋もれて見えにくいため
-        playerY = (playerInWater ? playerFeetY : mc.player.getY() + 0.55) - 2.0;
+        playerY = groundPlayerY - 2.0;
         playerZ = mc.player.getZ();
 
         PathGeometry current = null;
@@ -352,7 +357,7 @@ public final class PathRenderer {
             if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
                 continue;
             }
-            drawSegment(occludedQuads, pose, geometry, i, OCCLUDED_TUBE_ALPHA, i == first ? matched : -1, camera);
+            drawSegment(occludedQuads, pose, geometry, i, OCCLUDED_TUBE_ALPHA, i == first, camera);
         }
         for (int i = 0; i < highlights; i++) {
             if (!highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
@@ -386,7 +391,7 @@ public final class PathRenderer {
             if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
                 continue;
             }
-            drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA, i == first ? matched : -1, camera);
+            drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA, i == first, camera);
         }
         int visibleHighlights = 0;
         for (int i = 0; i < highlights; i++) {
@@ -412,17 +417,17 @@ public final class PathRenderer {
     }
 
     /**
-     * {@code cutStep}が0以上なら、区間をそのステップの位置で切って先だけを描く。まとめられた
+     * {@code cutAtPlayer}なら、区間をプレイヤーの現在地で切って先だけを描く。まとめられた
      * 長い直線区間は端点までしか点を持たないので、これが無いと区間ごと消えるか丸ごと残るかの
      * 二択になり、線の始まりが数十ブロック先へ飛ぶ。
      */
     private void drawSegment(VertexConsumer buffer, PoseStack.Pose pose, PathGeometry geometry, int index,
-                             float alpha, int cutStep, Vec3 camera) {
+                             float alpha, boolean cutAtPlayer, Vec3 camera) {
         double fromX = geometry.pointX[index];
         double fromY = geometry.pointY[index];
         double fromZ = geometry.pointZ[index];
-        if (cutStep >= 0) {
-            geometry.cutPoint(index, cutStep, segmentCut);
+        if (cutAtPlayer) {
+            geometry.cutPoint(index, playerX, groundPlayerY, playerZ, segmentCut);
             fromX = segmentCut[0];
             fromY = segmentCut[1];
             fromZ = segmentCut[2];
