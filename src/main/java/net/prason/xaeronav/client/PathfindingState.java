@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -467,6 +468,16 @@ public final class PathfindingState {
     /** 「目的地へ行けない」の判定。詳細は{@link StuckTracker}のクラスJavadoc参照。 */
     private final StuckTracker stuckTracker = new StuckTracker();
 
+    /** 「いちばん近づいた所から遠ざかった」ことの検出。詳細は{@link RetreatWatcher}のクラスJavadoc参照。 */
+    private final RetreatWatcher retreatWatcher = new RetreatWatcher();
+
+    /**
+     * {@link #logSearchReach}が「前進できません」を書いた回数。後退のログに添えると、
+     * 引き返しが<b>探索の行き止まり</b>から来たのか、ガイドの組み直しで判断が変わっただけなのかが
+     * 区別できる（実機2026-09-18の往復では、その直前に経由地チェーンが3回とも到達=falseだった）。
+     */
+    private static final AtomicInteger stalledSearches = new AtomicInteger();
+
     /**
      * 「歩いていた経路が使えなくなった」ことを知らせておく残りtick。行き止まり・世界の変化で
      * 手前の経路ごと引き直したときだけ立てる。逸脱は自分で外れただけなので対象にしない。
@@ -784,6 +795,11 @@ public final class PathfindingState {
         this.seamRepair.clear();
         this.recentFailures.clear();
         this.stuckTracker.reset();
+        this.retreatWatcher.reset();
+        stalledSearches.set(0);
+        mapReadsWithoutGain = 0;
+        lastMapReadFrom = null;
+        lastMapKnownCells = -1;
         this.extend.clear();
         this.rerouteNoticeTicks = 0;
         this.flying = false;
@@ -996,6 +1012,10 @@ public final class PathfindingState {
             // 残り続ける——逸脱の判定・案内・描画がまとめてその値を読む。地図を開いたまま経路が
             // 出来上がるのは一番ありがちな操作（下のコメント参照）で、そこが一番当たりやすい
             PathProgress.INSTANCE.update(shown == null ? null : shown.result(), mc.player.position());
+            // 画面を開いている間の早期returnより先に置く。ここから下で止まるのはプレイヤーが
+            // 動けない状況だけなので、後退の観測を落としても取りこぼしは無いが、順序を変えると
+            // 「滑空中は数えない」のような穴が生まれる
+            noteRetreat(mc.player.blockPosition(), currentGoal, shown);
             // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
             // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
             if (mc.screen != null) {
@@ -2469,6 +2489,7 @@ public final class PathfindingState {
         BlockPos end = endOf(result, start);
         if (!result.complete() && (result.steps().isEmpty()
                 || horizontalDistance(start, end) < MIN_EXTEND_PROGRESS_BLOCKS)) {
+            stalledSearches.incrementAndGet();
             LOGGER.info("XaeroNav: 詳細探索が十分に前進できません (始点={}, 目標={}, 末端={}, {}, 展開={}, ステップ={})",
                     start.toShortString(), target.toShortString(), end.toShortString(),
                     result.termination(), result.expandedNodes(), result.steps().size());
@@ -2479,6 +2500,33 @@ public final class PathfindingState {
         LOGGER.debug("XaeroNav: 詳細探索 (目標 {} ({} ブロック先), 実到達 {} ブロック, {}, 展開 {})",
                 target.toShortString(), Math.round(horizontalDistance(start, target)),
                 Math.round(horizontalDistance(start, end)), result.termination(), result.expandedNodes());
+    }
+
+    /**
+     * 目的地へいちばん近づいた所から大きく遠ざかったら、そのときの判断材料を1行残す。
+     *
+     * <p>ネザーの実機（2026-09-18）で<b>約300ブロックの往復</b>が出たが、当時のログには
+     * 「遠ざかった」こと自体が1行も無く、繋ぎ目の解き直し位置から軌跡を復元して初めて分かった。
+     * 次に起きたときは、ここ1行で「どこから引き返したか・探索が行き止まっていたか・
+     * そのときガイドが何tickと言っていたか」が揃う。
+     */
+    private void noteRetreat(BlockPos at, BlockPos currentGoal, @Nullable DisplayedPath shown) {
+        RetreatWatcher.Retreat retreat = retreatWatcher.observe(at, currentGoal);
+        if (retreat == null) {
+            return;
+        }
+        WindowField field = navGraphGuide.latest(currentGoal);
+        List<PathStep> steps = shown == null ? List.of() : shown.result().steps();
+        LOGGER.info("XaeroNav: 目的地から遠ざかっています (現在地={}, 目的地まで{}, 最接近={}で{}, 遠ざかった{}, "
+                        + "経路の末端={}, {}, 前進できません{}回, ガイド={})",
+                at.toShortString(), Math.round(retreat.distance()),
+                retreat.closestAt().toShortString(), Math.round(retreat.closest()),
+                Math.round(retreat.retreated()),
+                steps.isEmpty() ? "無し" : steps.get(steps.size() - 1).pos().toShortString(),
+                shown == null ? "経路無し" : shown.result().complete() ? "目的地まで引けている" : "途中まで",
+                stalledSearches.get(),
+                field == null ? "無し"
+                        : Math.round(field.estimate(at.getX(), at.getY(), at.getZ())) + "tick");
     }
 
     /**
@@ -2832,6 +2880,7 @@ public final class PathfindingState {
         if (map == null) {
             return new CoarseAttempt(new CoarseRouter.Route(List.of(), false), 0, null);
         }
+        noteMapNotGrowing(start, window, map);
         // 地図がどれだけ見えていたかを残す。「溶岩をLAVAとして見たうえで通した」のか「まだ
         // NO_DATAで見えていなかった」のかは、ここが黙っていると実機ログから区別できない——
         // 未知セルはCoarseRouterでほぼ最安なので、見えていなければ溶岩の海を直進するルートが
@@ -2880,6 +2929,55 @@ public final class PathfindingState {
         return new CoarseAttempt(furtherRoute(furtherRoute(avoided, allowed), bridged),
                 window.pendingRegions(), map);
     }
+
+    /** ほぼ同じ場所から読み直したとみなす距離（ブロック）。これを超えたら別の範囲として数え直す。 */
+    private static final double MAP_GAIN_SAME_PLACE_BLOCKS = 32.0;
+
+    /**
+     * 「読み込みを要求しても地図が増えない」と判断するまでの読み直しの回数。
+     * 読み直しは{@link #COARSE_MAP_RETRY_INTERVAL_MILLIS}間隔なので、5回で約15秒。
+     */
+    private static final int MAP_GAIN_ATTEMPTS = 5;
+
+    private static BlockPos lastMapReadFrom;
+    private static int lastMapKnownCells = -1;
+    private static int mapReadsWithoutGain;
+    private static final ChangeGate<Boolean> mapNotGrowingGate = new ChangeGate<>();
+
+    /**
+     * <b>読み込みを要求しているのに地図が増えないことを知らせる。</b>
+     *
+     * <p>{@link XaeroMapReader#requestLoad}は効いているのに、読み込まれたリージョンの中身が空
+     * ——という状態が実機で起きた（2026-09-18: {@code /xaeronav debug mapdata}を同じ場所で3回
+     * 連続して撃つと「30 awaiting → 0 awaiting」まで進むのに、既知セルは3213/4225のまま
+     * 1つも増えなかった）。Xaeroがそのリージョンのキャッシュを{@code .outdated}へ退避していると
+     * こうなる。<b>黙っていると、薄い地図のまま経路を決め続けていることに誰も気づけない</b>
+     * （気づく手段が診断コマンドしかなかった）。
+     */
+    private static void noteMapNotGrowing(BlockPos start, CoarseMapWindow.Window window, CoarseMap map) {
+        boolean samePlace = lastMapReadFrom != null
+                && horizontalDistance(start, lastMapReadFrom) <= MAP_GAIN_SAME_PLACE_BLOCKS;
+        if (!samePlace || map.knownCells() > lastMapKnownCells) {
+            mapReadsWithoutGain = 0;
+        } else if (window.pendingRegions() > 0) {
+            mapReadsWithoutGain++;
+        }
+        lastMapReadFrom = start;
+        lastMapKnownCells = map.knownCells();
+        if (mapReadsWithoutGain < MAP_GAIN_ATTEMPTS) {
+            return;
+        }
+        if (!mapNotGrowingGate.changed(true, MonotonicTime.millis(), MAP_NOT_GROWING_LOG_INTERVAL_MILLIS)) {
+            return;
+        }
+        LOGGER.warn("XaeroNav: 地図の読み込みを要求しても増えません ({}回続けて既知セル={}/{}, 未読み込みリージョン={})"
+                        + " — Xaeroがこの範囲のキャッシュを読めていない可能性があります"
+                        + "（世界地図でこの範囲を表示すると直る場合があります）",
+                mapReadsWithoutGain, map.knownCells(), map.totalCells(), window.pendingRegions());
+    }
+
+    /** 上の警告を繰り返す間隔。同じ状態が続く間ずっと出しても意味が無い。 */
+    private static final long MAP_NOT_GROWING_LOG_INTERVAL_MILLIS = 60_000L;
 
     /**
      * {@link #computeCoarseRoute}の結果と、それを引いたときに<b>まだ読み込まれていなかった</b>
