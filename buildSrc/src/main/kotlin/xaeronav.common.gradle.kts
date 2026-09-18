@@ -134,7 +134,7 @@ val bench = tasks.register<Test>("bench") {
             layout.buildDirectory.dir("bench").get().asFile.absolutePath)
     // 計測の切り替え（-Pxaeronav.navGraphOnly=true など）。テストのJVMへは明示しないと届かない
     listOf("xaeronav.navGraphOnly", "xaeronav.navGraphLag", "xaeronav.navGraphFarScale", "xaeronav.navGraphFar", "xaeronav.navGraphRefuseCut",
-            "xaeronav.traceBudgetSeconds", "xaeronav.navGraphVerbose", "xaeronav.routeLimit").forEach { name ->
+            "xaeronav.traceBudgetSeconds", "xaeronav.navGraphVerbose", "xaeronav.routeLimit", "xaeronav.skipClosure", "xaeronav.reviewTicks", "xaeronav.reviewRatio", "xaeronav.walkTrace").forEach { name ->
         providers.gradleProperty(name).orNull?.let { systemProperty(name, it) }
     }
 }

@@ -17,6 +17,7 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.pathfinding.navgraph.RouteReview;
 import net.prason.xaeronav.pathfinding.world.WindowedCells;
 
 /**
@@ -215,6 +216,16 @@ final class ProgressiveWalk {
 
     /** 区間の始点が目的地へ繋がる殻の外にあるときも、航法グラフを使わないか（計測の切り替え）。 */
     private static final boolean REFUSE_DISCONNECTED_START = Boolean.getBoolean("xaeronav.navGraphRefuseCut");
+
+    /** 組み直したガイドで引いてある経路を見直す閾値（{@code RouteReview}）。負なら見直さない。 */
+    private static final double REVIEW_MIN_EXTRA_TICKS = Double.parseDouble(System.getProperty("xaeronav.reviewTicks", "-1"));
+    private static final double REVIEW_MIN_EXTRA_RATIO = Double.parseDouble(System.getProperty("xaeronav.reviewRatio", "0.05"));
+
+    /** {@code PathfindingState#REVIEW_RETRY_MOVE_BLOCKS}。 */
+    private static final double REVIEW_RETRY_MOVE = 32.0;
+
+    /** 見直しで引き直した回数（計測用）。 */
+    static final java.util.concurrent.atomic.AtomicInteger REVIEWS = new java.util.concurrent.atomic.AtomicInteger();
 
     /** 航法グラフが始点に届かず、従来の区間で解いた数（計測用）。 */
     static final java.util.concurrent.atomic.AtomicInteger UNGUIDED_LEGS = new java.util.concurrent.atomic.AtomicInteger();
@@ -426,6 +437,8 @@ final class ProgressiveWalk {
         int repairsTaken = 0;
         long repairNodes = 0;
         BlockPos player = start;
+        CostToGo reviewed = null;
+        BlockPos reviewReplannedAt = null;
         int legs = 0;
         long deadline = System.currentTimeMillis() + TRACE_BUDGET_MILLIS;
         for (int tick = 0; tick < 400; tick++) {
@@ -446,7 +459,25 @@ final class ProgressiveWalk {
             }
             if (aim == Aim.GOAL) {
                 // 実機は区間を投げない再計算のたびにもガイドの組み直しを判定する（NavGraphGuide#forGoal）
-                guideAt.apply(player);
+                CostToGo latest = guideAt.apply(player);
+                if (REVIEW_MIN_EXTRA_TICKS >= 0 && latest != reviewed && latest instanceof WindowField field
+                        && !planned.isEmpty()
+                        && (reviewReplannedAt == null || horizontal(player, reviewReplannedAt) >= REVIEW_RETRY_MOVE)) {
+                    reviewed = latest;
+                    RouteReview.Detour detour = RouteReview.detour(field, player, planned, 0);
+                    if (Boolean.getBoolean("xaeronav.navGraphVerbose") && detour.extraTicks() > 0) {
+                        System.out.printf(java.util.Locale.ROOT, "  見直し %s 余計%.0f 区間%.0f h=%.0f 計画%d手 残りの値段%.0f%n",
+                                player.toShortString(), detour.extraTicks(), detour.walkedTicks(),
+                                field.exact(player.getX(), player.getY(), player.getZ()), planned.size(), cost(planned));
+                    }
+                    if (detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS, REVIEW_MIN_EXTRA_RATIO)) {
+                        REVIEWS.incrementAndGet();
+                        reviewReplannedAt = player;
+                        planned = new ArrayList<>();
+                        plannedJoints = new ArrayList<>();
+                        plannedJoints.add(0);
+                    }
+                }
             }
             BlockPos end = planned.isEmpty() ? player : planned.get(planned.size() - 1).pos();
             while (horizontal(player, end) <= radius - MIN_DETAIL_REACH && !end.equals(goal)) {
@@ -460,6 +491,12 @@ final class ProgressiveWalk {
                 boolean unguided = guide instanceof WindowField field && (!field.reachesGoal()
                         || REFUSE_DISCONNECTED_START && !field.connects(end.getX(), end.getY(), end.getZ()));
                 if (unguided) {
+                    if (Boolean.getBoolean("xaeronav.navGraphVerbose")) {
+                        WindowField cut = (WindowField) guide;
+                        System.out.printf(java.util.Locale.ROOT, "  使えない区間 プレイヤー%s 始点%s 目的地%s 窓の中心%d,%d 目的地まで%.0f%n",
+                                player.toShortString(), end.toShortString(), goal.toShortString(), cut.centerX(),
+                                cut.centerZ(), horizontal(player, goal));
+                    }
                     UNGUIDED_LEGS.incrementAndGet();
                 }
                 PathResult result = aim == Aim.HORIZON || unguided
@@ -537,6 +574,12 @@ final class ProgressiveWalk {
             walked.addAll(planned.subList(0, walkTo));
             planned = new ArrayList<>(planned.subList(walkTo, planned.size()));
             player = walked.get(walked.size() - 1).pos();
+            if (Boolean.getBoolean("xaeronav.walkTrace")) {
+                CostToGo traceGuide = aim == Aim.GOAL ? guideAt.apply(player) : null;
+                System.out.printf(java.util.Locale.ROOT, "  tick%d %s 歩いた%.0f 計画%d手(末端%s) h=%.0f%n", tick, player.toShortString(),
+                        cost(walked), planned.size(), planned.isEmpty() ? "-" : planned.get(planned.size() - 1).pos().toShortString(),
+                        traceGuide == null ? Double.NaN : traceGuide.estimate(player.getX(), player.getY(), player.getZ()));
+            }
             if (player.equals(goal)) {
                 return new Trace(walked, joints, redraws, redrawnBlocks, nearRedraws,
                         repairAttempts, repairsTaken, repairNodes, "");
