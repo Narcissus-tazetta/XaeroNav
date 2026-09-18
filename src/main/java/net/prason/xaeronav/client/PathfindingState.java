@@ -41,6 +41,9 @@ import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.pathfinding.navgraph.FarField;
+import net.prason.xaeronav.pathfinding.navgraph.RouteReview;
+import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
@@ -152,6 +155,29 @@ public final class PathfindingState {
      * waypoint本体より大きく取る。
      */
     private static final int INTERPOLATED_GOAL_RADIUS_BLOCKS = 16;
+
+    /**
+     * 遠い目的地で、航法グラフが初めて組み上がるのを待つ上限（ミリ秒）。
+     *
+     * <p>待たずに3D粗層や中間目標で引くと、地図の読み込み・3D粗層・航法グラフが揃うたびに線が描き変わり、
+     * 最初の十数秒どちらへ歩けばよいか分からない（実機のネザー: 3回描き変わった末に航法グラフの経路に落ち着いた）。
+     * 組めないまま待ち続けないよう、上限を過ぎたら従来の探索で引く。そうして引いた経路も、組み上がったガイドで遠回りと分かれば
+     * 見直しで引き直される（{@link #reviewAgainstNavGraph}）。
+     */
+    private static final long NAV_GRAPH_WAIT_MILLIS = 10_000L;
+
+    /**
+     * 組み直したガイドで見直して、引き直す遠回りの量（tick）と、見直した区間の値段に対する割合。両方を超えたら引き直す。
+     * {@link RouteReview}参照。
+     */
+    private static final double REVIEW_MIN_EXTRA_TICKS = 40.0;
+    private static final double REVIEW_MIN_EXTRA_RATIO = 0.05;
+
+    /**
+     * 見直しで引き直したあと、次に見直すまでに歩く距離（ブロック）。ガイドと探索が食い違って引き直しても遠回りが消えない場所で、
+     * 組み直しのたびに線を描き変え続けないための歯止め。
+     */
+    private static final double REVIEW_RETRY_MOVE_BLOCKS = 32.0;
 
     /** 経路が出せず、その場から動いてもいない場合の再挑戦間隔（tick）。 */
     private static final int NO_ROUTE_RETRY_TICKS = 200;
@@ -354,11 +380,19 @@ public final class PathfindingState {
     private long coarseMapRetryAfterMillis;
     // 地図の読み込み待ちで引き直した回数（COARSE_MAP_RETRY_LIMIT）。クライアントスレッドだけが触る
     private int coarseMapRetries;
-    // 天井のある次元で、中間目標へ立ち寄らず目的地をそのまま狙っているか。
+    // 中間目標へ立ち寄らず目的地をそのまま狙っているか（天井のある次元、または航法グラフのガイドがあるとき）。
     // selectDetailTargetが書き、HUDが読む（経路に中間目標の添字が付かないため）
     private volatile boolean aimingPastWaypoints;
     // 天井のある次元の3D粗層。目的地ごとに1つ組み、継ぎ足しにも使い回す
     private final NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
+    // 天井の無い次元の航法グラフ。目的地ごとに組み、歩くにつれて窓の差分だけ組み足す
+    private final NavGraphGuide navGraphGuide = new NavGraphGuide();
+    // 航法グラフが初めて組み上がるのを待っている（NAV_GRAPH_WAIT_MILLIS）。クライアントスレッドだけが触る
+    private boolean awaitingNavGraph;
+    private long navGraphWaitStartedMillis;
+    // 最後に経路を見直したガイドと、見直しで引き直した位置（REVIEW_RETRY_MOVE_BLOCKS）。クライアントスレッドだけが触る
+    private @Nullable WindowField reviewedField;
+    private @Nullable BlockPos reviewReplannedAt;
     // 詳細探索が通常マージンでは届かなかった探索ゴール。次のrecalculateで範囲を広げて再挑戦する
     // 目印。本来の目的地と長距離ルートの中間目標を区別しないのは、どちらも「描画距離の内側にある
     // 詳細探索のゴール」で、壁や湖を迂回する経路が範囲の外に落ちる事情が同じだから。
@@ -558,16 +592,15 @@ public final class PathfindingState {
                     public DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
                                                             int reach, boolean boatAvailable,
                                                             boolean playerAnchored, int minWaypointIndex,
-                                                            boolean ceilingDimension) {
+                                                            boolean ceilingDimension, boolean navGraphGuided) {
                         return PathfindingState.this.selectDetailTarget(start, currentGoal, renderRadius, reach,
-                                boatAvailable, playerAnchored, minWaypointIndex, ceilingDimension);
+                                boatAvailable, playerAnchored, minWaypointIndex, ceilingDimension, navGraphGuided);
                     }
 
                     @Override
-                    public CostToGo preparedVoxelGuide(Level level, BlockPos player, BlockPos currentGoal,
-                                                        BlockPos target, boolean climbing) {
-                        return PathfindingState.this.preparedVoxelGuide(level, player, currentGoal, target,
-                                climbing);
+                    public @Nullable GoalGuide goalGuide(Level level, Player player, BlockPos from,
+                                                         BlockPos currentGoal, int renderRadius) {
+                        return PathfindingState.this.goalGuide(level, player, from, currentGoal, renderRadius, false);
                     }
 
                     @Override
@@ -583,7 +616,7 @@ public final class PathfindingState {
     }
 
     private void publishNavigationView() {
-        navigationView = new NavigationView(goal, flying, arrived, computing, stuckTracker.reason(), displayed,
+        navigationView = new NavigationView(goal, flying, arrived, computing || awaitingNavGraph, stuckTracker.reason(), displayed,
                 coarseRoute, refinedRoute, passedWaypoints, rerouteNoticeTicks > 0,
                 flying ? flight.route() : FlightRoute.NONE);
     }
@@ -736,6 +769,11 @@ public final class PathfindingState {
         this.coarseMapRetries = 0;
         this.aimingPastWaypoints = false;
         this.voxelGuide.clear();
+        this.navGraphGuide.clear();
+        this.awaitingNavGraph = false;
+        this.navGraphWaitStartedMillis = 0L;
+        this.reviewedField = null;
+        this.reviewReplannedAt = null;
         this.pendingWideRetry = false;
         this.pendingCoarseGuideRetry = false;
         this.pendingDeepRetry = false;
@@ -1013,6 +1051,11 @@ public final class PathfindingState {
                 // 数tickの間、毎tick探索を投げ直してしまう。
                 return;
             }
+            if (awaitingNavGraph) {
+                // 組み上がったかは探索を投げる側（recalculate）が見る。組み上がるまでは何も投げずに戻る
+                recalculate();
+                return;
+            }
             ticksSinceRecalc++;
             ticksSinceValidation++;
             if (stuckTracker.reason() != null
@@ -1081,6 +1124,10 @@ public final class PathfindingState {
                 // 継ぎ足す先も末端への到達も無いtickでだけ、直前の繋ぎ目を解き直す。案内を先へ
                 // 伸ばす方が常に優先——修復は既に引いてある線の質の話でしかない
                 if (!seamRepair.isEmpty() && seamRepair.tryRepair(mc.level, mc.player, shown, renderRadius)) {
+                    return;
+                }
+                if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
+                        && reviewAgainstNavGraph(mc.player, currentGoal, shown)) {
                     return;
                 }
             }
@@ -1220,7 +1267,16 @@ public final class PathfindingState {
             return false;
         }
         coarseMapRetries++;
-        recalculate();
+        DisplayedPath shown = displayed;
+        Minecraft mc = Minecraft.getInstance();
+        boolean guided = shown != null && shown.mode() == PathMode.GOAL && navGraphGuide.latest(currentGoal) != null;
+        if (guided && mc.player != null) {
+            // 航法グラフで引いた経路は層1の中間目標を使っていない。地図が埋まって変わるのは窓の外の推定とHUDの点線だけなので、
+            // 経路ごと引き直さない——引き直すと読み込みが進むたびに線が描き変わる（遠回りは組み直したガイドの見直しが拾う）
+            freshRoute(mc.player.blockPosition(), currentGoal, ChunkView.boatAvailable(mc.player), true);
+        } else {
+            recalculate();
+        }
         CoarseRoute after = coarseRoute;
         // 引き直したこと自体より「地図が埋まって大局が変わったか」が知りたい。変わらないなら、
         // 遠回りの原因は読み込み待ちではなく別にある
@@ -1230,6 +1286,10 @@ public final class PathfindingState {
                 before.waypoints().size(), after.waypoints().size(),
                 after.waypoints().equals(before.waypoints()) ? "同じルート" : "変わった",
                 coarseMapRetries, COARSE_MAP_RETRY_LIMIT);
+        if (guided) {
+            // 経路を投げていないので、呼び出し元の他のトリガーをこのtickで止める理由は無い
+            return false;
+        }
         return true;
     }
 
@@ -1370,8 +1430,10 @@ public final class PathfindingState {
                 && shown.result().complete() && !shown.result().steps().isEmpty();
         CoarseRoute route = coarseRoute;
         boolean routeUnmapped = route != null && route.goal().equals(currentGoal) && !route.reachedGoal();
-        stuckTracker.noteOutcome(start, planEnd, currentGoal, hasCompleteGroundRoute, result, routeUnmapped,
-                voxelGuide);
+        stuckTracker.noteOutcome(start, planEnd, currentGoal, hasCompleteGroundRoute, result, routeUnmapped, () -> {
+            voxelGuide.noteStalled();
+            navGraphGuide.noteStalled();
+        });
     }
 
     private void retryWithoutRoute(BlockPos start) {
@@ -1569,6 +1631,18 @@ public final class PathfindingState {
         // 判定はメインスレッドでしかできない（ワールドの参照・経路への対応づけ）。結果が返る頃には
         // 別の判断材料になってしまうので、投げる時点の答えを写し取ってワーカーへ渡す
         DisplayedPath worthKeeping = pathWorthKeeping(level, player);
+        boolean mayAwait = !climbing && mayAwaitNavGraph(start, currentGoal, renderRadius);
+        if (mayAwait && XaeroPresence.mapPresent()) {
+            // 窓の外の推定（層1）とHUDの点線は、待っている間に用意しておく。組み上がってからでは初回のガイドに間に合わない
+            cachedOrFreshRoute(start, currentGoal, boatAvailable, true, true);
+        }
+        GoalGuide goalGuide = goalGuide(level, player, start, currentGoal, renderRadius, climbing);
+        boolean navGraphGuided = goalGuide != null && goalGuide.navGraph();
+        awaitingNavGraph = mayAwait && !navGraphGuided && navGraphGuide.latest(currentGoal) == null
+                && MonotonicTime.millis() - navGraphWaitStartedMillis <= NAV_GRAPH_WAIT_MILLIS;
+        if (awaitingNavGraph) {
+            return;
+        }
 
         // 地上優先ナビが最優先（逆にすると地中で長距離の中間目標へ掘り進んでしまう）。
         // それ以外は、目的地が描画距離の外にあるときだけ長距離ルートの中間目標を挟む
@@ -1588,7 +1662,7 @@ public final class PathfindingState {
         } else {
             DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius,
                     detailHorizon(renderRadius), boatAvailable, true, -1,
-                    level.dimensionType().hasCeiling());
+                    level.dimensionType().hasCeiling(), navGraphGuided);
             target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
             waypointIndex = detail.waypointIndex();
@@ -1642,15 +1716,16 @@ public final class PathfindingState {
             horizontalMargin = renderRadius;
             coarseGuided = true;
         }
-        SearchBounds bounds = SearchBounds.around(level, start, target,
-                horizontalMargin, verticalSearchMargin(level, wideSearch),
-                renderRadius);
+        SearchBounds bounds = navGraphGuided
+                ? navGraphBounds(level, start, target, start, renderRadius, horizontalMargin)
+                : SearchBounds.around(level, start, target, horizontalMargin, verticalSearchMargin(level, wideSearch),
+                        renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
         if (!climbing) {
             noteTargetStandability(view, target, mode, waypointIndex);
         }
 
-        SearchLimits limits = tuning.searchLimits();
+        SearchLimits limits = navGraphGuided ? navGraphLimits(tuning.searchLimits()) : tuning.searchLimits();
         // ここは通常の予算では解けないと分かっている。<b>区間分割へ逃がすのではなく予算を積む。</b>
         // 実測（RealEndTerrainTest、実機の保存データ）では、区間分割は同じ地形で倍のノードを
         // 使ったうえに遅く、素直に予算を与えた単発探索の方が確実だった
@@ -1684,9 +1759,9 @@ public final class PathfindingState {
         ResourceKey<Level> searchDimension = level.dimension();
         CompletableFuture<PathResult> future;
         boolean costToGoGuideEnabled = tuning.costToGoGuideEnabled();
-        // 3D粗層は最終目的地に対して1つだけ組む。中間目標を狙う探索には掛けない——
+        // 3D粗層・航法グラフは最終目的地に対して組む。中間目標を狙う探索には掛けない——
         // 起点が目的地に固定された表なので、別の点を狙う探索では方向がずれる
-        CostToGo prepared = preparedVoxelGuide(level, start, currentGoal, finalTarget, climbing);
+        CostToGo prepared = goalGuide != null && finalTarget.equals(currentGoal) ? goalGuide.costToGo() : null;
         // 直前の再確認が不成立と判定したセルは、この探索でも選ばせない。避けないと、引き直した
         // 経路がまた同じセルを通って即座に無効と判断される（{@link RecentFailures}参照）
         List<BlockPos> avoided = recentFailures.avoided();
@@ -2027,9 +2102,20 @@ public final class PathfindingState {
      */
     private DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
                                              int reach, boolean boatAvailable, boolean playerAnchored,
-                                             int minWaypointIndex, boolean ceilingDimension) {
+                                             int minWaypointIndex, boolean ceilingDimension, boolean navGraphGuided) {
         if (horizontalDistance(start, currentGoal) <= reach) {
             aimingPastWaypoints = false;
+            return new DetailTarget(currentGoal, -1, 0);
+        }
+        if (navGraphGuided) {
+            // 航法グラフのガイドがあれば中間目標へ立ち寄らない。窓の中のガイドは探索と同じ移動の本物の残りコストで、
+            // 中間目標へ寄ること自体が遠回りになる（歩き通しの実測: 広域長距離1.067→1.017倍、エンド1.122→1.014倍）。
+            //
+            // 層1は引き続き引く（HUDと地図の点線、窓の外の推定）。層2の精緻化は目標に使わないので掛けない
+            if (XaeroPresence.mapPresent()) {
+                cachedOrFreshRoute(start, currentGoal, boatAvailable, playerAnchored, true);
+            }
+            aimingPastWaypoints = true;
             return new DetailTarget(currentGoal, -1, 0);
         }
         if (!XaeroPresence.mapPresent()) {
@@ -2090,24 +2176,136 @@ public final class PathfindingState {
     }
 
     /**
-     * この探索へ渡す3D粗層。天井のある次元で、<b>最終目的地をそのまま狙っている</b>探索にだけ
-     * 掛ける。
+     * 最初の経路を、航法グラフが組み上がるまで待って引いてよいか。待ち始めの時刻もここで記録する。
+     *
+     * <p>待つのは、まだ経路が1本も出ていない、目的地が一度に狙える距離より遠いときだけ。近い目的地は従来の探索でも一発で
+     * 最短に着くので、窓全体を組む数秒を待たせる理由が無い。出ている経路を消して待つと、歩いている途中で案内が途切れる。
+     */
+    private boolean mayAwaitNavGraph(BlockPos start, BlockPos currentGoal, int renderRadius) {
+        DisplayedPath shown = displayed;
+        if (!XaeroNavConfig.INSTANCE.costToGoGuideEnabled() || (shown != null && !shown.result().steps().isEmpty())
+                || horizontalDistance(start, currentGoal) <= detailHorizon(renderRadius)) {
+            return false;
+        }
+        if (navGraphWaitStartedMillis == 0L) {
+            navGraphWaitStartedMillis = MonotonicTime.millis();
+        }
+        return true;
+    }
+
+    /**
+     * 組み直した航法グラフのガイドで、引いてある経路の先を見直す。遠回りだと分かったら引き直して{@code true}。
+     *
+     * <p>経路は窓の外を推定で狙って引かれ、以後は末端から継ぎ足すだけで手前を見直さない。歩いて窓が進むと推定だった所が
+     * 正確になり、もっと近い向きが見えることがある（実機のネザー: 西へ伸びた線が、北へ斜めに行く方が近いと分かっても残った）。
+     * 見直すのはガイドが組み直されたときに1回だけで、目的地が窓の中に入ってから（{@link RouteReview#detour}）。
+     */
+    private boolean reviewAgainstNavGraph(Player player, BlockPos currentGoal, DisplayedPath shown) {
+        // 中間目標へ向かう経路（航法グラフを待ちきれずに引いたもの）も見直す。ガイドは最終目的地までの値なので、
+        // 中間目標へ寄ること自体が遠回りならそれも遠回りとして測れる
+        if (shown.mode() == PathMode.TO_SURFACE) {
+            return false;
+        }
+        WindowField field = navGraphGuide.latest(currentGoal);
+        if (field == null || field == reviewedField || !field.reachesGoal()) {
+            return false;
+        }
+        BlockPos at = player.blockPosition();
+        if (reviewReplannedAt != null && horizontalDistance(at, reviewReplannedAt) < REVIEW_RETRY_MOVE_BLOCKS) {
+            return false;
+        }
+        reviewedField = field;
+        List<PathStep> steps = shown.result().steps();
+        int index = PathProgress.INSTANCE.indexFor(shown.result());
+        RouteReview.Detour detour = RouteReview.detour(field, steps.get(index).pos(), steps, index + 1);
+        if (!detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS, REVIEW_MIN_EXTRA_RATIO)) {
+            return false;
+        }
+        LOGGER.info("XaeroNav: 組み直したガイドで見ると遠回りなので引き直します (余計に{}tick, 見直した区間{}tick, 現在地={})",
+                Math.round(detour.extraTicks()), Math.round(detour.walkedTicks()), at.toShortString());
+        reviewReplannedAt = at;
+        recalculate();
+        return true;
+    }
+
+    /**
+     * 目的地をそのまま狙う探索へ渡すガイド。航法グラフが組み上がっていればそれ（窓の外の推定は、ネザーは3D粗層・現世は層1・
+     * エンドは直線距離）、まだなら天井のある次元は3D粗層、それ以外は{@code null}で中間目標へ寄る従来の探索になる。
      *
      * <p>中間目標を狙う探索に掛けてはいけない——表の起点は最終目的地に固定されているので、
      * 別の点を狙う探索では見積もりが「そちらへ寄り道してから目的地へ」の形になり、
      * 幾何ヒューリスティックとのmaxで単に大きすぎる値になる。
      *
-     * <p>組み上がるまでは{@code null}が返り、その回は従来どおりガイド無しで探す。
-     * <b>メインスレッドから呼ぶこと</b>（Xaeroの地図を読む）。
+     * <p><b>メインスレッドから呼ぶこと</b>（Xaeroの地図・チャンクを読む）。
      */
-    private CostToGo preparedVoxelGuide(Level level, BlockPos player, BlockPos currentGoal,
-                                         BlockPos target, boolean climbing) {
-        if (climbing || !level.dimensionType().hasCeiling() || !target.equals(currentGoal)
-                || !XaeroPresence.mapPresent()) {
+    private @Nullable GoalGuide goalGuide(Level level, Player player, BlockPos from, BlockPos currentGoal,
+                                          int renderRadius, boolean climbing) {
+        if (climbing) {
             return null;
         }
-        return voxelGuide.forGoal(level, level.dimension(), player, currentGoal,
-                XaeroNavConfig.INSTANCE.movementOptions().lavaBridgingEnabled());
+        boolean navGraphEnabled = XaeroNavConfig.INSTANCE.costToGoGuideEnabled();
+        NavGraphGuide.Far far;
+        CostToGo fallback = null;
+        if (level.dimensionType().hasCeiling()) {
+            if (!XaeroPresence.mapPresent()) {
+                return null;
+            }
+            CostToGo voxel = voxelGuide.forGoal(level, level.dimension(), player.blockPosition(), currentGoal,
+                    XaeroNavConfig.INSTANCE.movementOptions().lavaBridgingEnabled());
+            if (voxel == null || !navGraphEnabled) {
+                return voxel == null ? null : new GoalGuide(voxel, false);
+            }
+            // 窓の外が幾何下限だとネザーは3D粗層だけより悪い（実測1.257倍）。3D粗層が組み上がってから航法グラフを使う
+            fallback = voxel;
+            far = new NavGraphGuide.Far("3D粗層", voxel, () -> FarField.of(
+                    (x, y, z) -> NavGraphGuide.VOXEL_FAR_SCALE * voxel.estimate(x, y, z)));
+        } else if (!navGraphEnabled) {
+            return null;
+        } else {
+            CoarseRoute route = coarseRoute;
+            CoarseMap map = route != null && route.goal().equals(currentGoal) ? route.map() : null;
+            // 層1を窓の外の推定に使うのは現世だけ。エンドの層1は奈落と島を2.5Dの床で持つだけで、窓の境界に置くと
+            // 幾何下限より悪い（実測: 1.197倍に対して1.009倍）
+            far = map == null || level.dimension() == Level.END ? null
+                    : new NavGraphGuide.Far("層1", map, () -> FarField.of(
+                            CoarseRouter.costToGo(map, currentGoal, false, CoarseRouter.BridgePolicy.BRIDGE)));
+        }
+        WindowField field = navGraphGuide.forGoal(level, player, currentGoal, renderRadius,
+                XaeroNavConfig.INSTANCE.movementOptions(), far);
+        // 窓の中の目的地が殻に繋がっていない回は使わない。窓全体の値が縁の外の推定だけから来る
+        if (field != null && field.reachesGoal()) {
+            return new GoalGuide(field, true);
+        }
+        return fallback == null ? null : new GoalGuide(fallback, false);
+    }
+
+    /**
+     * {@link #goalGuide}の結果。{@code navGraph}なら探索の作り方も変える（{@link #navGraphLimits}・{@link #navGraphBounds}）。
+     */
+    record GoalGuide(CostToGo costToGo, boolean navGraph) {
+    }
+
+    /**
+     * 航法グラフのガイドで探すときの予算。重みだけ1.0にする——窓の中のガイドは本物の残りコストなので、
+     * 重みを掛けると最適な経路から外れるだけで速くならない（実測の質はすべて重み1.0）。
+     */
+    static SearchLimits navGraphLimits(SearchLimits limits) {
+        return new SearchLimits(limits.maxExpandedNodes(), limits.timeLimitMillis(), 1.0);
+    }
+
+    /**
+     * 航法グラフのガイドで探すときの箱。全高を見て、プレイヤーを中心とする窓（{@link NavGraphGuide#WINDOW_BLOCKS}）で切る。
+     *
+     * <p>窓の外ではガイドが層1か幾何の推定に落ちるので、そこまで広げると測っていない探索になる。
+     * 高さを切らないのは、ガイドが掘り上がる・降りる道を指したときに箱の外で行き止まらせないため。
+     */
+    static SearchBounds navGraphBounds(Level level, BlockPos from, BlockPos target, BlockPos player,
+                                       int renderRadius, int horizontalMargin) {
+        int window = Math.min(NavGraphGuide.WINDOW_BLOCKS, renderRadius);
+        SearchBounds box = SearchBounds.around(level, from, target, horizontalMargin, level.getHeight(), window);
+        return new SearchBounds(Math.max(box.minX(), player.getX() - window), box.minY(),
+                Math.max(box.minZ(), player.getZ() - window), Math.min(box.maxX(), player.getX() + window),
+                box.maxY(), Math.min(box.maxZ(), player.getZ() + window));
     }
 
     /**
@@ -2323,7 +2521,7 @@ public final class PathfindingState {
             waypoints = replaceLast(waypoints, currentGoal);
         }
         CoarseRoute thisRoute = new CoarseRoute(currentGoal, start, route.reachedGoal(),
-                attempt.pendingRegions(), waypoints);
+                attempt.pendingRegions(), waypoints, attempt.map());
         coarseRoute = thisRoute;
         // 新しい列では添字の意味が変わる。引き直しは今の位置を始点にするので、先頭が通過済みに
         // なることはない
@@ -2632,7 +2830,7 @@ public final class PathfindingState {
         CoarseMapWindow.Window window = CoarseMapWindow.read(start, goal, CoarseMap.MAX_FLOORS);
         CoarseMap map = window.map();
         if (map == null) {
-            return new CoarseAttempt(new CoarseRouter.Route(List.of(), false), 0);
+            return new CoarseAttempt(new CoarseRouter.Route(List.of(), false), 0, null);
         }
         // 地図がどれだけ見えていたかを残す。「溶岩をLAVAとして見たうえで通した」のか「まだ
         // NO_DATAで見えていなかった」のかは、ここが黙っていると実機ログから区別できない——
@@ -2657,7 +2855,7 @@ public final class PathfindingState {
         CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.AVOID);
         if (avoided.reachedGoal()) {
-            return new CoarseAttempt(avoided, window.pendingRegions());
+            return new CoarseAttempt(avoided, window.pendingRegions(), map);
         }
 
         // <b>ALLOWを飛ばしてはいけない。</b>奈落は{@link CoarseRouter.BridgePolicy#ALLOW}で開き、
@@ -2670,24 +2868,24 @@ public final class PathfindingState {
                 CoarseRouter.BridgePolicy.ALLOW);
         if (allowed.reachedGoal()) {
             LOGGER.info("XaeroNav: 奈落・溶岩混じりを避ける道が見つからないため、そこを通る長距離ルートに切り替えました");
-            return new CoarseAttempt(allowed, window.pendingRegions());
+            return new CoarseAttempt(allowed, window.pendingRegions(), map);
         }
 
         CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.BRIDGE);
         if (bridged.reachedGoal()) {
             LOGGER.info("XaeroNav: 溶岩を避ける道が見つからないため、橋を架けて渡る長距離ルートに切り替えました");
-            return new CoarseAttempt(bridged, window.pendingRegions());
+            return new CoarseAttempt(bridged, window.pendingRegions(), map);
         }
         return new CoarseAttempt(furtherRoute(furtherRoute(avoided, allowed), bridged),
-                window.pendingRegions());
+                window.pendingRegions(), map);
     }
 
     /**
      * {@link #computeCoarseRoute}の結果と、それを引いたときに<b>まだ読み込まれていなかった</b>
      * リージョンの数。0より大きければ、待って引き直すと違うルートになりうる。
      */
-    private record CoarseAttempt(CoarseRouter.Route route, int pendingRegions) {
+    private record CoarseAttempt(CoarseRouter.Route route, int pendingRegions, @Nullable CoarseMap map) {
     }
 
     /** 目的地まで届かなかったルート同士の比較。中間目標が多い方＝より遠くまで進めた方を採る。 */
@@ -2884,7 +3082,7 @@ public final class PathfindingState {
      *         ということで、読み込みを待って引き直す（{@link #cachedOrFreshRoute}）
      */
     private record CoarseRoute(BlockPos goal, BlockPos computedFrom, boolean reachedGoal, int pendingRegions,
-                                List<BlockPos> waypoints) {
+                                List<BlockPos> waypoints, @Nullable CoarseMap map) {
     }
 
     /**

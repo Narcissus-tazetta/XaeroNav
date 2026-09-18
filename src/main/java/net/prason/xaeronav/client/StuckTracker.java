@@ -93,7 +93,7 @@ final class StuckTracker {
      *         それでも届かないなら詳細探索をいくら回しても届かない
      */
     void noteOutcome(BlockPos start, BlockPos planEnd, BlockPos currentGoal, boolean hasCompleteGroundRoute,
-                      PathResult result, boolean routeUnmapped, NetherVoxelGuide voxelGuide) {
+                      PathResult result, boolean routeUnmapped, Runnable onStalled) {
         if (hasCompleteGroundRoute) {
             stalledSearches = 0;
             reason = null;
@@ -112,10 +112,10 @@ final class StuckTracker {
             reason = null;
             return;
         }
-        // 薄い地図で組んだ3D粗層が、詰まったまま更新されずに残るのを防ぐ。ここを通るのは
-        // 「狙った先へ届きも目的地へ近づきもしなかった」探索だけなので、組み直しの引き金として
-        // ちょうどよい（実際に組み直すかはNetherVoxelGuide側が間引く）
-        voxelGuide.noteStalled();
+        // 薄い地図で組んだ3D粗層や、地形が変わる前の航法グラフが、詰まったまま更新されずに残るのを防ぐ。
+        // ここを通るのは「狙った先へ届きも目的地へ近づきもしなかった」探索だけなので、組み直しの引き金として
+        // ちょうどよい（実際に組み直すかはガイド側が間引く）
+        onStalled.run();
         BlockPos previouslyStalledAt = lastStalledAt;
         boolean sameSpot = previouslyStalledAt != null
                 && previouslyStalledAt.distSqr(start) < RETRY_MOVE_BLOCKS * RETRY_MOVE_BLOCKS;

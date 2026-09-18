@@ -125,6 +125,71 @@ public final class AStarPathfinder {
      */
     private final CostToGo costToGo;
 
+    private @Nullable EdgeSink edgeSink;
+
+    /** 生成した辺を全部{@code sink}へ報告させる（{@link EdgeSink}）。探索を始める前に呼ぶこと。 */
+    void edgeSink(@Nullable EdgeSink sink) {
+        this.edgeSink = sink;
+    }
+
+    /** 展開してよいノードか。{@code null}なら全部。航法グラフが1セクションぶんの辺だけを拾うときに絞る。 */
+    @FunctionalInterface
+    interface ExpandFilter {
+        boolean expandable(int x, int y, int z);
+    }
+
+    private @Nullable ExpandFilter expandFilter;
+
+    void expandFilter(@Nullable ExpandFilter filter) {
+        this.expandFilter = filter;
+    }
+
+    /**
+     * {@code seeds}（{@link BlockPos#asLong}）を全部始点にして、開いたノードが尽きるまで展開する。
+     * 辺は{@link #edgeSink}、展開の範囲は{@link #expandFilter}で受け取る・絞ること。
+     *
+     * <p>目的地の列（{@code goalX}・{@code goalZ}）を取るのは、奈落の上の橋を目的地へ近づく向きにしか
+     * 張らない（{@link BuildMoves#addBridge}）ため。全方向に張ると、探索が実際には張らない橋を
+     * グラフだけが知っていて、残りコストを楽観的に見積もる。
+     *
+     * @return 展開したノードの数。打ち切られたら負
+     */
+    int exhaust(long[] seeds, int count, int goalX, int goalZ, BooleanSupplier cancelled) {
+        surfaceGoal = false;
+        goalRadius = 0;
+        this.goalX = goalX;
+        goalY = Integer.MIN_VALUE / 2;
+        this.goalZ = goalZ;
+        lineTieBreak = false;
+        for (int i = 0; i < count; i++) {
+            long seed = seeds[i];
+            PathNode node = node(BlockPos.getX(seed), BlockPos.getY(seed), BlockPos.getZ(seed), false);
+            if (node.cost == 0.0 || node.closed) {
+                continue;
+            }
+            node.cost = 0.0;
+            node.combinedCost = 0.0;
+            if (node.isOpen()) {
+                open.update(node);
+            } else {
+                open.insert(node);
+            }
+        }
+        int expanded = 0;
+        while (!open.isEmpty()) {
+            if ((expanded & CHECK_INTERVAL_MASK) == 0 && cancelled.getAsBoolean()) {
+                return -1;
+            }
+            PathNode current = open.removeLowest();
+            current.closed = true;
+            expanded++;
+            if (expandFilter == null || expandFilter.expandable(current.x, current.y, current.z)) {
+                expand(current);
+            }
+        }
+        return expanded;
+    }
+
     /** 縦走査と、その結果の列ごとの覚え書き。探索1回ぶんで使い捨てる。 */
     final ColumnScans scans;
 
@@ -604,7 +669,9 @@ public final class AStarPathfinder {
             if (reachedGoal(current)) {
                 return buildResult(startNode, current, PathResult.Termination.REACHED_GOAL, expanded);
             }
-            expand(current);
+            if (expandFilter == null || expandFilter.expandable(current.x, current.y, current.z)) {
+                expand(current);
+            }
         }
 
         return buildResult(startNode, selectFallback(startNode), termination, expanded);
@@ -1043,6 +1110,9 @@ public final class AStarPathfinder {
 
     void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
                boolean boating) {
+        if (edgeSink != null) {
+            edgeSink.edge(from.x, from.y, from.z, from.boating, x, y, z, boating, edgeCost, kind);
+        }
         // 息の勘定より先に「そもそも安くならない候補」を捨てる。割増（SUBMERGED_TRAVEL_PENALTY）は
         // 1倍を下回らないので、割増前のコストで改善できないなら割増後も改善できない。
         // ここを後回しにすると、捨てると分かっている候補のために頭上と周り5面を読むことになる。

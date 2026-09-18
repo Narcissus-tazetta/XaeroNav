@@ -12,10 +12,12 @@ import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
+import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.pathfinding.navgraph.RouteReview;
 import net.prason.xaeronav.pathfinding.world.WindowedCells;
 
 /**
@@ -55,7 +57,7 @@ final class ProgressiveWalk {
      * <b>結果の値ではなく暴走の歯止め</b>なので、CIの速度で答えが変わる心配はしなくてよい
      * （ここへ当たった時点でその測定は「届かなかった」として捨てる）。
      */
-    private static final long TRACE_BUDGET_MILLIS = 120_000;
+    private static final long TRACE_BUDGET_MILLIS = Long.getLong("xaeronav.traceBudgetSeconds", 120L) * 1000L;
 
     /** {@code PathfindingState#INTERPOLATED_GOAL_RADIUS_BLOCKS}。補間した中間目標は領域で狙う。 */
     static final int INTERPOLATED_GOAL_RADIUS = 16;
@@ -189,16 +191,17 @@ final class ProgressiveWalk {
      */
     private static PathResult legToGoal(PathfindingExecutor executor, CellSource all, BlockPos player,
                                         int radius, BlockPos from, BlockPos goal, List<PathStep> planned,
-                                        CostToGo wide) {
+                                        CostToGo wide, double weight) {
         CellSource view = new PlannedCellSource(boxedView(all, player, radius, from, goal), planned, 0);
         Carryover carried = Carryover.after(planned);
         try {
             PathResult result =
-                    executor.submit(view, from, goal, LIVE_LIMITS, true, 0, carried, wide).get();
+                    executor.submit(view, from, goal, withWeight(LIVE_LIMITS, weight), true, 0, carried, wide).get();
             if (!result.steps().isEmpty()) {
                 return result;
             }
-            return executor.submit(view, from, goal, DEEP_LIVE_LIMITS, true, 0, carried, wide).get();
+            return executor.submit(view, from, goal, withWeight(DEEP_LIVE_LIMITS, weight), true, 0, carried, wide)
+                    .get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
@@ -206,6 +209,26 @@ final class ProgressiveWalk {
             throw new IllegalStateException(e);
         }
     }
+
+    private static SearchLimits withWeight(SearchLimits limits, double weight) {
+        return new SearchLimits(limits.maxExpandedNodes(), limits.timeLimitMillis(), weight);
+    }
+
+    /** 区間の始点が目的地へ繋がる殻の外にあるときも、航法グラフを使わないか（計測の切り替え）。 */
+    private static final boolean REFUSE_DISCONNECTED_START = Boolean.getBoolean("xaeronav.navGraphRefuseCut");
+
+    /** 組み直したガイドで引いてある経路を見直す閾値（{@code RouteReview}）。負なら見直さない。 */
+    private static final double REVIEW_MIN_EXTRA_TICKS = Double.parseDouble(System.getProperty("xaeronav.reviewTicks", "-1"));
+    private static final double REVIEW_MIN_EXTRA_RATIO = Double.parseDouble(System.getProperty("xaeronav.reviewRatio", "0.05"));
+
+    /** {@code PathfindingState#REVIEW_RETRY_MOVE_BLOCKS}。 */
+    private static final double REVIEW_RETRY_MOVE = 32.0;
+
+    /** 見直しで引き直した回数（計測用）。 */
+    static final java.util.concurrent.atomic.AtomicInteger REVIEWS = new java.util.concurrent.atomic.AtomicInteger();
+
+    /** 航法グラフが始点に届かず、従来の区間で解いた数（計測用）。 */
+    static final java.util.concurrent.atomic.AtomicInteger UNGUIDED_LEGS = new java.util.concurrent.atomic.AtomicInteger();
 
     /** {@link #walk}のコストだけを見る版。届かなければ{@link Double#POSITIVE_INFINITY}。 */
     static double walkToGoal(CellSource all, BlockPos start, BlockPos goal, int radius,
@@ -387,6 +410,18 @@ final class ProgressiveWalk {
     /** ガイドのデータ源だけを差し替え、箱・予算・継ぎ足しを揃えて比較する。 */
     static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim,
                        CostToGo wide) {
+        return trace(all, start, goal, radius, mode, aim, wide, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
+    }
+
+    /** 区間探索の重みも指定する版。{@link Aim#GOAL}でだけ効く。 */
+    static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim,
+                       CostToGo wide, double weight) {
+        return trace(all, start, goal, radius, mode, aim, player -> wide, weight);
+    }
+
+    /** ガイドを区間ごとに、そのときのプレイヤーの位置から組み直す版（読み込み済みの窓が動くのを再現する）。 */
+    static Trace trace(CellSource all, BlockPos start, BlockPos goal, int radius, Mode mode, Aim aim,
+                       java.util.function.Function<BlockPos, CostToGo> guideAt, double weight) {
         CellSource original = all;
         goal = StanceFinder.resolveGoal(all, goal);
         PathfindingExecutor executor = new PathfindingExecutor();
@@ -402,6 +437,8 @@ final class ProgressiveWalk {
         int repairsTaken = 0;
         long repairNodes = 0;
         BlockPos player = start;
+        CostToGo reviewed = null;
+        BlockPos reviewReplannedAt = null;
         int legs = 0;
         long deadline = System.currentTimeMillis() + TRACE_BUDGET_MILLIS;
         for (int tick = 0; tick < 400; tick++) {
@@ -420,15 +457,51 @@ final class ProgressiveWalk {
                 // 引き直しでは、これから足す区間の先頭がそのまま繋ぎ目になる（手前は捨てた）
                 plannedJoints.add(0);
             }
+            if (aim == Aim.GOAL) {
+                // 実機は区間を投げない再計算のたびにもガイドの組み直しを判定する（NavGraphGuide#forGoal）
+                CostToGo latest = guideAt.apply(player);
+                if (REVIEW_MIN_EXTRA_TICKS >= 0 && latest != reviewed && latest instanceof WindowField field
+                        && !planned.isEmpty()
+                        && (reviewReplannedAt == null || horizontal(player, reviewReplannedAt) >= REVIEW_RETRY_MOVE)) {
+                    reviewed = latest;
+                    RouteReview.Detour detour = RouteReview.detour(field, player, planned, 0);
+                    if (Boolean.getBoolean("xaeronav.navGraphVerbose") && detour.extraTicks() > 0) {
+                        System.out.printf(java.util.Locale.ROOT, "  見直し %s 余計%.0f 区間%.0f h=%.0f 計画%d手 残りの値段%.0f%n",
+                                player.toShortString(), detour.extraTicks(), detour.walkedTicks(),
+                                field.exact(player.getX(), player.getY(), player.getZ()), planned.size(), cost(planned));
+                    }
+                    if (detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS, REVIEW_MIN_EXTRA_RATIO)) {
+                        REVIEWS.incrementAndGet();
+                        reviewReplannedAt = player;
+                        planned = new ArrayList<>();
+                        plannedJoints = new ArrayList<>();
+                        plannedJoints.add(0);
+                    }
+                }
+            }
             BlockPos end = planned.isEmpty() ? player : planned.get(planned.size() - 1).pos();
             while (horizontal(player, end) <= radius - MIN_DETAIL_REACH && !end.equals(goal)) {
                 if (++legs > MAX_LEGS) {
                     return Trace.failed(String.format("区間%d本を超えた（%s、目的地まで%.0f）",
                             MAX_LEGS, player.toShortString(), horizontal(player, goal)));
                 }
-                PathResult result = aim == Aim.HORIZON
+                CostToGo guide = aim == Aim.HORIZON ? null : guideAt.apply(player);
+                // 実機（PathfindingState#goalGuide）は、航法グラフが区間の始点に届いていなければ使わず、
+                // 中間目標へ寄る従来の区間で解く
+                boolean unguided = guide instanceof WindowField field && (!field.reachesGoal()
+                        || REFUSE_DISCONNECTED_START && !field.connects(end.getX(), end.getY(), end.getZ()));
+                if (unguided) {
+                    if (Boolean.getBoolean("xaeronav.navGraphVerbose")) {
+                        WindowField cut = (WindowField) guide;
+                        System.out.printf(java.util.Locale.ROOT, "  使えない区間 プレイヤー%s 始点%s 目的地%s 窓の中心%d,%d 目的地まで%.0f%n",
+                                player.toShortString(), end.toShortString(), goal.toShortString(), cut.centerX(),
+                                cut.centerZ(), horizontal(player, goal));
+                    }
+                    UNGUIDED_LEGS.incrementAndGet();
+                }
+                PathResult result = aim == Aim.HORIZON || unguided
                         ? leg(new PlannedCellSource(view, planned, 0), end, goal)
-                        : legToGoal(executor, all, player, radius, end, goal, planned, wide);
+                        : legToGoal(executor, all, player, radius, end, goal, planned, guide, weight);
                 if (result.steps().isEmpty()) {
                     break;
                 }
@@ -501,6 +574,12 @@ final class ProgressiveWalk {
             walked.addAll(planned.subList(0, walkTo));
             planned = new ArrayList<>(planned.subList(walkTo, planned.size()));
             player = walked.get(walked.size() - 1).pos();
+            if (Boolean.getBoolean("xaeronav.walkTrace")) {
+                CostToGo traceGuide = aim == Aim.GOAL ? guideAt.apply(player) : null;
+                System.out.printf(java.util.Locale.ROOT, "  tick%d %s 歩いた%.0f 計画%d手(末端%s) h=%.0f%n", tick, player.toShortString(),
+                        cost(walked), planned.size(), planned.isEmpty() ? "-" : planned.get(planned.size() - 1).pos().toShortString(),
+                        traceGuide == null ? Double.NaN : traceGuide.estimate(player.getX(), player.getY(), player.getZ()));
+            }
             if (player.equals(goal)) {
                 return new Trace(walked, joints, redraws, redrawnBlocks, nearRedraws,
                         repairAttempts, repairsTaken, repairNodes, "");
