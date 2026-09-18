@@ -1,16 +1,16 @@
 package net.prason.xaeronav.config;
 
 //? neoforge {
-/*import java.util.List;
+import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-/^*
+/**
  * NeoForge側の保存先。読み書き・ファイル監視・不正値の補正はすべてFMLが持つ
  * {@code ModConfigSpec}に任せる。
- ^/
+ */
 public final class ModConfigSpecStore implements NavConfigStore, NavConfigSpec {
 
     private final ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -31,7 +31,7 @@ public final class ModConfigSpecStore implements NavConfigStore, NavConfigSpec {
         built.save();
     }
 
-    /^* {@code ModContainer#registerConfig}へ渡すためのもの。 ^/
+    /** {@code ModContainer#registerConfig}へ渡すためのもの。 */
     public ModConfigSpec modConfigSpec() {
         return built;
     }
@@ -100,4 +100,4 @@ public final class ModConfigSpecStore implements NavConfigStore, NavConfigSpec {
         return value::get;
     }
 }
-*///?}
+//?}

@@ -1,7 +1,7 @@
 package net.prason.xaeronav.platform.neoforge;
 
 //? neoforge {
-/*import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
@@ -13,7 +13,7 @@ import net.prason.xaeronav.client.NavCommandSink;
 import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;
 
-/^* NeoForgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 ^/
+/** NeoForgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 */
 public final class NeoForgeEvents {
 
     @SubscribeEvent
@@ -64,4 +64,4 @@ public final class NeoForgeEvents {
         };
     }
 }
-*///?}
+//?}

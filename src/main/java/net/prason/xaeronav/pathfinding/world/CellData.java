@@ -149,10 +149,10 @@ public final class CellData {
         boolean passable = collisionEmpty
                 || openable && state.isPathfindable(
                         //? if >=1.21 {
-                        /*PathComputationType.LAND
-                        *///?} else {
-                        EmptyBlockGetter.INSTANCE, BlockPos.ZERO, PathComputationType.LAND
-                        //?}
+                        PathComputationType.LAND
+                        //?} else {
+                        /*EmptyBlockGetter.INSTANCE, BlockPos.ZERO, PathComputationType.LAND
+                        *///?}
                 );
 
         long flags = PRESENT;

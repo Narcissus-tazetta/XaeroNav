@@ -759,22 +759,22 @@ public final class PathRenderer {
     private void vertex(VertexConsumer buffer, PoseStack.Pose pose, double x, double y, double z,
                         float red, float green, float blue, float alpha) {
         //? if >=1.21 {
-        /*buffer.addVertex(pose, (float) x, (float) y, (float) z).setColor(red, green, blue, alpha);
-        *///?} else {
-        buffer.vertex(pose.pose(), (float) x, (float) y, (float) z)
+        buffer.addVertex(pose, (float) x, (float) y, (float) z).setColor(red, green, blue, alpha);
+        //?} else {
+        /*buffer.vertex(pose.pose(), (float) x, (float) y, (float) z)
                 .color(red, green, blue, alpha)
                 .endVertex();
-        //?}
+        *///?}
     }
 
     private void line(VertexConsumer buffer, PoseStack.Pose pose,
                       float x0, float y0, float z0, float x1, float y1, float z1,
                       float red, float green, float blue) {
         //? if >=1.21 {
-        /*buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
+        buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
         buffer.addVertex(pose, x1, y1, z1).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
-        *///?} else {
-        buffer.vertex(pose.pose(), x0, y0, z0)
+        //?} else {
+        /*buffer.vertex(pose.pose(), x0, y0, z0)
                 .color(red, green, blue, 1.0f)
                 .normal(pose.normal(), 0f, 1f, 0f)
                 .endVertex();
@@ -782,6 +782,6 @@ public final class PathRenderer {
                 .color(red, green, blue, 1.0f)
                 .normal(pose.normal(), 0f, 1f, 0f)
                 .endVertex();
-        //?}
+        *///?}
     }
 }

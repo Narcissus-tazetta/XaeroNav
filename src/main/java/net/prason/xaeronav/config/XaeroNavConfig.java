@@ -27,13 +27,13 @@ public final class XaeroNavConfig {
 
     private static NavConfigStore createStore() {
         //? neoforge {
-        /*return new ModConfigSpecStore();
-        *///?} forge {
+        return new ModConfigSpecStore();
+        //?} forge {
         /*return new ForgeConfigSpecStore();
         *///?} fabric {
-        return new NightConfigStore(net.fabricmc.loader.api.FabricLoader.getInstance()
+        /*return new NightConfigStore(net.fabricmc.loader.api.FabricLoader.getInstance()
                 .getConfigDir().resolve("xaeronav-client.toml"));
-        //?}
+        *///?}
     }
 
     /** 設定画面のように、まとめて変更した後で1度だけ書き出す場所から呼ぶ。 */
