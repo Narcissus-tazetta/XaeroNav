@@ -420,9 +420,12 @@ final class Extend {
                 // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
                 // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
                 // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
-                noteLoop(steps, tail, target, result, navGraphGuided);
+                SeamRepair.Loop loop = noteLoop(steps, tail, target, result, navGraphGuided);
                 noteRetreatingTail(from, tail.get(tail.size() - 1).pos(), currentGoal, target, result, goalGuide);
                 seamRepair.queue(from);
+                if (loop != null) {
+                    seamRepair.queueLoop(loop);
+                }
                 host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal));
                 blockedAt = null;
                 blockedFrom = null;
@@ -471,8 +474,10 @@ final class Extend {
      * 戻ってきても手前の経路は見直されず、線が輪を描いたまま表示される。輪は後で繋ぎ目の解き直しが
      * 切ることもあるが、「なぜ継ぎ足しが戻る向きへ伸びたか」はそこからは分からない。
      * 経路に沿って最も多くのステップを遠回りしている組を出す。
+     *
+     * @return 輪の両端（{@link SeamRepair#queueLoop}へ渡して切り落とす）。輪が無ければ{@code null}
      */
-    private static void noteLoop(List<PathStep> route, List<PathStep> tail, BlockPos target, PathResult result,
+    private static SeamRepair.@Nullable Loop noteLoop(List<PathStep> route, List<PathStep> tail, BlockPos target, PathResult result,
             boolean navGraphGuided) {
         int bestGap = -1;
         int bestRoute = -1;
@@ -495,13 +500,14 @@ final class Extend {
             }
         }
         if (bestGap < 0) {
-            return;
+            return null;
         }
         LOGGER.info("XaeroNav: 継ぎ足しが経路の手前へ戻ってきました (継ぎ足しの{}ステップ目={}, 経路の{}ステップ目={}の近く, "
                         + "経路に沿って{}ステップの輪, 経路={}ステップ, 継ぎ足し={}ステップ/{}, 末端={}, 狙った先={}, 航法グラフ={})",
                 bestTail, tail.get(bestTail).pos().toShortString(), bestRoute, route.get(bestRoute).pos().toShortString(),
                 bestGap, route.size(), tail.size(), result.termination(), route.get(route.size() - 1).pos().toShortString(),
                 target.toShortString(), navGraphGuided);
+        return new SeamRepair.Loop(route.get(bestRoute).pos(), tail.get(bestTail).pos());
     }
 
     /**
