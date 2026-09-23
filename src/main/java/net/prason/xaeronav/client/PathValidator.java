@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import org.jspecify.annotations.Nullable;
 
@@ -106,7 +107,13 @@ final class PathValidator {
                 }
                 continue;
             }
-            CellFailure failure = cellFailure(level, step, i, cursor, plannedDigs);
+            // まだ置いていない手前の橋は、この先のステップにとって「ある前提」の足場。掘削と同じく、
+            // いま空いているのは当たり前で変化ではない。継ぎ足しの探索は手前の設置を足場に使う
+            // （PlannedCellSource）ので、経路が自分の橋の上を通り直すと、これが無い限り必ず蹴られて
+            // 経路全体が引き直される。通過済みの橋は置かれているはずなので、無ければ本物の変化として拾う
+            int stepIndex = i;
+            CellFailure failure = cellFailure(level, step, i, cursor, plannedDigs,
+                    pos -> bridgeStillToBePlaced(steps, fromIndex, stepIndex, pos));
             if (failure != null) {
                 return new Failure(i, failure.unusableCell(), failure.reason()
                         + plannedPlacementNote(failure.unusableCell(), plannedPlacements, fromIndex));
@@ -120,11 +127,24 @@ final class PathValidator {
     }
 
     /**
+     * {@code footing}が、{@code fromIndex}以降・{@code stepIndex}より手前のステップで<b>これから置く</b>橋の位置か。
+     * 通過済みのステップの橋は置かれているはずなので数えない——無ければ本物の変化。
+     */
+    static boolean bridgeStillToBePlaced(List<PathStep> steps, int fromIndex, int stepIndex, BlockPos footing) {
+        for (int j = Math.max(fromIndex, 0); j < stepIndex; j++) {
+            if (footing.equals(steps.get(j).placedBlockPos())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 不成立だったセルが、経路の手前のステップで置く予定のブロックと重なるなら、その旨の注記。
      *
-     * <p>この検査は手前の掘削は織り込むが設置は織り込まない。一方、継ぎ足しの探索は手前の設置を足場として
-     * 使える（{@code PlannedCellSource}）ので、経路が自分の橋の上を通り直すと、まだ置いていない橋が
-     * 「足場が無い」に見えうる。誤判定かどうかをログから切り分けるための注記で、判定そのものは変えない。
+     * <p>まだ置いていない橋は足場として扱うので、ここに来るのは通過済みの橋が無い・橋の位置が塞がっている
+     * といった場合。プレイヤーが経路の想定と違う位置にブロックを置いたのか、地形が本当に変わったのかを
+     * ログから切り分けるための注記。
      */
     private static String plannedPlacementNote(@Nullable BlockPos cell, Map<BlockPos, Integer> plannedPlacements,
                                                int fromIndex) {
@@ -144,7 +164,7 @@ final class PathValidator {
      */
     static String stepFailure(Level level, PathStep step, int index) {
         CellFailure failure = cellFailure(level, step, index, new BlockPos.MutableBlockPos(),
-                Set.copyOf(step.digCells()));
+                Set.copyOf(step.digCells()), pos -> false);
         return failure == null ? null : failure.reason();
     }
 
@@ -182,7 +202,7 @@ final class PathValidator {
     }
 
     private static CellFailure cellFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
-                                           Set<BlockPos> plannedDigs) {
+                                           Set<BlockPos> plannedDigs, Predicate<BlockPos> pendingPlacement) {
         BlockPos pos = step.pos();
         if (!readable(level, pos)) {
             // このステップの周りは丸ごと読めない。1セルずつの門番でも同じ結論になるが、
@@ -205,7 +225,8 @@ final class PathValidator {
             // ブロックを置いて渡る区間は、足元が空いていることが前提なので床を確認しない
             cursor.set(pos.getX(), pos.getY() - 1, pos.getZ());
             if (readable(level, cursor)
-                    && !CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
+                    && !CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))
+                    && !pendingPlacement.test(cursor)) {
                 BlockPos footing = cursor.immutable();
                 return new CellFailure(footing, "ステップ%d(%s) 足場が無い pos=%s"
                         .formatted(i, step.movement(), footing.toShortString()));
