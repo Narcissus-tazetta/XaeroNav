@@ -5,16 +5,50 @@ import org.gradle.api.artifacts.Configuration
 fun Project.modProperty(key: String): String =
     findProperty(key) as String? ?: error("Property `$key` not set.")
 
-/**
- * MC 1.20.x系かどうかで揃うMixin互換レベルの分岐点。4つの`build.*.gradle.kts`に
- * 同じ`if (minecraftVersion.startsWith("1.20."))`が並行してコピーされていたので1箇所にする。
- */
-fun mixinCompatibilityLevelFor(minecraftVersion: String): String =
-    if (minecraftVersion.startsWith("1.20.")) "JAVA_17" else "JAVA_21"
+/** 各Minecraft版で利用者に必要となるJavaの最低バージョン。 */
+fun javaVersionFor(minecraftVersion: String): Int = when {
+    minecraftVersion.startsWith("1.16.") -> 8
+    minecraftVersion.startsWith("1.20.") -> 17
+    else -> 21
+}
 
-/** リソースパックのpack_format（Minecraft Wikiのpack format表どおり）。上記と同じ分岐点。 */
-fun packFormatFor(minecraftVersion: String): Int =
-    if (minecraftVersion.startsWith("1.20.")) 15 else 34
+// 1.16.5 のソースは現行の record 等を使うため、Java 21 でコンパイルしてから
+// 配布 jar を Java 8 向けへ変換する。実行時の要件は javaVersionFor が表す。
+fun compileJavaVersionFor(minecraftVersion: String): Int =
+    if (minecraftVersion.startsWith("1.16.")) 21 else javaVersionFor(minecraftVersion)
+
+// MixinはCompatibilityLevelを実行時要件（javaVersionFor）ではなく、mixinクラス自身の
+// バイトコードが要求する言語機能で判定する。1.16.5はJava 21でコンパイルしてから配布時に
+// Java 8へ変換するため、コンパイル直後（=runClientが使う開発ビルド）のmixinクラスは
+// NESTING等のJava 11以降の機能を含む。javaVersionForの8をそのまま渡すとMixinが
+// 「JAVA_8ではNESTINGを扱えない」として拒否し起動しない。
+//
+// 1.16.5だけは21ではなく18に留める。Forge 1.16.5がバンドルするMixinフォーク
+// （architectury mixin-patched 0.8.4.12）は`CompatibilityLevel`列举がJAVA_18までしか無く、
+// JAVA_21を渡すとMixin初期化そのものが起動前に例外で落ちる（enumに存在しない値）。
+// 1.16.5のmixinクラスが実際に要る機能はNESTING（Java 11以降）だけなので18で十分。
+// 他バージョンは元々の値のままで、ここを変えると（Fabricの新しいMixinでは21が通っている）
+// 意図せず動作を変えてしまう。
+fun mixinCompatibilityLevelFor(minecraftVersion: String): String {
+    val compileVersion = compileJavaVersionFor(minecraftVersion)
+    val level = if (minecraftVersion.startsWith("1.16.")) minOf(compileVersion, 18) else compileVersion
+    return "JAVA_$level"
+}
+
+/**
+ * Fabric APIの本体モジュールが名乗るmod id。1.16.5時代の0.42.0系は"fabric"のまま
+ * （"fabric-api"への改名は後続バージョンから）で、依存宣言のキーを間違えると
+ * 実際には入っているのに「fabric-apiが無い」と判定されてmod解決が落ちる。
+ */
+fun fabricApiModIdFor(minecraftVersion: String): String =
+    if (minecraftVersion.startsWith("1.16.")) "fabric" else "fabric-api"
+
+/** リソースパックのpack_format。 */
+fun packFormatFor(minecraftVersion: String): Int = when {
+    minecraftVersion.startsWith("1.16.") -> 6
+    minecraftVersion.startsWith("1.20.") -> 15
+    else -> 34
+}
 
 /**
  * Xaeroの3モジュール（lib/worldmap/minimap）の依存座標。artifactId中のloader名部分

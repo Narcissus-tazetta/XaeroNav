@@ -9,7 +9,11 @@ import com.mojang.blaze3d.platform.InputConstants;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+//? if >=1.19 {
 import net.minecraft.network.chat.contents.TranslatableContents;
+//?} else {
+/*import net.minecraft.network.chat.TranslatableComponent;
+*///?}
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.client.XaeroNavKeys;
@@ -104,9 +108,9 @@ public final class XaeroHookRuntimeProbe {
     }
 
     private static void setCoordinateFields(GuiMap map, Minecraft minecraft) throws ReflectiveOperationException {
-        int x = minecraft.player.getBlockX();
-        int y = minecraft.player.getBlockY();
-        int z = minecraft.player.getBlockZ();
+        int x = minecraft.player.blockPosition().getX();
+        int y = minecraft.player.blockPosition().getY();
+        int z = minecraft.player.blockPosition().getZ();
         setField(map, "mouseBlockPosX", x);
         setField(map, "mouseBlockPosY", y);
         setField(map, "mouseBlockPosZ", z);
@@ -143,8 +147,8 @@ public final class XaeroHookRuntimeProbe {
     }
 
     private static void verifyWaypointMenu(GuiMap map, Minecraft minecraft) {
-        Waypoint source = new Waypoint(minecraft.player.getBlockX(), minecraft.player.getBlockY(),
-                minecraft.player.getBlockZ(), "XaeroNav runtime probe", "X", WaypointColor.BLUE,
+        Waypoint source = new Waypoint(minecraft.player.blockPosition().getX(), minecraft.player.blockPosition().getY(),
+                minecraft.player.blockPosition().getZ(), "XaeroNav runtime probe", "X", WaypointColor.BLUE,
                 WaypointPurpose.NORMAL);
         xaero.map.mods.gui.Waypoint element = new xaero.map.mods.gui.Waypoint(
                 source, true, "runtime-probe", 1.0);
@@ -155,7 +159,11 @@ public final class XaeroHookRuntimeProbe {
 
     private static void requireOption(ArrayList<RightClickOption> options, String key) {
         if (options == null || options.stream().noneMatch(option ->
+                //? if >=1.19 {
                 option.getDisplayName().getContents() instanceof TranslatableContents translatable
+                //?} else {
+                /*option.getDisplayName() instanceof TranslatableComponent translatable
+                *///?}
                         && key.equals(translatable.getKey()))) {
             throw new IllegalStateException("missing menu option " + key);
         }

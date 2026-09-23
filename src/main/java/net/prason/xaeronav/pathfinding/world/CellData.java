@@ -6,7 +6,9 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.BaseFireBlock;
+//? if >=1.17 {
 import net.minecraft.world.level.block.BigDripleafBlock;
+//?}
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CampfireBlock;
@@ -17,8 +19,12 @@ import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.MagmaBlock;
 import net.minecraft.world.level.block.NetherPortalBlock;
+//? if >=1.17 {
 import net.minecraft.world.level.block.PowderSnowBlock;
+//?}
+//? if >=1.19 {
 import net.minecraft.world.level.block.SculkShriekerBlock;
+//?}
 import net.minecraft.world.level.block.SweetBerryBushBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.WebBlock;
@@ -183,7 +189,13 @@ public final class CellData {
         if (state.getBlock() instanceof MagmaBlock) {
             flags |= SNEAK_REQUIRED;
         }
-        if (state.canBeReplaced()) {
+        if (
+                //? if >=1.17 {
+                state.canBeReplaced()
+                //?} else {
+                /*state.getMaterial().isReplaceable()
+                *///?}
+        ) {
             // 引数無しの版はreplaceableフラグを読むだけでlevelを参照しないので、
             // ワーカースレッドから呼べる（BlockPlaceContextを取る版は「同じブロックを
             // 手に持っているとき」の話なので、普通のブロックを置く判定には使わない）
@@ -229,16 +241,23 @@ public final class CellData {
         return block instanceof BaseFireBlock                       // 火・魂の火。当たり判定が無い
                 || block instanceof SweetBerryBushBlock             // 棘のダメージ＋大幅な減速
                 || block instanceof WitherRoseBlock                 // 接触で衰弱
+                //? if >=1.17 {
                 || block instanceof PowderSnowBlock                 // 落ちると凍える。雪原では地面と見分けがつかない
-                || block instanceof SculkShriekerBlock              // 踏むとウォーデンを呼ぶ
                 || block instanceof BigDripleafBlock                // 乗ると傾いて下へ落とされる
+                //?}
+                //? if >=1.19 {
+                || block instanceof SculkShriekerBlock              // 踏むとウォーデンを呼ぶ
+                //?}
                 || (block instanceof CampfireBlock && state.getValue(CampfireBlock.LIT))
                 // 通り抜けた瞬間に別次元へ送られる。エンドポータルは戻る手段も無い
                 || block instanceof NetherPortalBlock
                 || block instanceof EndPortalBlock
                 || block instanceof EndGatewayBlock
+                //? if >=1.17 {
                 || state.is(Blocks.LAVA_CAULDRON)
-                || state.is(Blocks.POWDER_SNOW_CAULDRON);
+                || state.is(Blocks.POWDER_SNOW_CAULDRON)
+                //?}
+                ;
     }
 
     /** このブロックの上を進むときの速度倍率を100倍して詰める。等速（1.0）なら詰めない。 */
@@ -282,7 +301,11 @@ public final class CellData {
     private static boolean openableByHand(BlockState state) {
         Block block = state.getBlock();
         if (block instanceof DoorBlock door) {
+            //? if >=1.17 {
             return door.type().canOpenByHand();
+            //?} else {
+            /*return !state.is(Blocks.IRON_DOOR);
+            *///?}
         }
         if (block instanceof FenceGateBlock) {
             // レッドストーン専用のフェンスゲートは存在しない

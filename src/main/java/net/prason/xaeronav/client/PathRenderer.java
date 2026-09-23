@@ -152,7 +152,7 @@ public final class PathRenderer {
         MultiBufferSource.BufferSource bufferSource = mc.renderBuffers().bufferSource();
         PoseStack.Pose pose = poseStack.last();
         // 描画距離の外は地形自体が描かれないので、そこまで伸びた経路を積む意味がない
-        double cullRadius = mc.options.getEffectiveRenderDistance() * 16.0;
+        double cullRadius = GameCompat.renderDistance(mc.options) * 16.0;
         double cullRadiusSq = cullRadius * cullRadius;
 
         BlockPos playerPos = mc.player.blockPosition();
@@ -222,9 +222,9 @@ public final class PathRenderer {
         drawStraightDashes(occludedQuads, pose, points, cullRadius, STRAIGHT_OCCLUDED_ALPHA);
         bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
 
-        VertexConsumer quadBuffer = bufferSource.getBuffer(RenderType.debugQuads());
+        VertexConsumer quadBuffer = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
         drawStraightDashes(quadBuffer, pose, points, cullRadius, STRAIGHT_ALPHA);
-        bufferSource.endBatch(RenderType.debugQuads());
+        bufferSource.endBatch(NavRenderTypes.DEBUG_QUADS);
     }
 
     /**
@@ -252,9 +252,9 @@ public final class PathRenderer {
         drawTubeSegments(occluded, pose, count, cullRadius, OCCLUDED_TUBE_ALPHA, camera, PathColors.FLIGHT);
         bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
 
-        VertexConsumer quads = bufferSource.getBuffer(RenderType.debugQuads());
+        VertexConsumer quads = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
         drawTubeSegments(quads, pose, count, cullRadius, TUBE_ALPHA, camera, PathColors.FLIGHT);
-        bufferSource.endBatch(RenderType.debugQuads());
+        bufferSource.endBatch(NavRenderTypes.DEBUG_QUADS);
     }
 
     /** 画面上の太さを間合いによらず一定に保つための、この区間での筒の半幅。 */
@@ -386,7 +386,7 @@ public final class PathRenderer {
             bufferSource.endBatch(NavRenderTypes.OCCLUDED_LINES);
         }
 
-        VertexConsumer quadBuffer = bufferSource.getBuffer(RenderType.debugQuads());
+        VertexConsumer quadBuffer = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
         for (int i = first; i < segments; i++) {
             if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
                 continue;
@@ -402,7 +402,7 @@ public final class PathRenderer {
             drawHighlightBox(quadBuffer, pose, geometry, i,
                     nextDig.contains(i) ? NEXT_DIG_FILL_ALPHA : HIGHLIGHT_FILL_ALPHA);
         }
-        bufferSource.endBatch(RenderType.debugQuads());
+        bufferSource.endBatch(NavRenderTypes.DEBUG_QUADS);
 
         if (visibleHighlights > 0) {
             VertexConsumer lineBuffer = bufferSource.getBuffer(RenderType.lines());

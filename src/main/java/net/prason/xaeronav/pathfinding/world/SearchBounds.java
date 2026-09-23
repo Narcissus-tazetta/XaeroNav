@@ -1,7 +1,11 @@
 package net.prason.xaeronav.pathfinding.world;
 
 import net.minecraft.core.BlockPos;
+//? if >=1.17 {
 import net.minecraft.world.level.LevelHeightAccessor;
+//?} else {
+/*import net.minecraft.world.level.Level;
+*///?}
 
 /**
  * 探索範囲の制限。開始地点と目的地を含むバウンディングボックス+マージン。
@@ -23,13 +27,25 @@ public record SearchBounds(int minX, int minY, int minZ, int maxX, int maxY, int
      * 範囲を切ると経路はゴール手前で打ち切られるが、プレイヤーが進めば次の区間が計算し直される
      * （暫定経路と同じ扱い）。
      */
-    public static SearchBounds around(LevelHeightAccessor level, BlockPos start, BlockPos goal,
+    public static SearchBounds around(
+            //? if >=1.17 {
+            LevelHeightAccessor level,
+            //?} else {
+            /*Level level,
+            *///?}
+            BlockPos start, BlockPos goal,
                                        int horizontalMargin, int verticalMargin, int maxRadius) {
         int minX = Math.max(start.getX() - maxRadius, Math.min(start.getX(), goal.getX()) - horizontalMargin);
         int maxX = Math.min(start.getX() + maxRadius, Math.max(start.getX(), goal.getX()) + horizontalMargin);
         int minZ = Math.max(start.getZ() - maxRadius, Math.min(start.getZ(), goal.getZ()) - horizontalMargin);
         int maxZ = Math.min(start.getZ() + maxRadius, Math.max(start.getZ(), goal.getZ()) + horizontalMargin);
-        int minY = Math.max(level.getMinBuildHeight(), Math.min(start.getY(), goal.getY()) - verticalMargin);
+        int minY = Math.max(
+                //? if >=1.17 {
+                level.getMinBuildHeight(),
+                //?} else {
+                /*0,
+                *///?}
+                Math.min(start.getY(), goal.getY()) - verticalMargin);
         int maxY = Math.min(level.getMaxBuildHeight() - 1, Math.max(start.getY(), goal.getY()) + verticalMargin);
         return new SearchBounds(minX, minY, minZ, maxX, maxY, maxZ);
     }

@@ -7,9 +7,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
+import org.apache.logging.log4j.Logger;
 
-import com.mojang.logging.LogUtils;
+import org.apache.logging.log4j.LogManager;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -45,7 +45,7 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
  */
 final class Extend {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 末端から伸ばせなかったあと、同じ末端でもう一度試すまでにプレイヤーが動く距離（ブロック）。
@@ -298,7 +298,7 @@ final class Extend {
         List<PathStep> steps = shown.result().steps();
         BlockPos from = steps.get(steps.size() - 1).pos();
         boolean boatAvailable = ChunkView.boatAvailable(player);
-        int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        int renderRadius = GameCompat.renderDistance(mc.options) * 16;
         // 継続はワーカースレッドで走るので、プレイヤー・次元はここで写し取ってから渡す
         BlockPos playerAt = player.blockPosition();
         ResourceKey<Level> searchDimension = level.dimension();

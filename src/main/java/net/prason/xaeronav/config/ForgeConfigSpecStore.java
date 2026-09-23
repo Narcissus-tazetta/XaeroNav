@@ -98,7 +98,11 @@ public final class ForgeConfigSpecStore implements NavConfigStore, NavConfigSpec
     public StringListValue defineStringList(String path, List<String> defaultValue,
             Supplier<String> newElement, Predicate<Object> elementValidator) {
         ForgeConfigSpec.ConfigValue<List<? extends String>> value =
+                //? if >=1.17 {
                 builder.defineListAllowEmpty(path, defaultValue, elementValidator);
+                //?} else {
+                /^builder.defineListAllowEmpty(List.of(path), () -> defaultValue, elementValidator);
+                ^///?}
         return value::get;
     }
 }

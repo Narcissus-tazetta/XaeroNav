@@ -21,9 +21,8 @@ base {
     archivesName = modProperty("mod_id")
 }
 
-// MojangがMC 1.20.5以降でJava 21を要求するようになった境界線。今のところ1.20.1と1.21.1しか
-// ノードが無いのでこの1行で足りるが、1.20.5以降の別バージョンを増やすときは書き直しが要る
-val javaVersion = if (minecraftVersion.startsWith("1.20.")) 17 else 21
+// 1.16.5試作ノードは新しいJava構文を保持したままコンパイルし、配布前にJava 8へ変換する予定。
+val javaVersion = compileJavaVersionFor(minecraftVersion)
 
 java {
     toolchain {
@@ -36,6 +35,9 @@ java {
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:deprecation")
     options.compilerArgs.add("-Werror")
+    if (minecraftVersion.startsWith("1.16.")) {
+        options.compilerArgs.addAll(listOf("-Xmaxerrs", "1000"))
+    }
 }
 
 repositories {
@@ -144,6 +146,13 @@ val bench = tasks.register<Test>("bench") {
 // 全ノードで回すのはCIの時間を丸ごと倍にするだけになる。コンパイルは全ノードで走る。
 val canonicalNode = node.properties.get<String>("canonical_test_node")
 val isCanonicalNode = node.current.project == canonicalNode
+// 1.16.5 は実行コードだけをビルドする。既存のテスト補助クラスは 1.20+ の
+// LevelHeightAccessor / OptionInstance に依存するため、正典ノードで実行する。
+if (minecraftVersion.startsWith("1.16.")) {
+    tasks.named<JavaCompile>("compileTestJava") {
+        onlyIf("1.16.5 のテスト補助クラスは新しい Minecraft API を使う") { false }
+    }
+}
 tasks.withType<Test>().configureEach {
     onlyIf("正典ノード($canonicalNode)でのみ実行する") { isCanonicalNode }
 

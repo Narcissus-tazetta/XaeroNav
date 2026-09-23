@@ -1,5 +1,6 @@
 package net.prason.xaeronav.client.gui;
 
+//? if >=1.17 {
 import java.util.function.Consumer;
 
 import net.minecraft.client.Minecraft;
@@ -15,6 +16,18 @@ import net.minecraft.network.chat.CommonComponents;
 *///?}
 import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.config.XaeroNavConfig;
+//?} else {
+/*import com.mojang.blaze3d.vertex.PoseStack;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TranslatableComponent;
+import net.prason.xaeronav.config.XaeroNavConfig;
+*///?}
 
 /**
  * {@link XaeroNavConfig}のうちトグル系の項目だけを並べる設定画面。
@@ -31,6 +44,7 @@ import net.prason.xaeronav.config.XaeroNavConfig;
  * 自前の{@code init()}で行う必要がある（{@code SimpleOptionsSubScreen}は2列(addSmall)固定の
  * レイアウトを強制するため使わない——日本語ラベルは長く1列(addBig)が必須）。
  */
+//? if >=1.17 {
 public final class XaeroNavConfigScreen extends OptionsSubScreen {
 
     //? if <1.21 {
@@ -119,3 +133,89 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         XaeroNavConfig.save();
     }
 }
+//?} else {
+/*public final class XaeroNavConfigScreen extends Screen {
+    private static final int PAGE_SIZE = 7;
+    private final Screen parent;
+    private final List<Toggle> toggles = new ArrayList<>();
+    private int page;
+
+    public XaeroNavConfigScreen(Screen parent) {
+        super(new TranslatableComponent("gui.xaeronav.config.title"));
+        this.parent = parent;
+        XaeroNavConfig cfg = XaeroNavConfig.INSTANCE;
+        add("gui.xaeronav.config.digging_enabled", cfg::diggingEnabled, cfg::setDiggingEnabled);
+        add("gui.xaeronav.config.bridging_enabled", cfg::bridgingEnabled, cfg::setBridgingEnabled);
+        add("gui.xaeronav.config.lava_bridging_enabled", cfg::lavaBridgingEnabled, cfg::setLavaBridgingEnabled);
+        add("gui.xaeronav.config.block_budget_enabled", cfg::blockBudgetEnabled, cfg::setBlockBudgetEnabled);
+        add("gui.xaeronav.config.jump_gap_enabled", cfg::jumpGapEnabled, cfg::setJumpGapEnabled);
+        add("gui.xaeronav.config.fall_damage_tolerance_enabled", cfg::fallDamageToleranceEnabled, cfg::setFallDamageToleranceEnabled);
+        add("gui.xaeronav.config.deep_look_ahead_enabled", cfg::deepLookAheadEnabled, cfg::setDeepLookAheadEnabled);
+        add("gui.xaeronav.config.flight_routing_enabled", cfg::flightRoutingEnabled, cfg::setFlightRoutingEnabled);
+        add("gui.xaeronav.config.flight_clearance", () -> cfg.flightClearanceDetourBlocks() > 0, cfg::setFlightClearanceEnabled);
+        add("gui.xaeronav.config.hud_enabled", cfg::hudEnabled, cfg::setHudEnabled);
+        add("gui.xaeronav.config.straight_line_enabled", cfg::straightLineEnabled, cfg::setStraightLineEnabled);
+        add("gui.xaeronav.config.goal_marker_enabled", cfg::goalMarkerEnabled, cfg::setGoalMarkerEnabled);
+        add("gui.xaeronav.config.danger_dashed_enabled", cfg::dangerDashedEnabled, cfg::setDangerDashedEnabled);
+    }
+
+    private void add(String key, BooleanSupplier getter, Consumer<Boolean> setter) {
+        toggles.add(new Toggle(key, getter, setter));
+    }
+
+    @Override
+    protected void init() {
+        int left = width / 2 - 150;
+        for (int i = page * PAGE_SIZE; i < Math.min(toggles.size(), (page + 1) * PAGE_SIZE); i++) {
+            Toggle toggle = toggles.get(i);
+            int y = 38 + (i % PAGE_SIZE) * 25;
+            addButton(new Button(left, y, 300, 20, toggle.label(), button -> {
+                toggle.setter.accept(!toggle.getter.getAsBoolean());
+                button.setMessage(toggle.label());
+            }));
+        }
+        if (page > 0) {
+            addButton(new Button(left, height - 52, 95, 20, new TranslatableComponent("gui.back"), button -> changePage(-1)));
+        }
+        if ((page + 1) * PAGE_SIZE < toggles.size()) {
+            addButton(new Button(left + 205, height - 52, 95, 20, new TranslatableComponent("gui.next"), button -> changePage(1)));
+        }
+        addButton(new Button(width / 2 - 100, height - 27, 200, 20,
+                new TranslatableComponent("gui.done"), button -> onClose()));
+    }
+
+    private void changePage(int delta) {
+        page += delta;
+        init(minecraft, width, height);
+    }
+
+    @Override
+    public void render(PoseStack pose, int mouseX, int mouseY, float partialTick) {
+        renderBackground(pose);
+        drawCenteredString(pose, font, title, width / 2, 15, 0xFFFFFF);
+        super.render(pose, mouseX, mouseY, partialTick);
+    }
+
+    @Override
+    public void onClose() {
+        XaeroNavConfig.save();
+        minecraft.setScreen(parent);
+    }
+
+    private static final class Toggle {
+        final String key;
+        final BooleanSupplier getter;
+        final Consumer<Boolean> setter;
+
+        Toggle(String key, BooleanSupplier getter, Consumer<Boolean> setter) {
+            this.key = key;
+            this.getter = getter;
+            this.setter = setter;
+        }
+
+        Component label() {
+            return new TranslatableComponent(key).append(": " + (getter.getAsBoolean() ? "ON" : "OFF"));
+        }
+    }
+}
+*///?}

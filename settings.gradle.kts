@@ -5,6 +5,7 @@ pluginManagement {
         maven("https://maven.neoforged.net/releases") { name = "NeoForged" }
         maven("https://maven.fabricmc.net/") { name = "FabricMC" }
         maven("https://maven.kikugie.dev/releases") { name = "KikuGie" }
+        maven("https://maven.architectury.dev/") { name = "Architectury" }
     }
 }
 
@@ -25,6 +26,11 @@ stonecutter {
 
         match("1.21.1", "neoforge", "fabric", "forge")
         match("1.20.1", "fabric")
+        // 1.16.5 は移植中。通常の buildAll/CI にはコンパイル不能な試作ノードを混ぜない。
+        if (providers.gradleProperty("experimental_1165").orNull == "true") {
+            match("1.16.5", "fabric")
+            version("1.16.5-forge", "1.16.5").buildscript("build.forge-116.gradle.kts")
+        }
         // 1.20.1はForgeGradle 7ではなくModDevGradleのlegacyforgeプラグインを使う
         // （1.17〜1.20.1向け、上流もこちらへの移行を推奨）ので専用のビルドスクリプトを充てる。
         // NeoForge 1.20.1は見送り——その版のNeoForgeはForgeとjarレベルで互換で
@@ -35,5 +41,11 @@ stonecutter {
         // gitへコミットする状態。Stonecutterはsrc/を書き換えるので、
         // ここと違うノードを有効にしたまま差分を取ると全ファイルが動いて見える。
         vcsVersion.set("1.21.1-neoforge")
+    }
+}
+
+gradle.beforeProject {
+    if (name == "1.16.5-forge") {
+        extensions.extraProperties.set("loom.platform", "forge")
     }
 }

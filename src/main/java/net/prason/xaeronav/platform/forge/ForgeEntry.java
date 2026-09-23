@@ -2,20 +2,30 @@ package net.prason.xaeronav.platform.forge;
 
 //? forge {
 /*//? if >=1.21 {
-/^import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
-^///?} else {
+//?} else {
+/^//? if >=1.17 {
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
 //?}
+^///?}
 import net.minecraftforge.api.distmarker.Dist;
+//? if >=1.17 {
 import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+//?} else {
+/^import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.ExtensionPoint;
+import net.minecraftforge.fml.client.registry.ClientRegistry;
+^///?}
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
+//? if >=1.17 {
 import net.minecraftforge.fml.event.config.ModConfigEvent;
+//?}
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.prason.xaeronav.XaeroNav;
@@ -31,10 +41,19 @@ public final class ForgeEntry {
     // 設定画面の登録はFMLClientSetupEvent内で行うので、そこまでコンテキストを持ち越す
     private static FMLJavaModLoadingContext context;
 
+    //? if >=1.17 {
     public ForgeEntry(FMLJavaModLoadingContext context) {
+    //?} else {
+    /^public ForgeEntry() {
+        FMLJavaModLoadingContext context = FMLJavaModLoadingContext.get();
+    ^///?}
         XaeroNav.LOGGER.info("XaeroNav initialized");
         ForgeEntry.context = context;
+        //? if >=1.17 {
         context.registerConfig(ModConfig.Type.CLIENT, forgeConfigSpec());
+        //?} else {
+        /^ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, forgeConfigSpec());
+        ^///?}
         context.getModEventBus().addListener(ForgeEntry::onConfigReloaded);
     }
 
@@ -42,7 +61,13 @@ public final class ForgeEntry {
         return ((ForgeConfigSpecStore) XaeroNavConfig.store()).forgeConfigSpec();
     }
 
-    private static void onConfigReloaded(ModConfigEvent.Reloading event) {
+    private static void onConfigReloaded(
+            //? if >=1.17 {
+            ModConfigEvent.Reloading event
+            //?} else {
+            /^ModConfig.Reloading event
+            ^///?}
+    ) {
         if (event.getConfig().getSpec() == forgeConfigSpec()) {
             XaeroNavClient.reloadBlockLists();
         }
@@ -63,30 +88,40 @@ public final class ForgeEntry {
             MinecraftForge.EVENT_BUS.register(new ForgeEvents());
 
             // Modsの一覧からもキーバインド（XaeroNavKeys.OPEN_CONFIG_SCREEN）と同じ画面を開けるようにする
+            //? if >=1.17 {
             context.registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
                     () -> new ConfigScreenHandler.ConfigScreenFactory(
                             parent -> new XaeroNavConfigScreen(parent)));
+            //?} else {
+            /^XaeroNavKeys.register(ClientRegistry::registerKeyBinding);
+            ModLoadingContext.get().registerExtensionPoint(ExtensionPoint.CONFIGGUIFACTORY,
+                    () -> (minecraft, parent) -> new XaeroNavConfigScreen(parent));
+            ^///?}
         }
 
+        //? if >=1.17 {
         @SubscribeEvent
         public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
             XaeroNavKeys.register(event::register);
         }
+        //?}
 
         // ForgeにはNeoForgeのRenderGuiEvent.Postが無い。HUD描画をオーバーレイとして登録する形で
         // 差し込む（ForgeとNeoForge/Fabricの構造差はここだけ）。登録イベント自体が1.21.1と1.20.1で
         // 別クラス（AddGuiOverlayLayersEvent / RegisterGuiOverlaysEvent）かつシグネチャも違う
+        //? if >=1.17 {
         @SubscribeEvent
         //? if >=1.21 {
-        /^public static void onAddGuiOverlayLayers(AddGuiOverlayLayersEvent event) {
+        public static void onAddGuiOverlayLayers(AddGuiOverlayLayersEvent event) {
             event.getLayeredDraw().add(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                     (graphics, partialTick) -> XaeroNavClient.HUD.render(graphics));
         }
-        ^///?} else {
-        public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
+        //?} else {
+        /^public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
             event.registerAboveAll("hud",
                     (gui, graphics, partialTick, screenWidth, screenHeight) -> XaeroNavClient.HUD.render(graphics));
         }
+        ^///?}
         //?}
     }
 }

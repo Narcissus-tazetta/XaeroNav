@@ -8,9 +8,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
+import net.prason.xaeronav.client.TextCompat;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.client.XaeroNavKeys;
 import net.prason.xaeronav.xaero.XaeroMapCoords;
@@ -74,7 +74,7 @@ public abstract class GuiMapKeyMixin {
         BlockPos goal = new BlockPos(mouseBlockPosX, goalY, mouseBlockPosZ);
         BlockPos resolved = PathfindingState.INSTANCE.setGoal(goal);
         if (resolved != null) {
-            mc.player.displayClientMessage(Component.translatable("commands.xaeronav.goal_walk",
+            mc.player.displayClientMessage(TextCompat.translatable("commands.xaeronav.goal_walk",
                     resolved.toShortString()), true);
         }
         cir.setReturnValue(true);

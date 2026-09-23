@@ -4,8 +4,10 @@ package net.prason.xaeronav.platform.fabric;
 /*import com.mojang.brigadier.context.CommandContext;
 
 import net.fabricmc.api.ClientModInitializer;
+//? if >=1.17 {
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+//?}
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -40,9 +42,11 @@ public final class FabricEntry implements ClientModInitializer {
                 context -> XaeroNavClient.PATH_RENDERER.render(context.matrixStack(), context.camera()));
         HudRenderCallback.EVENT.register((graphics, tickCounter) -> XaeroNavClient.HUD.render(graphics));
 
+        //? if >=1.17 {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
                 dispatcher.register(XaeroNavCommands.<FabricClientCommandSource>tree(
                         ctx -> sink(ctx.getSource()), FabricEntry::blockPos)));
+        //?}
     }
 
     /^*
@@ -50,6 +54,7 @@ public final class FabricEntry implements ClientModInitializer {
      * sourceはそれではない。プレイヤーから作った{@code CommandSourceStack}で代用する
      * ——{@code WorldCoordinates}が見るのは位置と向きだけで、ワールドやサーバーには触らない。
      ^/
+    //? if >=1.17 {
     private static BlockPos blockPos(CommandContext<FabricClientCommandSource> ctx, String name) {
         return ctx.getArgument(name, Coordinates.class)
                 .getBlockPos(ctx.getSource().getPlayer().createCommandSourceStack());
@@ -68,5 +73,6 @@ public final class FabricEntry implements ClientModInitializer {
             }
         };
     }
+    //?}
 }
 *///?}

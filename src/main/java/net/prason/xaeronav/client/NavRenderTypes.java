@@ -21,6 +21,14 @@ import net.minecraft.client.renderer.RenderType;
  */
 final class NavRenderTypes {
 
+    static final RenderType DEBUG_QUADS =
+            //? if >=1.17 {
+            RenderType.debugQuads();
+            //?} else {
+            /*RenderType.lightning();
+            *///?}
+
+    //? if >=1.17 {
     static final RenderType OCCLUDED_QUADS = RenderType.create(
             "xaeronav_occluded_quads", DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 1536, false, true,
             RenderType.CompositeState.builder()
@@ -30,7 +38,6 @@ final class NavRenderTypes {
                     .setDepthTestState(RenderStateShard.NO_DEPTH_TEST)
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
-
     // 5引数のcreate(...)はパッケージ外に公開されていない版がある（Forgeの独自ATで開放できない
     // ケースを確認済み）。7引数版はどの版・ローダーでも常にpublicなので、5引数版が中で渡している
     // 既定値(false, false)をそのまま明示して直接呼ぶ
@@ -47,6 +54,10 @@ final class NavRenderTypes {
                     .setDepthTestState(RenderStateShard.NO_DEPTH_TEST)
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
+    //?} else {
+    /*static final RenderType OCCLUDED_QUADS = RenderType.lightning();
+    static final RenderType OCCLUDED_LINES = RenderType.lines();
+    *///?}
 
     private NavRenderTypes() {
     }

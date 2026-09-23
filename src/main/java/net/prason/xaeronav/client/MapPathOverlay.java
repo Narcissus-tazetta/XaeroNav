@@ -2,7 +2,12 @@ package net.prason.xaeronav.client;
 
 import java.util.List;
 
+//? if >=1.19 {
 import org.joml.Matrix4f;
+//?} else {
+/*import com.mojang.math.Matrix4f;
+import java.nio.FloatBuffer;
+*///?}
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
@@ -67,9 +72,17 @@ public final class MapPathOverlay {
      * （回転が入っていても長さは変わらないので、回るミニマップでもそのまま使える）。
      */
     public static double pixelsPerBlock(Matrix4f pose) {
+        //? if >=1.19 {
         double x = pose.m00();
         double y = pose.m01();
         double z = pose.m02();
+        //?} else {
+        /*FloatBuffer values = FloatBuffer.allocate(16);
+        pose.store(values);
+        double x = values.get(0);
+        double y = values.get(1);
+        double z = values.get(2);
+        *///?}
         double scale = Math.sqrt(x * x + y * y + z * z);
         return Double.isFinite(scale) ? MathSupport.clamp(scale, MIN_PIXELS_PER_BLOCK, MAX_PIXELS_PER_BLOCK) : 1.0;
     }

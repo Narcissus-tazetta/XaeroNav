@@ -66,3 +66,27 @@ deps.night_config = "3.8.3"
 deps.xaerolib = "1.7.1"
 deps.xaero_worldmap = "1.44.2"
 deps.xaero_minimap = "26.4.2"
+
+[fabric."1.16.5"]
+deps.minecraft = "1.16.5"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.15.11"
+deps.fabric_api = "0.42.0+1.16"
+deps.modmenu = "1.16.23"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+
+[forge."1.16.5"]
+deps.minecraft = "1.16.5"
+# 36.2.42以降はFART（SpecialSourceの代わり）で再オブファスケートされており、
+# Architectury Loomのsrg->named remapが一部のメソッド/クラスで壊れる既知の不具合がある
+# （https://github.com/architectury/architectury-loom/issues/320）。36.2.39まで下げて回避する。
+deps.forge = "36.2.39"
+deps.forge_loader_range = "[36,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"

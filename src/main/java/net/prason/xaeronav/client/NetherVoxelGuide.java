@@ -5,15 +5,17 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
-import com.mojang.logging.LogUtils;
+import org.apache.logging.log4j.LogManager;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import org.slf4j.Logger;
+import org.apache.logging.log4j.Logger;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
+//? if >=1.17 {
 import net.minecraft.world.level.LevelHeightAccessor;
+//?}
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.Heuristic;
 import net.prason.xaeronav.pathfinding.coarse.VoxelCostToGo;
@@ -38,7 +40,7 @@ import net.prason.xaeronav.xaero.XaeroPresence;
  */
 final class NetherVoxelGuide {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 地図を何ブロックおきに読むか。格子のセル辺の半分——1セルにつき数点入る粒度で見ないと、
@@ -181,7 +183,13 @@ final class NetherVoxelGuide {
      * @param goal <b>最終目的地</b>。中間目標を渡してはいけない——ガイドの起点が動くと、
      *             区間ごとに別方向を指す表になる
      */
-    CostToGo forGoal(LevelHeightAccessor level, ResourceKey<Level> dimension, BlockPos player,
+    CostToGo forGoal(
+            //? if >=1.17 {
+            LevelHeightAccessor level,
+            //?} else {
+            /*Level level,
+            *///?}
+            ResourceKey<Level> dimension, BlockPos player,
                       BlockPos goal, boolean lavaPassable) {
         Key key = new Key(dimension, goal, lavaPassable);
         Built current = built;
@@ -235,7 +243,13 @@ final class NetherVoxelGuide {
      * <p>目的地は{@code StanceFinder}へ通していない生の座標。ガイドの起点は上下24・左右16まで
      * 探して決める（{@code VoxelCostToGo}）ので、数ブロックのずれは吸収される。
      */
-    private void start(LevelHeightAccessor level, Key key, BlockPos player) {
+    private void start(
+            //? if >=1.17 {
+            LevelHeightAccessor level,
+            //?} else {
+            /*Level level,
+            *///?}
+            Key key, BlockPos player) {
         stalled = false;
         attempted = key;
         nextAttemptMillis = MonotonicTime.millis() + MIN_REBUILD_INTERVAL_MILLIS;

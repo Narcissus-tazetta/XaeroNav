@@ -9,9 +9,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
-import com.mojang.logging.LogUtils;
+import org.apache.logging.log4j.LogManager;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
+import org.apache.logging.log4j.Logger;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
@@ -40,7 +40,7 @@ import net.prason.xaeronav.util.MonotonicTime;
  */
 final class NavGraphGuide {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 窓の半径（ブロック）。描画距離がこれより広くてもここで切る。
@@ -155,7 +155,7 @@ final class NavGraphGuide {
                                   @Nullable Far far) {
         BlockPos at = player.blockPosition();
         int window = Math.min(WINDOW_BLOCKS, renderRadius);
-        int minY = level.getMinBuildHeight();
+        int minY = GameCompat.minBuildHeight(level);
         int maxY = level.getMaxBuildHeight() - 1;
         int logicalTop = minY + level.dimensionType().logicalHeight() - 1;
         if (level.dimensionType().hasCeiling() && at.getY() <= logicalTop && goal.getY() <= logicalTop) {
@@ -187,7 +187,7 @@ final class NavGraphGuide {
     /** 持ち物は毎回見る。置けるブロックを拾った・使い切ったで橋の辺が生えたり消えたりする。 */
     private static boolean canPlaceBlocks(Player player, MovementOptions options) {
         return options.bridgingEnabled()
-                && (player.getAbilities().instabuild || ChunkView.countPlaceableBlocks(player) > 0);
+                && (GameCompat.abilities(player).instabuild || ChunkView.countPlaceableBlocks(player) > 0);
     }
 
     /**
