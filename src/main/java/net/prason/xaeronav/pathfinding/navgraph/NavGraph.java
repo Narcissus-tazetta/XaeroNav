@@ -17,15 +17,15 @@ import net.prason.xaeronav.util.MonotonicTime;
 /**
  * 1つの目的地に対する航法グラフ。読み込み済みの範囲をセクション（16³）ごとに、探索と同じ移動生成で組んで覚える。
  *
- * <p><b>目的地ごとに作り直すこと。</b>奈落の上の橋は目的地へ近づく向きにしか張られないので
- * （{@code BuildMoves#addBridge}）、辺そのものが目的地に依存する。
+ * <p><b>目的地の列ごとに作り直すこと。</b>奈落の上の橋は目的地へ近づく向きにしか張られないので
+ * （{@code BuildMoves#addBridge}）、辺そのものが目的地の列(x, z)に依存する。高さは辺に効かない（{@link #retarget}）。
  *
  * <p>セクションの構築（{@link #build}）はワーカースレッドから並行に呼んでよい。ただし{@link CellSource}は
  * 呼び出しごとに、そのスレッドが占有するものを渡すこと。
  */
 public final class NavGraph {
 
-    private final BlockPos goal;
+    private BlockPos goal;
     private final int minSectionY;
     private final int maxSectionY;
     private final NaturalColumns naturals;
@@ -57,6 +57,18 @@ public final class NavGraph {
 
     public BlockPos goal() {
         return goal;
+    }
+
+    /**
+     * 同じ列の中で目的地の高さだけ差し替える。組んだセクションはそのまま使える。{@link #build}・{@link #refresh}と
+     * 並行に呼ばないこと。
+     */
+    public void retarget(BlockPos goal) {
+        if (goal.getX() != this.goal.getX() || goal.getZ() != this.goal.getZ()) {
+            throw new IllegalArgumentException("目的地の列が違う: " + this.goal.toShortString() + " → "
+                    + goal.toShortString());
+        }
+        this.goal = goal.immutable();
     }
 
     static long key(int sectionX, int sectionY, int sectionZ) {

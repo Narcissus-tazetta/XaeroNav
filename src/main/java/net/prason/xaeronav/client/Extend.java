@@ -452,9 +452,11 @@ final class Extend {
         String guide = "無し";
         if (goalGuide != null) {
             CostToGo costToGo = goalGuide.costToGo();
-            guide = "%s 継ぎ足す前=%d%s 継ぎ足し後=%d%s".formatted(goalGuide.navGraph() ? "航法グラフ" : "3D粗層など",
+            guide = "%s 継ぎ足す前=%d%s 継ぎ足し後=%d%s, 継ぎ足す前の値の出どころ=%s, 継ぎ足し後の値の出どころ=%s".formatted(
+                    goalGuide.navGraph() ? "航法グラフ" : "3D粗層など",
                     Math.round(costToGo.estimate(from.getX(), from.getY(), from.getZ())), windowNote(costToGo, from),
-                    Math.round(costToGo.estimate(end.getX(), end.getY(), end.getZ())), windowNote(costToGo, end));
+                    Math.round(costToGo.estimate(end.getX(), end.getY(), end.getZ())), windowNote(costToGo, end),
+                    NavGraphGuide.origin(costToGo, from), NavGraphGuide.origin(costToGo, end));
         }
         LOGGER.info("XaeroNav: 継ぎ足しが目的地から遠ざかりました (継ぎ足す前の末端={}で目的地まで{}, 継ぎ足し後の末端={}で{}, "
                         + "{}ステップ/{}, 狙った先={}, ガイド={})",

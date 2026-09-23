@@ -65,6 +65,7 @@ public final class WindowField implements CostToGo {
     private final BlockPos goal;
     private final FarField far;
     private final Index index;
+    private final MoveTable.View moves;
     private final double[] distance;
     private final int edges;
     private final long buildMillis;
@@ -73,8 +74,9 @@ public final class WindowField implements CostToGo {
     private final int centerZ;
     private final int radius;
 
-    private WindowField(BlockPos goal, FarField far, Index index, double[] distance, int edges, long buildMillis,
-                        boolean goalCut, int centerX, int centerZ, int radius) {
+    private WindowField(BlockPos goal, FarField far, Index index, MoveTable.View moves, double[] distance, int edges,
+                        long buildMillis, boolean goalCut, int centerX, int centerZ, int radius) {
+        this.moves = moves;
         this.centerX = centerX;
         this.centerZ = centerZ;
         this.radius = radius;
@@ -428,7 +430,7 @@ public final class WindowField implements CostToGo {
                 }
             }
         }
-        return new WindowField(goal, far, index, distance, m, MonotonicTime.millis() - began,
+        return new WindowField(goal, far, index, moves, distance, m, MonotonicTime.millis() - began,
                 goalInWindow && !goalEntered.get(), centerX, centerZ, radius);
     }
 
@@ -472,6 +474,85 @@ public final class WindowField implements CostToGo {
      * ——縁の近くと窓の外の値は{@link FarField}の推定で、尺度が窓の中と揃っていない（ネザーの3D粗層は
      * {@code NavGraphGuide.VOXEL_FAR_SCALE}倍して置いてある）。差を取ると推定のずれがそのまま結論になる。
      */
+    /**
+     * ガイドの値がどこから来たか。{@code exit}は値の出どころ——目的地そのもの、または窓の外の推定を読んだ点。
+     *
+     * @param inside {@code from}から{@code exit}の手前まで、窓の中を辿った値段
+     * @param outside {@code exit}で読んだ窓の外の推定（目的地なら0）
+     */
+    public record Descent(BlockPos exit, double inside, double outside, boolean reachedGoal) {
+    }
+
+    /**
+     * {@code (x, y, z)}から、ガイドの値を作った辺を下って値の出どころを探す。ノードでない・値が無いなら{@code null}。
+     *
+     * <p>経路の向きがガイドのどの推定に引かれて決まったかを実機のログで見るためのもの。値は辺の値段の和で確定しているので、
+     * 各ノードで「値段＋行き先の値」が自分の値に一致する辺を辿れば出どころに着く。
+     */
+    public @Nullable Descent descend(int x, int y, int z) {
+        int id = index.resolveAbsolute(x, y, z);
+        if (id < 0 || !Double.isFinite(distance[id])) {
+            return null;
+        }
+        double inside = 0;
+        for (int guard = 0; guard < distance.length; guard++) {
+            if (x == goal.getX() && y == goal.getY() && z == goal.getZ()) {
+                return new Descent(goal, inside, 0, true);
+            }
+            int slot = index.slotOf.get(NavGraph.key(x >> 4, y >> 4, z >> 4));
+            int lx = x & 15;
+            int ly = y & 15;
+            int lz = z & 15;
+            SectionEdges section = index.sections[slot];
+            int node = section.nodeOf(lx | lz << 4 | ly << 8);
+            double best = Double.POSITIVE_INFINITY;
+            int bestMove = -1;
+            int bestTarget = OUTSIDE;
+            if (Math.abs(x - centerX) > radius - EDGE_SEED_BAND || Math.abs(z - centerZ) > radius - EDGE_SEED_BAND) {
+                best = far.at(x, y, z);
+            }
+            for (int e = section.edgeStart[node]; e < section.edgeStart[node + 1]; e++) {
+                int m = section.move[e];
+                int tx = x + moves.dx[m];
+                int ty = y + moves.dy[m];
+                int tz = z + moves.dz[m];
+                double candidate;
+                int target = index.resolve(slot, lx + moves.dx[m], ly + moves.dy[m], lz + moves.dz[m]);
+                if (tx == goal.getX() && ty == goal.getY() && tz == goal.getZ()) {
+                    candidate = moves.cost[m];
+                } else if (target >= 0) {
+                    candidate = moves.cost[m] + distance[target];
+                } else if (target == OUTSIDE) {
+                    candidate = moves.cost[m] + far.at(tx, ty, tz);
+                } else {
+                    continue;
+                }
+                if (candidate < best) {
+                    best = candidate;
+                    bestMove = m;
+                    bestTarget = target;
+                }
+            }
+            if (bestMove < 0) {
+                return new Descent(new BlockPos(x, y, z), inside, best, false);
+            }
+            int tx = x + moves.dx[bestMove];
+            int ty = y + moves.dy[bestMove];
+            int tz = z + moves.dz[bestMove];
+            if (tx == goal.getX() && ty == goal.getY() && tz == goal.getZ()) {
+                return new Descent(goal, inside + moves.cost[bestMove], 0, true);
+            }
+            inside += moves.cost[bestMove];
+            if (bestTarget < 0) {
+                return new Descent(new BlockPos(tx, ty, tz), inside, best - inside, false);
+            }
+            x = tx;
+            y = ty;
+            z = tz;
+        }
+        throw new IllegalStateException("ガイドを下りきれない: " + x + ", " + y + ", " + z);
+    }
+
     public boolean measuredInWindow(int x, int z) {
         int limit = radius - EDGE_MARGIN_BLOCKS;
         return Math.abs(x - centerX) <= limit && Math.abs(z - centerZ) <= limit;
