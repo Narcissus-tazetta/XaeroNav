@@ -26,6 +26,7 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.GenerationGate;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
+import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
@@ -56,6 +57,21 @@ final class Extend {
      * 実際には末端まで歩き切るまで探索が一切走らなくなる。
      */
     private static final double EXTEND_RETRY_MOVE_BLOCKS = 16.0;
+
+    /** {@link #noteLoop}が「同じ場所へ戻った」とみなす各軸の距離。 */
+    private static final int LOOP_NEAR_BLOCKS = 2;
+
+    /**
+     * {@link #noteLoop}が輪とみなす、経路に沿った最小のステップ数。末端の近くで向きを変えるだけの
+     * 継ぎ足しは、末端の数ステップ手前に必ず近づくので、それでは鳴らない長さにする。
+     */
+    private static final int LOOP_MIN_GAP_STEPS = 20;
+
+    /**
+     * {@link #noteRetreatingTail}が「遠ざかった」とみなす、目的地までの水平距離の増え幅。回り込みで数ブロック
+     * 遠ざかるのは普通なので、それでは鳴らない幅にする。
+     */
+    private static final double RETREATING_TAIL_LOG_BLOCKS = 16.0;
 
     /** {@link PathfindingState}が持つ、非同期完了時に読み書きする必要のある可変状態と長距離ルート選定。 */
     interface Host {
@@ -404,7 +420,12 @@ final class Extend {
                 // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
                 // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
                 // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
+                SeamRepair.Loop loop = noteLoop(steps, tail, target, result, navGraphGuided);
+                noteRetreatingTail(from, tail.get(tail.size() - 1).pos(), currentGoal, target, result, goalGuide);
                 seamRepair.queue(from);
+                if (loop != null) {
+                    seamRepair.queueLoop(loop);
+                }
                 host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal));
                 blockedAt = null;
                 blockedFrom = null;
@@ -412,6 +433,81 @@ final class Extend {
                 onChanged.run();
             }
         });
+    }
+
+    /**
+     * 継ぎ足した区間の末端が、継ぎ足す前の末端より目的地から遠いなら、そのときガイドが両端をどう見ていたかを1行残す。
+     *
+     * <p>継ぎ足しの終点選びはガイドの上で必ず目的地へ近づく点を選ぶので、遠ざかる向きへ伸びたなら
+     * 「ガイドが遠回りの方を近いと評価した」のか「窓の外の推定で比べていた」のかのどちらか。
+     * 両端の値と、それが窓の中で実際に辿った値か（{@link WindowField#measuredInWindow}）を並べると1行で割れる。
+     */
+    private static void noteRetreatingTail(BlockPos from, BlockPos end, BlockPos currentGoal, BlockPos target,
+            PathResult result, PathfindingState.@Nullable GoalGuide goalGuide) {
+        double fromLeft = PathfindingState.horizontalDistance(from, currentGoal);
+        double endLeft = PathfindingState.horizontalDistance(end, currentGoal);
+        if (endLeft <= fromLeft + RETREATING_TAIL_LOG_BLOCKS) {
+            return;
+        }
+        String guide = "無し";
+        if (goalGuide != null) {
+            CostToGo costToGo = goalGuide.costToGo();
+            guide = "%s 継ぎ足す前=%d%s 継ぎ足し後=%d%s".formatted(goalGuide.navGraph() ? "航法グラフ" : "3D粗層など",
+                    Math.round(costToGo.estimate(from.getX(), from.getY(), from.getZ())), windowNote(costToGo, from),
+                    Math.round(costToGo.estimate(end.getX(), end.getY(), end.getZ())), windowNote(costToGo, end));
+        }
+        LOGGER.info("XaeroNav: 継ぎ足しが目的地から遠ざかりました (継ぎ足す前の末端={}で目的地まで{}, 継ぎ足し後の末端={}で{}, "
+                        + "{}ステップ/{}, 狙った先={}, ガイド={})",
+                from.toShortString(), Math.round(fromLeft), end.toShortString(), Math.round(endLeft),
+                result.steps().size(), result.termination(), target.toShortString(), guide);
+    }
+
+    private static String windowNote(CostToGo costToGo, BlockPos pos) {
+        if (!(costToGo instanceof WindowField field)) {
+            return "";
+        }
+        return field.measuredInWindow(pos.getX(), pos.getZ()) ? "(窓の中)" : "(窓の外の推定)";
+    }
+
+    /**
+     * 継ぎ足す区間が既存の経路のずっと手前へ戻ってくるなら1行残す。継ぎ足しは末端から先だけを解くので、
+     * 戻ってきても手前の経路は見直されず、線が輪を描いたまま表示される。輪は後で繋ぎ目の解き直しが
+     * 切ることもあるが、「なぜ継ぎ足しが戻る向きへ伸びたか」はそこからは分からない。
+     * 経路に沿って最も多くのステップを遠回りしている組を出す。
+     *
+     * @return 輪の両端（{@link SeamRepair#queueLoop}へ渡して切り落とす）。輪が無ければ{@code null}
+     */
+    private static SeamRepair.@Nullable Loop noteLoop(List<PathStep> route, List<PathStep> tail, BlockPos target, PathResult result,
+            boolean navGraphGuided) {
+        int bestGap = -1;
+        int bestRoute = -1;
+        int bestTail = -1;
+        for (int j = 0; j < tail.size(); j++) {
+            BlockPos at = tail.get(j).pos();
+            for (int k = 0; k < route.size(); k++) {
+                int gap = route.size() - k + j;
+                if (gap <= bestGap || gap < LOOP_MIN_GAP_STEPS) {
+                    break;
+                }
+                BlockPos p = route.get(k).pos();
+                if (Math.abs(p.getX() - at.getX()) <= LOOP_NEAR_BLOCKS && Math.abs(p.getY() - at.getY()) <= LOOP_NEAR_BLOCKS
+                        && Math.abs(p.getZ() - at.getZ()) <= LOOP_NEAR_BLOCKS) {
+                    bestGap = gap;
+                    bestRoute = k;
+                    bestTail = j;
+                    break;
+                }
+            }
+        }
+        if (bestGap < 0) {
+            return null;
+        }
+        LOGGER.info("XaeroNav: 継ぎ足しが経路の手前へ戻ってきました (継ぎ足しの{}ステップ目={}, 経路の{}ステップ目={}の近く, "
+                        + "経路に沿って{}ステップの輪, 経路={}ステップ, 継ぎ足し={}ステップ/{}, 末端={}, 狙った先={}, 航法グラフ={})",
+                bestTail, tail.get(bestTail).pos().toShortString(), bestRoute, route.get(bestRoute).pos().toShortString(),
+                bestGap, route.size(), tail.size(), result.termination(), route.get(route.size() - 1).pos().toShortString(),
+                target.toShortString(), navGraphGuided);
+        return new SeamRepair.Loop(route.get(bestRoute).pos(), tail.get(bestTail).pos());
     }
 
     /**

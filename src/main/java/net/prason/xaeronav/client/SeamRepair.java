@@ -7,6 +7,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -132,6 +133,21 @@ final class SeamRepair {
      */
     private final Queue<BlockPos> pending = new ConcurrentLinkedQueue<>();
 
+    /**
+     * 継ぎ足しが経路の手前へ並走して戻ってきた輪の両端（{@code Extend#noteLoop}）。1つだけ覚える——
+     * 新しい輪が見つかる頃には、古い輪は解き直したか、プレイヤーが通り過ぎている。
+     *
+     * <p>繋ぎ目の列とは別に持つ。{@link PathLoops}が畳めるのは同じ座標を2度踏む輪だけで、1〜2ブロック横を
+     * 並走して戻る輪は残る。繋ぎ目の前後{@link #SPAN_BLOCKS}を解き直す通常の修復では、輪の入口が
+     * {@link #KEEP_BLOCKS}の内側（足元）にあると入口ごと残ってしまう。輪の両端をそのまま区間にすれば、
+     * 入口より手前の線は1ブロックも変わらない。
+     */
+    private final AtomicReference<Loop> pendingLoop = new AtomicReference<>();
+
+    /** 輪の入口（経路側）と、戻ってきた所（継ぎ足し側）。 */
+    record Loop(BlockPos entry, BlockPos rejoin) {
+    }
+
     /** 直近に報告した繋ぎ目の解き直し見送りの理由。同じ理由を毎回出さないための重複除去。 */
     private final ChangeGate<String> refusalGate = new ChangeGate<>();
 
@@ -147,7 +163,12 @@ final class SeamRepair {
 
     /** 解き直し待ちの繋ぎ目が1つも無いか。 */
     boolean isEmpty() {
-        return pending.isEmpty();
+        return pending.isEmpty() && pendingLoop.get() == null;
+    }
+
+    /** 並走して戻る輪を覚える。次の{@link #tryRepair}で、繋ぎ目より先に解き直す。 */
+    void queueLoop(Loop loop) {
+        pendingLoop.set(loop);
     }
 
     /** 解き直し待ちの繋ぎ目を覚える。溢れたら古い方から捨てる。 */
@@ -161,12 +182,14 @@ final class SeamRepair {
     /** 目的地の変更で、解き直し待ちの列と直近の見送り理由を捨てる。 */
     void clear() {
         pending.clear();
+        pendingLoop.set(null);
         refusalGate.reset();
     }
 
     /** 全部引き直すとき、手前の経路ごと消える繋ぎ目だけを捨てる。見送り理由はまだ有効なので残す。 */
     void dropPending() {
         pending.clear();
+        pendingLoop.set(null);
     }
 
     /** 直近に報告した見送りの理由（診断用）。 */
@@ -181,6 +204,10 @@ final class SeamRepair {
      * @return 解き直しを投げたか（投げたなら、結果は非同期で反映される）
      */
     boolean tryRepair(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius) {
+        Loop loop = pendingLoop.getAndSet(null);
+        if (loop != null) {
+            return tryCutLoop(level, player, shown, renderRadius, loop);
+        }
         BlockPos seam = pending.poll();
         if (seam == null) {
             return false;
@@ -215,8 +242,48 @@ final class SeamRepair {
             return false;
         }
 
-        int sectionFrom = from;
-        int sectionTo = to;
+        solve(level, player, shown, renderRadius, from, to, first, "繋ぎ目=" + seam.toShortString());
+        return true;
+    }
+
+    /**
+     * 輪の入口から戻ってきた所までを解き直す。入口より手前は変えない。
+     *
+     * <p>輪の中に設置・掘削があれば解き直さない。輪の先のステップが、輪の中で置いたブロックや掘った穴を
+     * 前提に繋がっていることがあり、輪ごと消すと足場ごと消える（{@link PathLoops}と同じ理由）。
+     */
+    private boolean tryCutLoop(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius,
+            Loop loop) {
+        List<PathStep> steps = shown.result().steps();
+        int walkedTo = PathProgress.INSTANCE.indexFor(shown.result());
+        int entry = stepIndexOf(steps, loop.entry(), walkedTo);
+        int rejoin = entry < 0 ? -1 : stepIndexOf(steps, loop.rejoin(), entry + 1);
+        if (rejoin < 0) {
+            // 通り過ぎたか、合流や引き直しで輪ごと消えていた
+            noteSeamRepairRefused("輪が経路上に無い");
+            return false;
+        }
+        for (int i = entry + 1; i <= rejoin; i++) {
+            if (steps.get(i).bridging() || steps.get(i).digging()) {
+                noteSeamRepairRefused("輪の中に設置・掘削がある");
+                return false;
+            }
+        }
+        solve(level, player, shown, renderRadius, entry + 1, rejoin, walkedTo + 1,
+                "輪=" + loop.entry().toShortString() + "→" + loop.rejoin().toShortString());
+        return true;
+    }
+
+    /**
+     * 経路の{@code sectionFrom}から{@code sectionTo}まで（両端を含む）を、{@code sectionFrom - 1}から
+     * {@code sectionTo}へ引き直した線で置き換える。安くなるときだけ。
+     *
+     * @param first 置く枚数を数え始める添字（プレイヤーの少し先）
+     */
+    private void solve(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius,
+            int sectionFrom, int sectionTo, int first, String label) {
+        List<PathStep> steps = shown.result().steps();
+        int walkedTo = PathProgress.INSTANCE.indexFor(shown.result());
         BlockPos fromPos = steps.get(sectionFrom - 1).pos();
         BlockPos toPos = steps.get(sectionTo).pos();
         double current = stepsCost(steps, sectionFrom, sectionTo);
@@ -274,14 +341,13 @@ final class SeamRepair {
                 }
                 refusalGate.reset();
                 host.setDisplayed(withSection(shown, repaired.steps(), sectionFrom, sectionTo));
-                LOGGER.info("XaeroNav: 繋ぎ目を解き直しました (繋ぎ目={}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
-                        seam.toShortString(), Math.round(current), Math.round(replacement),
+                LOGGER.info("XaeroNav: 繋ぎ目を解き直しました ({}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
+                        label, Math.round(current), Math.round(replacement),
                         sectionTo - sectionFrom + 1, repaired.steps().size(), repaired.expandedNodes());
             } finally {
                 onChanged.run();
             }
         });
-        return true;
     }
 
     /**
