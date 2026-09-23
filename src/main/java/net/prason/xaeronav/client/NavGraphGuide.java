@@ -1,5 +1,7 @@
 package net.prason.xaeronav.client;
 
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -90,6 +92,9 @@ final class NavGraphGuide {
     /** 実機のログを出す間隔。組み直しは歩くたびに走るので、毎回出すと洪水になる。 */
     private static final long LOG_INTERVAL_MILLIS = 10_000L;
 
+    /** 負荷の集計（{@link Load}）を出す間隔。 */
+    private static final long LOAD_LOG_INTERVAL_MILLIS = 30_000L;
+
     /** 組み立ての段取りを回す1本。探索用のワーカーを塞がないよう分ける。 */
     private final ExecutorService coordinator = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "XaeroNav 航法グラフ");
@@ -155,6 +160,9 @@ final class NavGraphGuide {
     // 直近の探索が前進できなかった。ワーカースレッド（whenComplete）が立て、forGoalが落とす
     private volatile boolean stalled;
     private long nextStallRebuildMillis;
+
+    /** 段取りの1本だけが触る。 */
+    private final Load load = new Load();
 
     /** 段取りの1本だけが触る。 */
     private @Nullable NavGraph graph;
@@ -226,15 +234,22 @@ final class NavGraphGuide {
         int window = key.window();
         SearchBounds bounds = new SearchBounds(at.getX() - window, key.minY(), at.getZ() - window,
                 at.getX() + window, key.maxY(), at.getZ() + window);
+        long captureBegan = MonotonicTime.millis();
         ChunkView view = ChunkView.capture(level, player, bounds, key.options());
+        long captureMillis = MonotonicTime.millis() - captureBegan;
         int minY = key.minY();
         int maxY = key.maxY();
         // この目的地のガイドがまだ無い＝案内を待たせている間だけ全力で組む
         int workers = built != null && built.key().equals(key) ? REBUILD_WORKERS : WORKERS;
         building = true;
         long myGeneration = generation.incrementAndGet();
-        CompletableFuture.supplyAsync(() -> refresh(key, view, at, minY, maxY, farMap, invalidateAround, workers,
-                        () -> generation.get() != myGeneration), coordinator)
+        CompletableFuture.supplyAsync(() -> {
+                    long began = MonotonicTime.millis();
+                    NavGraph.Refreshed refreshed = refresh(key, view, at, minY, maxY, farMap, invalidateAround, workers,
+                            () -> generation.get() != myGeneration);
+                    load.record(began, MonotonicTime.millis(), captureMillis, refreshed);
+                    return refreshed;
+                }, coordinator)
                 .whenComplete((refreshed, error) -> {
                     if (generation.get() != myGeneration) {
                         // 新しい組み立てが始まっている。その印を落とすと、組み立てが重なる
@@ -319,10 +334,76 @@ final class NavGraphGuide {
         nextStallRebuildMillis = 0L;
         logGate.reset();
         coordinator.execute(() -> {
+            load.flush(MonotonicTime.millis());
             graph = null;
             graphKey = null;
             farSource = null;
             far = FarField.UNKNOWN;
         });
+    }
+
+    /**
+     * 歩いている間に組み直しがどれだけ回っているか。重さの報告（#54）を実機で切り分けるための集計で、
+     * {@link #LOAD_LOG_INTERVAL_MILLIS}ごとにまとめて出す。<b>段取りの1本だけが触る。</b>
+     */
+    private static final class Load {
+
+        private long since;
+        private long busyMillis;
+        private long buildMillis;
+        private long guideMillis;
+        private long maxMillis;
+        private long maxCaptureMillis;
+        private int runs;
+        private int cancelled;
+        private long gcSince;
+
+        void record(long began, long ended, long captureMillis, NavGraph.@Nullable Refreshed refreshed) {
+            if (runs == 0) {
+                since = began;
+                gcSince = gcMillis();
+            }
+            runs++;
+            busyMillis += ended - began;
+            maxMillis = Math.max(maxMillis, ended - began);
+            maxCaptureMillis = Math.max(maxCaptureMillis, captureMillis);
+            if (refreshed == null) {
+                cancelled++;
+            } else {
+                buildMillis += refreshed.buildMillis();
+                guideMillis += refreshed.field().buildMillis();
+            }
+            if (ended - since >= LOAD_LOG_INTERVAL_MILLIS) {
+                flush(ended);
+            }
+        }
+
+        void flush(long now) {
+            if (runs == 0) {
+                return;
+            }
+            long span = Math.max(1L, now - since);
+            Runtime runtime = Runtime.getRuntime();
+            LOGGER.info("XaeroNav: 航法グラフの負荷 (直近{}秒, 組み直し{}回(打ち切り{}), 段取りの稼働率{}%, 構築計{}ms, ガイド計{}ms, "
+                            + "1回最大{}ms, チャンク集め最大{}ms(メインスレッド), GC{}ms, ヒープ{}/{}MB)",
+                    span / 1000, runs, cancelled, 100 * busyMillis / span, buildMillis, guideMillis, maxMillis,
+                    maxCaptureMillis, gcMillis() - gcSince, (runtime.totalMemory() - runtime.freeMemory()) >> 20,
+                    runtime.maxMemory() >> 20);
+            runs = 0;
+            cancelled = 0;
+            busyMillis = 0;
+            buildMillis = 0;
+            guideMillis = 0;
+            maxMillis = 0;
+            maxCaptureMillis = 0;
+        }
+
+        private static long gcMillis() {
+            long total = 0;
+            for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
+                total += Math.max(0L, bean.getCollectionTime());
+            }
+            return total;
+        }
     }
 }
