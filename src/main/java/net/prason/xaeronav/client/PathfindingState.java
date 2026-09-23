@@ -2617,9 +2617,15 @@ public final class PathfindingState {
         if (deviation < SUSPICIOUS_DEVIATION_BLOCKS && !manyEdits) {
             return;
         }
+        BlockPos currentGoal = goal;
+        WindowField field = currentGoal == null ? null : navGraphGuide.latest(currentGoal);
+        BlockPos end = steps.get(steps.size() - 1).pos();
         LOGGER.info("XaeroNav: 経路が直線から大きく外れています "
-                        + "(ずれ={}ブロック, 目標まで{}ブロック, {}ステップ, 曲がり{}, 橋{}, 掘削{}, 内訳={})",
-                Math.round(deviation), Math.round(length), steps.size(), turns, bridges, digs, kinds);
+                        + "(ずれ={}ブロック, 目標まで{}ブロック, {}ステップ, 曲がり{}, 橋{}, 掘削{}, 内訳={}, "
+                        + "始点の値の出どころ={}, 末端{}の値の出どころ={})",
+                Math.round(deviation), Math.round(length), steps.size(), turns, bridges, digs, kinds,
+                field == null ? "航法グラフ無し" : NavGraphGuide.origin(field, start), end.toShortString(),
+                field == null ? "航法グラフ無し" : NavGraphGuide.origin(field, end));
     }
 
     /**

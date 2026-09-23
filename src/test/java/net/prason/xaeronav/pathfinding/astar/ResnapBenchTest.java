@@ -72,4 +72,39 @@ class ResnapBenchTest {
                     warmMillis, guidedMillis, guided.steps().size(), fallbackMillis, fallback.steps().size());
         }
     }
+
+    /** 実機（2026-09-23 20:50）で継ぎ足しが北東へ遠ざかった地点から、ガイドの値の出どころを辿る。 */
+    @Test
+    void whyNorthEast() throws IOException {
+        FakeCells cells = NetherTrapBenchTest.cells();
+        BlockPos goal = StanceFinder.resolveGoal(cells, GOAL);
+        BlockPos[][] cases = {
+                {new BlockPos(-163, 73, 438), new BlockPos(-129, 71, 445), new BlockPos(-106, 60, 410)},
+                {new BlockPos(-129, 71, 445), new BlockPos(-129, 71, 445), new BlockPos(-106, 60, 410)}};
+        for (BlockPos[] c : cases) {
+            BlockPos player = StanceFinder.resolveStart(cells, c[0]);
+            WindowedCells window = new WindowedCells(cells, player, WINDOW);
+            CostToGo voxel = XaeroMapModel.guide(cells, player, goal, NetherLiveWalkTest.NETHER_MIN_Y,
+                    NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L);
+            FarField far = FarField.of((x, y, z) -> 1.3 * voxel.estimate(x, y, z));
+            NavGraph graph = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
+            WindowField field = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
+                    LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
+                    Runtime.getRuntime().availableProcessors(), () -> false).field();
+            for (int i = 0; i < 3; i++) {
+                BlockPos p = i == 0 ? player : StanceFinder.resolveStart(cells, c[i]);
+                WindowField.Descent d = field.descend(p.getX(), p.getY(), p.getZ());
+                System.out.printf(Locale.ROOT, "窓の中心%s 点%s 値=%.0f 出どころ=%s%n", player.toShortString(),
+                        p.toShortString(), field.estimate(p.getX(), p.getY(), p.getZ()),
+                        d == null ? "-" : "%s 窓の中%.0f+外%.0f 3D粗層の素の値%.0f 縁から目的地まで直線%.0f".formatted(
+                                d.exit().toShortString(), d.inside(), d.outside(),
+                                voxel.estimate(d.exit().getX(), d.exit().getY(), d.exit().getZ()),
+                                Math.hypot(d.exit().getX() - goal.getX(), d.exit().getZ() - goal.getZ())));
+            }
+        }
+        // 比較: 目的地までの本当の最短（窓無し）
+        BlockPos from = StanceFinder.resolveStart(cells, new BlockPos(-163, 73, 438));
+        System.out.printf(Locale.ROOT, "真の最短(窓無し) %s→目的地 = %.0f%n", from.toShortString(),
+                ProgressiveWalk.fullVisibilityBest(cells, from, goal));
+    }
 }

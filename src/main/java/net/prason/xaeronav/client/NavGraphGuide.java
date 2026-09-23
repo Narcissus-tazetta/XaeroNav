@@ -19,6 +19,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
 import net.prason.xaeronav.pathfinding.navgraph.LoadedArea;
 import net.prason.xaeronav.pathfinding.navgraph.NavGraph;
@@ -209,6 +210,28 @@ final class NavGraphGuide {
         return current != null && current.key().goal().equals(goal) ? current.field() : null;
     }
 
+    /**
+     * {@code from}のガイドの値がどこから来たか（{@link WindowField#descend}）を1語で。経路の向きを決めたのが
+     * 窓の中の実費か、窓の縁で読んだ外の推定かを、実機のログで見分けるためのもの。
+     */
+    static String origin(CostToGo guide, BlockPos from) {
+        if (!(guide instanceof WindowField field)) {
+            return "航法グラフ以外";
+        }
+        WindowField.Descent descent = field.descend(from.getX(), from.getY(), from.getZ());
+        if (descent == null) {
+            return "ノードでない";
+        }
+        if (descent.reachedGoal()) {
+            return "目的地(窓の中%d)".formatted(Math.round(descent.inside()));
+        }
+        BlockPos exit = descent.exit();
+        BlockPos goal = field.goal();
+        return "縁%s(窓の中%d+外の推定%d, 縁から目的地まで直線%d)".formatted(exit.toShortString(),
+                Math.round(descent.inside()), Math.round(descent.outside()),
+                Math.round(Math.hypot(exit.getX() - goal.getX(), exit.getZ() - goal.getZ())));
+    }
+
     /** 持ち物は毎回見る。置けるブロックを拾った・使い切ったで橋の辺が生えたり消えたりする。 */
     private static boolean canPlaceBlocks(Player player, MovementOptions options) {
         return options.bridgingEnabled()
@@ -267,11 +290,12 @@ final class NavGraphGuide {
                     if (logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
                         NavGraph current = graph;
                         LOGGER.info("XaeroNav: 航法グラフ (組んだセクション={}, 構築{}ms, ガイド{}ms, 辺={}, ノード={}, "
-                                        + "グラフ{}MB, ガイド{}MB, 並列{}, 窓の外={})",
+                                        + "グラフ{}MB, ガイド{}MB, 並列{}, 窓の外={}, 中心{}の値の出どころ={})",
                                 refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
                                 refreshed.field().edges(), refreshed.field().nodes(),
                                 current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
-                                workers, farMap == null ? "直線距離" : farMap.name());
+                                workers, farMap == null ? "直線距離" : farMap.name(), at.toShortString(),
+                                origin(refreshed.field(), at));
                     }
                 });
     }

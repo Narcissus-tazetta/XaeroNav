@@ -114,6 +114,35 @@ class WindowFieldTest {
     }
 
     @Test
+    void descendsToTheGoalInsideTheWindow() {
+        FakeCells cells = world(true);
+        BlockPos start = new BlockPos(10, FLOOR_Y + 1, 50);
+        BlockPos goal = new BlockPos(54, FLOOR_Y + 1, 50);
+        WindowField field = built(cells, goal, 32, 32, 40).field(32, 32, 40, FarField.UNKNOWN, () -> false);
+        assertNotNull(field);
+        WindowField.Descent descent = field.descend(start.getX(), start.getY(), start.getZ());
+        assertNotNull(descent);
+        assertTrue(descent.reachedGoal());
+        assertEquals(field.estimate(start.getX(), start.getY(), start.getZ()), descent.inside(), 1e-6);
+    }
+
+    @Test
+    void descendsToTheWindowEdgeWhenTheGoalIsOutside() {
+        FakeCells cells = world(false);
+        BlockPos start = new BlockPos(8, FLOOR_Y + 1, 32);
+        BlockPos goal = new BlockPos(60, FLOOR_Y + 1, 32);
+        FarField far = (x, y, z) -> Heuristic.estimate(x, y, z, goal.getX(), goal.getY(), goal.getZ());
+        WindowField field = built(cells, goal, 12, 32, 24).field(12, 32, 24, far, () -> false);
+        assertNotNull(field);
+        WindowField.Descent descent = field.descend(start.getX(), start.getY(), start.getZ());
+        assertNotNull(descent);
+        assertFalse(descent.reachedGoal());
+        // 窓は x=-12..36。出どころは目的地の側の縁
+        assertTrue(descent.exit().getX() >= 12 + 24 - 3, "縁で止まっていない: " + descent.exit());
+        assertEquals(field.estimate(start.getX(), start.getY(), start.getZ()), descent.inside() + descent.outside(), 1e-6);
+    }
+
+    @Test
     void seedsTheWindowEdgeFromTheFarField() {
         FakeCells cells = world(false);
         BlockPos start = new BlockPos(8, FLOOR_Y + 1, 32);
