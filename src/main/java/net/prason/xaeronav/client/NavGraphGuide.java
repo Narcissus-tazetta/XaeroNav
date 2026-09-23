@@ -158,6 +158,8 @@ final class NavGraphGuide {
 
     private volatile @Nullable Built built;
     private volatile boolean building;
+    // 高さの寄せ直しの後。経路は出たままなので、ガイドが無くても全力で組む理由が無い
+    private volatile boolean retargeted;
     // 直近の探索が前進できなかった。ワーカースレッド（whenComplete）が立て、forGoalが落とす
     private volatile boolean stalled;
     private long nextStallRebuildMillis;
@@ -263,7 +265,7 @@ final class NavGraphGuide {
         int minY = key.minY();
         int maxY = key.maxY();
         // この目的地のガイドがまだ無い＝案内を待たせている間だけ全力で組む
-        int workers = built != null && built.key().equals(key) ? REBUILD_WORKERS : WORKERS;
+        int workers = retargeted || built != null && built.key().equals(key) ? REBUILD_WORKERS : WORKERS;
         building = true;
         long myGeneration = generation.incrementAndGet();
         CompletableFuture.supplyAsync(() -> {
@@ -287,6 +289,7 @@ final class NavGraphGuide {
                         return;
                     }
                     built = new Built(key, at, refreshed.field());
+                    retargeted = false;
                     if (logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
                         NavGraph current = graph;
                         LOGGER.info("XaeroNav: 航法グラフ (組んだセクション={}, 構築{}ms, ガイド{}ms, 辺={}, ノード={}, "
@@ -346,6 +349,7 @@ final class NavGraphGuide {
         generation.incrementAndGet();
         built = null;
         building = false;
+        retargeted = true;
         logGate.reset();
     }
 
@@ -355,6 +359,7 @@ final class NavGraphGuide {
         built = null;
         building = false;
         stalled = false;
+        retargeted = false;
         nextStallRebuildMillis = 0L;
         logGate.reset();
         coordinator.execute(() -> {
