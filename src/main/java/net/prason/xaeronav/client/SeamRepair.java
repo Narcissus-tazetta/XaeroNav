@@ -327,7 +327,7 @@ final class SeamRepair {
         CompletableFuture<PathResult> repairFuture = executor.submit(
                 AvoidedCellSource.wrap(repairTerrain, recentFailures.avoided()),
                 fromPos, toPos, limits, false, 0, carried);
-        generationGate.whenStillCurrent(repairFuture, myGeneration, (repaired, error) -> {
+        generationGate.whenStillCurrent(repairFuture, myGeneration, TickLaps.timed("受け取り/繋ぎ目", (repaired, error) -> {
             try {
                 host.setComputing(false);
                 if (error != null) {
@@ -351,14 +351,16 @@ final class SeamRepair {
                     return;
                 }
                 refusalGate.reset();
+                long replaceLap = TickLaps.start();
                 host.setDisplayed(withSection(shown, repaired.steps(), sectionFrom, sectionTo));
+                TickLaps.add("解き直しの差し替え", replaceLap);
                 LOGGER.info("XaeroNav: 繋ぎ目を解き直しました ({}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
                         label, Math.round(current), Math.round(replacement),
                         sectionTo - sectionFrom + 1, repaired.steps().size(), repaired.expandedNodes());
             } finally {
                 onChanged.run();
             }
-        });
+        }));
     }
 
     /**

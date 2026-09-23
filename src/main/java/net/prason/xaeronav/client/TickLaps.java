@@ -1,8 +1,11 @@
 package net.prason.xaeronav.client;
 
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.BiConsumer;
 
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.util.ChangeGate;
@@ -27,6 +30,7 @@ final class TickLaps {
     private static int size;
     private static Thread owner;
     private static boolean inTick;
+    private static long gcAtBegin;
 
     private TickLaps() {
     }
@@ -35,6 +39,7 @@ final class TickLaps {
         owner = Thread.currentThread();
         size = 0;
         inTick = true;
+        gcAtBegin = gcPauseMillis();
     }
 
     static void end() {
@@ -95,6 +100,18 @@ final class TickLaps {
         };
     }
 
+    /** 受け取りの中身に名前を付けて測る。どの受け取りが重いかは、ラムダのクラス名からは分からない。 */
+    static <T> BiConsumer<T, Throwable> timed(String name, BiConsumer<T, Throwable> action) {
+        return (result, error) -> {
+            long lap = start();
+            try {
+                action.accept(result, error);
+            } finally {
+                add(name, lap);
+            }
+        };
+    }
+
     private static final long SLOW_TASK_MILLIS = 50L;
     private static final long SLOW_TASK_LOG_INTERVAL_MILLIS = 5_000L;
     private static final ChangeGate<Boolean> slowTaskGate = new ChangeGate<>();
@@ -107,8 +124,10 @@ final class TickLaps {
                 shown.add(i);
             }
         }
+        // 止まっていた間のGC。処理そのものではなく、その最中に入ったGCの停止で遅く見えることがある
+        long gc = gcPauseMillis() - gcAtBegin;
         if (shown.isEmpty()) {
-            return "内訳なし";
+            return gc > 0 ? "内訳なし, GC=" + gc + "ms" : "内訳なし";
         }
         shown.sort((a, b) -> Long.compare(NANOS[b], NANOS[a]));
         StringBuilder text = new StringBuilder();
@@ -121,6 +140,21 @@ final class TickLaps {
                 text.append('×').append(CALLS[i]);
             }
         }
+        if (gc > 0) {
+            text.append(", GC=").append(gc).append("ms");
+        }
         return text.toString();
+    }
+
+    /** 起動からのGCでスレッドが止まった時間の合計。 */
+    static long gcPauseMillis() {
+        long total = 0;
+        for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
+            // G1の"G1 Concurrent GC"はアプリのスレッドを止めない並行処理の時間なので、止まった時間に数えない
+            if (!bean.getName().contains("Concurrent")) {
+                total += Math.max(0L, bean.getCollectionTime());
+            }
+        }
+        return total;
     }
 }

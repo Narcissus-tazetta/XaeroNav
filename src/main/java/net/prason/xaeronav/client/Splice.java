@@ -250,7 +250,7 @@ final class Splice {
         CompletableFuture<PathResult> spliceFuture = executor.submit(
                 AvoidedCellSource.wrap(view, recentFailures.avoided()), playerAt, joinPos, limits,
                 tuning.costToGoGuideEnabled(), 0, carried);
-        generationGate.whenStillCurrent(spliceFuture, myGeneration, (splice, error) -> {
+        generationGate.whenStillCurrent(spliceFuture, myGeneration, TickLaps.timed("受け取り/合流", (splice, error) -> {
             try {
                 host.setComputing(false);
                 if (error != null) {
@@ -290,13 +290,15 @@ final class Splice {
                 blockedFrom = null;
                 refusalGate.reset();
                 seamRepair.queue(joinPos);
+                long spliceLap = TickLaps.start();
                 host.setDisplayed(spliced(shown, splice, joinIndex));
+                TickLaps.add("合流の差し替え", spliceLap);
                 LOGGER.info("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
                         splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
             } finally {
                 onChanged.run();
             }
-        });
+        }));
         return true;
     }
 

@@ -1,7 +1,5 @@
 package net.prason.xaeronav.client;
 
-import java.lang.management.GarbageCollectorMXBean;
-import java.lang.management.ManagementFactory;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -390,7 +388,7 @@ final class NavGraphGuide {
         void record(long began, long ended, long captureMillis, NavGraph.@Nullable Refreshed refreshed) {
             if (runs == 0) {
                 since = began;
-                gcSince = gcMillis();
+                gcSince = TickLaps.gcPauseMillis();
             }
             runs++;
             busyMillis += ended - began;
@@ -416,7 +414,7 @@ final class NavGraphGuide {
             LOGGER.info("XaeroNav: 航法グラフの負荷 (直近{}秒, 組み直し{}回(打ち切り{}), 段取りの稼働率{}%, 構築計{}ms, ガイド計{}ms, "
                             + "1回最大{}ms, チャンク集め最大{}ms(メインスレッド), GC{}ms, ヒープ{}/{}MB)",
                     span / 1000, runs, cancelled, 100 * busyMillis / span, buildMillis, guideMillis, maxMillis,
-                    maxCaptureMillis, gcMillis() - gcSince, (runtime.totalMemory() - runtime.freeMemory()) >> 20,
+                    maxCaptureMillis, TickLaps.gcPauseMillis() - gcSince, (runtime.totalMemory() - runtime.freeMemory()) >> 20,
                     runtime.maxMemory() >> 20);
             runs = 0;
             cancelled = 0;
@@ -425,14 +423,6 @@ final class NavGraphGuide {
             guideMillis = 0;
             maxMillis = 0;
             maxCaptureMillis = 0;
-        }
-
-        private static long gcMillis() {
-            long total = 0;
-            for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
-                total += Math.max(0L, bean.getCollectionTime());
-            }
-            return total;
         }
     }
 }

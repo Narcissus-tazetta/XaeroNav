@@ -1935,7 +1935,7 @@ public final class PathfindingState {
             future = executor.submit(AvoidedCellSource.wrap(view, avoided), start, finalTarget, limits,
                     costToGoGuideEnabled, goalRadius, Carryover.NONE, prepared);
         }
-        generationGate.whenStillCurrent(future, myGeneration, (result, error) -> {
+        generationGate.whenStillCurrent(future, myGeneration, TickLaps.timed("受け取り/再計算", (result, error) -> {
             try {
                 computing = false;
                 if (error != null) {
@@ -2054,7 +2054,9 @@ public final class PathfindingState {
                     // 対してできることを全部やり終えてからにする（さもないと、エスカレーションで
                     // 解決するはずの状況を先に詰みと決めつけてその再挑戦ごと止めてしまう）
                     if (!pendingWideRetry && !pendingCoarseGuideRetry && !pendingDeepRetry) {
+                        long outcomeLap = TickLaps.start();
                         noteSearchOutcome(start, endOf(result, start), result);
+                        TickLaps.add("詰みの判定", outcomeLap);
                     }
                 }
                 if (!result.complete() && worthKeeping != null && displayed == worthKeeping) {
@@ -2065,8 +2067,10 @@ public final class PathfindingState {
                                 worthKeeping.result().steps().size(), result.steps().size(), result.termination());
                         return;
                     }
+                    long compareLap = TickLaps.start();
                     PartialProgress kept = PartialProgress.compare(worthKeeping.result(), result, start, currentGoal,
                             keepGuide);
+                    TickLaps.add("途中までの比較", compareLap);
                     if (kept.oldAhead()) {
                         // 途中までどうしなら、目的地の近くまで引けている方が案内として上。予算切れの探索は
                         // 引き直すたびに違う所で打ち切られるので、比べずに差し替えると、目的地まで16ブロックの
@@ -2085,13 +2089,17 @@ public final class PathfindingState {
                 }
                 // 新しい経路に対する合流可否は測り直しになる。前の経路で失敗した記録は持ち越さない
                 splice.clearBlock();
+                long shapeLap = TickLaps.start();
                 noteSuspiciousShape(start, finalTarget, result);
+                TickLaps.add("形の点検", shapeLap);
+                long regressionLap = TickLaps.start();
                 noteRouteRegression(trigger, forced, start, currentGoal, result);
+                TickLaps.add("後退の点検", regressionLap);
                 displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
             } finally {
                 publishNavigationView();
             }
-        });
+        }));
     }
 
     /**
