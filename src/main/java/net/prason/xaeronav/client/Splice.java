@@ -176,6 +176,15 @@ final class Splice {
      *                     先へ合流しないと同じ場所へ戻ってしまうので、その次を渡す
      */
     boolean trySplice(Level level, Player player, PathfindingState.DisplayedPath shown, int minJoinIndex) {
+        long lap = TickLaps.start();
+        try {
+            return trySpliceNow(level, player, shown, minJoinIndex);
+        } finally {
+            TickLaps.add("合流", lap);
+        }
+    }
+
+    private boolean trySpliceNow(Level level, Player player, PathfindingState.DisplayedPath shown, int minJoinIndex) {
         if (shown.mode() == PathfindingState.PathMode.TO_SURFACE) {
             return false;
         }
@@ -221,7 +230,9 @@ final class Splice {
         SearchBounds bounds = SearchBounds.around(level, playerAt, joinPos,
                 tuning.searchHorizontalMargin(), PathfindingState.verticalSearchMargin(level, false),
                 renderRadius);
+        long captureLap = TickLaps.start();
         ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
+        TickLaps.add("チャンク集め", captureLap);
         SearchLimits full = tuning.searchLimits();
         SearchLimits limits = new SearchLimits(Math.min(full.maxExpandedNodes(), SPLICE_MAX_EXPANDED_NODES),
                 full.timeLimitMillis(), full.heuristicWeight());
@@ -239,7 +250,7 @@ final class Splice {
         CompletableFuture<PathResult> spliceFuture = executor.submit(
                 AvoidedCellSource.wrap(view, recentFailures.avoided()), playerAt, joinPos, limits,
                 tuning.costToGoGuideEnabled(), 0, carried);
-        generationGate.whenStillCurrent(spliceFuture, myGeneration, (splice, error) -> {
+        generationGate.whenStillCurrent(spliceFuture, myGeneration, TickLaps.timed("受け取り/合流", (splice, error) -> {
             try {
                 host.setComputing(false);
                 if (error != null) {
@@ -279,13 +290,15 @@ final class Splice {
                 blockedFrom = null;
                 refusalGate.reset();
                 seamRepair.queue(joinPos);
+                long spliceLap = TickLaps.start();
                 host.setDisplayed(spliced(shown, splice, joinIndex));
+                TickLaps.add("合流の差し替え", spliceLap);
                 LOGGER.info("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
                         splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
             } finally {
                 onChanged.run();
             }
-        });
+        }));
         return true;
     }
 

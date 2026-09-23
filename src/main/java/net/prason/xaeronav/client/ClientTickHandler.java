@@ -31,19 +31,30 @@ public final class ClientTickHandler {
 
     public void onClientTick() {
         long startMillis = MonotonicTime.millis();
+        TickLaps.begin();
+        long lap = TickLaps.start();
         XaeroNavKeys.handleInput();
+        TickLaps.add("キー入力", lap);
+        lap = TickLaps.start();
         PathfindingState.INSTANCE.onClientTick();
+        TickLaps.add("経路の状態", lap);
+        lap = TickLaps.start();
         NavPace.INSTANCE.onClientTick();
+        TickLaps.add("速度の実測", lap);
+        lap = TickLaps.start();
         XaeroHookHealth.onClientTick();
+        TickLaps.add("Xaero連携の点検", lap);
         // XaeroHookRuntimeProbeはXaero型を直接参照するため、通常起動ではクラス自体をloadしない。
         if (RUNTIME_HOOK_PROBE) {
             XaeroHookRuntimeProbe.onClientTick();
         }
+        TickLaps.end();
         long nowMillis = MonotonicTime.millis();
         long elapsedMillis = nowMillis - startMillis;
         if (elapsedMillis > SLOW_TICK_THRESHOLD_MILLIS
                 && slowTickGate.changed(true, nowMillis, SLOW_TICK_LOG_INTERVAL_MILLIS)) {
-            XaeroNav.LOGGER.warn("XaeroNav: tick処理が遅い ({}ms > {}ms)", elapsedMillis, SLOW_TICK_THRESHOLD_MILLIS);
+            XaeroNav.LOGGER.warn("XaeroNav: tick処理が遅い ({}ms > {}ms, 内訳={})", elapsedMillis, SLOW_TICK_THRESHOLD_MILLIS,
+                    TickLaps.summary());
         }
     }
 

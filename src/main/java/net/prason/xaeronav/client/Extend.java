@@ -304,6 +304,15 @@ final class Extend {
      * 同じ扱いで、合成後の{@code complete}がfalseになることで次からは自然に上のトリガーへ引き継がれる。
      */
     void extendPath(PathfindingState.DisplayedPath shown) {
+        long lap = TickLaps.start();
+        try {
+            extendPathNow(shown);
+        } finally {
+            TickLaps.add("継ぎ足し", lap);
+        }
+    }
+
+    private void extendPathNow(PathfindingState.DisplayedPath shown) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
@@ -356,7 +365,9 @@ final class Extend {
                         tuning.searchHorizontalMargin())
                 : SearchBounds.around(level, from, target, tuning.searchHorizontalMargin(),
                         PathfindingState.verticalSearchMargin(level, false), renderRadius);
+        long captureLap = TickLaps.start();
         ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
+        TickLaps.add("チャンク集め", captureLap);
         SearchLimits limits = navGraphGuided ? PathfindingState.navGraphLimits(tuning.searchLimits())
                 : tuning.searchLimits();
 
@@ -375,7 +386,7 @@ final class Extend {
         CompletableFuture<PathResult> extendFuture = executor.submit(
                 AvoidedCellSource.wrap(futureTerrain, recentFailures.avoided()), from, target, limits,
                 costToGoGuideEnabled, detail.goalRadius(), carried, prepared);
-        generationGate.whenStillCurrent(extendFuture, myGeneration, (result, error) -> {
+        generationGate.whenStillCurrent(extendFuture, myGeneration, TickLaps.timed("受け取り/継ぎ足し", (result, error) -> {
             try {
                 host.setComputing(false);
                 if (error != null) {
@@ -420,19 +431,25 @@ final class Extend {
                 // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
                 // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
                 // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
+                long loopLap = TickLaps.start();
                 SeamRepair.Loop loop = noteLoop(steps, tail, target, result, navGraphGuided);
+                TickLaps.add("輪の検出", loopLap);
+                long retreatLap = TickLaps.start();
                 noteRetreatingTail(from, tail.get(tail.size() - 1).pos(), currentGoal, target, result, goalGuide);
+                TickLaps.add("遠ざかりの点検", retreatLap);
                 seamRepair.queue(from);
                 if (loop != null) {
                     seamRepair.queueLoop(loop);
                 }
+                long appendLap = TickLaps.start();
                 host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal));
+                TickLaps.add("継ぎ足しの連結", appendLap);
                 blockedAt = null;
                 blockedFrom = null;
             } finally {
                 onChanged.run();
             }
-        });
+        }));
     }
 
     /**

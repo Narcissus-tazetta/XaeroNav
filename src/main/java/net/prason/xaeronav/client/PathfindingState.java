@@ -535,7 +535,7 @@ public final class PathfindingState {
     private final RecentFailures recentFailures = new RecentFailures();
 
     private PathfindingState() {
-        this(runnable -> Minecraft.getInstance().execute(runnable));
+        this(runnable -> Minecraft.getInstance().execute(TickLaps.timed(runnable)));
     }
 
     PathfindingState(Consumer<Runnable> onMainThread) {
@@ -1098,11 +1098,15 @@ public final class PathfindingState {
             // 更新されないままだったので、その間に経路が差し替わると「別の経路に対して測った距離」が
             // 残り続ける——逸脱の判定・案内・描画がまとめてその値を読む。地図を開いたまま経路が
             // 出来上がるのは一番ありがちな操作（下のコメント参照）で、そこが一番当たりやすい
+            long progressLap = TickLaps.start();
             PathProgress.INSTANCE.update(shown == null ? null : shown.result(), mc.player.position());
+            TickLaps.add("進捗の対応づけ", progressLap);
             // 画面を開いている間の早期returnより先に置く。ここから下で止まるのはプレイヤーが
             // 動けない状況だけなので、後退の観測を落としても取りこぼしは無いが、順序を変えると
             // 「滑空中は数えない」のような穴が生まれる
+            long retreatLap = TickLaps.start();
             noteRetreat(mc.player.blockPosition(), currentGoal, shown);
+            TickLaps.add("後退の監視", retreatLap);
             // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
             // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
             if (mc.screen != null) {
@@ -1257,15 +1261,19 @@ public final class PathfindingState {
                 // 関係が無いうえ、そこから走査すると背後の変化で止まって先の変化を見落とす。
                 // 描画距離より先は goto 直後のストリーミング中に誤爆するので見ない（PathValidator参照）
                 int validationHorizon = mc.options.getEffectiveRenderDistance() * 16;
+                long validationLap = TickLaps.start();
                 PathValidator.Failure failure = PathValidator.firstFailureFrom(mc.level, result,
                         PathProgress.INSTANCE.indexFor(result), mc.player.blockPosition(), validationHorizon);
+                TickLaps.add("経路の検証", validationLap);
                 if (failure != null) {
                     noteUnusableCell(failure);
                     handleBlockedPath(mc.level, mc.player, shown, failure);
                 }
             }
         } finally {
+            long publishLap = TickLaps.start();
             publishNavigationView();
+            TickLaps.add("表示の更新", publishLap);
         }
     }
 
@@ -1744,6 +1752,15 @@ public final class PathfindingState {
     }
 
     private void recalculate(Escalation forced, String trigger) {
+        long lap = TickLaps.start();
+        try {
+            recalculateNow(forced, trigger);
+        } finally {
+            TickLaps.add("再計算", lap);
+        }
+    }
+
+    private void recalculateNow(Escalation forced, String trigger) {
         ticksSinceRecalc = 0;
         ticksSinceValidation = 0;
         // 全部引き直すなら、手前の経路ごと繋ぎ目も消える
@@ -1856,7 +1873,9 @@ public final class PathfindingState {
                 ? navGraphBounds(level, start, target, start, renderRadius, horizontalMargin)
                 : SearchBounds.around(level, start, target, horizontalMargin, verticalSearchMargin(level, wideSearch),
                         renderRadius);
+        long captureLap = TickLaps.start();
         ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
+        TickLaps.add("チャンク集め", captureLap);
         if (!climbing) {
             noteTargetStandability(view, target, mode, waypointIndex);
         }
@@ -1916,7 +1935,7 @@ public final class PathfindingState {
             future = executor.submit(AvoidedCellSource.wrap(view, avoided), start, finalTarget, limits,
                     costToGoGuideEnabled, goalRadius, Carryover.NONE, prepared);
         }
-        generationGate.whenStillCurrent(future, myGeneration, (result, error) -> {
+        generationGate.whenStillCurrent(future, myGeneration, TickLaps.timed("受け取り/再計算", (result, error) -> {
             try {
                 computing = false;
                 if (error != null) {
@@ -2035,7 +2054,9 @@ public final class PathfindingState {
                     // 対してできることを全部やり終えてからにする（さもないと、エスカレーションで
                     // 解決するはずの状況を先に詰みと決めつけてその再挑戦ごと止めてしまう）
                     if (!pendingWideRetry && !pendingCoarseGuideRetry && !pendingDeepRetry) {
+                        long outcomeLap = TickLaps.start();
                         noteSearchOutcome(start, endOf(result, start), result);
+                        TickLaps.add("詰みの判定", outcomeLap);
                     }
                 }
                 if (!result.complete() && worthKeeping != null && displayed == worthKeeping) {
@@ -2046,8 +2067,10 @@ public final class PathfindingState {
                                 worthKeeping.result().steps().size(), result.steps().size(), result.termination());
                         return;
                     }
+                    long compareLap = TickLaps.start();
                     PartialProgress kept = PartialProgress.compare(worthKeeping.result(), result, start, currentGoal,
                             keepGuide);
+                    TickLaps.add("途中までの比較", compareLap);
                     if (kept.oldAhead()) {
                         // 途中までどうしなら、目的地の近くまで引けている方が案内として上。予算切れの探索は
                         // 引き直すたびに違う所で打ち切られるので、比べずに差し替えると、目的地まで16ブロックの
@@ -2066,13 +2089,17 @@ public final class PathfindingState {
                 }
                 // 新しい経路に対する合流可否は測り直しになる。前の経路で失敗した記録は持ち越さない
                 splice.clearBlock();
+                long shapeLap = TickLaps.start();
                 noteSuspiciousShape(start, finalTarget, result);
+                TickLaps.add("形の点検", shapeLap);
+                long regressionLap = TickLaps.start();
                 noteRouteRegression(trigger, forced, start, currentGoal, result);
+                TickLaps.add("後退の点検", regressionLap);
                 displayed = new DisplayedPath(result, finalMode, finalWaypointIndex);
             } finally {
                 publishNavigationView();
             }
-        });
+        }));
     }
 
     /**
@@ -2415,8 +2442,10 @@ public final class PathfindingState {
             if (!XaeroPresence.mapPresent()) {
                 return null;
             }
+            long voxelLap = TickLaps.start();
             CostToGo voxel = voxelGuide.forGoal(level, level.dimension(), player.blockPosition(), currentGoal,
                     XaeroNavConfig.INSTANCE.movementOptions().lavaBridgingEnabled());
+            TickLaps.add("3D粗層の起動", voxelLap);
             if (voxel == null || !navGraphEnabled) {
                 return voxel == null ? null : new GoalGuide(voxel, false);
             }
@@ -2435,8 +2464,10 @@ public final class PathfindingState {
                     : new NavGraphGuide.Far("層1", map, () -> FarField.of(
                             CoarseRouter.costToGo(map, currentGoal, false, CoarseRouter.BridgePolicy.BRIDGE)));
         }
+        long navGraphLap = TickLaps.start();
         WindowField field = navGraphGuide.forGoal(level, player, currentGoal, renderRadius,
                 XaeroNavConfig.INSTANCE.movementOptions(), far);
+        TickLaps.add("航法グラフの起動", navGraphLap);
         // 窓の中の目的地が殻に繋がっていない回は使わない。窓全体の値が縁の外の推定だけから来る
         if (field != null && field.reachesGoal()) {
             return new GoalGuide(field, true);
@@ -2747,7 +2778,9 @@ public final class PathfindingState {
 
     private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
                                        boolean ceilingDimension) {
+        long coarseLap = TickLaps.start();
         CoarseAttempt attempt = computeCoarseRoute(start, currentGoal, boatAvailable);
+        TickLaps.add("長距離ルート", coarseLap);
         CoarseRouter.Route route = attempt.route();
         coarseMapRetryAfterMillis = MonotonicTime.millis() + COARSE_MAP_RETRY_INTERVAL_MILLIS;
         List<BlockPos> waypoints = route.waypoints();
