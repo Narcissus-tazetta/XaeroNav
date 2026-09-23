@@ -28,7 +28,8 @@ import net.prason.xaeronav.pathfinding.world.WindowedCells;
 @Tag("bench")
 class NetherTrapBenchTest {
 
-    private static final int WINDOW = 160;
+    /** 実機の既定（{@code NavGraphGuide.WINDOW_BLOCKS}）。{@code -Pxaeronav.window=240}で振れる。 */
+    private static final int WINDOW = Integer.getInteger("xaeronav.window", 224);
     private static final BlockPos GOAL = new BlockPos(-53, Integer.getInteger("xaeronav.goalY", 68), 716);
     private static final BlockPos TRAP = new BlockPos(-65, 47, 521);
     private static final List<BlockPos> STARTS = List.of(new BlockPos(-12, 64, 349), new BlockPos(72, 69, 439),
@@ -69,7 +70,7 @@ class NetherTrapBenchTest {
 
     /** {@code scale}が正なら固定倍率、0なら組み直しのたびに自己較正（初期値1.3、前回の倍率から1回だけ更新）。 */
     private static Function<BlockPos, CostToGo> guide(FakeCells cells, BlockPos goal, CostToGo raw, double scale,
-                                                      List<Double> used) {
+                                                      List<Double> used, long[] guideMillis) {
         NavGraph graph = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
         double[] k = {scale > 0 ? scale : 1.3};
         BlockPos[] last = {null};
@@ -80,9 +81,11 @@ class NetherTrapBenchTest {
                 WindowedCells window = new WindowedCells(cells, player, WINDOW);
                 double current = k[0];
                 FarField far = FarField.of((x, y, z) -> current * raw.estimate(x, y, z));
+                long began = System.currentTimeMillis();
                 WindowField field = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
                         LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
                         Runtime.getRuntime().availableProcessors(), () -> false).field();
+                guideMillis[0] += System.currentTimeMillis() - began;
                 used.add(current);
                 if (scale <= 0) {
                     double measured = calibrate(cells, field, raw, player);
@@ -109,9 +112,11 @@ class NetherTrapBenchTest {
             for (String token : scales.split(",")) {
                 double scale = Double.parseDouble(token);
                 List<Double> used = new ArrayList<>();
+                long[] guideMillis = {0};
+                ProgressiveWalk.REVIEWS.set(0);
                 long began = System.currentTimeMillis();
                 ProgressiveWalk.Trace trace = ProgressiveWalk.trace(cells, start, goal, WINDOW,
-                        ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, guide(cells, goal, raw, scale, used),
+                        ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, guide(cells, goal, raw, scale, used, guideMillis),
                         1.0);
                 double trapDistance = Double.POSITIVE_INFINITY;
                 double worstRetreat = 0;
@@ -125,11 +130,11 @@ class NetherTrapBenchTest {
                 }
                 BlockPos end = trace.steps().isEmpty() ? start : trace.steps().get(trace.steps().size() - 1).pos();
                 System.out.printf(Locale.ROOT,
-                        "始点%s 倍率=%s 実費=%.0f tick 到達=%s 罠まで最接近=%.0f 最大の後退=%.0f 描き変わり%d 倍率の推移=%s %ds %s%n",
+                        "始点%s 倍率=%s 実費=%.0f tick 到達=%s 罠まで最接近=%.0f 最大の後退=%.0f 描き変わり%d 見直し%d 組み直し計%dms 倍率の推移=%s %ds %s%n",
                         start.toShortString(), scale > 0 ? token : "自己較正",
                         trace.steps().isEmpty() ? Double.NaN : ProgressiveWalk.cost(trace.steps()),
                         end.closerThan(goal, 3), trapDistance, worstRetreat, trace.redraws(),
-                        summarize(used), (System.currentTimeMillis() - began) / 1000, trace.stopped());
+                        ProgressiveWalk.REVIEWS.get(), guideMillis[0], summarize(used), (System.currentTimeMillis() - began) / 1000, trace.stopped());
             }
         }
     }
