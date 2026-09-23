@@ -1692,6 +1692,7 @@ public final class PathfindingState {
         // 判定はメインスレッドでしかできない（ワールドの参照・経路への対応づけ）。結果が返る頃には
         // 別の判断材料になってしまうので、投げる時点の答えを写し取ってワーカーへ渡す
         DisplayedPath worthKeeping = pathWorthKeeping(level, player);
+        WindowField keepGuide = navGraphGuide.latest(currentGoal);
         boolean mayAwait = !climbing && mayAwaitNavGraph(start, currentGoal, renderRadius);
         if (mayAwait && XaeroPresence.mapPresent()) {
             // 窓の外の推定（層1）とHUDの点線は、待っている間に用意しておく。組み上がってからでは初回のガイドに間に合わない
@@ -1961,11 +1962,25 @@ public final class PathfindingState {
                     }
                 }
                 if (!result.complete() && worthKeeping != null && displayed == worthKeeping) {
-                    // 完走した経路は「ここからそこまで実際に歩ける」という証明で、未到達の結果は
-                    // その証明を持たない。証明を持たないもので上書きしない（pathWorthKeeping参照）
-                    LOGGER.info("XaeroNav: 完走した経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {})",
-                            worthKeeping.result().steps().size(), result.steps().size(), result.termination());
-                    return;
+                    if (worthKeeping.result().complete()) {
+                        // 完走した経路は「ここからそこまで実際に歩ける」という証明で、未到達の結果は
+                        // その証明を持たない。証明を持たないもので上書きしない（pathWorthKeeping参照）
+                        LOGGER.info("XaeroNav: 完走した経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {})",
+                                worthKeeping.result().steps().size(), result.steps().size(), result.termination());
+                        return;
+                    }
+                    PartialProgress kept = PartialProgress.compare(worthKeeping.result(), result, start, currentGoal,
+                            keepGuide);
+                    if (kept.oldAhead()) {
+                        // 途中までどうしなら、目的地の近くまで引けている方が案内として上。予算切れの探索は
+                        // 引き直すたびに違う所で打ち切られるので、比べずに差し替えると、目的地まで16ブロックの
+                        // 所まで引けていた経路が145ブロック手前で切れる経路へ縮む（実機のネザー）
+                        LOGGER.info("XaeroNav: 途中までの経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {}, "
+                                        + "末端の残り 表示中={} 新={}, 物差し={})",
+                                worthKeeping.result().steps().size(), result.steps().size(), result.termination(),
+                                Math.round(kept.oldLeft()), Math.round(kept.newLeft()), kept.yardstick());
+                        return;
+                    }
                 }
                 if (leadsBackward(result, currentGoal)) {
                     // 経路そのものではなくプレイヤーの進み方を見る。案内どおりに歩くほど
@@ -1995,6 +2010,9 @@ public final class PathfindingState {
      * 単調に劣化した。しかも{@code trimUnfinishedPlacements}が未到達の経路から末尾の設置を
      * 落とすので、置き換わった先は橋が1本も無い切り株になる。
      *
+     * <p>途中までの経路も候補にする。こちらは証明を持たないので無条件には残さず、新しい結果より
+     * 目的地の近くまで引けているときだけ残す（{@link PartialProgress}）。
+     *
      * <p>残せるのは証明がいまも通用するときだけ。足元がまだ経路の帯の中にあること（逸脱したなら
      * その経路はもう自分の経路ではない）、まだ終端に着いていないこと（着いているなら必要なのは
      * 次の区間で、残しても案内は止まったまま）、世界の側も変わっていないこと。中継区間
@@ -2006,7 +2024,7 @@ public final class PathfindingState {
             return null;
         }
         PathResult result = shown.result();
-        if (!result.complete() || result.steps().isEmpty()) {
+        if (result.steps().isEmpty()) {
             return null;
         }
         // 完走した経路を手放す判断は、この経路が二度と引き当てられない可能性を伴う。手放した
@@ -2030,6 +2048,10 @@ public final class PathfindingState {
             // もう歩き終えた区間の変化では手放さない。渡ってきた橋を後ろから壊しても、
             // これから通る道が使えることの証明は失われない
             dropped = "地形が変わった";
+        }
+        if (dropped != null && !result.complete()) {
+            // 途中までの経路を手放すのは普通の出来事（逸脱のたびに起きる）なので黙って手放す
+            return null;
         }
         if (dropped != null) {
             if (validationFailure != null) {
