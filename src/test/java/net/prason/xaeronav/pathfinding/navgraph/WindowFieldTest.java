@@ -3,6 +3,7 @@ package net.prason.xaeronav.pathfinding.navgraph;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -69,6 +70,32 @@ class WindowFieldTest {
                 goal.getY(), goal.getZ()));
         assertEquals(optimal, field.estimate(start.getX(), start.getY(), start.getZ()), optimal * 0.01);
         assertEquals(0.0, field.estimate(goal.getX(), goal.getY(), goal.getZ()), 1e-9);
+    }
+
+    @Test
+    void retargetingTheGoalHeightMatchesAFreshGraph() {
+        // 実機のネザー: 地図のYが岩の中に落ちた目的地を、列が読み込まれてから立てる高さへ寄せ直す
+        FakeCells cells = world(true);
+        BlockPos inRock = new BlockPos(54, FLOOR_Y - 8, 50);
+        BlockPos standable = new BlockPos(54, FLOOR_Y + 1, 50);
+        NavGraph retargeted = built(cells, inRock, 32, 32, 40);
+        retargeted.retarget(standable);
+        WindowField reused = retargeted.field(32, 32, 40, FarField.UNKNOWN, () -> false);
+        WindowField fresh = built(cells, standable, 32, 32, 40).field(32, 32, 40, FarField.UNKNOWN, () -> false);
+        assertNotNull(reused);
+        assertNotNull(fresh);
+        for (int x = 0; x < 64; x += 3) {
+            for (int z = 0; z < 64; z += 3) {
+                assertEquals(fresh.estimate(x, FLOOR_Y + 1, z), reused.estimate(x, FLOOR_Y + 1, z), 1e-9,
+                        "(" + x + ", " + z + ")");
+            }
+        }
+    }
+
+    @Test
+    void refusesToRetargetToAnotherColumn() {
+        NavGraph graph = new NavGraph(new BlockPos(54, FLOOR_Y + 1, 50), 48, 96);
+        assertThrows(IllegalArgumentException.class, () -> graph.retarget(new BlockPos(55, FLOOR_Y + 1, 50)));
     }
 
     @Test

@@ -121,6 +121,14 @@ final class NavGraphGuide {
      */
     private record Key(ResourceKey<Level> dimension, BlockPos goal, MovementOptions options, boolean canPlaceBlocks,
                        int window, int minY, int maxY) {
+
+        /** 辺が同じになるか。目的地の高さは辺に効かない（{@link NavGraph#retarget}）。 */
+        boolean sameEdges(@Nullable Key other) {
+            return other != null && dimension.equals(other.dimension) && goal.getX() == other.goal.getX()
+                    && goal.getZ() == other.goal.getZ() && options.equals(other.options)
+                    && canPlaceBlocks == other.canPlaceBlocks && window == other.window && minY == other.minY
+                    && maxY == other.maxY;
+        }
     }
 
     private record Built(Key key, BlockPos center, WindowField field) {
@@ -258,7 +266,7 @@ final class NavGraphGuide {
                                                  @Nullable Far farMap, boolean invalidateAround, int workers,
                                                  BooleanSupplier cancelled) {
         NavGraph current = graph;
-        if (current == null || !key.equals(graphKey)) {
+        if (current == null || !key.sameEdges(graphKey)) {
             // 条件が変わったグラフを残して差分で組み直すことはできない（辺そのものが条件に依存する）
             current = new NavGraph(key.goal(), minY, maxY);
             graph = current;
@@ -266,7 +274,13 @@ final class NavGraphGuide {
             // 外の推定も目的地に対するもの
             far = FarField.UNKNOWN;
             farSource = null;
-        } else if (invalidateAround) {
+        } else if (!key.equals(graphKey)) {
+            current.retarget(key.goal());
+            graphKey = key;
+            far = FarField.UNKNOWN;
+            farSource = null;
+        }
+        if (invalidateAround) {
             int chunkX = at.getX() >> 4;
             int chunkZ = at.getZ() >> 4;
             for (int dx = -STALL_INVALIDATE_CHUNKS; dx <= STALL_INVALIDATE_CHUNKS; dx++) {
@@ -285,6 +299,17 @@ final class NavGraphGuide {
                 LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), far, pool, workers, cancelled);
     }
 
+    /**
+     * 目的地の高さだけが変わった。組みかけのガイドは古い高さへのものなので打ち切るが、組んだセクションは次の{@link #forGoal}で
+     * 使い回す——作り直すと窓全体（約9,000セクション）を組むことになる。
+     */
+    void retarget() {
+        generation.incrementAndGet();
+        built = null;
+        building = false;
+        logGate.reset();
+    }
+
     /** 目的地が変わった・案内を止めた。組みかけは打ち切り、覚えていたグラフも手放す。 */
     void clear() {
         generation.incrementAndGet();
@@ -292,6 +317,7 @@ final class NavGraphGuide {
         building = false;
         stalled = false;
         nextStallRebuildMillis = 0L;
+        logGate.reset();
         coordinator.execute(() -> {
             graph = null;
             graphKey = null;

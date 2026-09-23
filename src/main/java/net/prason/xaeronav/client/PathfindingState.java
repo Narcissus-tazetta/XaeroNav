@@ -781,7 +781,7 @@ public final class PathfindingState {
      *
      * <p>設定時に列が読めなければ、目的地のYは地図の推定か指定そのまま——地図クリックのYは岩の中に落ちることがある
      * （実機のネザー: 要塞の柱の中）。そのままだと航法グラフが目的地へ繋がらず、窓に入った途端にガイドが使えなくなる。
-     * 高さが変わるときだけ目的地ごと設定し直す（ガイド・長距離ルートは目的地の座標で組むので、Yだけ差し替えられない）。
+     * 変わるのは高さだけなので、引いてある経路と航法グラフは残す（{@link #retargetGoal}）。
      *
      * <p>読み込み直後のチャンクは中身がまだ届いていないことがある（{@link PathValidator}参照）。立てる所が
      * 見つからないうちは寄せ直しを諦めず、次の機会に読み直す。
@@ -804,8 +804,37 @@ public final class PathfindingState {
         }
         LOGGER.info("XaeroNav: 目的地の列が読み込まれたので立てる高さへ寄せ直しました ({} → {})",
                 current.toShortString(), resolved.toShortString());
-        setGoal(requested);
+        if (flying) {
+            setGoal(requested);
+        } else {
+            retargetGoal(resolved);
+        }
         return true;
+    }
+
+    /**
+     * 目的地を同じ列の別の高さへ差し替える。{@link #setGoal}と違って、引いてある経路は消さない。
+     *
+     * <p>消すと航法グラフを窓全体から組み直すまで経路が出ない（実機のネザー: 寄せ直しから約19秒）。高さが変わっても
+     * 経路はおおむね同じ所へ向かっていて、末端からの継ぎ足しは新しい目的地を狙う。航法グラフの辺も高さに依存しないので、
+     * 組み直すのはガイドだけで済む。
+     */
+    private void retargetGoal(BlockPos resolved) {
+        goal = resolved;
+        GoalWaypoint.sync(resolved);
+        CoarseRoute route = coarseRoute;
+        if (route != null && !route.waypoints().isEmpty()) {
+            // 長距離ルートは目的地の座標で持ち主を見分けるので、そのままだと捨てられてHUDの点線が消える
+            List<BlockPos> waypoints = route.reachedGoal() ? replaceLast(route.waypoints(), resolved) : route.waypoints();
+            coarseRoute = new CoarseRoute(resolved, route.computedFrom(), route.reachedGoal(), route.pendingRegions(),
+                    waypoints, route.map());
+        }
+        navGraphGuide.retarget();
+        reviewedField = null;
+        reviewReplannedAt = null;
+        // 岩の中の目的地へ行けないと判断していたなら、それは寄せ直す前の高さの話
+        stuckTracker.reset();
+        publishNavigationView();
     }
 
     /** 足元に立てる地面があり、体の2セルが掘らずに入れるか。{@code AStarPathfinder}の移動の前提と同じ。 */

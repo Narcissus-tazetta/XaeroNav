@@ -35,7 +35,7 @@ class NetherTrapBenchTest {
     private static final List<BlockPos> STARTS = List.of(new BlockPos(-12, 64, 349), new BlockPos(72, 69, 439),
             new BlockPos(131, 39, 652));
 
-    private static FakeCells cells() throws IOException {
+    static FakeCells cells() throws IOException {
         return TerrainFixture.load("/nether_trap.txt.gz", bounds -> FakeCells.empty(bounds)
                 .canPlaceBlocks(true).maxFallDamagePoints(0).maxBridgeRunBlocks(96).maxVoidBridgeRunBlocks(96)
                 .maxLavaBridgeRunBlocks(30));
