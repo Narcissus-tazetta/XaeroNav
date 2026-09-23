@@ -304,6 +304,15 @@ final class Extend {
      * 同じ扱いで、合成後の{@code complete}がfalseになることで次からは自然に上のトリガーへ引き継がれる。
      */
     void extendPath(PathfindingState.DisplayedPath shown) {
+        long lap = TickLaps.start();
+        try {
+            extendPathNow(shown);
+        } finally {
+            TickLaps.add("継ぎ足し", lap);
+        }
+    }
+
+    private void extendPathNow(PathfindingState.DisplayedPath shown) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
@@ -356,7 +365,9 @@ final class Extend {
                         tuning.searchHorizontalMargin())
                 : SearchBounds.around(level, from, target, tuning.searchHorizontalMargin(),
                         PathfindingState.verticalSearchMargin(level, false), renderRadius);
+        long captureLap = TickLaps.start();
         ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
+        TickLaps.add("チャンク集め", captureLap);
         SearchLimits limits = navGraphGuided ? PathfindingState.navGraphLimits(tuning.searchLimits())
                 : tuning.searchLimits();
 

@@ -176,6 +176,15 @@ final class Splice {
      *                     先へ合流しないと同じ場所へ戻ってしまうので、その次を渡す
      */
     boolean trySplice(Level level, Player player, PathfindingState.DisplayedPath shown, int minJoinIndex) {
+        long lap = TickLaps.start();
+        try {
+            return trySpliceNow(level, player, shown, minJoinIndex);
+        } finally {
+            TickLaps.add("合流", lap);
+        }
+    }
+
+    private boolean trySpliceNow(Level level, Player player, PathfindingState.DisplayedPath shown, int minJoinIndex) {
         if (shown.mode() == PathfindingState.PathMode.TO_SURFACE) {
             return false;
         }
@@ -221,7 +230,9 @@ final class Splice {
         SearchBounds bounds = SearchBounds.around(level, playerAt, joinPos,
                 tuning.searchHorizontalMargin(), PathfindingState.verticalSearchMargin(level, false),
                 renderRadius);
+        long captureLap = TickLaps.start();
         ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
+        TickLaps.add("チャンク集め", captureLap);
         SearchLimits full = tuning.searchLimits();
         SearchLimits limits = new SearchLimits(Math.min(full.maxExpandedNodes(), SPLICE_MAX_EXPANDED_NODES),
                 full.timeLimitMillis(), full.heuristicWeight());
