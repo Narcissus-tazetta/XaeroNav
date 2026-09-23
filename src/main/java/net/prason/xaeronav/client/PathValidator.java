@@ -1,7 +1,9 @@
 package net.prason.xaeronav.client;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.jspecify.annotations.Nullable;
@@ -86,23 +88,52 @@ final class PathValidator {
         // 永久に続いた</b>（実機ログで110秒・34回）。しかも「失敗」ではないので緩和も
         // エスカレーションも走らない
         Set<BlockPos> plannedDigs = new HashSet<>();
+        Map<BlockPos, Integer> plannedPlacements = new HashMap<>();
         for (int i = 0; i < steps.size(); i++) {
             PathStep step = steps.get(i);
             plannedDigs.addAll(step.digCells());
             if (i < fromIndex) {
+                if (step.placedBlockPos() != null) {
+                    plannedPlacements.putIfAbsent(step.placedBlockPos().immutable(), i);
+                }
                 continue;
             }
             if (near != null && horizonSq > 0 && horizontalDistSq(near, step.pos()) > horizonSq) {
                 // 経路は手前から順に遠ざかるとは限らない（岬を回り込む・戻る）ので、ここで打ち切らず
                 // 先のステップも見る。近傍へ戻ってくる経路ならそこは検証される
+                if (step.placedBlockPos() != null) {
+                    plannedPlacements.putIfAbsent(step.placedBlockPos().immutable(), i);
+                }
                 continue;
             }
             CellFailure failure = cellFailure(level, step, i, cursor, plannedDigs);
             if (failure != null) {
-                return new Failure(i, failure.unusableCell(), failure.reason());
+                return new Failure(i, failure.unusableCell(), failure.reason()
+                        + plannedPlacementNote(failure.unusableCell(), plannedPlacements, fromIndex));
+            }
+            // 自分の設置は自分の足場の判定より後に数える。このステップで置くブロックはこのステップの前提ではない
+            if (step.placedBlockPos() != null) {
+                plannedPlacements.putIfAbsent(step.placedBlockPos().immutable(), i);
             }
         }
         return null;
+    }
+
+    /**
+     * 不成立だったセルが、経路の手前のステップで置く予定のブロックと重なるなら、その旨の注記。
+     *
+     * <p>この検査は手前の掘削は織り込むが設置は織り込まない。一方、継ぎ足しの探索は手前の設置を足場として
+     * 使える（{@code PlannedCellSource}）ので、経路が自分の橋の上を通り直すと、まだ置いていない橋が
+     * 「足場が無い」に見えうる。誤判定かどうかをログから切り分けるための注記で、判定そのものは変えない。
+     */
+    private static String plannedPlacementNote(@Nullable BlockPos cell, Map<BlockPos, Integer> plannedPlacements,
+                                               int fromIndex) {
+        Integer placedAt = cell == null ? null : plannedPlacements.get(cell);
+        if (placedAt == null) {
+            return "";
+        }
+        return ", 手前のステップ%dで置く予定の橋の位置(%s)".formatted(placedAt,
+                placedAt < fromIndex ? "通過済み" : "これから置く");
     }
 
     /**

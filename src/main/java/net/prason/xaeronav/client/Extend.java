@@ -57,6 +57,15 @@ final class Extend {
      */
     private static final double EXTEND_RETRY_MOVE_BLOCKS = 16.0;
 
+    /** {@link #noteLoop}が「同じ場所へ戻った」とみなす各軸の距離。 */
+    private static final int LOOP_NEAR_BLOCKS = 2;
+
+    /**
+     * {@link #noteLoop}が輪とみなす、経路に沿った最小のステップ数。末端の近くで向きを変えるだけの
+     * 継ぎ足しは、末端の数ステップ手前に必ず近づくので、それでは鳴らない長さにする。
+     */
+    private static final int LOOP_MIN_GAP_STEPS = 20;
+
     /** {@link PathfindingState}が持つ、非同期完了時に読み書きする必要のある可変状態と長距離ルート選定。 */
     interface Host {
         /** 現在の目的地。 */
@@ -404,6 +413,7 @@ final class Extend {
                 // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
                 // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
                 // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
+                noteLoop(steps, tail, target, result, navGraphGuided);
                 seamRepair.queue(from);
                 host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal));
                 blockedAt = null;
@@ -412,6 +422,44 @@ final class Extend {
                 onChanged.run();
             }
         });
+    }
+
+    /**
+     * 継ぎ足す区間が既存の経路のずっと手前へ戻ってくるなら1行残す。継ぎ足しは末端から先だけを解くので、
+     * 戻ってきても手前の経路は見直されず、線が輪を描いたまま表示される。輪は後で繋ぎ目の解き直しが
+     * 切ることもあるが、「なぜ継ぎ足しが戻る向きへ伸びたか」はそこからは分からない。
+     * 経路に沿って最も多くのステップを遠回りしている組を出す。
+     */
+    private static void noteLoop(List<PathStep> route, List<PathStep> tail, BlockPos target, PathResult result,
+            boolean navGraphGuided) {
+        int bestGap = -1;
+        int bestRoute = -1;
+        int bestTail = -1;
+        for (int j = 0; j < tail.size(); j++) {
+            BlockPos at = tail.get(j).pos();
+            for (int k = 0; k < route.size(); k++) {
+                int gap = route.size() - k + j;
+                if (gap <= bestGap || gap < LOOP_MIN_GAP_STEPS) {
+                    break;
+                }
+                BlockPos p = route.get(k).pos();
+                if (Math.abs(p.getX() - at.getX()) <= LOOP_NEAR_BLOCKS && Math.abs(p.getY() - at.getY()) <= LOOP_NEAR_BLOCKS
+                        && Math.abs(p.getZ() - at.getZ()) <= LOOP_NEAR_BLOCKS) {
+                    bestGap = gap;
+                    bestRoute = k;
+                    bestTail = j;
+                    break;
+                }
+            }
+        }
+        if (bestGap < 0) {
+            return;
+        }
+        LOGGER.info("XaeroNav: 継ぎ足しが経路の手前へ戻ってきました (継ぎ足しの{}ステップ目={}, 経路の{}ステップ目={}の近く, "
+                        + "経路に沿って{}ステップの輪, 経路={}ステップ, 継ぎ足し={}ステップ/{}, 末端={}, 狙った先={}, 航法グラフ={})",
+                bestTail, tail.get(bestTail).pos().toShortString(), bestRoute, route.get(bestRoute).pos().toShortString(),
+                bestGap, route.size(), tail.size(), result.termination(), route.get(route.size() - 1).pos().toShortString(),
+                target.toShortString(), navGraphGuided);
     }
 
     /**
