@@ -26,6 +26,7 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.GenerationGate;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
+import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
@@ -65,6 +66,12 @@ final class Extend {
      * 継ぎ足しは、末端の数ステップ手前に必ず近づくので、それでは鳴らない長さにする。
      */
     private static final int LOOP_MIN_GAP_STEPS = 20;
+
+    /**
+     * {@link #noteRetreatingTail}が「遠ざかった」とみなす、目的地までの水平距離の増え幅。回り込みで数ブロック
+     * 遠ざかるのは普通なので、それでは鳴らない幅にする。
+     */
+    private static final double RETREATING_TAIL_LOG_BLOCKS = 16.0;
 
     /** {@link PathfindingState}が持つ、非同期完了時に読み書きする必要のある可変状態と長距離ルート選定。 */
     interface Host {
@@ -414,6 +421,7 @@ final class Extend {
                 // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
                 // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
                 noteLoop(steps, tail, target, result, navGraphGuided);
+                noteRetreatingTail(from, tail.get(tail.size() - 1).pos(), currentGoal, target, result, goalGuide);
                 seamRepair.queue(from);
                 host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal));
                 blockedAt = null;
@@ -422,6 +430,40 @@ final class Extend {
                 onChanged.run();
             }
         });
+    }
+
+    /**
+     * 継ぎ足した区間の末端が、継ぎ足す前の末端より目的地から遠いなら、そのときガイドが両端をどう見ていたかを1行残す。
+     *
+     * <p>継ぎ足しの終点選びはガイドの上で必ず目的地へ近づく点を選ぶので、遠ざかる向きへ伸びたなら
+     * 「ガイドが遠回りの方を近いと評価した」のか「窓の外の推定で比べていた」のかのどちらか。
+     * 両端の値と、それが窓の中で実際に辿った値か（{@link WindowField#measuredInWindow}）を並べると1行で割れる。
+     */
+    private static void noteRetreatingTail(BlockPos from, BlockPos end, BlockPos currentGoal, BlockPos target,
+            PathResult result, PathfindingState.@Nullable GoalGuide goalGuide) {
+        double fromLeft = PathfindingState.horizontalDistance(from, currentGoal);
+        double endLeft = PathfindingState.horizontalDistance(end, currentGoal);
+        if (endLeft <= fromLeft + RETREATING_TAIL_LOG_BLOCKS) {
+            return;
+        }
+        String guide = "無し";
+        if (goalGuide != null) {
+            CostToGo costToGo = goalGuide.costToGo();
+            guide = "%s 継ぎ足す前=%d%s 継ぎ足し後=%d%s".formatted(goalGuide.navGraph() ? "航法グラフ" : "3D粗層など",
+                    Math.round(costToGo.estimate(from.getX(), from.getY(), from.getZ())), windowNote(costToGo, from),
+                    Math.round(costToGo.estimate(end.getX(), end.getY(), end.getZ())), windowNote(costToGo, end));
+        }
+        LOGGER.info("XaeroNav: 継ぎ足しが目的地から遠ざかりました (継ぎ足す前の末端={}で目的地まで{}, 継ぎ足し後の末端={}で{}, "
+                        + "{}ステップ/{}, 狙った先={}, ガイド={})",
+                from.toShortString(), Math.round(fromLeft), end.toShortString(), Math.round(endLeft),
+                result.steps().size(), result.termination(), target.toShortString(), guide);
+    }
+
+    private static String windowNote(CostToGo costToGo, BlockPos pos) {
+        if (!(costToGo instanceof WindowField field)) {
+            return "";
+        }
+        return field.measuredInWindow(pos.getX(), pos.getZ()) ? "(窓の中)" : "(窓の外の推定)";
     }
 
     /**
