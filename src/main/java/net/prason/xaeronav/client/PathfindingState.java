@@ -1938,8 +1938,11 @@ public final class PathfindingState {
                     // 確実だった。深い予算を挟まずここへ来ると、区間分割も同じ予算不足で失敗する
                     boolean needsDeepRetry = !result.complete() && budgetExhausted && !finalCoarseGuided
                             && !finalDeepBudget && retryTargetInBox;
+                    // 航法グラフのガイドで探しているときは区間分割へ逃がさない。区間分割はそのガイドを受け取らず
+                    // （submitCoarseGuided）区間ごとの粗い地図で狙うので、ガイド付きの深い予算より悪い案内しか作れない——
+                    // 実機のネザーで9回中8回が未到達、1回10〜13秒で、結果は置き換える前の経路より手前で切れた
                     boolean needsCoarseGuideRetry = !result.complete() && budgetExhausted && !finalCoarseGuided
-                            && finalDeepBudget && retryTargetInBox;
+                            && finalDeepBudget && retryTargetInBox && !navGraphGuided;
                     // 成功した・広げても無駄だったときは通常マージンに戻す。pendingWideRetryはこの書き込みの
                     // 後に立てること（クライアントスレッドはpendingWideRetryを見てからwideSearchNeededTargetを読む）
                     wideSearchNeededTarget = needsWideRetry ? finalTarget : null;
