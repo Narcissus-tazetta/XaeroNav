@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
-import org.jspecify.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
@@ -41,16 +40,12 @@ final class PathValidator {
      * （足場なら足元、身体が通る前提のセルならそのセル）。ステップ自身の座標とは限らない。
      * 次の探索がそこを選び直さないために要る（{@link
      * net.prason.xaeronav.pathfinding.world.AvoidedCellSource}）。
-     *
-     * <p><b>{@code null}になるのは「掘る前提のセルが既に空いている」場合だけ。</b>そこは世界が
-     * 通りやすく変わっただけで、避ける理由が無い——避けると、もう掘らなくてよくなったセルを
-     * わざわざ迂回する経路になる。
      */
-    record Failure(int stepIndex, @Nullable BlockPos unusableCell, String reason) {
+    record Failure(int stepIndex, BlockPos unusableCell, String reason) {
     }
 
     /** 不成立だったセルと、その理由。{@link Failure}からステップの添字を除いたもの。 */
-    private record CellFailure(@Nullable BlockPos unusableCell, String reason) {
+    private record CellFailure(BlockPos unusableCell, String reason) {
     }
 
     /**
@@ -146,9 +141,9 @@ final class PathValidator {
      * といった場合。プレイヤーが経路の想定と違う位置にブロックを置いたのか、地形が本当に変わったのかを
      * ログから切り分けるための注記。
      */
-    private static String plannedPlacementNote(@Nullable BlockPos cell, Map<BlockPos, Integer> plannedPlacements,
+    private static String plannedPlacementNote(BlockPos cell, Map<BlockPos, Integer> plannedPlacements,
                                                int fromIndex) {
-        Integer placedAt = cell == null ? null : plannedPlacements.get(cell);
+        Integer placedAt = plannedPlacements.get(cell);
         if (placedAt == null) {
             return "";
         }
@@ -232,16 +227,10 @@ final class PathValidator {
                         .formatted(i, step.movement(), footing.toShortString()));
             }
         }
-        // 掘り終えた区間を「まだ掘る場所」として提示し続けないよう、掘る前提のセルが
-        // 空いていたら経路ごと組み直す（掘れば経路自体も安くなりうる）
-        for (BlockPos cell : step.digCells()) {
-            if (readable(level, cell)
-                    && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(cell)))) {
-                // 通りやすく変わっただけなので避けるセルは無い（Failure#unusableCell参照）
-                return new CellFailure(null, "ステップ%d(%s) 掘る前提のセルが既に空いている cell=%s"
-                        .formatted(i, step.movement(), cell.toShortString()));
-            }
-        }
+        // 掘る前提のセルが既に空いていても経路は成り立つ。空いているのはたいてい、この経路に従って
+        // プレイヤー自身が掘った直後のセル——そこで組み直すと、掘るたびに数百手の経路を捨てて予算切れの
+        // 短い部分経路へ引き直すことになる（実機のネザー: 723手→39手、先端へすぐ着き、向きも変わった）。
+        // 掘り終えたセルの印はPathRendererが描かない
         for (BlockPos cell : unexcavatedBodyCells(step, plannedDigs)) {
             if (!readable(level, cell)) {
                 continue;
