@@ -99,6 +99,9 @@ public final class PathfindingState {
     /** 経路から外れたときの再計算の下限間隔（tick）。外れている間ずっと探索を投げ続けないための頭打ち。 */
     private static final int MIN_RECALC_INTERVAL_TICKS = 10;
 
+    /** 目的地の列が読み込まれたかを見に行く間隔。見るたびに列を縦に走査するので毎tickは見ない。 */
+    private static final int GOAL_RESOLVE_CHECK_TICKS = 20;
+
     /**
      * 打ち切られた経路の末端がこの距離まで近づいたら、その先を計算し直す（ブロック）。
      *
@@ -363,7 +366,11 @@ public final class PathfindingState {
     private volatile @Nullable BlockPos goal;
     // 目的地を設定した次元。座標だけを覚えていると、ネザーへ移動したあとも同じ座標を目指してしまう
     private volatile @Nullable ResourceKey<Level> goalDimension;
+    // 目的地の列が未読み込みのまま設定されたときの、指定そのままの座標。読み込まれたら立てる高さへ寄せ直す
+    // （resolveGoalStandable）。寄せ終えたらnull
+    private volatile @Nullable BlockPos unresolvedGoal;
     private volatile @Nullable DisplayedPath displayed;
+    private int ticksSinceGoalResolveCheck;
     private volatile boolean computing;
     private volatile boolean arrived;
     // 地上へ出る経路が出せなかった地点。掘削を切っている・密閉された場所では中継区間そのものが
@@ -722,6 +729,8 @@ public final class PathfindingState {
         clear();
         this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
+        this.unresolvedGoal = level.getChunkSource().getChunkNow(goal.getX() >> 4, goal.getZ() >> 4) == null
+                ? goal : null;
         // 滑空中に指定された目的地は、地上へ戻るまで歩行の経路を引かない
         // （引いても表示せず捨てるだけになる）
         this.flying = airborne(level, player);
@@ -767,6 +776,38 @@ public final class PathfindingState {
         return goal;
     }
 
+    /**
+     * 未読み込みのまま設定した目的地の列が読み込まれたら、立てる高さへ寄せ直す。寄せ直したなら{@code true}。
+     *
+     * <p>設定時に列が読めなければ、目的地のYは地図の推定か指定そのまま——地図クリックのYは岩の中に落ちることがある
+     * （実機のネザー: 要塞の柱の中）。そのままだと航法グラフが目的地へ繋がらず、窓に入った途端にガイドが使えなくなる。
+     * 高さが変わるときだけ目的地ごと設定し直す（ガイド・長距離ルートは目的地の座標で組むので、Yだけ差し替えられない）。
+     *
+     * <p>読み込み直後のチャンクは中身がまだ届いていないことがある（{@link PathValidator}参照）。立てる所が
+     * 見つからないうちは寄せ直しを諦めず、次の機会に読み直す。
+     */
+    private boolean resolveGoalOnceLoaded(Level level) {
+        BlockPos requested = unresolvedGoal;
+        BlockPos current = goal;
+        if (requested == null || current == null || ticksSinceGoalResolveCheck++ < GOAL_RESOLVE_CHECK_TICKS
+                || level.getChunkSource().getChunkNow(requested.getX() >> 4, requested.getZ() >> 4) == null) {
+            return false;
+        }
+        ticksSinceGoalResolveCheck = 0;
+        BlockPos resolved = resolveGoalStandable(level, requested);
+        if (!standableAt(level, resolved.getX(), resolved.getY(), resolved.getZ())) {
+            return false;
+        }
+        unresolvedGoal = null;
+        if (resolved.equals(current)) {
+            return false;
+        }
+        LOGGER.info("XaeroNav: 目的地の列が読み込まれたので立てる高さへ寄せ直しました ({} → {})",
+                current.toShortString(), resolved.toShortString());
+        setGoal(requested);
+        return true;
+    }
+
     /** 足元に立てる地面があり、体の2セルが掘らずに入れるか。{@code AStarPathfinder}の移動の前提と同じ。 */
     private static boolean standableAt(Level level, int x, int y, int z) {
         return CellData.standable(CellData.flagsOf(level.getBlockState(new BlockPos(x, y - 1, z))))
@@ -781,6 +822,7 @@ public final class PathfindingState {
         this.computing = false;
         this.goal = null;
         this.goalDimension = null;
+        this.unresolvedGoal = null;
         this.displayed = null;
         this.lastStart = null;
         this.arrived = false;
@@ -1003,6 +1045,9 @@ public final class PathfindingState {
             if (!mc.level.dimension().equals(goalDimension)) {
                 // 別の次元へ移った。同じ座標を目指し続けても意味がないので目的地ごと捨てる
                 clear();
+                return;
+            }
+            if (resolveGoalOnceLoaded(mc.level)) {
                 return;
             }
             StuckReason notice = stuckTracker.takePendingNotice();
