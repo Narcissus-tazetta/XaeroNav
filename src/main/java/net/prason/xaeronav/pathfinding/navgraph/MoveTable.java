@@ -24,17 +24,20 @@ final class MoveTable {
         final short[] dy;
         final byte[] dz;
         final float[] cost;
+        /** 振った番号の値段の最小値。まだ1つも無ければ{@link Float#MAX_VALUE}。 */
+        final float minCost;
 
-        private View(byte[] dx, short[] dy, byte[] dz, float[] cost) {
+        private View(byte[] dx, short[] dy, byte[] dz, float[] cost, float minCost) {
             this.dx = dx;
             this.dy = dy;
             this.dz = dz;
             this.cost = cost;
+            this.minCost = minCost;
         }
     }
 
     private final Long2IntOpenHashMap index = new Long2IntOpenHashMap();
-    private volatile View view = new View(new byte[64], new short[64], new byte[64], new float[64]);
+    private volatile View view = new View(new byte[64], new short[64], new byte[64], new float[64], Float.MAX_VALUE);
     private int size;
 
     MoveTable() {
@@ -62,6 +65,7 @@ final class MoveTable {
         short[] dy = current.dy;
         byte[] dz = current.dz;
         float[] cost = current.cost;
+        float minCost = current.minCost;
         for (int i = 0; i < count; i++) {
             long key = (long) offsets[i] << 32 | Float.floatToIntBits(costs[i]) & 0xFFFFFFFFL;
             int id = index.get(key);
@@ -81,11 +85,12 @@ final class MoveTable {
                 dz[id] = (byte) (offsets[i] >> 16);
                 dy[id] = (short) offsets[i];
                 cost[id] = costs[i];
+                minCost = Math.min(minCost, costs[i]);
                 index.put(key, id);
             }
             ids[i] = (char) id;
         }
         // 読み手は番号を公開してからしか引かないので、配列を使い回したまま差し替えてよい
-        view = new View(dx, dy, dz, cost);
+        view = new View(dx, dy, dz, cost, minCost);
     }
 }

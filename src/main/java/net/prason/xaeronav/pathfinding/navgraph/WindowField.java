@@ -3,6 +3,7 @@ package net.prason.xaeronav.pathfinding.navgraph;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
@@ -128,7 +129,7 @@ public final class WindowField implements CostToGo {
         private int[] start = new int[0];
         private int[] position = new int[0];
         private char[] inMove = new char[0];
-        private final DistanceHeap heap = new DistanceHeap();
+        private final BucketQueue queue = new BucketQueue();
 
         int[] start(int size) {
             if (start.length < size) {
@@ -152,13 +153,13 @@ public final class WindowField implements CostToGo {
             return inMove;
         }
 
-        DistanceHeap heap() {
-            heap.clear();
-            return heap;
+        BucketQueue queue(int buckets) {
+            queue.clear(buckets);
+            return queue;
         }
 
         long bytes() {
-            return 4L * start.length + 4L * position.length + 2L * inMove.length + heap.bytes();
+            return 4L * start.length + 4L * position.length + 2L * inMove.length + queue.bytes();
         }
     }
 
@@ -371,34 +372,59 @@ public final class WindowField implements CostToGo {
             }
         }
 
-        DistanceHeap heap = buffers.heap();
+        double base = Double.POSITIVE_INFINITY;
+        double top = Double.NEGATIVE_INFINITY;
         for (int i = 0; i < n; i++) {
             if (Double.isFinite(distance[i])) {
-                heap.push(distance[i], i);
+                base = Math.min(base, distance[i]);
+                top = Math.max(top, distance[i]);
             }
         }
-        int popped = 0;
-        while (!heap.isEmpty()) {
-            if ((++popped & 0xFFFF) == 0 && cancelled.getAsBoolean()) {
-                return null;
+        BitSet settled = new BitSet(n);
+        if (Double.isFinite(base)) {
+            // 振った移動の値段はどれもこの幅以上なので、バケットを前から空にするだけで確定順になる。
+            // 窓の外のセクションの移動も含む最小値だが、幅が狭いぶんには正しさは変わらない
+            double width = moves.minCost;
+            BucketQueue queue = buffers.queue((int) ((top - base) / width) + 1);
+            for (int i = 0; i < n; i++) {
+                if (Double.isFinite(distance[i])) {
+                    queue.push((int) ((distance[i] - base) / width), i);
+                }
             }
-            double d = heap.topKey();
-            int node = heap.pop();
-            if (d > distance[node]) {
-                continue;
-            }
-            int packed = position[node];
-            int slot = packed >>> 12;
-            int lx = packed & 15;
-            int ly = packed >> 8 & 15;
-            int lz = packed >> 4 & 15;
-            for (int k = start[node]; k < start[node + 1]; k++) {
-                int move = inMove[k];
-                int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
-                double candidate = d + moves.cost[move];
-                if (candidate < distance[p]) {
-                    distance[p] = candidate;
-                    heap.push(candidate, p);
+            int cursor = 0;
+            int popped = 0;
+            while (true) {
+                int node = queue.pop(cursor);
+                if (node < 0) {
+                    cursor = queue.nextNonEmpty(cursor + 1);
+                    if (cursor < 0) {
+                        break;
+                    }
+                    continue;
+                }
+                if ((++popped & 0xFFFF) == 0 && cancelled.getAsBoolean()) {
+                    return null;
+                }
+                if (settled.get(node)) {
+                    continue;
+                }
+                settled.set(node);
+                double d = distance[node];
+                int packed = position[node];
+                int slot = packed >>> 12;
+                int lx = packed & 15;
+                int ly = packed >> 8 & 15;
+                int lz = packed >> 4 & 15;
+                for (int k = start[node]; k < start[node + 1]; k++) {
+                    int move = inMove[k];
+                    int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
+                    double candidate = d + moves.cost[move];
+                    if (candidate < distance[p]) {
+                        distance[p] = candidate;
+                        // 丸めで同じバケットへ戻ってきた改善は、確定を取り消して解き直す
+                        settled.clear(p);
+                        queue.push(Math.max(cursor, (int) ((candidate - base) / width)), p);
+                    }
                 }
             }
         }
