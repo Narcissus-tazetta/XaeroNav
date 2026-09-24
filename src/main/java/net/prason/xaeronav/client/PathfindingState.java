@@ -1792,6 +1792,7 @@ public final class PathfindingState {
         GoalGuide goalGuide = goalGuide(level, player, start, currentGoal, renderRadius, climbing);
         boolean navGraphGuided = goalGuide != null && goalGuide.navGraph();
         awaitingNavGraph = mayAwait && !navGraphGuided && navGraphGuide.latest(currentGoal) == null
+                && !navGraphGuide.failedRecently()
                 && MonotonicTime.millis() - navGraphWaitStartedMillis <= NAV_GRAPH_WAIT_MILLIS;
         if (awaitingNavGraph) {
             return;
@@ -2490,14 +2491,14 @@ public final class PathfindingState {
     }
 
     /**
-     * 航法グラフのガイドで探すときの箱。全高を見て、プレイヤーを中心とする窓（{@link NavGraphGuide#WINDOW_BLOCKS}）で切る。
+     * 航法グラフのガイドで探すときの箱。全高を見て、プレイヤーを中心とする窓（{@link NavGraphGuide#window}）で切る。
      *
      * <p>窓の外ではガイドが層1か幾何の推定に落ちるので、そこまで広げると測っていない探索になる。
      * 高さを切らないのは、ガイドが掘り上がる・降りる道を指したときに箱の外で行き止まらせないため。
      */
     static SearchBounds navGraphBounds(Level level, BlockPos from, BlockPos target, BlockPos player,
                                        int renderRadius, int horizontalMargin) {
-        int window = Math.min(NavGraphGuide.WINDOW_BLOCKS, renderRadius);
+        int window = NavGraphGuide.window(renderRadius);
         SearchBounds box = SearchBounds.around(level, from, target, horizontalMargin, level.getHeight(), window);
         return new SearchBounds(Math.max(box.minX(), player.getX() - window), box.minY(),
                 Math.max(box.minZ(), player.getZ() - window), Math.min(box.maxX(), player.getX() + window),

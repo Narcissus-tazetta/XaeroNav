@@ -34,6 +34,15 @@ neoForge {
         create("client") {
             client()
             gameDirectory = rootProject.layout.projectDirectory.dir("run")
+            // 既定のヒープは実機のメモリの1/4で、開発機では6GBになる。ランチャー既定の2GBで起きることは
+            // `-Pxaeronav.clientHeap=2G` で上限を絞らないと再現しない
+            providers.gradleProperty("xaeronav.clientHeap").orNull?.let { jvmArgument("-Xmx$it") }
+            // 公式ランチャーはG1の調整フラグを付けて起動するので、GCが絡む重さはそれを渡さないと本番と同じ条件で測れない
+            providers.gradleProperty("xaeronav.clientJvmArgs").orNull?.split(" ")?.filter { it.isNotBlank() }
+                ?.forEach { jvmArgument(it) }
+            providers.gradleProperty("xaeronav.jfr").orNull?.let {
+                jvmArgument("-XX:StartFlightRecording=settings=$it,filename=${rootProject.projectDir}/run/xaeronav.jfr,dumponexit=true")
+            }
 
             // ModDevGradleが生成するIDE実行構成はモジュール束縛を持たない。単一ローダーなら
             // 「プロジェクト全体のクラスパス」＝そのローダーぶんだけで済むが、Stonecutterで
