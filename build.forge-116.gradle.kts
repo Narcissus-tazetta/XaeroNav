@@ -56,13 +56,16 @@ dependencies {
     minecraft("com.mojang:minecraft:$minecraftVersion")
     mappings(loom.officialMojangMappings())
     forge("net.minecraftforge:forge:$minecraftVersion-${dep("forge")}")
-    xaeroModules.forEach { modCompileOnly(it) }
+    // Xaero's Minimap / World MapのPOMはXaeroLibの`dev`分類子（MCP名でビルドされた開発用jar）に依存している。
+    // 同じモジュールを分類子あり・なしで両方引くと、Loomが変換した分類子なしのjarが空（22バイト）になる。
+    // XaeroLibは分類子なしの配布jarを自分で足すので、推移的な依存はコンパイル時も実行時も切る
+    xaeroModules.forEach { modCompileOnly(it) { isTransitive = false } }
     // stageRuntimeTestModsには配布時と同じ未変換jarを渡す
     xaeroModules.forEach { xaeroRuntimeMods(it) }
     if (withXaero) {
         // 公開jarはSRG名なので、run/modsへ生のまま置くと開発環境（Mojang名）のクラスが見えない。
         // Loomのmod remapを通して開発環境の名前へ変換したものを載せる（coremodの中身はfixXaeroCoremodsが直す）
-        xaeroModules.forEach { modLocalRuntime(it) }
+        xaeroModules.forEach { modLocalRuntime(it) { isTransitive = false } }
     }
     compileOnly("io.github.llamalad7:mixinextras-common:${dep("mixinextras")}")
     // @WrapOperation・@ModifyReturnValueはMixin本体のAPが知らない注入なので、これが無いとrefmapへ載らない
@@ -110,8 +113,8 @@ tasks.register<Sync>("stageServerTestMod") {
     into(rootProject.layout.buildDirectory.dir("server-test/${stonecutter.current.project}/mods"))
 }
 
-// Loomのremapはクラスファイルしか変換しないので、Xaeroのcoremod（JavaScript）に書かれたSRG名が残り、
-// 開発実行が`NoClassDefFoundError: ToggleableKeyBinding`で落ちる。変換済みのjarの中身を起動前に直す
+// Loomのremapはクラスの参照しか変換しないので、Xaeroが文字列で持つSRG名（coremodのJavaScript・リフレクションの
+// Class.forName）が残り、開発実行が落ちる。変換済みのjarの中身を起動前に直す（ForgeCoremodNames.kt）
 val fixXaeroCoremods = tasks.register("fixXaeroCoremods") {
     val runtimeJars = configurations.named("runtimeClasspath").map { classpath ->
         classpath.files.filter { it.name.startsWith("xaero") }
@@ -121,7 +124,7 @@ val fixXaeroCoremods = tasks.register("fixXaeroCoremods") {
         runtimeJars.get().forEach { jar ->
             val count = rewriteForgeCoremodNames(jar.toPath(), tiny)
             if (count > 0) {
-                logger.lifecycle("${jar.name}: coremod ${count}件のSRG名を開発環境の名前へ書き換えた")
+                logger.lifecycle("${jar.name}: ${count}ファイルのSRG名を開発環境の名前へ書き換えた")
             }
         }
     }

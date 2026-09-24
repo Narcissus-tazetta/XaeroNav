@@ -41,9 +41,20 @@ repositories {
 // 開放しているのはRenderType.CompositeState等（NavRenderTypes）で、1.21.11ではクラスごと無くなった
 val usesAccessWidener = !stonecutter.eval(minecraftVersion, ">=1.21.11")
 
+// 開放するものが無い版にも同じ名前のファイルを置く。fabric.mod.jsonの"accessWidener"を版で出し分けると
+// テンプレートがJSONとして読めなくなり、Loomが設定のたびに警告を出す。Loomは設定時にこのファイルを読むので、ここで書く
+val emptyAccessWidener: File = layout.buildDirectory.file("generated/emptyAccessWidener/xaeronav.accesswidener").get().asFile.also {
+    if (!usesAccessWidener) {
+        it.parentFile.mkdirs()
+        it.writeText("accessWidener v2 named\n")
+    }
+}
+
 loom {
-    if (usesAccessWidener) {
-        accessWidenerPath = rootProject.file("src/main/resources/xaeronav.accesswidener")
+    accessWidenerPath = if (usesAccessWidener) {
+        rootProject.file("src/main/resources/xaeronav.accesswidener")
+    } else {
+        emptyAccessWidener
     }
 
     // 実行ディレクトリはノード配下（versions/<ノード>/run）のloom既定のまま。
@@ -138,8 +149,7 @@ tasks.named<ProcessResources>("processResources").configure {
         // 検証していないので「動く保証がある最も低い版」とは言えない
         "fabric_api_range" to dep("fabric_api"),
         "fabric_api_mod_id" to fabricApiModIdFor(minecraftVersion),
-        "java_version" to javaVersion.toString(),
-        "access_widener_entry" to if (usesAccessWidener) "\n  \"accessWidener\": \"xaeronav.accesswidener\"," else ""
+        "java_version" to javaVersion.toString()
     )
 
     inputs.properties(replaceProperties)
@@ -149,7 +159,10 @@ tasks.named<ProcessResources>("processResources").configure {
     exclude("META-INF/mods.toml")
     exclude("META-INF/accesstransformer.cfg")
     if (!usesAccessWidener) {
-        exclude("xaeronav.accesswidener")
+        // 開放する行を落として見出しだけにする（emptyAccessWidenerと同じ中身）
+        filesMatching("xaeronav.accesswidener") {
+            filter { line -> if (line.startsWith("accessWidener ")) line else "" }
+        }
     }
 
     filesMatching("fabric.mod.json") {
