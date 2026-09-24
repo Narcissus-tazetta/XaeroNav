@@ -409,6 +409,9 @@ public final class PathfindingState {
     private @Nullable CoarseRoute mapRetryBefore;
     // 地図の読み込み待ちで引き直す番（COARSE_MAP_RETRY_INTERVAL_MILLIS）。クライアントスレッドだけが触る
     private long coarseMapRetryAfterMillis;
+    // 目的地が無いまま過ごしたtick数（warmUpWhenIdle）。クライアントスレッドだけが触る
+    private int idleTicks;
+    private static final int WARM_UP_IDLE_TICKS = 200;
     // 地図の読み込み待ちで引き直した回数（COARSE_MAP_RETRY_LIMIT）。クライアントスレッドだけが触る
     private int coarseMapRetries;
     // 中間目標へ立ち寄らず目的地をそのまま狙っているか（天井のある次元、または航法グラフのガイドがあるとき）。
@@ -1082,6 +1085,21 @@ public final class PathfindingState {
         return shown != null && shown.mode() == PathMode.GOAL && shown.result().complete();
     }
 
+    /**
+     * 目的地が無いまま{@link #WARM_UP_IDLE_TICKS}過ごしたら、航法グラフの組み立てを1回だけ下準備する
+     * （{@link NavGraphGuide#warmUp}）。ワールドに入った直後はチャンクの読み込みで忙しいので、少し待ってから。
+     */
+    private void warmUpWhenIdle() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || mc.player == null) {
+            idleTicks = 0;
+            return;
+        }
+        if (++idleTicks == WARM_UP_IDLE_TICKS && XaeroNavConfig.INSTANCE.costToGoGuideEnabled()) {
+            navGraphGuide.warmUp(mc.level, mc.player, XaeroNavConfig.INSTANCE.movementOptions());
+        }
+    }
+
     public void onClientTick() {
         try {
             if (rerouteNoticeTicks > 0) {
@@ -1089,6 +1107,7 @@ public final class PathfindingState {
             }
             BlockPos currentGoal = goal;
             if (currentGoal == null) {
+                warmUpWhenIdle();
                 return;
             }
             GoalWaypoint.sync(currentGoal);

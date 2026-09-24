@@ -4,11 +4,13 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
 import java.util.BitSet;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 import org.jspecify.annotations.Nullable;
 
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
@@ -56,6 +58,13 @@ public final class WindowField implements CostToGo {
     private static final int SLOTS_PER_TASK = 32;
 
     private static final VarHandle INTS = MethodHandles.arrayElementVarHandle(int[].class);
+    private static final VarHandle DOUBLES = MethodHandles.arrayElementVarHandle(double[].class);
+
+    /** Dial法のバケットを並べて回す下限（入る辺の本数）。これより小さいと、並べる手間の方が高くつく。 */
+    private static final long PARALLEL_BUCKET_EDGES = 1024;
+
+    /** 並べたバケットで、1つの小分けが受け持つノードの数。 */
+    private static final int NODES_PER_TASK = 128;
 
     /** 窓の外・まだ組んでいないセクション。 */
     private static final int OUTSIDE = -1;
@@ -393,45 +402,122 @@ public final class WindowField implements CostToGo {
                     queue.push((int) ((distance[i] - base) / width), i);
                 }
             }
-            int cursor = 0;
-            int popped = 0;
-            while (true) {
-                int node = queue.pop(cursor);
-                if (node < 0) {
-                    cursor = queue.nextNonEmpty(cursor + 1);
-                    if (cursor < 0) {
-                        break;
-                    }
-                    continue;
-                }
-                if ((++popped & 0xFFFF) == 0 && cancelled.getAsBoolean()) {
-                    return null;
-                }
-                if (settled.get(node)) {
-                    continue;
-                }
-                settled.set(node);
-                double d = distance[node];
-                int packed = position[node];
-                int slot = packed >>> 12;
-                int lx = packed & 15;
-                int ly = packed >> 8 & 15;
-                int lz = packed >> 4 & 15;
-                for (int k = start[node]; k < start[node + 1]; k++) {
-                    int move = inMove[k];
-                    int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
-                    double candidate = d + moves.cost[move];
-                    if (candidate < distance[p]) {
-                        distance[p] = candidate;
-                        // 丸めで同じバケットへ戻ってきた改善は、確定を取り消して解き直す
-                        settled.clear(p);
-                        queue.push(Math.max(cursor, (int) ((candidate - base) / width)), p);
-                    }
-                }
+            if (!settle(queue, settled, distance, position, start, inMove, index, moves, base, width, parallel,
+                    cancelled)) {
+                return null;
             }
         }
         return new WindowField(goal, far, index, moves, distance, m, MonotonicTime.millis() - began,
                 goalInWindow && !goalEntered.get(), centerX, centerZ, radius);
+    }
+
+    /**
+     * バケットを前から空にして距離を確定させる（Dial法）。
+     *
+     * <p>大きいバケットは中のノードの緩和を並べる。辺の値段はどれもバケット幅以上なので、あるバケットのノードから
+     * 緩和した先は後ろのバケットへ行き、同じバケットの中どうしは互いの値を使わない（丸めで同じバケットへ戻った
+     * 改善は、そのバケットをもう一度回して拾う）。距離は小さくなるときだけ書くので、並べても1本で回したときと
+     * 同じ最短距離に落ち着く——各経路の値は目的地側から同じ順に足して作られるので、ビットまで一致する。
+     *
+     * @return 打ち切られたら{@code false}
+     */
+    private static boolean settle(BucketQueue queue, BitSet settled, double[] distance, int[] position, int[] start,
+                                  char[] inMove, Index index, MoveTable.View moves, double base, double width,
+                                  Parallel parallel, BooleanSupplier cancelled) {
+        boolean concurrent = parallel.workers() > 1;
+        int[] frontier = new int[1024];
+        int cursor = 0;
+        while (cursor >= 0) {
+            int size = 0;
+            long edges = 0;
+            for (int node = queue.pop(cursor); node >= 0; node = queue.pop(cursor)) {
+                if (settled.get(node)) {
+                    continue;
+                }
+                settled.set(node);
+                if (size == frontier.length) {
+                    frontier = Arrays.copyOf(frontier, size * 2);
+                }
+                frontier[size++] = node;
+                edges += start[node + 1] - start[node];
+            }
+            if (size == 0) {
+                cursor = queue.nextNonEmpty(cursor + 1);
+                continue;
+            }
+            if (cancelled.getAsBoolean()) {
+                return false;
+            }
+            int bucket = cursor;
+            if (!concurrent || edges < PARALLEL_BUCKET_EDGES) {
+                for (int i = 0; i < size; i++) {
+                    int node = frontier[i];
+                    double d = distance[node];
+                    int packed = position[node];
+                    int slot = packed >>> 12;
+                    int lx = packed & 15;
+                    int ly = packed >> 8 & 15;
+                    int lz = packed >> 4 & 15;
+                    for (int k = start[node]; k < start[node + 1]; k++) {
+                        int move = inMove[k];
+                        int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
+                        double candidate = d + moves.cost[move];
+                        if (candidate < distance[p]) {
+                            distance[p] = candidate;
+                            // 丸めで同じバケットへ戻ってきた改善は、確定を取り消して解き直す
+                            settled.clear(p);
+                            queue.push(Math.max(bucket, (int) ((candidate - base) / width)), p);
+                        }
+                    }
+                }
+                continue;
+            }
+            int[] nodes = frontier;
+            ConcurrentLinkedQueue<int[]> improved = new ConcurrentLinkedQueue<>();
+            boolean relaxed = parallel.forEach(size, NODES_PER_TASK, cancelled, (from, to) -> {
+                IntArrayList lowered = new IntArrayList();
+                for (int i = from; i < to; i++) {
+                    int node = nodes[i];
+                    double d = (double) DOUBLES.getOpaque(distance, node);
+                    int packed = position[node];
+                    int slot = packed >>> 12;
+                    int lx = packed & 15;
+                    int ly = packed >> 8 & 15;
+                    int lz = packed >> 4 & 15;
+                    for (int k = start[node]; k < start[node + 1]; k++) {
+                        int move = inMove[k];
+                        int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
+                        if (lower(distance, p, d + moves.cost[move])) {
+                            lowered.add(p);
+                        }
+                    }
+                }
+                improved.add(lowered.toIntArray());
+                return true;
+            });
+            if (!relaxed) {
+                return false;
+            }
+            for (int[] lowered : improved) {
+                for (int p : lowered) {
+                    settled.clear(p);
+                    queue.push(Math.max(bucket, (int) ((distance[p] - base) / width)), p);
+                }
+            }
+        }
+        return true;
+    }
+
+    /** {@code distance[p]}を{@code candidate}へ下げる。下げられたら{@code true}。 */
+    private static boolean lower(double[] distance, int p, double candidate) {
+        double current = (double) DOUBLES.getOpaque(distance, p);
+        while (candidate < current) {
+            if (DOUBLES.compareAndSet(distance, p, current, candidate)) {
+                return true;
+            }
+            current = (double) DOUBLES.getOpaque(distance, p);
+        }
+        return false;
     }
 
     /**
