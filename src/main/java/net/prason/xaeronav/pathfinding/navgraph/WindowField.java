@@ -470,11 +470,6 @@ public final class WindowField implements CostToGo {
     }
 
     /**
-     * この点の値が、窓の中を実際に辿った結果から来ているか。<b>2点の値を引き算するなら、どちらもこれを満たすこと</b>
-     * ——縁の近くと窓の外の値は{@link FarField}の推定で、尺度が窓の中と揃っていない（ネザーの3D粗層は
-     * {@code NavGraphGuide.VOXEL_FAR_SCALE}倍して置いてある）。差を取ると推定のずれがそのまま結論になる。
-     */
-    /**
      * ガイドの値がどこから来たか。{@code exit}は値の出どころ——目的地そのもの、または窓の外の推定を読んだ点。
      *
      * @param inside {@code from}から{@code exit}の手前まで、窓の中を辿った値段
@@ -553,6 +548,11 @@ public final class WindowField implements CostToGo {
         throw new IllegalStateException("ガイドを下りきれない: " + x + ", " + y + ", " + z);
     }
 
+    /**
+     * この点の値が、窓の中を実際に辿った結果から来ているか。<b>2点の値を引き算するなら、どちらもこれを満たすこと</b>
+     * ——縁の近くと窓の外の値は{@link FarField}の推定で、尺度が窓の中と揃っていない（ネザーの3D粗層は
+     * {@code NavGraphGuide.VOXEL_FAR_SCALE}倍して置いてある）。差を取ると推定のずれがそのまま結論になる。
+     */
     public boolean measuredInWindow(int x, int z) {
         int limit = radius - EDGE_MARGIN_BLOCKS;
         return Math.abs(x - centerX) <= limit && Math.abs(z - centerZ) <= limit;
