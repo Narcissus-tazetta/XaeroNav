@@ -226,6 +226,8 @@ final class NavGraphGuide {
 
     /** 段取りの1本だけが触る。 */
     private final Load load = new Load();
+    /** 学ぶのは段取りの1本だけ。倍率はどこから読んでもよい。 */
+    private final FarScaleCalibration farScale = new FarScaleCalibration();
 
     /** 段取りの1本だけが触る。 */
     private @Nullable NavGraph graph;
@@ -275,6 +277,13 @@ final class NavGraphGuide {
     @Nullable WindowField latest(BlockPos goal) {
         Built current = built;
         return current != null && current.key().goal().equals(goal) ? current.field() : null;
+    }
+
+    /**
+     * 到着時間の表示で、ガイドの窓の外の推定に掛ける倍率（{@link FarScaleCalibration}）。探索には使わないこと。
+     */
+    double farScaleForDisplay() {
+        return farScale.scale();
     }
 
     /**
@@ -375,6 +384,9 @@ final class NavGraphGuide {
                     NavGraph.Refreshed refreshed = refresh(key, view, at, minY, maxY, farMap, invalidateAround, workers,
                             () -> generation.get() != myGeneration);
                     load.record(began, MonotonicTime.millis(), captureMillis, refreshed);
+                    if (refreshed != null) {
+                        farScale.observe(refreshed.field(), at);
+                    }
                     return refreshed;
                 }, coordinator)
                 .whenComplete((refreshed, error) -> {
@@ -396,12 +408,14 @@ final class NavGraphGuide {
                     if (LOGGER.isDebugEnabled() && logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
                         NavGraph current = graph;
                         LOGGER.debug("XaeroNav: 航法グラフ (組んだセクション={}, 構築{}ms, ガイド{}ms, 辺={}, ノード={}, "
-                                        + "グラフ{}MB, ガイド{}MB, 窓{}(ヒープ上限{}MB), 並列{}, 窓の外={}, 中心{}の値の出どころ={})",
+                                        + "グラフ{}MB, ガイド{}MB, 窓{}(ヒープ上限{}MB), 並列{}, 窓の外={}, 到着時間での窓の外の倍率={}, "
+                                        + "中心{}の値の出どころ={})",
                                 refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
                                 refreshed.field().edges(), refreshed.field().nodes(),
                                 current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
                                 key.window(), Runtime.getRuntime().maxMemory() >> 20, workers,
-                                farMap == null ? "直線距離" : farMap.name(), at.toShortString(), origin(refreshed.field(), at));
+                                farMap == null ? "直線距離" : farMap.name(), "%.2f".formatted(farScale.scale()),
+                                at.toShortString(), origin(refreshed.field(), at));
                     }
                 });
     }
@@ -438,6 +452,7 @@ final class NavGraphGuide {
             current = new NavGraph(key.goal(), minY, maxY);
             graph = current;
             graphKey = key;
+            farScale.reset();
             // 外の推定も目的地に対するもの
             far = FarField.UNKNOWN;
             farSource = null;
@@ -492,6 +507,7 @@ final class NavGraphGuide {
         coordinator.execute(() -> {
             load.flush(MonotonicTime.millis());
             forgetGraph();
+            farScale.reset();
         });
     }
 

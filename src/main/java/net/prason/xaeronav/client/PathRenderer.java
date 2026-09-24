@@ -68,12 +68,8 @@ public final class PathRenderer {
     /** ハイライトの箱をブロック表面よりわずかに外側に出し、地形自体のZファイティングで隠れないようにする。 */
     private static final double HIGHLIGHT_EXPAND = 0.006;
 
-    /**
-     * 地形に隠れている側の濃さ。掘る場所は必ず壁の中にあるので、ここを描かないと「どこを掘るのか」が
-     * 画面に出てこない。一方で手前の地形と同じ濃さで描くと壁を無視した絵になるので、薄く重ねる。
-     */
+    /** 空中経路の、地形に隠れている側の濃さ。手前の地形と同じ濃さで描くと壁を無視した絵になるので、薄く重ねる。 */
     private static final float OCCLUDED_TUBE_ALPHA = 0.3f;
-    private static final float OCCLUDED_HIGHLIGHT_ALPHA = 0.12f;
 
     /**
      * 水の外から見た、水の中の区間の濃さ。水は深度を書くので、水の中の線は通常の描画では水面に
@@ -88,13 +84,13 @@ public final class PathRenderer {
      */
     private static final float THROUGH_WATER_WHITEN = 0.5f;
     /**
-     * 地上経路を地形越しに描く範囲（ブロックの2乗）。経路の線は水の中の区間だけ、掘る・置く枠と
-     * 次に掘る・置く所の枠線は全部をこの範囲に限る。範囲を切らないと、長い経路が地形越しに全部透けて視界を埋める。
+     * 地上経路の水の中の区間を水越しに描く範囲（ブロックの2乗）。範囲を切らないと、長い経路が地形越しに全部透けて視界を埋める。
+     *
+     * <p>掘る・置く枠は地形越しに描かない。掘る・置くブロックが並ぶ所では、透けた枠が重なって視界を塞ぐ。
      */
     private static final double OCCLUDED_NEAR_RADIUS_SQ = 12.0 * 12.0;
-    /** 次に掘る1区間ぶんだけは、壁越しでもはっきり見えるようにする。 */
+    /** 次に掘る1区間ぶんだけは、ほかの枠より濃くして見分けられるようにする。 */
     private static final float NEXT_DIG_FILL_ALPHA = 0.5f;
-    private static final float NEXT_DIG_OCCLUDED_ALPHA = 0.3f;
 
     /** 打ち切られた経路の末端の、いちばん先での濃さの割合。0にすると切れ目が見えなくなる。 */
     private static final float FADE_TAIL_MIN_RATIO = 0.15f;
@@ -356,7 +352,7 @@ public final class PathRenderer {
 
     /**
      * 地形に隠れている側を先に描き、その上から通常の深度テスト付きで描く。隠れている側を描くのは
-     * 近くの水の中の区間と掘る・置く枠だけ（{@link #OCCLUDED_NEAR_RADIUS_SQ}）。
+     * 近くの水の中の区間だけ（{@link #OCCLUDED_NEAR_RADIUS_SQ}）。
      */
     private void renderGroundPath(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
                                    PathGeometry geometry, PathResult result, Vec3 camera, double cullRadiusSq,
@@ -371,7 +367,6 @@ public final class PathRenderer {
         // 掘る・置く枠も線と同じ進捗で切る。同じmatchedを使うのが要点で、別々に求めると
         // 線と枠がずれる（掘る枠だけ背後に残る、など）
         PathGeometry.Range nextDig = geometry.nextDig(matched);
-        PathGeometry.Range nextPlace = geometry.nextPlace(matched);
 
         VertexConsumer occludedQuads = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
         if (!cameraInWater) {
@@ -382,32 +377,7 @@ public final class PathRenderer {
                 drawSegment(occludedQuads, pose, geometry, i, THROUGH_WATER_ALPHA, true, i == first, camera);
             }
         }
-        for (int i = 0; i < highlights; i++) {
-            if (!highlightVisible(geometry, i, matched, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
-                continue;
-            }
-            drawHighlightBox(occludedQuads, pose, geometry, i,
-                    nextDig.contains(i) ? NEXT_DIG_OCCLUDED_ALPHA : OCCLUDED_HIGHLIGHT_ALPHA);
-        }
         NavRenderTypes.endOccludedBatch(bufferSource, NavRenderTypes.OCCLUDED_QUADS);
-
-        // 次に掘る場所と次に置く場所だけは枠も壁越しに出す。全部の枠を通すと掘り進む先・架け進む先の
-        // 線が重なって読めなくなる。置く方をここに入れるのは、溶岩に架ける橋の設置先が定義上いつも
-        // 不透明な流体の中にあり、深度テストの掛かった枠線では一切見えないため
-        if (!nextDig.isEmpty() || !nextPlace.isEmpty()) {
-            VertexConsumer occludedLines = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_LINES);
-            for (int i = nextDig.from(); i < nextDig.to(); i++) {
-                if (highlightVisible(geometry, i, matched, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
-                    drawHighlightOutline(occludedLines, pose, geometry, i);
-                }
-            }
-            for (int i = nextPlace.from(); i < nextPlace.to(); i++) {
-                if (highlightVisible(geometry, i, matched, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
-                    drawHighlightOutline(occludedLines, pose, geometry, i);
-                }
-            }
-            NavRenderTypes.endOccludedBatch(bufferSource, NavRenderTypes.OCCLUDED_LINES);
-        }
 
         VertexConsumer quadBuffer = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
         for (int i = first; i < segments; i++) {

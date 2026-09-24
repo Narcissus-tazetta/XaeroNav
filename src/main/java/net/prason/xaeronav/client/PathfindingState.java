@@ -660,6 +660,17 @@ public final class PathfindingState {
                 }, seamRepair, recentFailures);
     }
 
+    /** 到着時間の表示に使う、{@code goal}への出来上がっているガイド。 */
+    @Nullable WindowField guideForDisplay(BlockPos goal) {
+        WindowField field = navGraphGuide.latest(goal);
+        return field != null && field.reachesGoal() ? field : null;
+    }
+
+    /** {@link NavGraphGuide#farScaleForDisplay}。 */
+    double guideFarScaleForDisplay() {
+        return navGraphGuide.farScaleForDisplay();
+    }
+
     /** 今のフレームで使うべき、地上ナビ関連stateの合成snapshot。{@link #publishNavigationView()}参照。 */
     public NavigationView navigationView() {
         return navigationView;

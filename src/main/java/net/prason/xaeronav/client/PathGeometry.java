@@ -145,35 +145,18 @@ final class PathGeometry {
     }
 
     /**
-     * {@code fromStep}以降で最初に掘るステップの、掘削セルのハイライト範囲。
+     * {@code fromStep}以降で最初に掘るステップの、掘削セルのハイライト範囲。1手で複数セルを掘ることがあるので範囲で返す。
      *
      * <p>「次に掘る場所」は<b>いま居るステップから先</b>で探す。経路の先頭から決め打ちにすると、
-     * 掘る場所を通り過ぎた後もそこを指し続ける——この枠は壁越しにも描かれるので、背後の地面の中に
-     * 枠が浮いたまま残る。
+     * 掘る場所を通り過ぎた後もそこを濃く塗り続ける。
      */
     Range nextDig(int fromStep) {
-        return nextRange(fromStep, false);
-    }
-
-    /**
-     * {@code fromStep}以降で最初に置くステップのハイライト範囲。
-     *
-     * <p>{@link #nextDig}と同じ扱いで、ここだけは枠線も壁越しに出す——溶岩に架ける橋の設置先は
-     * 定義上いつも不透明な流体の中にあり、深度テストの掛かった枠線は一切見えないため。
-     */
-    Range nextPlace(int fromStep) {
-        return nextRange(fromStep, true);
-    }
-
-    /** 同じステップに属する連続したハイライトが1つの範囲になる（1手で複数セルを掘ることがある）。 */
-    private Range nextRange(int fromStep, boolean placement) {
         for (int i = 0; i < highlightStep.length; i++) {
-            if (highlightStep[i] < fromStep || highlightPlacement[i] != placement) {
+            if (highlightStep[i] < fromStep || highlightPlacement[i]) {
                 continue;
             }
             int to = i + 1;
-            while (to < highlightStep.length && highlightStep[to] == highlightStep[i]
-                    && highlightPlacement[to] == placement) {
+            while (to < highlightStep.length && highlightStep[to] == highlightStep[i] && !highlightPlacement[to]) {
                 to++;
             }
             return new Range(i, to);

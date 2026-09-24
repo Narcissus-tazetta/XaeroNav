@@ -49,6 +49,7 @@ public final class NavHud {
     // 警告すべき区間があるかは経路が変わったときにしか変わらない。HUDは毎フレーム描かれるので、
     // 全ステップの走査を経路1本につき1度で済ませる
     private final PathCache<PathSuffixes> suffixes = new PathCache<>();
+    private final GoalEta eta = new GoalEta();
 
     public void render(
             //? if >=1.17 {
@@ -99,8 +100,15 @@ public final class NavHud {
                         ? TextCompat.translatable("hud.xaeronav.searching")
                         : TextCompat.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
             }
-            add(TextCompat.translatable("hud.xaeronav.direct_distance",
-                    straightDistance(mc, view.goal())), SECONDARY_COLOR);
+            if (stuck == null) {
+                // 経路が出る前から所要時間の目安を出す。探索は初回に数秒かかる
+                double ticks = eta.ticks(mc.player.blockPosition(), view.goal(), view.coarseRouteWaypoints());
+                add(TextCompat.translatable("hud.xaeronav.direct_distance_eta",
+                        straightDistance(mc, view.goal()), time(NavGuidance.estimateSeconds(ticks))), SECONDARY_COLOR);
+            } else {
+                add(TextCompat.translatable("hud.xaeronav.direct_distance",
+                        straightDistance(mc, view.goal())), SECONDARY_COLOR);
+            }
         } else {
             // 部分経路が出ていても、それが目的地へ通じていないと分かったなら先に言う。この経路は
             // 「行ける所まで」であって案内の続きではないので、黙って曲がり角だけ出すと、
@@ -119,17 +127,23 @@ public final class NavHud {
                 // 突然消えたようにしか見えない
                 add(TextCompat.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
             }
-            NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
+            boolean endsAtDestination = view.currentPathEndsAtDestination();
+            // 行けないと分かった目的地までの時間は出さない。実線の終点までの時間だけにする
+            boolean estimateBeyond = !endsAtDestination && stuck == null;
+            double beyondTicks = estimateBeyond
+                    ? eta.ticks(result.steps().get(result.steps().size() - 1).pos(), view.goal(),
+                    view.coarseRouteWaypoints())
+                    : 0.0;
+            NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition(), beyondTicks);
             PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
             int from = PathProgress.INSTANCE.indexFor(result) + 1;
-            boolean endsAtDestination = view.currentPathEndsAtDestination();
             PathSuffixes.Action next = ahead.nextAction(from);
             if (next != null && ahead.distanceToAction(from) <= ACTION_NOTICE_BLOCKS) {
                 add(TextCompat.translatable(next.key()), PRIMARY_COLOR);
             } else if (guidance.nearEnd) {
                 add(TextCompat.translatable(endpointKey(climbing, endsAtDestination)), PRIMARY_COLOR);
             }
-            add(TextCompat.translatable(remainingKey(endsAtDestination),
+            add(TextCompat.translatable(remainingKey(endsAtDestination, estimateBeyond),
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
             // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
             // 気付いたのでは、そこまでの案内が前提ごと成立していない。
@@ -273,9 +287,13 @@ public final class NavHud {
         }
     }
 
-    /** 表示中の実線が本来の目的地まで届くときだけ、距離を単に「残り」と呼べる。 */
-    static String remainingKey(boolean endsAtDestination) {
-        return endsAtDestination ? "hud.xaeronav.remaining" : "hud.xaeronav.path_remaining";
+    /**
+     * 表示中の実線が本来の目的地まで届くときだけ、距離を単に「残り」と呼べる。届いていなければ距離は実線の終点までで、
+     * 時間は{@code toDestination}なら目的地まで（実線の先は見積もり）、そうでなければ実線の終点まで。
+     */
+    static String remainingKey(boolean endsAtDestination, boolean toDestination) {
+        return endsAtDestination ? "hud.xaeronav.remaining"
+                : toDestination ? "hud.xaeronav.path_remaining_eta" : "hud.xaeronav.path_remaining";
     }
 
     /**

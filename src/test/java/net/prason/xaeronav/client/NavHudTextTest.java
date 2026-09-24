@@ -9,8 +9,9 @@ class NavHudTextTest {
 
     @Test
     void onlyAPathEndingAtTheDestinationUsesTheUnqualifiedRemainingLabel() {
-        assertEquals("hud.xaeronav.remaining", NavHud.remainingKey(true));
-        assertEquals("hud.xaeronav.path_remaining", NavHud.remainingKey(false));
+        assertEquals("hud.xaeronav.remaining", NavHud.remainingKey(true, false));
+        assertEquals("hud.xaeronav.path_remaining", NavHud.remainingKey(false, false));
+        assertEquals("hud.xaeronav.path_remaining_eta", NavHud.remainingKey(false, true));
     }
 
     @Test

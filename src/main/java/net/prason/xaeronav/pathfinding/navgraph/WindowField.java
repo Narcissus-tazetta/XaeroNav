@@ -625,7 +625,7 @@ public final class WindowField implements CostToGo {
             }
             inside += moves.cost[bestMove];
             if (bestTarget < 0) {
-                return new Descent(new BlockPos(tx, ty, tz), inside, best - inside, false);
+                return new Descent(new BlockPos(tx, ty, tz), inside, best - moves.cost[bestMove], false);
             }
             x = tx;
             y = ty;

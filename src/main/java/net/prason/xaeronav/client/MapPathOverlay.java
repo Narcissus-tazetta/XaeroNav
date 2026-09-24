@@ -247,7 +247,7 @@ public final class MapPathOverlay {
      * そこから末端まで<b>後ろ向きの線</b>が1本引かれる。末端に最も近い区間の終点から引けば、
      * 曲がっていても通過済みの点は必ず落ちる。
      */
-    private static int firstAheadWaypoint(List<BlockPos> waypoints, int fromX, int fromZ) {
+    static int firstAheadWaypoint(List<BlockPos> waypoints, int fromX, int fromZ) {
         int first = 0;
         double nearest = distanceSq(waypoints.get(0), fromX, fromZ);
         for (int i = 1; i < waypoints.size(); i++) {
