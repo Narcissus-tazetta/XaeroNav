@@ -20,7 +20,7 @@ config="${mod_id}-xaero.mixins.json"
 [[dependencies.${mod_id}]]
 modId="neoforge"
 type="required"
-versionRange="[21.1,)"
+versionRange="${neoforge_version_range}"
 ordering="NONE"
 side="BOTH"
 

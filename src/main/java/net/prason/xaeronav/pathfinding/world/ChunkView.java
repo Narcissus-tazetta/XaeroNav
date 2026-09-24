@@ -269,7 +269,8 @@ public final class ChunkView implements CellSource {
         int fatalFallBlocks = ActionCosts.SAFE_FALL_BLOCKS + (int) Math.ceil(player.getHealth());
         // ultraWarmな次元（ネザー）は水を置いても即座に蒸発するので、着地寸前に水バケツを置く
         // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
-        boolean canMlgWaterBucket = options.fallDamageToleranceEnabled() && !GameCompat.waterEvaporates(level)
+        boolean waterEvaporates = GameCompat.waterEvaporates(level, player.blockPosition());
+        boolean canMlgWaterBucket = options.fallDamageToleranceEnabled() && !waterEvaporates
                 && hasItem(GameCompat.inventory(player), stack -> stack.getItem() == Items.WATER_BUCKET);
         boolean boatAvailable = boatAvailable(player);
         boolean ridingBoat = ridingBoat(player);
@@ -278,7 +279,7 @@ public final class ChunkView implements CellSource {
         // FALL_TO_WATERは着水先に水があるときだけ生成され、ultraWarmな次元（ネザー）には水が
         // 存在しない（置いても蒸発する——BucketItemがそう書いてある）。水も水バケツMLGも無く、
         // 落下ダメージも許容しないなら、落ちられるのは安全高さまでで打ち止めになる
-        boolean deepFallPossible = !GameCompat.waterEvaporates(level) || canMlgWaterBucket;
+        boolean deepFallPossible = !waterEvaporates || canMlgWaterBucket;
         double minDescentTicksPerBlock = descentBound(deepFallPossible, maxFallDamagePoints);
 
         // クリエイティブは置いても減らないので予算を掛けない（0＝無制限）。設定でも切れる。
