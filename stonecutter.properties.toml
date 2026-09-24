@@ -1,6 +1,11 @@
 # ノードごとの依存バージョン。ノードを増やすときはここへテーブルを1つ足す。
 # テーブル名は `[<ローダー>."<MCバージョン>"]` で、build.<ローダー>.gradle.kts の
 # `properties.tags(...)` が選ぶ。
+#
+# deps.xaero_worldmap / deps.xaero_minimap はコンパイルと開発クライアントに使う版。
+# deps.xaero_worldmap_min / deps.xaero_minimap_min はMOD定義へ書く「動く下限」で、上の版を上げても動かさない
+# （古いXaeroを入れた人をNeoForge/Forgeが起動させなくなる）。下限を下げるときは、その版でビルドして
+# Xaeroへの参照（javapで見たメソッド・フィールドの型、refmap）が今の版でのビルドと変わらないことを確かめる。
 
 # 経路探索のテストを実際に走らせるノード。pathfinding/ はローダーにもMCバージョンにも
 # 依存しない（//? を書かない鉄則）ので、1ノードで回せば全ノードぶんの検証になる。
@@ -11,9 +16,11 @@ canonical_test_node = "1.21.1-neoforge"
 deps.minecraft = "1.21.1"
 deps.neoforge = "21.1.228"
 deps.neoforge_loader_range = "[4,)"
-deps.xaerolib = "1.7.1"
-deps.xaero_worldmap = "1.44.2"
-deps.xaero_minimap = "26.4.2"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.44.2"
+deps.xaero_minimap_min = "26.4.2"
 
 [forge."1.21.1"]
 deps.minecraft = "1.21.1"
@@ -24,9 +31,11 @@ deps.forge = "52.1.16"
 deps.forge_loader_range = "[52,)"
 # Forgeは本体にMixinExtrasを同梱していない（NeoForge/Fabricとの違い）。jar-in-jarで足す版
 deps.mixinextras = "0.5.5"
-deps.xaerolib = "1.7.1"
-deps.xaero_worldmap = "1.44.2"
-deps.xaero_minimap = "26.4.2"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.44.2"
+deps.xaero_minimap_min = "26.4.2"
 
 [fabric."1.20.1"]
 deps.minecraft = "1.20.1"
@@ -39,6 +48,8 @@ deps.night_config = "3.8.3"
 deps.xaerolib = "1.7.3"
 deps.xaero_worldmap = "1.46.0"
 deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
 
 [forge."1.20.1"]
 deps.minecraft = "1.20.1"
@@ -48,6 +59,8 @@ deps.mixinextras = "0.5.5"
 deps.xaerolib = "1.7.3"
 deps.xaero_worldmap = "1.46.0"
 deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
 
 [fabric."1.21.1"]
 deps.minecraft = "1.21.1"
@@ -63,9 +76,11 @@ deps.modmenu = "11.0.4"
 deps.mixinextras = "0.5.3"
 # NeoForge 21.1.228 が同梱している版に揃える
 deps.night_config = "3.8.3"
-deps.xaerolib = "1.7.1"
-deps.xaero_worldmap = "1.44.2"
-deps.xaero_minimap = "26.4.2"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.44.2"
+deps.xaero_minimap_min = "26.4.2"
 
 [fabric."1.16.5"]
 deps.minecraft = "1.16.5"
@@ -78,6 +93,8 @@ deps.night_config = "3.8.3"
 deps.xaerolib = "1.7.3"
 deps.xaero_worldmap = "1.46.0"
 deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
 
 [forge."1.16.5"]
 deps.minecraft = "1.16.5"
@@ -90,3 +107,5 @@ deps.mixinextras = "0.5.5"
 deps.xaerolib = "1.7.3"
 deps.xaero_worldmap = "1.46.0"
 deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"

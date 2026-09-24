@@ -3,11 +3,14 @@ package net.prason.xaeronav.pathfinding.navgraph;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Arrays;
+import java.util.BitSet;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 import org.jspecify.annotations.Nullable;
 
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
@@ -55,6 +58,13 @@ public final class WindowField implements CostToGo {
     private static final int SLOTS_PER_TASK = 32;
 
     private static final VarHandle INTS = MethodHandles.arrayElementVarHandle(int[].class);
+    private static final VarHandle DOUBLES = MethodHandles.arrayElementVarHandle(double[].class);
+
+    /** Dial法のバケットを並べて回す下限（入る辺の本数）。これより小さいと、並べる手間の方が高くつく。 */
+    private static final long PARALLEL_BUCKET_EDGES = 1024;
+
+    /** 並べたバケットで、1つの小分けが受け持つノードの数。 */
+    private static final int NODES_PER_TASK = 128;
 
     /** 窓の外・まだ組んでいないセクション。 */
     private static final int OUTSIDE = -1;
@@ -64,6 +74,7 @@ public final class WindowField implements CostToGo {
     private final BlockPos goal;
     private final FarField far;
     private final Index index;
+    private final MoveTable.View moves;
     private final double[] distance;
     private final int edges;
     private final long buildMillis;
@@ -72,8 +83,9 @@ public final class WindowField implements CostToGo {
     private final int centerZ;
     private final int radius;
 
-    private WindowField(BlockPos goal, FarField far, Index index, double[] distance, int edges, long buildMillis,
-                        boolean goalCut, int centerX, int centerZ, int radius) {
+    private WindowField(BlockPos goal, FarField far, Index index, MoveTable.View moves, double[] distance, int edges,
+                        long buildMillis, boolean goalCut, int centerX, int centerZ, int radius) {
+        this.moves = moves;
         this.centerX = centerX;
         this.centerZ = centerZ;
         this.radius = radius;
@@ -128,7 +140,7 @@ public final class WindowField implements CostToGo {
         private int[] start = new int[0];
         private int[] position = new int[0];
         private char[] inMove = new char[0];
-        private final DistanceHeap heap = new DistanceHeap();
+        private final BucketQueue queue = new BucketQueue();
 
         int[] start(int size) {
             if (start.length < size) {
@@ -152,13 +164,13 @@ public final class WindowField implements CostToGo {
             return inMove;
         }
 
-        DistanceHeap heap() {
-            heap.clear();
-            return heap;
+        BucketQueue queue(int buckets) {
+            queue.clear(buckets);
+            return queue;
         }
 
         long bytes() {
-            return 4L * start.length + 4L * position.length + 2L * inMove.length + heap.bytes();
+            return 4L * start.length + 4L * position.length + 2L * inMove.length + queue.bytes();
         }
     }
 
@@ -371,39 +383,141 @@ public final class WindowField implements CostToGo {
             }
         }
 
-        DistanceHeap heap = buffers.heap();
+        double base = Double.POSITIVE_INFINITY;
+        double top = Double.NEGATIVE_INFINITY;
         for (int i = 0; i < n; i++) {
             if (Double.isFinite(distance[i])) {
-                heap.push(distance[i], i);
+                base = Math.min(base, distance[i]);
+                top = Math.max(top, distance[i]);
             }
         }
-        int popped = 0;
-        while (!heap.isEmpty()) {
-            if ((++popped & 0xFFFF) == 0 && cancelled.getAsBoolean()) {
+        BitSet settled = new BitSet(n);
+        if (Double.isFinite(base)) {
+            // 振った移動の値段はどれもこの幅以上なので、バケットを前から空にするだけで確定順になる。
+            // 窓の外のセクションの移動も含む最小値だが、幅が狭いぶんには正しさは変わらない
+            double width = moves.minCost;
+            BucketQueue queue = buffers.queue((int) ((top - base) / width) + 1);
+            for (int i = 0; i < n; i++) {
+                if (Double.isFinite(distance[i])) {
+                    queue.push((int) ((distance[i] - base) / width), i);
+                }
+            }
+            if (!settle(queue, settled, distance, position, start, inMove, index, moves, base, width, parallel,
+                    cancelled)) {
                 return null;
             }
-            double d = heap.topKey();
-            int node = heap.pop();
-            if (d > distance[node]) {
+        }
+        return new WindowField(goal, far, index, moves, distance, m, MonotonicTime.millis() - began,
+                goalInWindow && !goalEntered.get(), centerX, centerZ, radius);
+    }
+
+    /**
+     * バケットを前から空にして距離を確定させる（Dial法）。
+     *
+     * <p>大きいバケットは中のノードの緩和を並べる。辺の値段はどれもバケット幅以上なので、あるバケットのノードから
+     * 緩和した先は後ろのバケットへ行き、同じバケットの中どうしは互いの値を使わない（丸めで同じバケットへ戻った
+     * 改善は、そのバケットをもう一度回して拾う）。距離は小さくなるときだけ書くので、並べても1本で回したときと
+     * 同じ最短距離に落ち着く——各経路の値は目的地側から同じ順に足して作られるので、ビットまで一致する。
+     *
+     * @return 打ち切られたら{@code false}
+     */
+    private static boolean settle(BucketQueue queue, BitSet settled, double[] distance, int[] position, int[] start,
+                                  char[] inMove, Index index, MoveTable.View moves, double base, double width,
+                                  Parallel parallel, BooleanSupplier cancelled) {
+        boolean concurrent = parallel.workers() > 1;
+        int[] frontier = new int[1024];
+        int cursor = 0;
+        while (cursor >= 0) {
+            int size = 0;
+            long edges = 0;
+            for (int node = queue.pop(cursor); node >= 0; node = queue.pop(cursor)) {
+                if (settled.get(node)) {
+                    continue;
+                }
+                settled.set(node);
+                if (size == frontier.length) {
+                    frontier = Arrays.copyOf(frontier, size * 2);
+                }
+                frontier[size++] = node;
+                edges += start[node + 1] - start[node];
+            }
+            if (size == 0) {
+                cursor = queue.nextNonEmpty(cursor + 1);
                 continue;
             }
-            int packed = position[node];
-            int slot = packed >>> 12;
-            int lx = packed & 15;
-            int ly = packed >> 8 & 15;
-            int lz = packed >> 4 & 15;
-            for (int k = start[node]; k < start[node + 1]; k++) {
-                int move = inMove[k];
-                int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
-                double candidate = d + moves.cost[move];
-                if (candidate < distance[p]) {
-                    distance[p] = candidate;
-                    heap.push(candidate, p);
+            if (cancelled.getAsBoolean()) {
+                return false;
+            }
+            int bucket = cursor;
+            if (!concurrent || edges < PARALLEL_BUCKET_EDGES) {
+                for (int i = 0; i < size; i++) {
+                    int node = frontier[i];
+                    double d = distance[node];
+                    int packed = position[node];
+                    int slot = packed >>> 12;
+                    int lx = packed & 15;
+                    int ly = packed >> 8 & 15;
+                    int lz = packed >> 4 & 15;
+                    for (int k = start[node]; k < start[node + 1]; k++) {
+                        int move = inMove[k];
+                        int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
+                        double candidate = d + moves.cost[move];
+                        if (candidate < distance[p]) {
+                            distance[p] = candidate;
+                            // 丸めで同じバケットへ戻ってきた改善は、確定を取り消して解き直す
+                            settled.clear(p);
+                            queue.push(Math.max(bucket, (int) ((candidate - base) / width)), p);
+                        }
+                    }
+                }
+                continue;
+            }
+            int[] nodes = frontier;
+            ConcurrentLinkedQueue<int[]> improved = new ConcurrentLinkedQueue<>();
+            boolean relaxed = parallel.forEach(size, NODES_PER_TASK, cancelled, (from, to) -> {
+                IntArrayList lowered = new IntArrayList();
+                for (int i = from; i < to; i++) {
+                    int node = nodes[i];
+                    double d = (double) DOUBLES.getOpaque(distance, node);
+                    int packed = position[node];
+                    int slot = packed >>> 12;
+                    int lx = packed & 15;
+                    int ly = packed >> 8 & 15;
+                    int lz = packed >> 4 & 15;
+                    for (int k = start[node]; k < start[node + 1]; k++) {
+                        int move = inMove[k];
+                        int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
+                        if (lower(distance, p, d + moves.cost[move])) {
+                            lowered.add(p);
+                        }
+                    }
+                }
+                improved.add(lowered.toIntArray());
+                return true;
+            });
+            if (!relaxed) {
+                return false;
+            }
+            for (int[] lowered : improved) {
+                for (int p : lowered) {
+                    settled.clear(p);
+                    queue.push(Math.max(bucket, (int) ((distance[p] - base) / width)), p);
                 }
             }
         }
-        return new WindowField(goal, far, index, distance, m, MonotonicTime.millis() - began,
-                goalInWindow && !goalEntered.get(), centerX, centerZ, radius);
+        return true;
+    }
+
+    /** {@code distance[p]}を{@code candidate}へ下げる。下げられたら{@code true}。 */
+    private static boolean lower(double[] distance, int p, double candidate) {
+        double current = (double) DOUBLES.getOpaque(distance, p);
+        while (candidate < current) {
+            if (DOUBLES.compareAndSet(distance, p, current, candidate)) {
+                return true;
+            }
+            current = (double) DOUBLES.getOpaque(distance, p);
+        }
+        return false;
     }
 
     /**
@@ -439,6 +553,85 @@ public final class WindowField implements CostToGo {
             }
         }
         return !nodeNearby;
+    }
+
+    /**
+     * ガイドの値がどこから来たか。{@code exit}は値の出どころ——目的地そのもの、または窓の外の推定を読んだ点。
+     *
+     * @param inside {@code from}から{@code exit}の手前まで、窓の中を辿った値段
+     * @param outside {@code exit}で読んだ窓の外の推定（目的地なら0）
+     */
+    public record Descent(BlockPos exit, double inside, double outside, boolean reachedGoal) {
+    }
+
+    /**
+     * {@code (x, y, z)}から、ガイドの値を作った辺を下って値の出どころを探す。ノードでない・値が無いなら{@code null}。
+     *
+     * <p>経路の向きがガイドのどの推定に引かれて決まったかを実機のログで見るためのもの。値は辺の値段の和で確定しているので、
+     * 各ノードで「値段＋行き先の値」が自分の値に一致する辺を辿れば出どころに着く。
+     */
+    public @Nullable Descent descend(int x, int y, int z) {
+        int id = index.resolveAbsolute(x, y, z);
+        if (id < 0 || !Double.isFinite(distance[id])) {
+            return null;
+        }
+        double inside = 0;
+        for (int guard = 0; guard < distance.length; guard++) {
+            if (x == goal.getX() && y == goal.getY() && z == goal.getZ()) {
+                return new Descent(goal, inside, 0, true);
+            }
+            int slot = index.slotOf.get(NavGraph.key(x >> 4, y >> 4, z >> 4));
+            int lx = x & 15;
+            int ly = y & 15;
+            int lz = z & 15;
+            SectionEdges section = index.sections[slot];
+            int node = section.nodeOf(lx | lz << 4 | ly << 8);
+            double best = Double.POSITIVE_INFINITY;
+            int bestMove = -1;
+            int bestTarget = OUTSIDE;
+            if (Math.abs(x - centerX) > radius - EDGE_SEED_BAND || Math.abs(z - centerZ) > radius - EDGE_SEED_BAND) {
+                best = far.at(x, y, z);
+            }
+            for (int e = section.edgeStart[node]; e < section.edgeStart[node + 1]; e++) {
+                int m = section.move[e];
+                int tx = x + moves.dx[m];
+                int ty = y + moves.dy[m];
+                int tz = z + moves.dz[m];
+                double candidate;
+                int target = index.resolve(slot, lx + moves.dx[m], ly + moves.dy[m], lz + moves.dz[m]);
+                if (tx == goal.getX() && ty == goal.getY() && tz == goal.getZ()) {
+                    candidate = moves.cost[m];
+                } else if (target >= 0) {
+                    candidate = moves.cost[m] + distance[target];
+                } else if (target == OUTSIDE) {
+                    candidate = moves.cost[m] + far.at(tx, ty, tz);
+                } else {
+                    continue;
+                }
+                if (candidate < best) {
+                    best = candidate;
+                    bestMove = m;
+                    bestTarget = target;
+                }
+            }
+            if (bestMove < 0) {
+                return new Descent(new BlockPos(x, y, z), inside, best, false);
+            }
+            int tx = x + moves.dx[bestMove];
+            int ty = y + moves.dy[bestMove];
+            int tz = z + moves.dz[bestMove];
+            if (tx == goal.getX() && ty == goal.getY() && tz == goal.getZ()) {
+                return new Descent(goal, inside + moves.cost[bestMove], 0, true);
+            }
+            inside += moves.cost[bestMove];
+            if (bestTarget < 0) {
+                return new Descent(new BlockPos(tx, ty, tz), inside, best - inside, false);
+            }
+            x = tx;
+            y = ty;
+            z = tz;
+        }
+        throw new IllegalStateException("ガイドを下りきれない: " + x + ", " + y + ", " + z);
     }
 
     /**

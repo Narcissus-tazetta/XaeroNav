@@ -15,6 +15,8 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
 | `1.20.1-fabric` | 1.20.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.20.1-forge` | 1.20.1 | Forge 47.4.23+ |
+| `1.16.5-fabric` | 1.16.5 | Fabric Loader 0.15.11+ / Fabric API 0.42.0+（Java 8） |
+| `1.16.5-forge` | 1.16.5 | Forge 36.2.39+（Java 8） |
 
 **1.20.1にNeoForgeノードは無い**（意図的）。その時点のNeoForgeはForgeとjarレベルで互換
 （NeoForge自身も1.20.1ではForgeの使用を推奨）で、Xaeroも"neoforge"向けの1.20.1ビルドを
@@ -35,10 +37,18 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `src/main/java/net/prason/xaeronav/platform/` | ローダーごとの起動処理とイベント配線 |
 | `src/main/resources/xaeronav.accesswidener` | Fabric専用。Mojang公式マッピングの一部ネストクラス（`RenderType.CompositeState`等）は自クラスの宣言とInnerClasses属性の宣言が食い違っており、外部から参照するには開放が要る（NeoForge/Forgeの`accesstransformer.cfg`のFabric版） |
 | `build.forge-legacy.gradle.kts` | 1.20.1のForgeノード専用。1.21.1-forgeとは違うツールチェーン（`net.neoforged.moddev.legacyforge`、ForgeGradleではない） |
+| `build.forge-116.gradle.kts` | 1.16.5のForgeノード専用。Architectury Loom（公式マッピングで1.16.5のForgeを扱えるのはこれだけ） |
+| `buildSrc/src/main/kotlin/ForgeCoremodNames.kt` | 1.16.5-forgeの開発実行用。XaeroのcoremodにあるSRG名を開発環境の名前へ書き換える |
 
 `gradle.properties` にあるのは MOD 自身のメタデータ（id・名前・バージョン）だけです。
 Minecraft / ローダー / Xaero の版は `stonecutter.properties.toml` が唯一の情報源で、
 `neoforge.mods.toml` / `fabric.mod.json` / `mods.toml`（Forge）へもそこから流し込まれます。
+
+Xaero だけは版を2つ持ちます。`deps.xaero_worldmap` / `deps.xaero_minimap` はコンパイルと開発クライアントに使う版、
+`deps.xaero_worldmap_min` / `deps.xaero_minimap_min` は MOD 定義へ書く「動く下限」です。NeoForge / Forge は任意の依存でも
+下限を守らせ、古い Xaero が入っているとゲームを起動させません。コンパイル用の版を最新へ上げても、下限は動かしません。
+下限を下げるときは、その版でビルドし、Xaero への参照（`javap` で見たメソッド・フィールドの型と refmap）が
+今の版でのビルドと一致することを確かめます。
 
 ## Mixin一覧の生成
 
@@ -112,6 +122,27 @@ CI は `printNodes` からノード一覧を作るので、ワークフローの
 （`util/MathSupport`、テストコードの`list.get(list.size() - 1)`など）。バージョンゲートは
 Minecraft自体のAPI差にだけ使う。
 
+## 1.16.5（Java 8）
+
+ソースは他のノードと同じくJava 21の構文で書き、Java 21でコンパイルしてから
+[JvmDowngrader](https://github.com/unimined/JvmDowngrader)でJava 8のクラスファイルへ変換する。
+配布jarは変換後のもの（`java8Jar`、分類子なし）で、変換前は`-java21`の分類子付きで残る。
+
+- **mixin configの`compatibilityLevel`は配布jarの中だけ`JAVA_8`へ書き換える**（`registerJava8Jar`）。
+  開発実行はJava 21のままのクラスを読むので、開発側の値はJava 11以降の機能（NESTING）を許す値にしておく必要がある。
+  `verifyDistribution`が、どのjarにも利用者のJavaで読めないクラスや`compatibilityLevel`が無いことを検査する
+- **Forge 1.16.5はMixinExtrasを同梱せず、jar-in-jarも無い**。`mixinextras-common`を
+  `net.prason.xaeronav.shadow.mixinextras`へ移して配布jarへ入れ、mixin configのplugin
+  （`mixin/MixinExtrasBootstrapPlugin`）で起動する。pluginの行は1.16.5-forgeの`processResources`だけが足す
+- **本番のForge 1.16.5はSRG名で動く**。refmapはArchitectury LoomのMixin APで作る（`useLegacyMixinAp`）
+- **Xaeroの1.16.5 Forge版はcoremod（JavaScript）の中にSRG名を直書きしている**。本番では問題ないが、
+  Mojang名で動く開発環境では`NoClassDefFoundError: ToggleableKeyBinding`で起動しない。
+  `fixXaeroCoremods`（`runClient`の前に走る）がLoomの変換済みjarの中のcoremodを開発環境の名前へ書き換える
+- 1.16.5のXaero 1.46.0/26.5.0は`GuiMap#render`・`MinimapFBORenderer#renderChunksToFBO`の先頭付近で
+  別のバッファを1回余分に`endBatch()`する。mixinの注入先のordinalが1つずれる（`//? if <1.17`）
+- 1.16.5が既定で使うLWJGLは新しいmacOSでウィンドウを作れないので、開発実行だけLWJGL 3.3.3へ上げている。
+  配布jarと利用者の環境には関係しない
+
 ## 守る決まり
 
 ### `pathfinding/` に `//?` を書かない（例外は vanilla API のシグネチャ差だけ）
@@ -163,6 +194,10 @@ Stonecutter は有効なノードに合わせて `src/` を書き換えます。
   通常のPRでは正典ノードだけに絞り、mainへのpush・週次スケジュール・ノード定義やmixinを触ったPRでは
   全ノードへ広がる（ノードが増えてもruntimeジョブの総数が線形に膨らまないようにするため）
 - 起動ログに XaeroNav の mixin 適用失敗が無いこと
+- `server`ジョブ（Forgeノードの配布jarを専用サーバーへ入れても起動を妨げないこと）
+
+`runtime`と`server`は利用者と同じJava（`printNodes`の`java`。1.16.5は8、1.20.1は17、それ以外は21）で
+Minecraftを動かす。Gradle自体はどのノードでもJava 21で動く。
 
 3 つ目が要るのは、`xaeronav-xaero.mixins.json` が `required=false` だからです。注入先が変わっても
 例外は出ず、ユーザーには「地図に線が出ない」としか見えません。ログにだけ出るので、CI が読みます。

@@ -9,9 +9,16 @@ where to go next.
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
   Fabric API)
 - Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
+- Minecraft 1.16.5, on Forge 36.2.39+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.42.0+).
+  Runs on Java 8
+- A Java heap of at least 2 GB, the official launcher's default. Below 2.5 GB the navigation graph
+  covers a smaller area (see [Known limitations](#known-limitations))
 - Client-only. Nothing to install on the server. If the Forge jar is accidentally placed in a
   dedicated server's `mods` folder, it has no server-side feature and does not block startup.
 - MIT licensed
+
+**[How routing works →](docs/how-routing-works.md)** A walkthrough of how the route is found and
+kept up to date, from the coarse map down to each step.
 
 Contributor-facing design contracts are collected in the
 [architecture decision records](docs/architecture/README.md).
@@ -34,13 +41,16 @@ problem here.
    - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api).
+   - Minecraft 1.16.5: [Forge](https://files.minecraftforge.net/) 36.2.39 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.42.0 or newer.
 2. Download the jar for your loader and Minecraft version from the
    [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) and drop it into your
    `mods` folder. Jars are named `xaeronav-<version>-<loader>-<minecraft version>.jar`, for example
-   `xaeronav-0.2.0-fabric-1.20.1.jar`.
+   `xaeronav-0.3.0-fabric-1.20.1.jar`.
 3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
    optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, World Map 1.46.0 /
-   Minimap 26.5.0 on 1.20.1.
+   Minimap 26.5.0 on 1.20.1 and 1.16.5.
 
 ## What it does
 
@@ -62,8 +72,8 @@ Long distances are handled in stages. Beyond the loaded chunks a coarse route is
 Xaero's map data, and the detailed search is stitched onto it one segment at a time. The loaded area
 itself is turned into a navigation graph in the background, built from the same moves the search
 uses, so the search aims straight at the destination instead of detouring through the coarse
-route's waypoints. That also
-covers dimensions where several floors stack at the same XZ, like the Nether. If you are
+route's waypoints. That also covers dimensions where several floors stack at the same XZ, like the
+Nether. [How routing works](docs/how-routing-works.md) walks through all of this in detail. If you are
 underground and the destination is on the surface, the route heads for the nearest cave mouth or
 cliff first instead of digging straight up under the target. Dimensions without a sky are the
 exception; there is no surface to aim for.
@@ -182,7 +192,7 @@ Other markings:
 | `blockBudgetReserve` | `0` | Blocks held back from that budget |
 | `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
-| `costToGoGuideEnabled` | `true` | Guide the detailed search with a cost-to-go estimate. This builds a navigation graph of the loaded area in the background and aims straight at the destination (uses spare CPU cores and roughly 150–250 MB); until the graph is ready, the coarse route's estimate is used. `false` falls back to straight-line distance |
+| `costToGoGuideEnabled` | `true` | Guide the detailed search with a cost-to-go estimate. This builds a navigation graph of the loaded area in the background and aims straight at the destination (uses spare CPU cores and up to about 610 MB, or about 330 MB when the Java heap limit is below 2.5 GB); until the graph is ready, the coarse route's estimate is used. `false` falls back to straight-line distance |
 | `detailHorizonBlocks` | `96` | Max horizontal distance the detailed search targets in one shot; farther destinations get intermediate waypoints |
 | `maxBridgeRunBlocks` | `96` | How many consecutive blocks a bridge over open air can run before it's abandoned for a detour (`0` = unlimited) |
 | `maxLavaBridgeRunBlocks` | `30` | Same, but specifically for bridges over lava (`0` = unlimited) |
@@ -236,9 +246,11 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
   switches off; XaeroNav says which part in chat once per session, and in-world rendering and the
   HUD keep working.
 - Surface-first routing doesn't work in dimensions without a sky (Nether, the End).
-- The navigation graph covers up to 160 blocks around you and ignores block changes it hasn't
-  rebuilt yet; it is rebuilt as you walk and when a search stops making progress. Building it keeps
-  spare CPU cores busy for about a second every 8 blocks you walk.
+- The navigation graph covers up to 224 blocks around you, or 160 when the Java heap limit is below
+  2.5 GB, and never more than your render distance. It ignores block changes it hasn't rebuilt yet;
+  it is rebuilt as you walk and when a search stops making progress. Rebuilding keeps about half of
+  your CPU cores busy for up to about 2 seconds every 8 blocks you walk.
+- A Java heap below 2 GB is not supported. The game itself can run out of memory there.
 
 ## Building
 

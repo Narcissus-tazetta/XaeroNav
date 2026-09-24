@@ -30,7 +30,7 @@ import xaero.hud.render.util.RenderBufferUtil;
  * への1回目のflushがordinal 0。1.16.5の{@code renderChunksToFBO}はその手前に
  * {@code this.mc.renderBuffers().bufferSource().endBatch()}（メインゲーム側の別バッファ）が
  * 先に1回あり、狙うべき{@code renderTypeBuffers}自身のflushはordinal 1になる
- * （デコンパイルで確認、`docs/port-1.16.5.md`参照）。ordinal 0のままだと例外にはならないが
+ * （Xaero 26.5.0のデコンパイルで確認）。ordinal 0のままだと例外にはならないが
  * 別バッファへ描いてしまい、経路がミニマップに出ない。
  *
  * <p>何をどの色で描くかは{@link MapPathOverlay}が決める（世界地図側と共有）。ここが持つのは

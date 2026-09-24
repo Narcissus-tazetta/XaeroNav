@@ -22,6 +22,7 @@ import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * 画面上部の案内表示。近くで必要になる操作と、残りの道のり・所要時間を出す。

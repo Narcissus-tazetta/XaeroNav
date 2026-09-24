@@ -1,10 +1,12 @@
 package net.prason.xaeronav.client;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
-import org.jspecify.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
@@ -38,16 +40,12 @@ final class PathValidator {
      * （足場なら足元、身体が通る前提のセルならそのセル）。ステップ自身の座標とは限らない。
      * 次の探索がそこを選び直さないために要る（{@link
      * net.prason.xaeronav.pathfinding.world.AvoidedCellSource}）。
-     *
-     * <p><b>{@code null}になるのは「掘る前提のセルが既に空いている」場合だけ。</b>そこは世界が
-     * 通りやすく変わっただけで、避ける理由が無い——避けると、もう掘らなくてよくなったセルを
-     * わざわざ迂回する経路になる。
      */
-    record Failure(int stepIndex, @Nullable BlockPos unusableCell, String reason) {
+    record Failure(int stepIndex, BlockPos unusableCell, String reason) {
     }
 
     /** 不成立だったセルと、その理由。{@link Failure}からステップの添字を除いたもの。 */
-    private record CellFailure(@Nullable BlockPos unusableCell, String reason) {
+    private record CellFailure(BlockPos unusableCell, String reason) {
     }
 
     /**
@@ -86,23 +84,71 @@ final class PathValidator {
         // 永久に続いた</b>（実機ログで110秒・34回）。しかも「失敗」ではないので緩和も
         // エスカレーションも走らない
         Set<BlockPos> plannedDigs = new HashSet<>();
+        Map<BlockPos, Integer> plannedPlacements = new HashMap<>();
         for (int i = 0; i < steps.size(); i++) {
             PathStep step = steps.get(i);
             plannedDigs.addAll(step.digCells());
             if (i < fromIndex) {
+                if (step.placedBlockPos() != null) {
+                    plannedPlacements.putIfAbsent(step.placedBlockPos().immutable(), i);
+                }
                 continue;
             }
             if (near != null && horizonSq > 0 && horizontalDistSq(near, step.pos()) > horizonSq) {
                 // 経路は手前から順に遠ざかるとは限らない（岬を回り込む・戻る）ので、ここで打ち切らず
                 // 先のステップも見る。近傍へ戻ってくる経路ならそこは検証される
+                if (step.placedBlockPos() != null) {
+                    plannedPlacements.putIfAbsent(step.placedBlockPos().immutable(), i);
+                }
                 continue;
             }
-            CellFailure failure = cellFailure(level, step, i, cursor, plannedDigs);
+            // まだ置いていない手前の橋は、この先のステップにとって「ある前提」の足場。掘削と同じく、
+            // いま空いているのは当たり前で変化ではない。継ぎ足しの探索は手前の設置を足場に使う
+            // （PlannedCellSource）ので、経路が自分の橋の上を通り直すと、これが無い限り必ず蹴られて
+            // 経路全体が引き直される。通過済みの橋は置かれているはずなので、無ければ本物の変化として拾う
+            int stepIndex = i;
+            CellFailure failure = cellFailure(level, step, i, cursor, plannedDigs,
+                    pos -> bridgeStillToBePlaced(steps, fromIndex, stepIndex, pos));
             if (failure != null) {
-                return new Failure(i, failure.unusableCell(), failure.reason());
+                return new Failure(i, failure.unusableCell(), failure.reason()
+                        + plannedPlacementNote(failure.unusableCell(), plannedPlacements, fromIndex));
+            }
+            // 自分の設置は自分の足場の判定より後に数える。このステップで置くブロックはこのステップの前提ではない
+            if (step.placedBlockPos() != null) {
+                plannedPlacements.putIfAbsent(step.placedBlockPos().immutable(), i);
             }
         }
         return null;
+    }
+
+    /**
+     * {@code footing}が、{@code fromIndex}以降・{@code stepIndex}より手前のステップで<b>これから置く</b>橋の位置か。
+     * 通過済みのステップの橋は置かれているはずなので数えない——無ければ本物の変化。
+     */
+    static boolean bridgeStillToBePlaced(List<PathStep> steps, int fromIndex, int stepIndex, BlockPos footing) {
+        for (int j = Math.max(fromIndex, 0); j < stepIndex; j++) {
+            if (footing.equals(steps.get(j).placedBlockPos())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 不成立だったセルが、経路の手前のステップで置く予定のブロックと重なるなら、その旨の注記。
+     *
+     * <p>まだ置いていない橋は足場として扱うので、ここに来るのは通過済みの橋が無い・橋の位置が塞がっている
+     * といった場合。プレイヤーが経路の想定と違う位置にブロックを置いたのか、地形が本当に変わったのかを
+     * ログから切り分けるための注記。
+     */
+    private static String plannedPlacementNote(BlockPos cell, Map<BlockPos, Integer> plannedPlacements,
+                                               int fromIndex) {
+        Integer placedAt = plannedPlacements.get(cell);
+        if (placedAt == null) {
+            return "";
+        }
+        return ", 手前のステップ%dで置く予定の橋の位置(%s)".formatted(placedAt,
+                placedAt < fromIndex ? "通過済み" : "これから置く");
     }
 
     /**
@@ -113,7 +159,7 @@ final class PathValidator {
      */
     static String stepFailure(Level level, PathStep step, int index) {
         CellFailure failure = cellFailure(level, step, index, new BlockPos.MutableBlockPos(),
-                Set.copyOf(step.digCells()));
+                Set.copyOf(step.digCells()), pos -> false);
         return failure == null ? null : failure.reason();
     }
 
@@ -143,15 +189,24 @@ final class PathValidator {
     }
 
     /**
-     * このステップで<b>塞がっていてはいけない</b>身体セル＝手前（自分自身を含む）で掘る予定に
-     * なっていないもの。
+     * 身体が通るセルが今は通れないか。
+     *
+     * <p>経路が掘る予定のセルは、塞がっていても（まだ掘っていない）空いていても（プレイヤーが掘った直後）
+     * 通れる前提。空いたことで組み直すと、掘るたびに数百手の経路を捨てて予算切れの短い部分経路へ
+     * 引き直すことになる（実機のネザー: 723手→39手、先端へすぐ着き、向きも変わった）。掘り終えたセルの印は
+     * PathRendererが描かない。ただし掘った穴には周りの溶岩が流れ込む——掘る前は固体なので、溶岩や火が入っているのは
+     * 掘った後の変化で、そのまま案内すると溶岩の中を歩かせることになる。
      */
-    static List<BlockPos> unexcavatedBodyCells(PathStep step, Set<BlockPos> plannedDigs) {
-        return step.bodyCells().stream().filter(cell -> !plannedDigs.contains(cell)).toList();
+    static boolean bodyCellBlocked(long flags, boolean plannedDig) {
+        if (plannedDig) {
+            return CellData.lava(flags) || CellData.hazard(flags);
+        }
+        // 閉じたドアは通れる前提（開けて通る）なので、塞がっているとは見なさない
+        return !CellData.occupiableWithoutDigging(flags) && !CellData.openable(flags);
     }
 
     private static CellFailure cellFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
-                                           Set<BlockPos> plannedDigs) {
+                                           Set<BlockPos> plannedDigs, Predicate<BlockPos> pendingPlacement) {
         BlockPos pos = step.pos();
         if (!readable(level, pos)) {
             // このステップの周りは丸ごと読めない。1セルずつの門番でも同じ結論になるが、
@@ -174,31 +229,23 @@ final class PathValidator {
             // ブロックを置いて渡る区間は、足元が空いていることが前提なので床を確認しない
             cursor.set(pos.getX(), pos.getY() - 1, pos.getZ());
             if (readable(level, cursor)
-                    && !CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
+                    && !CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))
+                    && !pendingPlacement.test(cursor)) {
                 BlockPos footing = cursor.immutable();
                 return new CellFailure(footing, "ステップ%d(%s) 足場が無い pos=%s"
                         .formatted(i, step.movement(), footing.toShortString()));
             }
         }
-        // 掘り終えた区間を「まだ掘る場所」として提示し続けないよう、掘る前提のセルが
-        // 空いていたら経路ごと組み直す（掘れば経路自体も安くなりうる）
-        for (BlockPos cell : step.digCells()) {
-            if (readable(level, cell)
-                    && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(cell)))) {
-                // 通りやすく変わっただけなので避けるセルは無い（Failure#unusableCell参照）
-                return new CellFailure(null, "ステップ%d(%s) 掘る前提のセルが既に空いている cell=%s"
-                        .formatted(i, step.movement(), cell.toShortString()));
-            }
-        }
-        for (BlockPos cell : unexcavatedBodyCells(step, plannedDigs)) {
+        for (BlockPos cell : step.bodyCells()) {
             if (!readable(level, cell)) {
                 continue;
             }
             long flags = CellData.flagsOf(level.getBlockState(cell));
-            // 閉じたドアは通れる前提（開けて通る）なので、塞がっているとは見なさない
-            if (!CellData.occupiableWithoutDigging(flags) && !CellData.openable(flags)) {
-                return new CellFailure(cell, "ステップ%d(%s, bridging=%s) 身体が通るセルが塞がっている cell=%s state=%s"
-                        .formatted(i, step.movement(), step.bridging(), cell.toShortString(),
+            boolean plannedDig = plannedDigs.contains(cell);
+            if (bodyCellBlocked(flags, plannedDig)) {
+                String what = plannedDig ? "掘る前提のセルに溶岩・危険物が入った" : "身体が通るセルが塞がっている";
+                return new CellFailure(cell, "ステップ%d(%s, bridging=%s) %s cell=%s state=%s"
+                        .formatted(i, step.movement(), step.bridging(), what, cell.toShortString(),
                                 level.getBlockState(cell)));
             }
         }

@@ -48,6 +48,7 @@ import net.prason.xaeronav.xaero.XaeroHookHealth;
 import net.prason.xaeronav.xaero.XaeroHooks;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * {@code /xaeronav} のクライアントコマンド。
@@ -548,7 +549,7 @@ public final class XaeroNavCommands {
             return 0;
         }
 
-        int renderRadius = GameCompat.renderDistance(mc.options) * 16;
+        int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
         BlockPos playerPos = player.blockPosition();
         SearchBounds bounds = SearchBounds.around(level, playerPos, goal,
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
@@ -600,7 +601,7 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
-        int renderRadius = GameCompat.renderDistance(mc.options) * 16;
+        int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
         int verticalMargin = PathfindingState.verticalSearchMargin(level, false);
         int normalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
 

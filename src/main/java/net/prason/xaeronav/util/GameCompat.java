@@ -1,12 +1,13 @@
-package net.prason.xaeronav.client;
+package net.prason.xaeronav.util;
 
-import net.minecraft.client.Options;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 
-/** Small API differences between Minecraft 1.16 and the newer supported releases. */
+/** Minecraft 1.16と新しい版とで呼び方だけが違うvanilla API。クライアント専用のものは{@code client.ClientCompat}にある。 */
 public final class GameCompat {
     private GameCompat() {
     }
@@ -43,11 +44,11 @@ public final class GameCompat {
         *///?}
     }
 
-    public static int renderDistance(Options options) {
+    public static BlockPos containing(Vec3 pos) {
         //? if >=1.17 {
-        return options.getEffectiveRenderDistance();
+        return BlockPos.containing(pos);
         //?} else {
-        /*return options.renderDistance;
+        /*return new BlockPos(pos);
         *///?}
     }
 }

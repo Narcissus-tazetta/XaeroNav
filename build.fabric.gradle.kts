@@ -117,13 +117,13 @@ tasks.matching { it.name == "runClient" }.configureEach {
 // Fabricで配るのは中間マッピングへ戻したremapJarの方で、素のjarではない
 val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
-    from(tasks.named("remapJar"))
+    from(tasks.named(if (minecraftVersion.startsWith("1.16.")) "java8Jar" else "remapJar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = commonNodeResourceProperties(
-        minecraftVersion, dep("xaero_worldmap"), dep("xaero_minimap"), mixinCompatibilityLevel, packFormat) + mapOf(
+        minecraftVersion, dep("xaero_worldmap_min"), dep("xaero_minimap_min"), mixinCompatibilityLevel, packFormat) + mapOf(
         "fabric_loader_range" to dep("fabric_loader_range"),
         // fabric-apiは"*"のままだと古いAPIでもloaderが起動を許してしまう。開発・CIで実際に
         // ビルド・テストしている版（deps.fabric_api）を下限として宣言する——それより下は
@@ -156,13 +156,16 @@ tasks.named("configureLaunch") {
 }
 
 if (minecraftVersion.startsWith("1.16.")) {
+    // 配布するのはJava 8へ変換した方（java8Jar）。変換前のjarは名前をずらして残す
+    tasks.named<AbstractArchiveTask>("remapJar") { archiveClassifier.set("java21") }
     val downgraded = tasks.register<DowngradeJar>("downgradeRemapJar") {
         inputFile.set(tasks.named<AbstractArchiveTask>("remapJar").flatMap { it.archiveFile })
         archiveClassifier.set("java8-unshaded")
     }
-    val java8Jar = tasks.register<ShadeJar>("java8Jar") {
+    val shaded = tasks.register<ShadeJar>("shadeJava8Jar") {
         inputFile.set(downgraded.flatMap { it.archiveFile })
-        archiveClassifier.set("java8")
+        archiveClassifier.set("java8-shaded")
     }
+    val java8Jar = registerJava8Jar(shaded.flatMap { it.archiveFile })
     tasks.named("assemble") { dependsOn(java8Jar) }
 }

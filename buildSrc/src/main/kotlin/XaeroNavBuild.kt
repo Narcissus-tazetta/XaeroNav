@@ -1,5 +1,12 @@
 import org.gradle.api.Project
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.TaskProvider
+import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.bundling.Zip
+import org.gradle.kotlin.dsl.named
+import org.gradle.kotlin.dsl.register
 
 /** `gradle.properties` に置いたMOD自身のメタデータ。ノードによらず同じ値。 */
 fun Project.modProperty(key: String): String =
@@ -149,20 +156,44 @@ fun Project.modResourceProperties(): Map<String, String> = mapOf(
 )
 
 /**
- * 4ノード共通のresource置換値（{@link #modResourceProperties}に加え、Xaeroバージョンと
+ * 4ノード共通のresource置換値（{@link #modResourceProperties}に加え、Xaeroの動く下限と
  * pack_format/mixin互換レベル）。loader固有のキー（loaderのバージョン範囲など）は
  * 各build.<loader>.gradle.ktsが呼び出し側で足す。
  */
 fun Project.commonNodeResourceProperties(
     minecraftVersion: String,
-    worldmapVersion: String,
-    minimapVersion: String,
+    worldmapMinVersion: String,
+    minimapMinVersion: String,
     mixinCompatibilityLevel: String,
     packFormat: Int,
 ): Map<String, String> = modResourceProperties() + mapOf(
     "minecraft_version" to minecraftVersion,
-    "xaero_worldmap_version" to worldmapVersion,
-    "xaero_minimap_version" to minimapVersion,
+    "xaero_worldmap_min_version" to worldmapMinVersion,
+    "xaero_minimap_min_version" to minimapMinVersion,
     "mixin_compatibility_level" to mixinCompatibilityLevel,
     "pack_format" to packFormat.toString(),
 )
+
+/**
+ * Java 8へ変換済みのjarを、配布できる形へ仕上げる。分類子の無い名前（他ノードの配布jarと同じ形）で出すので、
+ * 変換前のremapJarには分類子を付けて名前をずらしておくこと。
+ *
+ * <p>mixin configの`compatibilityLevel`は開発実行（Java 21のままのクラス）に合わせてあるが、
+ * Java 8のJVMでは`JAVA_8`より上をMixinが受け付けず、起動前に落ちる。クラスはすでにJava 8へ
+ * 変換されているので、配布jarの中だけ`JAVA_8`へ書き換える。
+ */
+fun Project.registerJava8Jar(shaded: Provider<RegularFile>): TaskProvider<Zip> =
+    tasks.register<Zip>("java8Jar") {
+        from(zipTree(shaded)) {
+            filesMatching("*.mixins.json") {
+                filter { line -> line.replace(Regex("\"JAVA_\\d+\""), "\"JAVA_8\"") }
+            }
+        }
+        archiveBaseName.set(tasks.named<Jar>("jar").flatMap { it.archiveBaseName })
+        archiveVersion.set(tasks.named<Jar>("jar").flatMap { it.archiveVersion })
+        archiveClassifier.set("")
+        archiveExtension.set("jar")
+        destinationDirectory.set(layout.buildDirectory.dir("libs"))
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
+    }

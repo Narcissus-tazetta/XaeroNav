@@ -19,6 +19,7 @@ import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.util.MathSupport;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * Xaero非依存のワールド内描画。
@@ -74,6 +75,24 @@ public final class PathRenderer {
      */
     private static final float OCCLUDED_TUBE_ALPHA = 0.3f;
     private static final float OCCLUDED_HIGHLIGHT_ALPHA = 0.12f;
+
+    /**
+     * 水の外から見た、水の中の区間の濃さ。水は深度を書くので、水の中の線は通常の描画では水面に
+     * 隠れて遮蔽側の描画しか残らない。ところがその遮蔽物は壁ではなく半透明の水で、線は実際に
+     * 見えているはずの位置にある。壁越しと同じ薄さ（{@link #OCCLUDED_TUBE_ALPHA}）では、泳ぎの濃い青が
+     * 水の青に埋もれて、水柱に入って上へ登る線が読めない。
+     */
+    private static final float THROUGH_WATER_ALPHA = 0.85f;
+    /**
+     * 水越しの線を白へ寄せる割合。濃い青のままでは濃さを上げても水の青と見分けが付かない。
+     * 直接見える側（水中にいるとき）は元の色のまま描くので、凡例の色は変わらない。
+     */
+    private static final float THROUGH_WATER_WHITEN = 0.5f;
+    /**
+     * 地上経路を地形越しに描く範囲（ブロックの2乗）。経路の線は水の中の区間だけ、掘る・置く枠と
+     * 次に掘る・置く所の枠線は全部をこの範囲に限る。範囲を切らないと、長い経路が地形越しに全部透けて視界を埋める。
+     */
+    private static final double OCCLUDED_NEAR_RADIUS_SQ = 12.0 * 12.0;
     /** 次に掘る1区間ぶんだけは、壁越しでもはっきり見えるようにする。 */
     private static final float NEXT_DIG_FILL_ALPHA = 0.5f;
     private static final float NEXT_DIG_OCCLUDED_ALPHA = 0.3f;
@@ -152,11 +171,13 @@ public final class PathRenderer {
         MultiBufferSource.BufferSource bufferSource = mc.renderBuffers().bufferSource();
         PoseStack.Pose pose = poseStack.last();
         // 描画距離の外は地形自体が描かれないので、そこまで伸びた経路を積む意味がない
-        double cullRadius = GameCompat.renderDistance(mc.options) * 16.0;
+        double cullRadius = ClientCompat.renderDistance(mc.options) * 16.0;
         double cullRadiusSq = cullRadius * cullRadius;
 
         BlockPos playerPos = mc.player.blockPosition();
         boolean playerInWater = mc.level.getFluidState(playerPos).is(FluidTags.WATER);
+        // 目線が水中なら水の面は間に挟まらないので、水越しの描き分けは要らない
+        boolean cameraInWater = mc.level.getFluidState(GameCompat.containing(cameraPos)).is(FluidTags.WATER);
         double playerFeetY = playerPos.getY() + 0.55;
         playerX = mc.player.getX();
         groundPlayerY = playerInWater ? playerFeetY : mc.player.getY() + 0.55;
@@ -168,7 +189,7 @@ public final class PathRenderer {
         PathGeometry current = null;
         if (hasGround) {
             current = geometryCache.get(groundResult, r -> PathGeometry.build(mc.level, r, playerPos));
-            renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq);
+            renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq, cameraInWater);
         }
         if (hasFlight) {
             renderFlightRoute(bufferSource, pose, flight, cullRadius, cameraPos);
@@ -220,7 +241,7 @@ public final class PathRenderer {
         // 閉じられる——2つを持って交互に書くと閉じた側への書き込みで落ちる
         VertexConsumer occludedQuads = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
         drawStraightDashes(occludedQuads, pose, points, cullRadius, STRAIGHT_OCCLUDED_ALPHA);
-        bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
+        NavRenderTypes.endOccludedBatch(bufferSource, NavRenderTypes.OCCLUDED_QUADS);
 
         VertexConsumer quadBuffer = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
         drawStraightDashes(quadBuffer, pose, points, cullRadius, STRAIGHT_ALPHA);
@@ -250,7 +271,7 @@ public final class PathRenderer {
         // 遮蔽側を積み切ってからバッファを閉じ、それから通常側へ移る（renderStraightLineと同じ理由）
         VertexConsumer occluded = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
         drawTubeSegments(occluded, pose, count, cullRadius, OCCLUDED_TUBE_ALPHA, camera, PathColors.FLIGHT);
-        bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
+        NavRenderTypes.endOccludedBatch(bufferSource, NavRenderTypes.OCCLUDED_QUADS);
 
         VertexConsumer quads = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
         drawTubeSegments(quads, pose, count, cullRadius, TUBE_ALPHA, camera, PathColors.FLIGHT);
@@ -335,11 +356,12 @@ public final class PathRenderer {
     }
 
     /**
-     * 地形に隠れている側を先に薄く描き、その上から通常の深度テスト付きで描く。手前に何も無ければ
-     * 2枚が重なって濃く、壁の向こう側では薄い方だけが残る。
+     * 地形に隠れている側を先に描き、その上から通常の深度テスト付きで描く。隠れている側を描くのは
+     * 近くの水の中の区間と掘る・置く枠だけ（{@link #OCCLUDED_NEAR_RADIUS_SQ}）。
      */
     private void renderGroundPath(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
-                                   PathGeometry geometry, PathResult result, Vec3 camera, double cullRadiusSq) {
+                                   PathGeometry geometry, PathResult result, Vec3 camera, double cullRadiusSq,
+                                   boolean cameraInWater) {
         int segments = geometry.segmentCount();
         int highlights = geometry.highlightCount();
         // 通り過ぎた区間は描かない。経路は歩いても引き直さないので、これが無いと自分の後ろへ
@@ -353,20 +375,22 @@ public final class PathRenderer {
         PathGeometry.Range nextPlace = geometry.nextPlace(matched);
 
         VertexConsumer occludedQuads = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
-        for (int i = first; i < segments; i++) {
-            if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
-                continue;
+        if (!cameraInWater) {
+            for (int i = first; i < segments; i++) {
+                if (!geometry.segmentInWater[i] || !segmentVisible(geometry, i, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
+                    continue;
+                }
+                drawSegment(occludedQuads, pose, geometry, i, THROUGH_WATER_ALPHA, true, i == first, camera);
             }
-            drawSegment(occludedQuads, pose, geometry, i, OCCLUDED_TUBE_ALPHA, i == first, camera);
         }
         for (int i = 0; i < highlights; i++) {
-            if (!highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
+            if (!highlightVisible(geometry, i, matched, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
                 continue;
             }
             drawHighlightBox(occludedQuads, pose, geometry, i,
                     nextDig.contains(i) ? NEXT_DIG_OCCLUDED_ALPHA : OCCLUDED_HIGHLIGHT_ALPHA);
         }
-        bufferSource.endBatch(NavRenderTypes.OCCLUDED_QUADS);
+        NavRenderTypes.endOccludedBatch(bufferSource, NavRenderTypes.OCCLUDED_QUADS);
 
         // 次に掘る場所と次に置く場所だけは枠も壁越しに出す。全部の枠を通すと掘り進む先・架け進む先の
         // 線が重なって読めなくなる。置く方をここに入れるのは、溶岩に架ける橋の設置先が定義上いつも
@@ -374,16 +398,16 @@ public final class PathRenderer {
         if (!nextDig.isEmpty() || !nextPlace.isEmpty()) {
             VertexConsumer occludedLines = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_LINES);
             for (int i = nextDig.from(); i < nextDig.to(); i++) {
-                if (highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
+                if (highlightVisible(geometry, i, matched, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
                     drawHighlightOutline(occludedLines, pose, geometry, i);
                 }
             }
             for (int i = nextPlace.from(); i < nextPlace.to(); i++) {
-                if (highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
+                if (highlightVisible(geometry, i, matched, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
                     drawHighlightOutline(occludedLines, pose, geometry, i);
                 }
             }
-            bufferSource.endBatch(NavRenderTypes.OCCLUDED_LINES);
+            NavRenderTypes.endOccludedBatch(bufferSource, NavRenderTypes.OCCLUDED_LINES);
         }
 
         VertexConsumer quadBuffer = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
@@ -391,7 +415,7 @@ public final class PathRenderer {
             if (!segmentVisible(geometry, i, camera, cullRadiusSq)) {
                 continue;
             }
-            drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA, i == first, camera);
+            drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA, false, i == first, camera);
         }
         int visibleHighlights = 0;
         for (int i = 0; i < highlights; i++) {
@@ -422,7 +446,7 @@ public final class PathRenderer {
      * 二択になり、線の始まりが数十ブロック先へ飛ぶ。
      */
     private void drawSegment(VertexConsumer buffer, PoseStack.Pose pose, PathGeometry geometry, int index,
-                             float alpha, boolean cutAtPlayer, Vec3 camera) {
+                             float alpha, boolean throughWater, boolean cutAtPlayer, Vec3 camera) {
         double fromX = geometry.pointX[index];
         double fromY = geometry.pointY[index];
         double fromZ = geometry.pointZ[index];
@@ -435,6 +459,11 @@ public final class PathRenderer {
         float red = geometry.segmentColor[index * 3];
         float green = geometry.segmentColor[index * 3 + 1];
         float blue = geometry.segmentColor[index * 3 + 2];
+        if (throughWater) {
+            red += (1.0f - red) * THROUGH_WATER_WHITEN;
+            green += (1.0f - green) * THROUGH_WATER_WHITEN;
+            blue += (1.0f - blue) * THROUGH_WATER_WHITEN;
+        }
         float segmentAlpha = alpha * fadeRatio(geometry, index);
         double toX = geometry.pointX[index + 1];
         double toY = geometry.pointY[index + 1];

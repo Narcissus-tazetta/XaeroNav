@@ -3,6 +3,7 @@ package net.prason.xaeronav.pathfinding.navgraph;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -72,6 +73,32 @@ class WindowFieldTest {
     }
 
     @Test
+    void retargetingTheGoalHeightMatchesAFreshGraph() {
+        // 実機のネザー: 地図のYが岩の中に落ちた目的地を、列が読み込まれてから立てる高さへ寄せ直す
+        FakeCells cells = world(true);
+        BlockPos inRock = new BlockPos(54, FLOOR_Y - 8, 50);
+        BlockPos standable = new BlockPos(54, FLOOR_Y + 1, 50);
+        NavGraph retargeted = built(cells, inRock, 32, 32, 40);
+        retargeted.retarget(standable);
+        WindowField reused = retargeted.field(32, 32, 40, FarField.UNKNOWN, () -> false);
+        WindowField fresh = built(cells, standable, 32, 32, 40).field(32, 32, 40, FarField.UNKNOWN, () -> false);
+        assertNotNull(reused);
+        assertNotNull(fresh);
+        for (int x = 0; x < 64; x += 3) {
+            for (int z = 0; z < 64; z += 3) {
+                assertEquals(fresh.estimate(x, FLOOR_Y + 1, z), reused.estimate(x, FLOOR_Y + 1, z), 1e-9,
+                        "(" + x + ", " + z + ")");
+            }
+        }
+    }
+
+    @Test
+    void refusesToRetargetToAnotherColumn() {
+        NavGraph graph = new NavGraph(new BlockPos(54, FLOOR_Y + 1, 50), 48, 96);
+        assertThrows(IllegalArgumentException.class, () -> graph.retarget(new BlockPos(55, FLOOR_Y + 1, 50)));
+    }
+
+    @Test
     void neverReturnsZeroOffTheGraph() {
         FakeCells cells = world(true);
         BlockPos goal = new BlockPos(54, FLOOR_Y + 1, 50);
@@ -84,6 +111,35 @@ class WindowFieldTest {
         // 立ち位置の真上1マス（置いたブロックの上に立つ形）。近くのノードの値から延びて、壁の回り込みを知っている
         double onPlacedBlock = field.estimate(10, FLOOR_Y + 2, 50);
         assertTrue(onPlacedBlock > field.estimate(10, FLOOR_Y + 1, 50) * 0.9, "近くの値から延びていない: " + onPlacedBlock);
+    }
+
+    @Test
+    void descendsToTheGoalInsideTheWindow() {
+        FakeCells cells = world(true);
+        BlockPos start = new BlockPos(10, FLOOR_Y + 1, 50);
+        BlockPos goal = new BlockPos(54, FLOOR_Y + 1, 50);
+        WindowField field = built(cells, goal, 32, 32, 40).field(32, 32, 40, FarField.UNKNOWN, () -> false);
+        assertNotNull(field);
+        WindowField.Descent descent = field.descend(start.getX(), start.getY(), start.getZ());
+        assertNotNull(descent);
+        assertTrue(descent.reachedGoal());
+        assertEquals(field.estimate(start.getX(), start.getY(), start.getZ()), descent.inside(), 1e-6);
+    }
+
+    @Test
+    void descendsToTheWindowEdgeWhenTheGoalIsOutside() {
+        FakeCells cells = world(false);
+        BlockPos start = new BlockPos(8, FLOOR_Y + 1, 32);
+        BlockPos goal = new BlockPos(60, FLOOR_Y + 1, 32);
+        FarField far = (x, y, z) -> Heuristic.estimate(x, y, z, goal.getX(), goal.getY(), goal.getZ());
+        WindowField field = built(cells, goal, 12, 32, 24).field(12, 32, 24, far, () -> false);
+        assertNotNull(field);
+        WindowField.Descent descent = field.descend(start.getX(), start.getY(), start.getZ());
+        assertNotNull(descent);
+        assertFalse(descent.reachedGoal());
+        // 窓は x=-12..36。出どころは目的地の側の縁
+        assertTrue(descent.exit().getX() >= 12 + 24 - 3, "縁で止まっていない: " + descent.exit());
+        assertEquals(field.estimate(start.getX(), start.getY(), start.getZ()), descent.inside() + descent.outside(), 1e-6);
     }
 
     @Test

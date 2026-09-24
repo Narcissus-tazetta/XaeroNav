@@ -30,7 +30,7 @@ import xaero.map.gui.GuiMap;
  * <p>{@code endBatch()}呼び出しのordinalはバージョンで違う。1.17+は地形描画のflushが1回目
  * （ordinal 0）だが、1.16.5の{@code GuiMap#render}は最初に前フレームの取り残しをflushする
  * 呼び出しが先頭付近にもう1回あり、地形＋オーバーレイのflushは2回目（ordinal 1）になる
- * （デコンパイルで確認、`docs/port-1.16.5.md`参照）。
+ * （Xaero 1.46.0のデコンパイルで確認）。
  *
  * <p>何をどの色で描くかは{@link MapPathOverlay}が決める（ミニマップ側と共有）。ここが持つのは
  * Xaero固有の描画先と座標変換だけに留める。
