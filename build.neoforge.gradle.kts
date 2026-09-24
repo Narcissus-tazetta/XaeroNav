@@ -103,7 +103,7 @@ val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
 
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = commonNodeResourceProperties(
-        minecraftVersion, dep("xaero_worldmap"), dep("xaero_minimap"), mixinCompatibilityLevel, packFormat) + mapOf(
+        minecraftVersion, dep("xaero_worldmap_min"), dep("xaero_minimap_min"), mixinCompatibilityLevel, packFormat) + mapOf(
         "neoforge_loader_version_range" to dep("neoforge_loader_range")
     )
 

@@ -115,20 +115,20 @@ fun Project.modResourceProperties(): Map<String, String> = mapOf(
 )
 
 /**
- * 4ノード共通のresource置換値（{@link #modResourceProperties}に加え、Xaeroバージョンと
+ * 4ノード共通のresource置換値（{@link #modResourceProperties}に加え、Xaeroの動く下限と
  * pack_format/mixin互換レベル）。loader固有のキー（loaderのバージョン範囲など）は
  * 各build.<loader>.gradle.ktsが呼び出し側で足す。
  */
 fun Project.commonNodeResourceProperties(
     minecraftVersion: String,
-    worldmapVersion: String,
-    minimapVersion: String,
+    worldmapMinVersion: String,
+    minimapMinVersion: String,
     mixinCompatibilityLevel: String,
     packFormat: Int,
 ): Map<String, String> = modResourceProperties() + mapOf(
     "minecraft_version" to minecraftVersion,
-    "xaero_worldmap_version" to worldmapVersion,
-    "xaero_minimap_version" to minimapVersion,
+    "xaero_worldmap_min_version" to worldmapMinVersion,
+    "xaero_minimap_min_version" to minimapMinVersion,
     "mixin_compatibility_level" to mixinCompatibilityLevel,
     "pack_format" to packFormat.toString(),
 )

@@ -96,7 +96,7 @@ val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
 
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = commonNodeResourceProperties(
-        minecraftVersion, dep("xaero_worldmap"), dep("xaero_minimap"), mixinCompatibilityLevel, packFormat) + mapOf(
+        minecraftVersion, dep("xaero_worldmap_min"), dep("xaero_minimap_min"), mixinCompatibilityLevel, packFormat) + mapOf(
         "fabric_loader_range" to dep("fabric_loader_range"),
         // fabric-apiは"*"のままだと古いAPIでもloaderが起動を許してしまう。開発・CIで実際に
         // ビルド・テストしている版（deps.fabric_api）を下限として宣言する——それより下は

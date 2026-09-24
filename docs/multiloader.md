@@ -40,6 +40,12 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 Minecraft / ローダー / Xaero の版は `stonecutter.properties.toml` が唯一の情報源で、
 `neoforge.mods.toml` / `fabric.mod.json` / `mods.toml`（Forge）へもそこから流し込まれます。
 
+Xaero だけは版を2つ持ちます。`deps.xaero_worldmap` / `deps.xaero_minimap` はコンパイルと開発クライアントに使う版、
+`deps.xaero_worldmap_min` / `deps.xaero_minimap_min` は MOD 定義へ書く「動く下限」です。NeoForge / Forge は任意の依存でも
+下限を守らせ、古い Xaero が入っているとゲームを起動させません。コンパイル用の版を最新へ上げても、下限は動かしません。
+下限を下げるときは、その版でビルドし、Xaero への参照（`javap` で見たメソッド・フィールドの型と refmap）が
+今の版でのビルドと一致することを確かめます。
+
 ## Mixin一覧の生成
 
 [Fletching Table](https://stonecutter.kikugie.dev/wiki/fletching-table) のJava annotation processorが

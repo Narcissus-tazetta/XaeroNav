@@ -38,7 +38,8 @@
    Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
    `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
-   World Map 1.46.0 以降・Minimap 26.5.0 以降。
+   1.21.1 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.20.1 なら World Map 1.46.0 以降・
+   Minimap 26.5.0 以降。
 
 ## 何ができるか
 

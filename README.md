@@ -44,7 +44,8 @@ problem here.
    `mods` folder. Jars are named `xaeronav-<version>-<loader>-<minecraft version>.jar`, for example
    `xaeronav-0.3.0-fabric-1.20.1.jar`.
 3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
-   optional. Minimum versions: World Map 1.46.0 / Minimap 26.5.0.
+   optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, World Map 1.46.0 /
+   Minimap 26.5.0 on 1.20.1.
 
 ## What it does
 

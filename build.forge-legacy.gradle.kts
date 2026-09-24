@@ -99,7 +99,7 @@ tasks.register<Sync>("stageServerTestMod") {
 
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = commonNodeResourceProperties(
-        mcVersion, dep("xaero_worldmap"), dep("xaero_minimap"), mixinCompatibilityLevel, packFormat) + mapOf(
+        mcVersion, dep("xaero_worldmap_min"), dep("xaero_minimap_min"), mixinCompatibilityLevel, packFormat) + mapOf(
         "forge_loader_version_range" to dep("forge_loader_range")
     )
 
