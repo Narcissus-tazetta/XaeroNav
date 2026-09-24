@@ -1,5 +1,18 @@
 package net.prason.xaeronav.client;
 
+//? if >=1.21.11 {
+/*import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.platform.DepthTestFunction;
+
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.rendertype.LayeringTransform;
+import net.minecraft.client.renderer.rendertype.RenderSetup;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.resources.ResourceLocation;
+import net.prason.xaeronav.XaeroNav;
+*///?} else {
 import java.util.OptionalDouble;
 
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -9,6 +22,7 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
+//?}
 
 /**
  * 地形に遮られていても見える描画レイヤー。
@@ -23,12 +37,47 @@ import net.minecraft.client.renderer.RenderType;
  */
 final class NavRenderTypes {
 
+    //? if >=1.21.11 {
+    /*static final RenderType DEBUG_QUADS = RenderTypes.debugQuads();
+
+    // 深度テストはRenderPipelineが持つ。標準のパイプラインから深度テストだけを外したものを作る
+    // （深度を書かないのは元のdebug_quadsも同じ）
+    private static final RenderPipeline OCCLUDED_QUADS_PIPELINE = RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
+            .withLocation(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "pipeline/occluded_quads"))
+            .withCull(false)
+            .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+            .build();
+    private static final RenderPipeline OCCLUDED_LINES_PIPELINE = RenderPipeline.builder(RenderPipelines.LINES_SNIPPET)
+            .withLocation(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "pipeline/occluded_lines"))
+            .withDepthWrite(false)
+            .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+            .build();
+
+    static final RenderType OCCLUDED_QUADS = RenderType.create("xaeronav_occluded_quads",
+            RenderSetup.builder(OCCLUDED_QUADS_PIPELINE).sortOnUpload().createRenderSetup());
+    // 線はバニラ（RenderTypes.lines()）と違ってitem_entityではなくmainへ描く。Forgeは追加の描画パスを
+    // Fabulous!の合成より後に置くので、item_entityへ描いても画面へ合成されない
+    static final RenderType LINES = RenderType.create("xaeronav_lines",
+            RenderSetup.builder(RenderPipelines.LINES)
+                    .setLayeringTransform(LayeringTransform.VIEW_OFFSET_Z_LAYERING)
+                    .createRenderSetup());
+    static final RenderType OCCLUDED_LINES = RenderType.create("xaeronav_occluded_lines",
+            RenderSetup.builder(OCCLUDED_LINES_PIPELINE)
+                    .setLayeringTransform(LayeringTransform.VIEW_OFFSET_Z_LAYERING)
+                    .createRenderSetup());
+
+    /^* 深度テストはパイプラインが切るので、ここでは描くだけ。 ^/
+    static void endOccludedBatch(MultiBufferSource.BufferSource bufferSource, RenderType type) {
+        bufferSource.endBatch(type);
+    }
+    *///?} else {
     static final RenderType DEBUG_QUADS =
             //? if >=1.17 {
             RenderType.debugQuads();
             //?} else {
             /*RenderType.lightning();
             *///?}
+    static final RenderType LINES = RenderType.lines();
 
     //? if >=1.17 {
     static final RenderType OCCLUDED_QUADS = RenderType.create(
@@ -72,6 +121,7 @@ final class NavRenderTypes {
         RenderSystem.disableDepthTest();
         bufferSource.endBatch(type);
     }
+    //?}
 
     private NavRenderTypes() {
     }

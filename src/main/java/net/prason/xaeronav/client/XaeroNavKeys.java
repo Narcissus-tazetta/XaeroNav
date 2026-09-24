@@ -9,6 +9,9 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+//? if >=1.21.11 {
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.prason.xaeronav.XaeroNav;
@@ -24,7 +27,13 @@ import net.prason.xaeronav.config.XaeroNavConfig;
  */
 public final class XaeroNavKeys {
 
+    //? if >=1.21.11 {
+    /*// カテゴリの表示名は`key.category.<名前空間>.<パス>`の翻訳キーから引かれる
+    private static final KeyMapping.Category CATEGORY =
+            KeyMapping.Category.register(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "main"));
+    *///?} else {
     private static final String CATEGORY = "key.categories.xaeronav";
+    //?}
 
     public static final KeyMapping GOTO_LOOKING_AT = unbound("key.xaeronav.goto_looking_at");
     public static final KeyMapping CLEAR = unbound("key.xaeronav.clear");

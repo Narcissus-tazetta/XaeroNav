@@ -9,7 +9,6 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
@@ -164,7 +163,7 @@ public final class PathRenderer {
             return;
         }
 
-        Vec3 cameraPos = camera.getPosition();
+        Vec3 cameraPos = ClientCompat.cameraPosition(camera);
         poseStack.pushPose();
         poseStack.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
 
@@ -429,14 +428,14 @@ public final class PathRenderer {
         bufferSource.endBatch(NavRenderTypes.DEBUG_QUADS);
 
         if (visibleHighlights > 0) {
-            VertexConsumer lineBuffer = bufferSource.getBuffer(RenderType.lines());
+            VertexConsumer lineBuffer = bufferSource.getBuffer(NavRenderTypes.LINES);
             for (int i = 0; i < highlights; i++) {
                 if (!highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
                     continue;
                 }
                 drawHighlightOutline(lineBuffer, pose, geometry, i);
             }
-            bufferSource.endBatch(RenderType.lines());
+            bufferSource.endBatch(NavRenderTypes.LINES);
         }
     }
 
@@ -799,7 +798,12 @@ public final class PathRenderer {
     private void line(VertexConsumer buffer, PoseStack.Pose pose,
                       float x0, float y0, float z0, float x1, float y1, float z1,
                       float red, float green, float blue) {
-        //? if >=1.21 {
+        //? if >=1.21.11 {
+        /*// 線幅は頂点ごとに持つ。バニラのブロックの枠と同じ幅にする
+        float width = Minecraft.getInstance().getWindow().getAppropriateLineWidth();
+        buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f).setLineWidth(width);
+        buffer.addVertex(pose, x1, y1, z1).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f).setLineWidth(width);
+        *///?} else if >=1.21 {
         buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
         buffer.addVertex(pose, x1, y1, z1).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
         //?} else {

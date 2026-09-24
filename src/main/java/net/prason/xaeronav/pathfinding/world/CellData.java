@@ -285,6 +285,9 @@ public final class CellData {
      * ここは「氷はいくらか速い」という一定倍率の近似にとどめる。値は素の疾走(5.6m/s)と
      * 平地の走り幅跳び(7.1m/s)の間に収まる控えめな側に置いてある。
      */
+    // Forge 61は位置付きの自前拡張へ誘導するためにバニラのgetFrictionを非推奨にしている。この層はローダーに
+    // 依存しない決まりなので、位置で摩擦を変えるMODのブロックまでは拾わず、バニラの値を使う
+    @SuppressWarnings("deprecation")
     private static float travelSpeedFactor(BlockState state) {
         Block block = state.getBlock();
         if (block instanceof MagmaBlock) {

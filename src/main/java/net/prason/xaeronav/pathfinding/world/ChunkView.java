@@ -219,7 +219,11 @@ public final class ChunkView implements CellSource {
         // 1.20.1はエンチャントがレジストリ経由のHolderではなく、Enchantments直下の静的フィールドを
         // そのままEnchantmentHelperへ渡す旧モデル（フィールド名もBLOCK_EFFICIENCYで別物）。
         // vanilla APIの形そのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
-        //? if >=1.21 {
+        //? if >=1.21.11 {
+        /*Holder<Enchantment> efficiency = level.registryAccess()
+                .lookupOrThrow(Registries.ENCHANTMENT)
+                .getOrThrow(Enchantments.EFFICIENCY);
+        *///?} else if >=1.21 {
         Holder<Enchantment> efficiency = level.registryAccess()
                 .registryOrThrow(Registries.ENCHANTMENT)
                 .getHolderOrThrow(Enchantments.EFFICIENCY);
@@ -263,7 +267,7 @@ public final class ChunkView implements CellSource {
         int fatalFallBlocks = ActionCosts.SAFE_FALL_BLOCKS + (int) Math.ceil(player.getHealth());
         // ultraWarmな次元（ネザー）は水を置いても即座に蒸発するので、着地寸前に水バケツを置く
         // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
-        boolean canMlgWaterBucket = options.fallDamageToleranceEnabled() && !level.dimensionType().ultraWarm()
+        boolean canMlgWaterBucket = options.fallDamageToleranceEnabled() && !GameCompat.waterEvaporates(level)
                 && hasItem(GameCompat.inventory(player), stack -> stack.getItem() == Items.WATER_BUCKET);
         boolean boatAvailable = boatAvailable(player);
         boolean ridingBoat = ridingBoat(player);
@@ -272,7 +276,7 @@ public final class ChunkView implements CellSource {
         // FALL_TO_WATERは着水先に水があるときだけ生成され、ultraWarmな次元（ネザー）には水が
         // 存在しない（置いても蒸発する——BucketItemがそう書いてある）。水も水バケツMLGも無く、
         // 落下ダメージも許容しないなら、落ちられるのは安全高さまでで打ち止めになる
-        boolean deepFallPossible = !level.dimensionType().ultraWarm() || canMlgWaterBucket;
+        boolean deepFallPossible = !GameCompat.waterEvaporates(level) || canMlgWaterBucket;
         double minDescentTicksPerBlock = descentBound(deepFallPossible, maxFallDamagePoints);
 
         // クリエイティブは置いても減らないので予算を掛けない（0＝無制限）。設定でも切れる。
@@ -296,7 +300,7 @@ public final class ChunkView implements CellSource {
                 canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
                 deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
-                level.getMaxBuildHeight(), GameCompat.minSection(level), true);
+                GameCompat.maxBuildHeight(level), GameCompat.minSection(level), true);
     }
 
     /**

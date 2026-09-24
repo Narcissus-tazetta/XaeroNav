@@ -1,6 +1,7 @@
 package net.prason.xaeronav.platform.forge;
 
-//? forge {
+// 1.21.11（Forge 61）はForgeMod・ForgeClientSetupが受け持つ
+//? if forge && <1.21.11 {
 /*//? if >=1.21 {
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;

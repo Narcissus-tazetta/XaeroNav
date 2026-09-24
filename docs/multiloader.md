@@ -10,6 +10,8 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 
 | ノード | Minecraft | ローダー |
 |---|---|---|
+| `1.21.11-fabric` | 1.21.11 | Fabric Loader 0.17.3+ / Fabric API 0.141.6+ |
+| `1.21.11-forge` | 1.21.11 | Forge 61.2.1+ |
 | `1.21.1-neoforge` | 1.21.1 | NeoForge 21.1.228+ |
 | `1.21.1-fabric` | 1.21.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
@@ -75,7 +77,7 @@ Forge固有のrefmap生成やMANIFESTの`MixinConfigs`登録はFletching Table�
 
 - `buildSrc/.../xaeronav.common.gradle.kts`のJava toolchain分岐に新しい境界が要らないか
   （MC 1.20.5未満はJava 17、以降はJava 21——2バージョン以上増えると分岐の書き方自体を見直す）
-- `pack.mcmeta`の`pack_format`（各ビルドスクリプトの`packFormat`変数）
+- `pack.mcmeta`の形式（`buildSrc`の`packFormatFor`。未登録の版はビルドが止まる。クライアントjarの`version.json`の`pack_version`から足す）
 - `xaeronav-xaero.mixins.json`の`compatibilityLevel`（同上、`mixinCompatibilityLevel`変数）
 - `fabric.mod.json`の`java`依存（Fabricのみ、`java_version`変数）
 
@@ -121,6 +123,29 @@ CI は `printNodes` からノード一覧を作るので、ワークフローの
 標準ライブラリAPIは、`//?`で分岐せず**自前の実装に置き換えて両バージョンで同じコードを使う**
 （`util/MathSupport`、テストコードの`list.get(list.size() - 1)`など）。バージョンゲートは
 Minecraft自体のAPI差にだけ使う。
+
+## 1.21.11
+
+1.21.1との差が大きいのは描画・Forgeのイベント・入力まわり。
+
+- **名前だけ変わったクラスはStonecutterの置換で吸収する**（`stonecutter.gradle.kts`の`replacements`）。
+  `ResourceLocation`→`Identifier`、`Boat`のパッケージ移動。置換は双方向なので、置換後の名前をソースに直接書かない
+- **深度テストはRenderPipelineが持つ**。地形越しに見せるレイヤーは、標準のパイプラインから深度テストだけを外した
+  自前のパイプラインで作る（`client/NavRenderTypes`）。線は頂点ごとに線幅を持つ（`setLineWidth`）
+- **線はmainターゲットへ描く**（バニラの`RenderTypes.lines()`はitem_entity）。Forgeの追加パスはFabulous!の合成より後に
+  走るので、item_entityへ描いても画面へ合成されない
+- **ワールドへの描画の入口**: Fabricは`WorldRenderEvents.END_MAIN`（`rendering.v1.world`パッケージ）。Forge 61には
+  `RenderLevelStageEvent`が無く、`AddFramePassEvent`で描画パスを足す。どちらもmodelViewに視点が積まれているので、
+  `PathRenderer`へは単位行列を渡す
+- **Forge 61はEventBus 7**。イベントがそれぞれ`BUS`を持ち、注釈での購読とは形が違うので、入口を
+  `platform/forge/ForgeMod`・`ForgeClientSetup`に分けている（`ForgeEntry`・`ForgeEvents`は1.21.1以前用）
+- **高さは`getMinY`/`getMaxY`で、上端を含む**。`util/GameCompat`は旧来どおり「上端を含まない」値で返す。
+  ネザーの判定（旧`ultraWarm`）は環境属性`WATER_EVAPORATES`
+- **キー設定のカテゴリ**は`KeyMapping.Category`。表示名は`key.category.xaeronav.main`
+- **Xaeroの描画先**が`xaero.lib.client.graphics.XaeroBufferProvider`に変わった。mixinの注入先はその`endBatch()`
+- **`pack.mcmeta`**は`min_format`/`max_format`で書く。Forgeは同じファイルをデータパックとしても検証するので、
+  Forge自身と同じくデータの形式（94）で宣言する（`packFormatFields`）
+- 1.21.11のFabricにアクセスワイドナーは要らない（開放していたクラスごと無くなった）
 
 ## 1.16.5（Java 8）
 

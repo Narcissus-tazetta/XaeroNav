@@ -14,7 +14,11 @@ import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
+//? if >=1.21.11 {
+/*import xaero.lib.client.graphics.XaeroBufferProvider;
+*///?} else {
 import net.minecraft.client.renderer.MultiBufferSource;
+//?}
 import net.prason.xaeronav.client.MapPathOverlay;
 import net.prason.xaeronav.xaero.XaeroHookMarker;
 import net.prason.xaeronav.xaero.XaeroHookProbe;
@@ -60,16 +64,24 @@ public abstract class MinimapFBORendererMixin implements XaeroHookMarker {
 
     @WrapOperation(
             method = "renderChunksToFBO",
-            //? if <1.17 {
+            //? if >=1.21.11 {
+            /*at = @At(value = "INVOKE", target = "Lxaero/lib/client/graphics/XaeroBufferProvider;endBatch()V", ordinal = 0)
+            *///?} else if <1.17 {
             /*at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 1)
             *///?} else {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 0)
             //?}
     )
-    private void xaeronav$drawPath(MultiBufferSource.BufferSource renderTypeBuffers, Operation<Void> original,
-                                    @Local(name = "matrixStack") PoseStack matrixStack,
-                                    @Local(name = "xFloored") int xFloored,
-                                    @Local(name = "zFloored") int zFloored) {
+    private void xaeronav$drawPath(
+            //? if >=1.21.11 {
+            /*XaeroBufferProvider renderTypeBuffers,
+            *///?} else {
+            MultiBufferSource.BufferSource renderTypeBuffers,
+            //?}
+            Operation<Void> original,
+            @Local(name = "matrixStack") PoseStack matrixStack,
+            @Local(name = "xFloored") int xFloored,
+            @Local(name = "zFloored") int zFloored) {
         XaeroHookProbe.record(XaeroHookProbe.Point.MINIMAP_RENDER);
         MapPathOverlay.Snapshot snapshot = MapPathOverlay.snapshot();
         if (!snapshot.isEmpty()) {

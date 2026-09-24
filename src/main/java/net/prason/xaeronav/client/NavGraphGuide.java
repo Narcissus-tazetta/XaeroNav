@@ -244,7 +244,7 @@ final class NavGraphGuide {
         BlockPos at = player.blockPosition();
         int window = window(renderRadius);
         int minY = GameCompat.minBuildHeight(level);
-        int maxY = level.getMaxBuildHeight() - 1;
+        int maxY = GameCompat.maxBuildHeight(level) - 1;
         int logicalTop = minY + level.dimensionType().logicalHeight() - 1;
         if (level.dimensionType().hasCeiling() && at.getY() <= logicalTop && goal.getY() <= logicalTop) {
             // ネザーの岩盤の天井より上は、下から掘って入れない（岩盤は掘れない）。そこを組むと窓のセクションが倍になり、
@@ -321,7 +321,7 @@ final class NavGraphGuide {
         }
         BlockPos at = player.blockPosition();
         int minY = GameCompat.minBuildHeight(level);
-        int maxY = level.getMaxBuildHeight() - 1;
+        int maxY = GameCompat.maxBuildHeight(level) - 1;
         if (level.dimensionType().hasCeiling()) {
             maxY = Math.min(maxY, minY + level.dimensionType().logicalHeight() - 1);
         }

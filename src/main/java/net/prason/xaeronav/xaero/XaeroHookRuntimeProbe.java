@@ -8,6 +8,9 @@ import org.lwjgl.glfw.GLFW;
 import com.mojang.blaze3d.platform.InputConstants;
 
 import net.minecraft.client.KeyMapping;
+//? if >=1.21.11 {
+/*import net.minecraft.client.input.KeyEvent;
+*///?}
 import net.minecraft.client.Minecraft;
 //? if >=1.19 {
 import net.minecraft.network.chat.contents.TranslatableContents;
@@ -132,7 +135,12 @@ public final class XaeroHookRuntimeProbe {
         InputConstants.Key probeKey = InputConstants.Type.KEYSYM.getOrCreate(GLFW.GLFW_KEY_G);
         try {
             mapping.setKey(probeKey);
-            if (!map.keyPressed(GLFW.GLFW_KEY_G, 0, 0)) {
+            //? if >=1.21.11 {
+            /*boolean consumed = map.keyPressed(new KeyEvent(GLFW.GLFW_KEY_G, 0, 0));
+            *///?} else {
+            boolean consumed = map.keyPressed(GLFW.GLFW_KEY_G, 0, 0);
+            //?}
+            if (!consumed) {
                 throw new IllegalStateException("world-map key hook did not consume its key");
             }
             if (PathfindingState.INSTANCE.goal() == null) {

@@ -7,6 +7,7 @@ import net.minecraft.world.level.LevelHeightAccessor;
 /*import net.minecraft.world.level.Level;
 *///?}
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * 経路全体を覆う<b>3次元</b>の粗い地形。{@link VoxelCostToGo}のためだけに存在する。
@@ -145,16 +146,10 @@ public final class VoxelTerrain {
         int high = Math.max(highestFloorY, Math.max(start.getY(), goal.getY()));
         return new SearchBounds(
                 Math.min(start.getX(), goal.getX()) - MARGIN_BLOCKS,
-                Math.max(
-                        //? if >=1.17 {
-                        level.getMinBuildHeight(),
-                        //?} else {
-                        /*0,
-                        *///?}
-                        low - VERTICAL_MARGIN_BLOCKS),
+                Math.max(GameCompat.minBuildHeight(level), low - VERTICAL_MARGIN_BLOCKS),
                 Math.min(start.getZ(), goal.getZ()) - MARGIN_BLOCKS,
                 Math.max(start.getX(), goal.getX()) + MARGIN_BLOCKS,
-                Math.min(level.getMaxBuildHeight() - 1, high + VERTICAL_MARGIN_BLOCKS),
+                Math.min(GameCompat.maxBuildHeight(level) - 1, high + VERTICAL_MARGIN_BLOCKS),
                 Math.max(start.getZ(), goal.getZ()) + MARGIN_BLOCKS);
     }
 

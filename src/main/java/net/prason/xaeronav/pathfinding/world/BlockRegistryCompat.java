@@ -37,6 +37,8 @@ public final class BlockRegistryCompat {
         /*return ForgeRegistries.BLOCKS.containsKey(id) ? ForgeRegistries.BLOCKS.getValue(id) : null;
         *///?} else if <1.19 {
         /*return Registry.BLOCK.containsKey(id) ? Registry.BLOCK.get(id) : null;
+        *///?} else if >=1.21.11 {
+        /*return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.getValue(id) : null;
         *///?} else {
         return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.get(id) : null;
         //?}

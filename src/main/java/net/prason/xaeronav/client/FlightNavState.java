@@ -354,7 +354,7 @@ final class FlightNavState {
         // 解きは地図読みの数倍かかり、同期で解くと目標を切り替えるたびに描画が止まる
         CoarseRequest coarseRequest = routing ? coarseRequest(level, player, currentGoal) : CoarseRequest.NONE;
         int minAirY = GameCompat.minBuildHeight(level) + CEILING_MARGIN_BLOCKS;
-        int maxAirY = level.getMaxBuildHeight() - 1 - CEILING_MARGIN_BLOCKS;
+        int maxAirY = GameCompat.maxBuildHeight(level) - 1 - CEILING_MARGIN_BLOCKS;
         int passedSnapshot = coarseRequest.fresh() ? 0 : passedWaypoints;
         BlockPos aimedSnapshot = aimedWaypoint;
         long myJob = ++jobGeneration;
@@ -567,7 +567,7 @@ final class FlightNavState {
      */
     static CoarseRouter.Route solveCoarseRoute(Level level, BlockPos from, BlockPos goal, boolean rockets) {
         return solveCoarseRoute(readCoarseMap(from, goal), GameCompat.minBuildHeight(level) + CEILING_MARGIN_BLOCKS,
-                level.getMaxBuildHeight() - 1 - CEILING_MARGIN_BLOCKS, from, goal, rockets);
+                GameCompat.maxBuildHeight(level) - 1 - CEILING_MARGIN_BLOCKS, from, goal, rockets);
     }
 
     /** 長距離ルートの地図を読む。<b>メインスレッド専用</b>。Xaeroの地図が無ければnull。 */

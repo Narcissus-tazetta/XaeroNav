@@ -1,6 +1,7 @@
 package net.prason.xaeronav.platform.forge;
 
-//? forge {
+// 1.21.11（Forge 61）はForgeMod・ForgeClientSetupが受け持つ
+//? if forge && <1.21.11 {
 /*import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.commands.CommandSourceStack;

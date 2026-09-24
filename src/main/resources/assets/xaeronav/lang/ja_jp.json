@@ -60,6 +60,7 @@
   "hud.xaeronav.incomplete": "この先は点線に沿って進んでください",
 
   "key.categories.xaeronav": "XaeroNav",
+  "key.category.xaeronav.main": "XaeroNav",
   "key.xaeronav.goto_looking_at": "見ているブロックへ案内",
   "key.xaeronav.clear": "案内を終了",
   "key.xaeronav.toggle_hud": "案内HUDの表示切り替え",

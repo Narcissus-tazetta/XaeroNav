@@ -18,6 +18,17 @@ stonecutter.parameters {
     // ノード名 `1.21.1-neoforge` の末尾がそのままローダー名。これで各ソースの
     // `//? if neoforge {` / `//? if fabric {` / `//? if forge {` が切り替わる。
     constants.match(current.project.substringAfterLast('-'), "neoforge", "fabric", "forge")
+
+    // 名前だけが変わったクラスは、使う箇所ごとに`//?`で分けず、ソース全体の置換で吸収する。
+    // 置換は双方向（ノードを戻すと元の名前へ戻る）なので、置換後の名前をソースに直接書かないこと
+    replacements {
+        string(eval(current.version, ">=1.21.11")) {
+            replace("ResourceLocation", "Identifier")
+        }
+        string(eval(current.version, ">=1.21.11")) {
+            replace("net.minecraft.world.entity.vehicle.Boat;", "net.minecraft.world.entity.vehicle.boat.Boat;")
+        }
+    }
 }
 
 // 公開は1ジョブにつき1サイト・1ノード。失敗したジョブだけを再実行でき、

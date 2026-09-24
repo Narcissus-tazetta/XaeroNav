@@ -50,11 +50,13 @@ fun mixinCompatibilityLevelFor(minecraftVersion: String): String {
 fun fabricApiModIdFor(minecraftVersion: String): String =
     if (minecraftVersion.startsWith("1.16.")) "fabric" else "fabric-api"
 
-/** リソースパックのpack_format。 */
-fun packFormatFor(minecraftVersion: String): Int = when {
-    minecraftVersion.startsWith("1.16.") -> 6
-    minecraftVersion.startsWith("1.20.") -> 15
-    else -> 34
+/** リソースパックのpack_format。クライアントjarのversion.jsonの`pack_version.resource_major`。 */
+fun packFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
+    "1.16.5" -> 6
+    "1.20.1" -> 15
+    "1.21.1" -> 34
+    "1.21.11" -> 75
+    else -> error("pack_formatが未登録のMinecraft $minecraftVersion。クライアントjarのversion.jsonから足すこと")
 }
 
 /**
@@ -171,8 +173,27 @@ fun Project.commonNodeResourceProperties(
     "xaero_worldmap_min_version" to worldmapMinVersion,
     "xaero_minimap_min_version" to minimapMinVersion,
     "mixin_compatibility_level" to mixinCompatibilityLevel,
-    "pack_format" to packFormat.toString(),
+    "pack_format_fields" to packFormatFields(packFormat),
 )
+
+/**
+ * `pack.mcmeta`の形式の宣言。1.21.9（リソース形式65）以降は`pack_format`ではなく`min_format`/`max_format`で書く。
+ *
+ * <p>Forgeは同じ`pack.mcmeta`をデータパックとしても読み、データ側（形式81以下を名乗るなら`supported_formats`が要る）と
+ * リソース側（65以上を名乗るなら`supported_formats`を書いてはいけない）の両方を満たす書き方は無い。Forge自身と同じく
+ * データの形式で宣言する。MODのリソースは互換の判定によらず読み込まれる。
+ */
+fun packFormatFields(packFormat: Int, dataPackFormat: Int? = null): String = when {
+    dataPackFormat != null -> "\"min_format\": $dataPackFormat,\n        \"max_format\": $dataPackFormat,"
+    packFormat >= 65 -> "\"min_format\": $packFormat,\n        \"max_format\": $packFormat,"
+    else -> "\"pack_format\": $packFormat,"
+}
+
+/** データパックの形式（クライアントjarのversion.jsonの`pack_version.data_major`）。1.21.9以降のForgeだけが使う。 */
+fun dataPackFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
+    "1.21.11" -> 94
+    else -> error("データパックの形式が未登録のMinecraft $minecraftVersion。クライアントjarのversion.jsonから足すこと")
+}
 
 /**
  * Java 8へ変換済みのjarを、配布できる形へ仕上げる。分類子の無い名前（他ノードの配布jarと同じ形）で出すので、
