@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -355,6 +357,12 @@ public final class PathfindingState {
     // 層2廊下の精緻化専用。executorと共用すると、詳細探索の頻繁な再投入（逸脱・末端接近のたびに
     // 走る）のたびにsubmitが「前のジョブ」を打ち切ってしまい、廊下探索が終わる前に必ず潰れる
     private final PathfindingExecutor corridorExecutor = new PathfindingExecutor();
+    // 長距離ルート（層1）の解き専用。executor/corridorExecutorはsubmitが前のジョブを打ち切るので相乗りできない
+    private final ExecutorService coarseExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "xaeronav-coarse-route");
+        thread.setDaemon(true);
+        return thread;
+    });
     // 滑空中の案内。目的地と「いま滑空しているか」はこちらが持ち、その目的地への空中経路だけを
     // 向こうが持つ。非同期結果の鮮度はstillFlyingToで問い合わせてもらう
     private final FlightNavState flight = new FlightNavState(this::stillFlyingTo, this::publishNavigationView);
@@ -391,6 +399,14 @@ public final class PathfindingState {
     // 捨てられる——引き直しの間隔（最短0.5秒）は精緻化（区間ごとに最大300ms）より短くなりうるので、
     // 素通しにすると精緻版が一度も完成しないまま、メインスレッドの地図読みだけを回し続けることになる
     private volatile @Nullable CoarseRoute refiningRoute;
+    // バックグラウンドで解いている長距離ルートの要求。同じ目的地へ要求を重ねないためと、完了したときに
+    // まだ最新の要求かを見分けるための目印（同一インスタンスで照合する）。クライアントスレッドだけが触る
+    private @Nullable CoarseSolve solvingCoarse;
+    // 最後に読んだ長距離ルートの地図。窓の外の推定（航法グラフ）はルートを解き終わるのを待たずにこれを使う——
+    // 待つと、目的地を決めた直後に組む航法グラフが窓の外を幾何下限で見積もってしまう
+    private volatile @Nullable CoarseMapForGoal latestCoarseMap;
+    // 地図の読み込み待ちで引き直す前の長距離ルート。次に採用したときに前後を比べてログに出す。クライアントスレッドだけが触る
+    private @Nullable CoarseRoute mapRetryBefore;
     // 地図の読み込み待ちで引き直す番（COARSE_MAP_RETRY_INTERVAL_MILLIS）。クライアントスレッドだけが触る
     private long coarseMapRetryAfterMillis;
     // 地図の読み込み待ちで引き直した回数（COARSE_MAP_RETRY_LIMIT）。クライアントスレッドだけが触る
@@ -827,8 +843,14 @@ public final class PathfindingState {
             // 長距離ルートは目的地の座標で持ち主を見分けるので、そのままだと捨てられてHUDの点線が消える
             List<BlockPos> waypoints = route.reachedGoal() ? replaceLast(route.waypoints(), resolved) : route.waypoints();
             coarseRoute = new CoarseRoute(resolved, route.computedFrom(), route.reachedGoal(), route.pendingRegions(),
-                    waypoints, route.map());
+                    waypoints);
         }
+        CoarseMapForGoal latestMap = latestCoarseMap;
+        if (latestMap != null) {
+            latestCoarseMap = new CoarseMapForGoal(resolved, latestMap.map());
+        }
+        // 解いている最中の長距離ルートは古い目的地のもの。次の再計算で引き直す
+        solvingCoarse = null;
         navGraphGuide.retarget();
         reviewedField = null;
         reviewReplannedAt = null;
@@ -860,6 +882,9 @@ public final class PathfindingState {
         this.refinedRoute = null;
         this.refiningRoute = null;
         this.pendingRefinedRouteReady = null;
+        this.solvingCoarse = null;
+        this.latestCoarseMap = null;
+        this.mapRetryBefore = null;
         this.coarseMapRetryAfterMillis = 0L;
         this.coarseMapRetries = 0;
         this.aimingPastWaypoints = false;
@@ -1378,29 +1403,22 @@ public final class PathfindingState {
             return false;
         }
         // 精緻化の最中に引き直すと、その結果は由来元の不一致で捨てられる（cachedOrFreshRouteと同じ条件）
-        if (refiningRoute != null || MonotonicTime.millis() < coarseMapRetryAfterMillis) {
+        if (refiningRoute != null || solvingCoarse != null || MonotonicTime.millis() < coarseMapRetryAfterMillis) {
             return false;
         }
         coarseMapRetries++;
         DisplayedPath shown = displayed;
         Minecraft mc = Minecraft.getInstance();
         boolean guided = shown != null && shown.mode() == PathMode.GOAL && navGraphGuide.latest(currentGoal) != null;
+        // 引き直しの結果は同期でも裏で解いても採用のとき（adoptCoarseRoute）にログへ出す
+        mapRetryBefore = before;
         if (guided && mc.player != null) {
             // 航法グラフで引いた経路は層1の中間目標を使っていない。地図が埋まって変わるのは窓の外の推定とHUDの点線だけなので、
             // 経路ごと引き直さない——引き直すと読み込みが進むたびに線が描き変わる（遠回りは組み直したガイドの見直しが拾う）
-            freshRoute(mc.player.blockPosition(), currentGoal, ChunkView.boatAvailable(mc.player), true);
+            freshRouteInBackground(mc.player.blockPosition(), currentGoal, ChunkView.boatAvailable(mc.player), true);
         } else {
             recalculate("地図の読み込みが進んだ");
         }
-        CoarseRoute after = coarseRoute;
-        // 引き直したこと自体より「地図が埋まって大局が変わったか」が知りたい。変わらないなら、
-        // 遠回りの原因は読み込み待ちではなく別にある
-        LOGGER.info("XaeroNav: 地図の読み込みを待って長距離ルートを引き直しました"
-                        + " (未読み込みリージョン={}→{}, 中間目標={}→{}個, {}, {}回目/{})",
-                before.pendingRegions(), after.pendingRegions(),
-                before.waypoints().size(), after.waypoints().size(),
-                after.waypoints().equals(before.waypoints()) ? "同じルート" : "変わった",
-                coarseMapRetries, COARSE_MAP_RETRY_LIMIT);
         if (guided) {
             // 経路を投げていないので、呼び出し元の他のトリガーをこのtickで止める理由は無い
             return false;
@@ -1787,7 +1805,7 @@ public final class PathfindingState {
         boolean mayAwait = !climbing && mayAwaitNavGraph(start, currentGoal, renderRadius);
         if (mayAwait && XaeroPresence.mapPresent()) {
             // 窓の外の推定（層1）とHUDの点線は、待っている間に用意しておく。組み上がってからでは初回のガイドに間に合わない
-            cachedOrFreshRoute(start, currentGoal, boatAvailable, true, true);
+            prepareCoarseRoute(start, currentGoal, boatAvailable, true, true);
         }
         GoalGuide goalGuide = goalGuide(level, player, start, currentGoal, renderRadius, climbing);
         boolean navGraphGuided = goalGuide != null && goalGuide.navGraph();
@@ -2306,7 +2324,7 @@ public final class PathfindingState {
             //
             // 層1は引き続き引く（HUDと地図の点線、窓の外の推定）。層2の精緻化は目標に使わないので掛けない
             if (XaeroPresence.mapPresent()) {
-                cachedOrFreshRoute(start, currentGoal, boatAvailable, playerAnchored, true);
+                prepareCoarseRoute(start, currentGoal, boatAvailable, playerAnchored, true);
             }
             aimingPastWaypoints = true;
             return new DetailTarget(currentGoal, -1, 0);
@@ -2325,7 +2343,7 @@ public final class PathfindingState {
             // 測る側（探索の実コスト比）は現世の山岳でも同じ値に達するので分けられない。
             //
             // 層1は引き続き引く（HUDと地図の点線）。ここで結果を使わないだけ。
-            cachedOrFreshRoute(start, currentGoal, boatAvailable, playerAnchored, true);
+            prepareCoarseRoute(start, currentGoal, boatAvailable, playerAnchored, true);
             aimingPastWaypoints = true;
             return new DetailTarget(currentGoal, -1, 0);
         }
@@ -2457,8 +2475,8 @@ public final class PathfindingState {
         } else if (!navGraphEnabled) {
             return null;
         } else {
-            CoarseRoute route = coarseRoute;
-            CoarseMap map = route != null && route.goal().equals(currentGoal) ? route.map() : null;
+            CoarseMapForGoal latestMap = latestCoarseMap;
+            CoarseMap map = latestMap != null && latestMap.goal().equals(currentGoal) ? latestMap.map() : null;
             // 層1を窓の外の推定に使うのは現世だけ。エンドの層1は奈落と島を2.5Dの床で持つだけで、窓の境界に置くと
             // 幾何下限より悪い（実測: 1.197倍に対して1.009倍）
             far = map == null || level.dimension() == Level.END ? null
@@ -2649,12 +2667,16 @@ public final class PathfindingState {
         BlockPos currentGoal = goal;
         WindowField field = currentGoal == null ? null : navGraphGuide.latest(currentGoal);
         BlockPos end = steps.get(steps.size() - 1).pos();
-        LOGGER.info("XaeroNav: 経路が直線から大きく外れています "
+        double finalDeviation = deviation;
+        int finalTurns = turns;
+        int finalBridges = bridges;
+        int finalDigs = digs;
+        NavGraphGuide.logOffThread(() -> LOGGER.info("XaeroNav: 経路が直線から大きく外れています "
                         + "(ずれ={}ブロック, 目標まで{}ブロック, {}ステップ, 曲がり{}, 橋{}, 掘削{}, 内訳={}, "
                         + "始点の値の出どころ={}, 末端{}の値の出どころ={})",
-                Math.round(deviation), Math.round(length), steps.size(), turns, bridges, digs, kinds,
+                Math.round(finalDeviation), Math.round(length), steps.size(), finalTurns, finalBridges, finalDigs, kinds,
                 field == null ? "航法グラフ無し" : NavGraphGuide.origin(field, start), end.toShortString(),
-                field == null ? "航法グラフ無し" : NavGraphGuide.origin(field, end));
+                field == null ? "航法グラフ無し" : NavGraphGuide.origin(field, end)));
     }
 
     /**
@@ -2757,9 +2779,30 @@ public final class PathfindingState {
      */
     private List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
                                                boolean playerAnchored, boolean ceilingDimension) {
+        if (coarseRouteStale(currentGoal, playerAnchored)) {
+            return freshRoute(start, currentGoal, boatAvailable, ceilingDimension);
+        }
+        CoarseRoute cached = coarseRoute;
+        RefinedRoute refined = refinedRoute;
+        return refined != null && refined.source() == cached ? refined.waypoints() : cached.waypoints();
+    }
+
+    /**
+     * {@link #cachedOrFreshRoute}の、結果をその場で使わない呼び出し元用。引き直すなら地図だけ読んで、
+     * 解くのはバックグラウンドに回す（HUDと地図の点線・窓の外の推定のためだけに引く場面で、
+     * メインスレッドを解きで止めない）。
+     */
+    private void prepareCoarseRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
+                                    boolean playerAnchored, boolean ceilingDimension) {
+        if (coarseRouteStale(currentGoal, playerAnchored)) {
+            freshRouteInBackground(start, currentGoal, boatAvailable, ceilingDimension);
+        }
+    }
+
+    private boolean coarseRouteStale(BlockPos currentGoal, boolean playerAnchored) {
         CoarseRoute cached = coarseRoute;
         if (cached == null || !cached.goal().equals(currentGoal)) {
-            return freshRoute(start, currentGoal, boatAvailable, ceilingDimension);
+            return true;
         }
         // 地図が欠けたまま引いたルートは、届いてから引き直す。未知セルはほぼ最安なので、まだ
         // 読み込まれていない溶岩の海があるとそこを直進するルートが引かれる。しかも「届く中間目標が
@@ -2769,21 +2812,62 @@ public final class PathfindingState {
         //
         // 継ぎ足しの側からは引き直さない。あちらの始点は経路の末端なので、そこを起点に長距離ルートを
         // 引き直すと手前の案内まで入れ替わる（下のgoalOrPointTowardの分岐と同じ理由）
-        if (playerAnchored && cached.pendingRegions() > 0 && refiningRoute == null
-                && MonotonicTime.millis() >= coarseMapRetryAfterMillis) {
-            return freshRoute(start, currentGoal, boatAvailable, ceilingDimension);
-        }
-        RefinedRoute refined = refinedRoute;
-        return refined != null && refined.source() == cached ? refined.waypoints() : cached.waypoints();
+        return playerAnchored && cached.pendingRegions() > 0 && refiningRoute == null
+                && MonotonicTime.millis() >= coarseMapRetryAfterMillis;
     }
 
     private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
                                        boolean ceilingDimension) {
         long coarseLap = TickLaps.start();
-        CoarseAttempt attempt = computeCoarseRoute(start, currentGoal, boatAvailable);
+        CoarseAttempt attempt = solveCoarseRoute(readCoarseMapFor(start, currentGoal), start, currentGoal,
+                boatAvailable);
         TickLaps.add("長距離ルート", coarseLap);
-        CoarseRouter.Route route = attempt.route();
+        // 裏で解いている要求より、いま同期で引いた方が新しい
+        solvingCoarse = null;
+        return adoptCoarseRoute(start, currentGoal, attempt, ceilingDimension).waypoints();
+    }
+
+    /**
+     * 地図だけをここで読み、解くのは{@link #coarseExecutor}に回す。解き終わったらメインスレッドで
+     * {@link #adoptCoarseRoute}する。同じ目的地をまだ解いている間は重ねて投げない。
+     */
+    private void freshRouteInBackground(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
+                                        boolean ceilingDimension) {
+        CoarseSolve pending = solvingCoarse;
+        if (pending != null && pending.goal().equals(currentGoal)) {
+            return;
+        }
+        long readLap = TickLaps.start();
+        CoarseRead read = readCoarseMapFor(start, currentGoal);
+        TickLaps.add("長距離ルートの地図読み", readLap);
+        CoarseSolve solve = new CoarseSolve(currentGoal);
+        solvingCoarse = solve;
+        CompletableFuture.supplyAsync(() -> solveCoarseRoute(read, start, currentGoal, boatAvailable), coarseExecutor)
+                .whenComplete((attempt, error) -> onMainThread.accept(() -> {
+                    if (solvingCoarse != solve) {
+                        return;
+                    }
+                    solvingCoarse = null;
+                    if (error != null) {
+                        LOGGER.error("XaeroNav: 長距離ルートの計算に失敗しました", error);
+                        return;
+                    }
+                    adoptCoarseRoute(start, currentGoal, attempt, ceilingDimension);
+                    publishNavigationView();
+                }));
+    }
+
+    /** 長距離ルートの地図を読み、窓の外の推定がすぐ使えるように{@link #latestCoarseMap}へ置く。 */
+    private CoarseRead readCoarseMapFor(BlockPos start, BlockPos currentGoal) {
+        CoarseRead read = readCoarseMap(start, currentGoal);
+        latestCoarseMap = read.map() == null ? null : new CoarseMapForGoal(currentGoal, read.map());
         coarseMapRetryAfterMillis = MonotonicTime.millis() + COARSE_MAP_RETRY_INTERVAL_MILLIS;
+        return read;
+    }
+
+    private CoarseRoute adoptCoarseRoute(BlockPos start, BlockPos currentGoal, CoarseAttempt attempt,
+                                         boolean ceilingDimension) {
+        CoarseRouter.Route route = attempt.route();
         List<BlockPos> waypoints = route.waypoints();
         if (!waypoints.isEmpty() && route.reachedGoal()) {
             // 粗い終点はチャンク中心±8ブロックで高さも代表値なので、そのままでは到着できない。
@@ -2791,7 +2875,8 @@ public final class PathfindingState {
             waypoints = replaceLast(waypoints, currentGoal);
         }
         CoarseRoute thisRoute = new CoarseRoute(currentGoal, start, route.reachedGoal(),
-                attempt.pendingRegions(), waypoints, attempt.map());
+                attempt.pendingRegions(), waypoints);
+        CoarseRoute before = mapRetryBefore;
         coarseRoute = thisRoute;
         // 新しい列では添字の意味が変わる。引き直しは今の位置を始点にするので、先頭が通過済みに
         // なることはない
@@ -2809,7 +2894,18 @@ public final class PathfindingState {
         if (refinable) {
             refineRouteAsync(start, currentGoal, waypoints, thisRoute);
         }
-        return waypoints;
+        if (before != null) {
+            mapRetryBefore = null;
+            // 引き直したこと自体より「地図が埋まって大局が変わったか」が知りたい。変わらないなら、
+            // 遠回りの原因は読み込み待ちではなく別にある
+            LOGGER.info("XaeroNav: 地図の読み込みを待って長距離ルートを引き直しました"
+                            + " (未読み込みリージョン={}→{}, 中間目標={}→{}個, {}, {}回目/{})",
+                    before.pendingRegions(), thisRoute.pendingRegions(),
+                    before.waypoints().size(), waypoints.size(),
+                    waypoints.equals(before.waypoints()) ? "同じルート" : "変わった",
+                    coarseMapRetries, COARSE_MAP_RETRY_LIMIT);
+        }
+        return thisRoute;
     }
 
     /**
@@ -3075,32 +3171,12 @@ public final class PathfindingState {
         return resolved != null ? resolved : waypoint;
     }
 
-    /**
-     * {@link CoarseMapWindow}の範囲でXaeroの地図データを読み、{@link CoarseRouter}で中間目標列を引く。
-     *
-     * <p>溶岩の扱いを2段階でエスカレーションする。層1が溶岩地帯を突っ切ると決めると、そのwaypointへは
-     * 詳細探索が原理的に到達できない（溶岩の上は歩けない）ため、ネザーの溶岩の海の縁で詰む:
-     *
-     * <ol>
-     *   <li>{@link CoarseRouter.BridgePolicy#AVOID} — 溶岩を完全に避ける。大きく迂回・後戻りする道が
-     *       あればA*が見つける</li>
-     *   <li>{@link CoarseRouter.BridgePolicy#BRIDGE} — 橋を架けて渡る前提で通す。最後の手段だが詰むよりはマシ</li>
-     * </ol>
-     *
-     * <p>地図は1回だけ読んで{@code AVOID}と{@code BRIDGE}で使い回す（{@link XaeroMapReader#readSurface}が
-     * メインスレッドで重いため）。この梯子が走るのは{@link #freshRoute}（目的地ごとにキャッシュ）の
-     * ときだけで毎tickではない。
-     *
-     * <p>以前はここに参照Yを変えて読み直す3段の梯子もあった（{@link CoarseMap}が1セル1階層
-     * しか持てず、天井のある次元で見える地形が参照Y次第で変わっていたため）。{@link CoarseMap}が
-     * 複数の床を同時に持てるようになったので、1回の{@code readSurface}で参照Y付近の全レイヤーが
-     * 床として揃い、梯子は不要になった。
-     */
-    private static CoarseAttempt computeCoarseRoute(BlockPos start, BlockPos goal, boolean boatAvailable) {
+    /** 長距離ルートの地図を読み、読めた量をログに残す。<b>メインスレッド専用</b>（{@link XaeroMapReader#readSurface}）。 */
+    private static CoarseRead readCoarseMap(BlockPos start, BlockPos goal) {
         CoarseMapWindow.Window window = CoarseMapWindow.read(start, goal, CoarseMap.MAX_FLOORS);
         CoarseMap map = window.map();
         if (map == null) {
-            return new CoarseAttempt(new CoarseRouter.Route(List.of(), false), 0, null);
+            return new CoarseRead(null, 0);
         }
         noteMapNotGrowing(start, window, map);
         // 地図がどれだけ見えていたかを残す。「溶岩をLAVAとして見たうえで通した」のか「まだ
@@ -3123,10 +3199,41 @@ public final class PathfindingState {
             LOGGER.warn("XaeroNav: 長距離ルートの地図読み取りが遅い ({}ms > {}ms)",
                     window.readMillis(), SLOW_MAP_READ_THRESHOLD_MILLIS);
         }
+        return new CoarseRead(map, window.pendingRegions());
+    }
+
+    /**
+     * 読んだ地図（{@link #readCoarseMap}）から、{@link CoarseRouter}で中間目標列を引く。Minecraft・Xaeroの状態を
+     * 読まないので、どのスレッドからでも呼べる（時間の大半は地図読みではなくここ）。
+     *
+     * <p>溶岩の扱いを2段階でエスカレーションする。層1が溶岩地帯を突っ切ると決めると、そのwaypointへは
+     * 詳細探索が原理的に到達できない（溶岩の上は歩けない）ため、ネザーの溶岩の海の縁で詰む:
+     *
+     * <ol>
+     *   <li>{@link CoarseRouter.BridgePolicy#AVOID} — 溶岩を完全に避ける。大きく迂回・後戻りする道が
+     *       あればA*が見つける</li>
+     *   <li>{@link CoarseRouter.BridgePolicy#BRIDGE} — 橋を架けて渡る前提で通す。最後の手段だが詰むよりはマシ</li>
+     * </ol>
+     *
+     * <p>地図は1回だけ読んで{@code AVOID}と{@code BRIDGE}で使い回す（{@link XaeroMapReader#readSurface}が
+     * メインスレッドで重いため）。この梯子が走るのは{@link #freshRoute}・{@link #freshRouteInBackground}
+     * （目的地ごとにキャッシュ）のときだけで毎tickではない。
+     *
+     * <p>以前はここに参照Yを変えて読み直す3段の梯子もあった（{@link CoarseMap}が1セル1階層
+     * しか持てず、天井のある次元で見える地形が参照Y次第で変わっていたため）。{@link CoarseMap}が
+     * 複数の床を同時に持てるようになったので、1回の{@code readSurface}で参照Y付近の全レイヤーが
+     * 床として揃い、梯子は不要になった。
+     */
+    private static CoarseAttempt solveCoarseRoute(CoarseRead read, BlockPos start, BlockPos goal,
+                                                  boolean boatAvailable) {
+        CoarseMap map = read.map();
+        if (map == null) {
+            return new CoarseAttempt(new CoarseRouter.Route(List.of(), false), 0);
+        }
         CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.AVOID);
         if (avoided.reachedGoal()) {
-            return new CoarseAttempt(avoided, window.pendingRegions(), map);
+            return new CoarseAttempt(avoided, read.pendingRegions());
         }
 
         // <b>ALLOWを飛ばしてはいけない。</b>奈落は{@link CoarseRouter.BridgePolicy#ALLOW}で開き、
@@ -3139,17 +3246,16 @@ public final class PathfindingState {
                 CoarseRouter.BridgePolicy.ALLOW);
         if (allowed.reachedGoal()) {
             LOGGER.info("XaeroNav: 奈落・溶岩混じりを避ける道が見つからないため、そこを通る長距離ルートに切り替えました");
-            return new CoarseAttempt(allowed, window.pendingRegions(), map);
+            return new CoarseAttempt(allowed, read.pendingRegions());
         }
 
         CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.BRIDGE);
         if (bridged.reachedGoal()) {
             LOGGER.info("XaeroNav: 溶岩を避ける道が見つからないため、橋を架けて渡る長距離ルートに切り替えました");
-            return new CoarseAttempt(bridged, window.pendingRegions(), map);
+            return new CoarseAttempt(bridged, read.pendingRegions());
         }
-        return new CoarseAttempt(furtherRoute(furtherRoute(avoided, allowed), bridged),
-                window.pendingRegions(), map);
+        return new CoarseAttempt(furtherRoute(furtherRoute(avoided, allowed), bridged), read.pendingRegions());
     }
 
     /** ほぼ同じ場所から読み直したとみなす距離（ブロック）。これを超えたら別の範囲として数え直す。 */
@@ -3202,10 +3308,14 @@ public final class PathfindingState {
     private static final long MAP_NOT_GROWING_LOG_INTERVAL_MILLIS = 60_000L;
 
     /**
-     * {@link #computeCoarseRoute}の結果と、それを引いたときに<b>まだ読み込まれていなかった</b>
+     * {@link #solveCoarseRoute}の結果と、それを引いたときに<b>まだ読み込まれていなかった</b>
      * リージョンの数。0より大きければ、待って引き直すと違うルートになりうる。
      */
-    private record CoarseAttempt(CoarseRouter.Route route, int pendingRegions, @Nullable CoarseMap map) {
+    private record CoarseAttempt(CoarseRouter.Route route, int pendingRegions) {
+    }
+
+    /** メインスレッドで読んだ長距離ルートの地図。{@code map}はXaeroの地図が無ければnull。 */
+    private record CoarseRead(@Nullable CoarseMap map, int pendingRegions) {
     }
 
     /** 目的地まで届かなかったルート同士の比較。中間目標が多い方＝より遠くまで進めた方を採る。 */
@@ -3402,7 +3512,15 @@ public final class PathfindingState {
      *         ということで、読み込みを待って引き直す（{@link #cachedOrFreshRoute}）
      */
     private record CoarseRoute(BlockPos goal, BlockPos computedFrom, boolean reachedGoal, int pendingRegions,
-                                List<BlockPos> waypoints, @Nullable CoarseMap map) {
+                                List<BlockPos> waypoints) {
+    }
+
+    /** 長距離ルートの地図と、それを読んだときの目的地。 */
+    private record CoarseMapForGoal(BlockPos goal, CoarseMap map) {
+    }
+
+    /** バックグラウンドで解いている長距離ルートの要求（{@link #solvingCoarse}）。 */
+    private record CoarseSolve(BlockPos goal) {
     }
 
     /**

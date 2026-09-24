@@ -44,6 +44,22 @@ final class NavGraphGuide {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     /**
+     * 値の出どころ（{@link #origin}）を含む診断ログを組み立てて出すスレッド。{@link #origin}はガイドの辺を下るので、
+     * メインスレッドで組むと継ぎ足しの受け取りが数十ms止まる。ガイドは組み上がった後は変わらず、探索スレッドからも
+     * 読まれているので、別スレッドから読んでよい。
+     */
+    private static final ExecutorService DIAGNOSTIC_LOG = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "xaeronav-diagnostic-log");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    /** {@link #origin}を使うログを{@link #DIAGNOSTIC_LOG}で出す。 */
+    static void logOffThread(Runnable log) {
+        DIAGNOSTIC_LOG.execute(log);
+    }
+
+    /**
      * ヒープに余裕があるときの窓の半径（ブロック）。描画距離がこれより広くてもここで切る。
      *
      * <p>経路の見直し（{@link net.prason.xaeronav.pathfinding.navgraph.RouteReview}）は目的地が窓に入ってから走るので、
