@@ -88,8 +88,8 @@ public final class PathRenderer {
      */
     private static final float THROUGH_WATER_WHITEN = 0.5f;
     /**
-     * 地上経路を地形越しに描く範囲（ブロックの2乗）。経路の線は水の中の区間だけ、掘る・置く枠は
-     * 全部をこの範囲に限る。範囲を切らないと、長い経路が地形越しに全部透けて視界を埋める。
+     * 地上経路を地形越しに描く範囲（ブロックの2乗）。経路の線は水の中の区間だけ、掘る・置く枠と
+     * 次に掘る・置く所の枠線は全部をこの範囲に限る。範囲を切らないと、長い経路が地形越しに全部透けて視界を埋める。
      */
     private static final double OCCLUDED_NEAR_RADIUS_SQ = 12.0 * 12.0;
     /** 次に掘る1区間ぶんだけは、壁越しでもはっきり見えるようにする。 */
@@ -397,12 +397,12 @@ public final class PathRenderer {
         if (!nextDig.isEmpty() || !nextPlace.isEmpty()) {
             VertexConsumer occludedLines = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_LINES);
             for (int i = nextDig.from(); i < nextDig.to(); i++) {
-                if (highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
+                if (highlightVisible(geometry, i, matched, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
                     drawHighlightOutline(occludedLines, pose, geometry, i);
                 }
             }
             for (int i = nextPlace.from(); i < nextPlace.to(); i++) {
-                if (highlightVisible(geometry, i, matched, camera, cullRadiusSq)) {
+                if (highlightVisible(geometry, i, matched, camera, OCCLUDED_NEAR_RADIUS_SQ)) {
                     drawHighlightOutline(occludedLines, pose, geometry, i);
                 }
             }
