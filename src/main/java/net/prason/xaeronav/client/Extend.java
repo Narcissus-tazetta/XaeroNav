@@ -172,7 +172,7 @@ final class Extend {
         boolean streaming = pendingRegions > 0;
         if (heldForStreaming && !streaming) {
             heldForStreaming = false;
-            LOGGER.info("XaeroNav: 地図が揃ったので通常の継ぎ足しに戻します");
+            LOGGER.debug("XaeroNav: 地図が揃ったので通常の継ぎ足しに戻します");
         }
         if (streaming
                 && PathfindingState.horizontalDistance(player.blockPosition(), end)
@@ -184,7 +184,7 @@ final class Extend {
             // 途切れない。pendingRegionsが0になれば通常の先読みへ戻る
             if (!heldForStreaming) {
                 heldForStreaming = true;
-                LOGGER.info("XaeroNav: 地図の読み込み中は継ぎ足しの先を{}ブロックに留めます"
+                LOGGER.debug("XaeroNav: 地図の読み込み中は継ぎ足しの先を{}ブロックに留めます"
                                 + " (未読み込みリージョン={}, 末端まで{}ブロック, {}ステップ)",
                         PathfindingState.detailHorizon(renderRadius), pendingRegions,
                         Math.round(PathfindingState.horizontalDistance(player.blockPosition(), end)), steps.size());
@@ -461,6 +461,9 @@ final class Extend {
      */
     private static void noteRetreatingTail(BlockPos from, BlockPos end, BlockPos currentGoal, BlockPos target,
             PathResult result, PathfindingState.@Nullable GoalGuide goalGuide) {
+        if (!LOGGER.isDebugEnabled()) {
+            return;
+        }
         double fromLeft = PathfindingState.horizontalDistance(from, currentGoal);
         double endLeft = PathfindingState.horizontalDistance(end, currentGoal);
         if (endLeft <= fromLeft + RETREATING_TAIL_LOG_BLOCKS) {
@@ -476,7 +479,7 @@ final class Extend {
                         Math.round(costToGo.estimate(end.getX(), end.getY(), end.getZ())), windowNote(costToGo, end),
                         NavGraphGuide.origin(costToGo, from), NavGraphGuide.origin(costToGo, end));
             }
-            LOGGER.info("XaeroNav: 継ぎ足しが目的地から遠ざかりました (継ぎ足す前の末端={}で目的地まで{}, 継ぎ足し後の末端={}で{}, "
+            LOGGER.debug("XaeroNav: 継ぎ足しが目的地から遠ざかりました (継ぎ足す前の末端={}で目的地まで{}, 継ぎ足し後の末端={}で{}, "
                             + "{}ステップ/{}, 狙った先={}, ガイド={})",
                     from.toShortString(), Math.round(fromLeft), end.toShortString(), Math.round(endLeft),
                     result.steps().size(), result.termination(), target.toShortString(), guide);
@@ -523,7 +526,7 @@ final class Extend {
         if (bestGap < 0) {
             return null;
         }
-        LOGGER.info("XaeroNav: 継ぎ足しが経路の手前へ戻ってきました (継ぎ足しの{}ステップ目={}, 経路の{}ステップ目={}の近く, "
+        LOGGER.debug("XaeroNav: 継ぎ足しが経路の手前へ戻ってきました (継ぎ足しの{}ステップ目={}, 経路の{}ステップ目={}の近く, "
                         + "経路に沿って{}ステップの輪, 経路={}ステップ, 継ぎ足し={}ステップ/{}, 末端={}, 狙った先={}, 航法グラフ={})",
                 bestTail, tail.get(bestTail).pos().toShortString(), bestRoute, route.get(bestRoute).pos().toShortString(),
                 bestGap, route.size(), tail.size(), result.termination(), route.get(route.size() - 1).pos().toShortString(),
