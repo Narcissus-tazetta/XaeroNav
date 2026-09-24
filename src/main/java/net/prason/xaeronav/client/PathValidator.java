@@ -189,11 +189,20 @@ final class PathValidator {
     }
 
     /**
-     * このステップで<b>塞がっていてはいけない</b>身体セル＝手前（自分自身を含む）で掘る予定に
-     * なっていないもの。
+     * 身体が通るセルが今は通れないか。
+     *
+     * <p>経路が掘る予定のセルは、塞がっていても（まだ掘っていない）空いていても（プレイヤーが掘った直後）
+     * 通れる前提。空いたことで組み直すと、掘るたびに数百手の経路を捨てて予算切れの短い部分経路へ
+     * 引き直すことになる（実機のネザー: 723手→39手、先端へすぐ着き、向きも変わった）。掘り終えたセルの印は
+     * PathRendererが描かない。ただし掘った穴には周りの溶岩が流れ込む——掘る前は固体なので、溶岩や火が入っているのは
+     * 掘った後の変化で、そのまま案内すると溶岩の中を歩かせることになる。
      */
-    static List<BlockPos> unexcavatedBodyCells(PathStep step, Set<BlockPos> plannedDigs) {
-        return step.bodyCells().stream().filter(cell -> !plannedDigs.contains(cell)).toList();
+    static boolean bodyCellBlocked(long flags, boolean plannedDig) {
+        if (plannedDig) {
+            return CellData.lava(flags) || CellData.hazard(flags);
+        }
+        // 閉じたドアは通れる前提（開けて通る）なので、塞がっているとは見なさない
+        return !CellData.occupiableWithoutDigging(flags) && !CellData.openable(flags);
     }
 
     private static CellFailure cellFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
@@ -227,19 +236,16 @@ final class PathValidator {
                         .formatted(i, step.movement(), footing.toShortString()));
             }
         }
-        // 掘る前提のセルが既に空いていても経路は成り立つ。空いているのはたいてい、この経路に従って
-        // プレイヤー自身が掘った直後のセル——そこで組み直すと、掘るたびに数百手の経路を捨てて予算切れの
-        // 短い部分経路へ引き直すことになる（実機のネザー: 723手→39手、先端へすぐ着き、向きも変わった）。
-        // 掘り終えたセルの印はPathRendererが描かない
-        for (BlockPos cell : unexcavatedBodyCells(step, plannedDigs)) {
+        for (BlockPos cell : step.bodyCells()) {
             if (!readable(level, cell)) {
                 continue;
             }
             long flags = CellData.flagsOf(level.getBlockState(cell));
-            // 閉じたドアは通れる前提（開けて通る）なので、塞がっているとは見なさない
-            if (!CellData.occupiableWithoutDigging(flags) && !CellData.openable(flags)) {
-                return new CellFailure(cell, "ステップ%d(%s, bridging=%s) 身体が通るセルが塞がっている cell=%s state=%s"
-                        .formatted(i, step.movement(), step.bridging(), cell.toShortString(),
+            boolean plannedDig = plannedDigs.contains(cell);
+            if (bodyCellBlocked(flags, plannedDig)) {
+                String what = plannedDig ? "掘る前提のセルに溶岩・危険物が入った" : "身体が通るセルが塞がっている";
+                return new CellFailure(cell, "ステップ%d(%s, bridging=%s) %s cell=%s state=%s"
+                        .formatted(i, step.movement(), step.bridging(), what, cell.toShortString(),
                                 level.getBlockState(cell)));
             }
         }
