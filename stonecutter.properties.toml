@@ -12,6 +12,31 @@
 # 全ノードで回すとCIの時間が丸ごと倍になるだけで、見つかるものは増えない。
 canonical_test_node = "1.21.1-neoforge"
 
+[fabric."1.21.11"]
+deps.minecraft = "1.21.11"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.17.3"
+deps.fabric_api = "0.141.6+1.21.11"
+deps.modmenu = "17.0.0"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
+
+[forge."1.21.11"]
+deps.minecraft = "1.21.11"
+deps.forge = "61.2.1"
+deps.forge_loader_range = "[61,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
+
 [neoforge."1.21.1"]
 deps.minecraft = "1.21.1"
 deps.neoforge = "21.1.228"

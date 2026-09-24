@@ -60,6 +60,7 @@
   "hud.xaeronav.incomplete": "Route continues past the searched area (follow the dotted line)",
 
   "key.categories.xaeronav": "XaeroNav",
+  "key.category.xaeronav.main": "XaeroNav",
   "key.xaeronav.goto_looking_at": "Navigate to the block you are looking at",
   "key.xaeronav.clear": "Clear route",
   "key.xaeronav.toggle_hud": "Toggle guidance HUD",

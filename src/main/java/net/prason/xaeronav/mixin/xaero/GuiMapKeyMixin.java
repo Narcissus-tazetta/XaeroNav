@@ -7,6 +7,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import net.minecraft.client.Minecraft;
+//? if >=1.21.11 {
+/*import net.minecraft.client.input.KeyEvent;
+*///?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -51,6 +54,13 @@ public abstract class GuiMapKeyMixin {
 
     // 本番がSRG名で動く1.20.1-forgeだけはrefmapでm_7933_へ引く必要がある。公式マッピングの
     // ノードでremapさせるとAPが「マッピング無し」でビルドを止める（Fabricはloomが別途引く）
+    //? if >=1.21.11 {
+    /*// 1.21.9以降はキー入力が1つのKeyEventにまとまった
+    @Inject(method = "keyPressed(Lnet/minecraft/client/input/KeyEvent;)Z", at = @At("HEAD"), cancellable = true, remap = false)
+    private void xaeronav$onKeyPressed(KeyEvent event, CallbackInfoReturnable<Boolean> cir) {
+        XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_KEY);
+        if (this.isUsingTextField() || !XaeroNavKeys.GOTO_MAP_CURSOR.matches(event)) {
+    *///?} else {
     //? if forge && <1.21 {
     /*@Inject(method = "keyPressed(III)Z", at = @At("HEAD"), cancellable = true)
     *///?} else {
@@ -60,6 +70,7 @@ public abstract class GuiMapKeyMixin {
                                         CallbackInfoReturnable<Boolean> cir) {
         XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_KEY);
         if (this.isUsingTextField() || !XaeroNavKeys.GOTO_MAP_CURSOR.matches(keyCode, scanCode)) {
+    //?}
             return;
         }
         Minecraft mc = Minecraft.getInstance();

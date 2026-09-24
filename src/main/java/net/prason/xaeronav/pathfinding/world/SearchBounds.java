@@ -6,6 +6,7 @@ import net.minecraft.world.level.LevelHeightAccessor;
 //?} else {
 /*import net.minecraft.world.level.Level;
 *///?}
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * 探索範囲の制限。開始地点と目的地を含むバウンディングボックス+マージン。
@@ -39,14 +40,8 @@ public record SearchBounds(int minX, int minY, int minZ, int maxX, int maxY, int
         int maxX = Math.min(start.getX() + maxRadius, Math.max(start.getX(), goal.getX()) + horizontalMargin);
         int minZ = Math.max(start.getZ() - maxRadius, Math.min(start.getZ(), goal.getZ()) - horizontalMargin);
         int maxZ = Math.min(start.getZ() + maxRadius, Math.max(start.getZ(), goal.getZ()) + horizontalMargin);
-        int minY = Math.max(
-                //? if >=1.17 {
-                level.getMinBuildHeight(),
-                //?} else {
-                /*0,
-                *///?}
-                Math.min(start.getY(), goal.getY()) - verticalMargin);
-        int maxY = Math.min(level.getMaxBuildHeight() - 1, Math.max(start.getY(), goal.getY()) + verticalMargin);
+        int minY = Math.max(GameCompat.minBuildHeight(level), Math.min(start.getY(), goal.getY()) - verticalMargin);
+        int maxY = Math.min(GameCompat.maxBuildHeight(level) - 1, Math.max(start.getY(), goal.getY()) + verticalMargin);
         return new SearchBounds(minX, minY, minZ, maxX, maxY, maxZ);
     }
 }

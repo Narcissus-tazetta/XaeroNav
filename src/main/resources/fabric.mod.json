@@ -17,8 +17,7 @@
     "client": ["net.prason.xaeronav.platform.fabric.FabricEntry"],
     "modmenu": ["net.prason.xaeronav.platform.fabric.XaeroNavModMenu"]
   },
-  "mixins": ["xaeronav-xaero.mixins.json"],
-  "accessWidener": "xaeronav.accesswidener",
+  "mixins": ["xaeronav-xaero.mixins.json"],${access_widener_entry}
   "depends": {
     "fabricloader": "${fabric_loader_range}",
     "minecraft": "${minecraft_version}",

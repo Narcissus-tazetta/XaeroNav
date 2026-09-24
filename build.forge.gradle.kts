@@ -70,6 +70,9 @@ minecraft {
             if (System.getProperty("os.name").startsWith("Mac")) {
                 jvmArgs("-XstartOnFirstThread")
             }
+            // NeoForgeノードと同じ口（CIのruntime hook probeを手元で走らせるときなど）
+            providers.gradleProperty("xaeronav.clientJvmArgs").orNull?.split(" ")?.filter { it.isNotBlank() }
+                ?.forEach { jvmArgs(it) }
             // 開発実行はMODをクラスディレクトリから読むのでMANIFESTのMixinConfigsが存在しない
             args("--mixin.config", "${modProperty("mod_id")}-xaero.mixins.json")
         }
@@ -145,7 +148,11 @@ tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = commonNodeResourceProperties(
         minecraftVersion, dep("xaero_worldmap_min"), dep("xaero_minimap_min"), mixinCompatibilityLevel, packFormat) + mapOf(
         "forge_loader_version_range" to dep("forge_loader_range")
-    )
+    ) + if (packFormat >= 65) {
+        mapOf("pack_format_fields" to packFormatFields(packFormat, dataPackFormatFor(minecraftVersion)))
+    } else {
+        emptyMap()
+    }
 
     inputs.properties(replaceProperties)
 

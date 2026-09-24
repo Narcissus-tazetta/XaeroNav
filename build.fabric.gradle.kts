@@ -38,8 +38,13 @@ repositories {
     maven("https://maven.terraformersmc.com/releases") { name = "TerraformersMC" }
 }
 
+// 開放しているのはRenderType.CompositeState等（NavRenderTypes）で、1.21.11ではクラスごと無くなった
+val usesAccessWidener = !stonecutter.eval(minecraftVersion, ">=1.21.11")
+
 loom {
-    accessWidenerPath = rootProject.file("src/main/resources/xaeronav.accesswidener")
+    if (usesAccessWidener) {
+        accessWidenerPath = rootProject.file("src/main/resources/xaeronav.accesswidener")
+    }
 
     // 実行ディレクトリはノード配下（versions/<ノード>/run）のloom既定のまま。
     // ローダーごとにmodsの中身が違うので、NeoForge側のrun/と共有すると
@@ -48,6 +53,9 @@ loom {
         named("client") {
             client()
             configName = "Fabric Client (${stonecutter.current.project})"
+            // NeoForgeノードと同じ口（CIのruntime hook probeを手元で走らせるときなど）
+            providers.gradleProperty("xaeronav.clientJvmArgs").orNull?.split(" ")?.filter { it.isNotBlank() }
+                ?.forEach { vmArg(it) }
         }
         // loomが既定で用意するserverの実行設定はこのMODでは使わない（クライアント専用MOD）。
         // runsコンテナから消してもloomが後から登録し直すので、名前が残るのは避けられない
@@ -130,7 +138,8 @@ tasks.named<ProcessResources>("processResources").configure {
         // 検証していないので「動く保証がある最も低い版」とは言えない
         "fabric_api_range" to dep("fabric_api"),
         "fabric_api_mod_id" to fabricApiModIdFor(minecraftVersion),
-        "java_version" to javaVersion.toString()
+        "java_version" to javaVersion.toString(),
+        "access_widener_entry" to if (usesAccessWidener) "\n  \"accessWidener\": \"xaeronav.accesswidener\"," else ""
     )
 
     inputs.properties(replaceProperties)
@@ -139,6 +148,9 @@ tasks.named<ProcessResources>("processResources").configure {
     exclude("META-INF/neoforge.mods.toml")
     exclude("META-INF/mods.toml")
     exclude("META-INF/accesstransformer.cfg")
+    if (!usesAccessWidener) {
+        exclude("xaeronav.accesswidener")
+    }
 
     filesMatching("fabric.mod.json") {
         expand(replaceProperties)

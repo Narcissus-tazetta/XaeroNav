@@ -5,6 +5,7 @@
 目的地までの実際に歩ける経路を計算して、ワールド内・Xaero's World Map・Xaero's Minimap の
 3 箇所に描くクライアント MOD です。画面上部には次にどちらへ進むかが出ます。
 
+- Minecraft 1.21.11 / Forge 61.2.1 以降、または Fabric（Fabric Loader 0.17.3 以降 + Fabric API 0.141.6 以降）
 - Minecraft 1.21.1 / NeoForge 21.1.228 以降、Forge 52.1.16 以降、または Fabric（Fabric Loader
   0.15.11 以降 + Fabric API）
 - Minecraft 1.20.1 / Forge 47.4.23 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）
@@ -31,6 +32,8 @@
 ## インストール
 
 1. ローダーを導入する。
+   - Minecraft 1.21.11: [Forge](https://files.minecraftforge.net/) 61.2.1 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.17.3 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 以降）。
    - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 以降、
      [Forge](https://files.minecraftforge.net/) 52.1.16 以降、または [Fabric](https://fabricmc.net/)
      （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
@@ -42,7 +45,7 @@
    Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
    `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
-   1.21.1 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.20.1 と 1.16.5 なら World Map 1.46.0 以降・
+   1.21.1 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.21.11・1.20.1・1.16.5 なら World Map 1.46.0 以降・
    Minimap 26.5.0 以降。
 
 ## 何ができるか

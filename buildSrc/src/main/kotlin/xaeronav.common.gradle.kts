@@ -146,12 +146,10 @@ val bench = tasks.register<Test>("bench") {
 // 全ノードで回すのはCIの時間を丸ごと倍にするだけになる。コンパイルは全ノードで走る。
 val canonicalNode = node.properties.get<String>("canonical_test_node")
 val isCanonicalNode = node.current.project == canonicalNode
-// 1.16.5 は実行コードだけをビルドする。既存のテスト補助クラスは 1.20+ の
-// LevelHeightAccessor / OptionInstance に依存するため、正典ノードで実行する。
-if (minecraftVersion.startsWith("1.16.")) {
-    tasks.named<JavaCompile>("compileTestJava") {
-        onlyIf("1.16.5 のテスト補助クラスは新しい Minecraft API を使う") { false }
-    }
+// テストの補助クラスは正典ノードのMinecraft APIで書いてあり、他の版ではコンパイルできない。
+// どうせ実行しないので、コンパイルも正典ノードだけにする
+tasks.named<JavaCompile>("compileTestJava") {
+    onlyIf("テストは正典ノード($canonicalNode)でだけコンパイル・実行する") { isCanonicalNode }
 }
 tasks.withType<Test>().configureEach {
     onlyIf("正典ノード($canonicalNode)でのみ実行する") { isCanonicalNode }

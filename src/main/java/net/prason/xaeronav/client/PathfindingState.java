@@ -780,7 +780,7 @@ public final class PathfindingState {
             return fromMap != null ? fromMap : goal;
         }
         int minY = GameCompat.minBuildHeight(level) + 1;
-        int maxY = level.getMaxBuildHeight() - 2;
+        int maxY = GameCompat.maxBuildHeight(level) - 2;
         int requested = Mth.clamp(goal.getY(), minY, maxY);
         for (int offset = 0; offset <= maxY - minY; offset++) {
             int below = requested - offset;
