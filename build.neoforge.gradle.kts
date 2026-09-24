@@ -34,6 +34,9 @@ neoForge {
         create("client") {
             client()
             gameDirectory = rootProject.layout.projectDirectory.dir("run")
+            // 既定のヒープは実機のメモリの1/4で、開発機では6GBになる。ランチャー既定の2GBで起きることは
+            // `-Pxaeronav.clientHeap=2G` で上限を絞らないと再現しない
+            providers.gradleProperty("xaeronav.clientHeap").orNull?.let { jvmArgument("-Xmx$it") }
 
             // ModDevGradleが生成するIDE実行構成はモジュール束縛を持たない。単一ローダーなら
             // 「プロジェクト全体のクラスパス」＝そのローダーぶんだけで済むが、Stonecutterで

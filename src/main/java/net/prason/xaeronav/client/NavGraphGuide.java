@@ -44,8 +44,7 @@ final class NavGraphGuide {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     /**
-     * 窓の半径（ブロック）。描画距離がこれより広くてもここで切る。探索の箱も同じ幅で切ること——窓の外ではガイドが
-     * 層1か幾何の推定に落ちる。
+     * ヒープに余裕があるときの窓の半径（ブロック）。描画距離がこれより広くてもここで切る。
      *
      * <p>経路の見直し（{@link net.prason.xaeronav.pathfinding.navgraph.RouteReview}）は目的地が窓に入ってから走るので、
      * 窓が狭いと遠回りに気づくのが遅れる（実機のネザーで目的地まで約130ブロックで初めて気づき、余計に653tick）。
@@ -57,8 +56,38 @@ final class NavGraphGuide {
      * </ul>
      * 辺の数は面積に比例して増える。224で辺は最大7,000万本、グラフとガイドは合わせて最大約610MB（160では約330MB）。
      * ガイド1回の最大は1.3→2.1秒になる。
+     *
+     * <p>ヒープが{@link #WIDE_WINDOW_MIN_HEAP_BYTES}未満なら{@link #NARROW_WINDOW_BLOCKS}に落とす。
      */
-    static final int WINDOW_BLOCKS = 224;
+    private static final int WIDE_WINDOW_BLOCKS = 224;
+
+    /** ヒープが小さいときの窓。間の192はネザーの最悪が160より悪いので選ばない。 */
+    private static final int NARROW_WINDOW_BLOCKS = 160;
+
+    /**
+     * 窓224を使うのに要るヒープ。公式ランチャーの既定の2GBでは、本体の分と窓224の最大約610MBが重なって足りなくなり得る。
+     *
+     * <p>{@code -Xmx3G}を指定した人は224にしたいが、SerialGC・ParallelGCの{@link Runtime#maxMemory}は生存領域1つ分を
+     * 引いて返す（実測: {@code -Xmx3G}で2,969MB・2,731MB、{@code -Xmx2G}で1,979MB・1,820MB）ので、間の2.5GBで切る。
+     */
+    private static final long WIDE_WINDOW_MIN_HEAP_BYTES = 2560L << 20;
+
+    private static final int WINDOW_BLOCKS = Runtime.getRuntime().maxMemory() >= WIDE_WINDOW_MIN_HEAP_BYTES
+            ? WIDE_WINDOW_BLOCKS : NARROW_WINDOW_BLOCKS;
+
+    /**
+     * 窓の半径（ブロック）。探索の箱もこれで切ること——窓の外ではガイドが層1か幾何の推定に落ちるので、
+     * 箱と窓がずれると測っていない探索になる。
+     */
+    static int window(int renderRadius) {
+        return Math.min(WINDOW_BLOCKS, renderRadius);
+    }
+
+    /**
+     * 組み立てに失敗したら、これだけ組み直さない。失敗する条件（メモリ不足など）はすぐには変わらないので、待たずにやり直すと
+     * 案内を待っている間は毎tick、チャンク集め（メインスレッド）と窓全体の組み立てを繰り返す。
+     */
+    private static final long FAILURE_BACKOFF_MILLIS = 30_000L;
 
     /**
      * 組んだ中心からこれだけ歩いたら組み直す。組み直しは帯の組み足し（0.02〜0.3秒）とガイド作り（0.5〜1.3秒）で、
@@ -161,6 +190,9 @@ final class NavGraphGuide {
     // 直近の探索が前進できなかった。ワーカースレッド（whenComplete）が立て、forGoalが落とす
     private volatile boolean stalled;
     private long nextStallRebuildMillis;
+    // 組み立ての失敗から立ち直るまでの時刻と、続けて失敗した回数。完了を受けるスレッドが書き、forGoalが読む
+    private volatile long retryAfterMillis;
+    private volatile int failures;
 
     /** 段取りの1本だけが触る。 */
     private final Load load = new Load();
@@ -180,7 +212,7 @@ final class NavGraphGuide {
     @Nullable WindowField forGoal(Level level, Player player, BlockPos goal, int renderRadius, MovementOptions options,
                                   @Nullable Far far) {
         BlockPos at = player.blockPosition();
-        int window = Math.min(WINDOW_BLOCKS, renderRadius);
+        int window = window(renderRadius);
         int minY = level.getMinBuildHeight();
         int maxY = level.getMaxBuildHeight() - 1;
         int logicalTop = minY + level.dimensionType().logicalHeight() - 1;
@@ -195,10 +227,15 @@ final class NavGraphGuide {
         boolean moved = !usable || Math.max(Math.abs(at.getX() - current.center().getX()),
                 Math.abs(at.getZ() - current.center().getZ())) >= REBUILD_MOVE_BLOCKS;
         boolean stallRebuild = stalled && MonotonicTime.millis() >= nextStallRebuildMillis;
-        if ((moved || stallRebuild) && !building) {
+        if ((moved || stallRebuild) && !building && !failedRecently()) {
             start(level, player, key, at, far);
         }
         return usable ? current.field() : null;
+    }
+
+    /** 組み立てに失敗して、組み直しを見合わせている間か。この間は組み上がりを待たずに従来の探索で進めること。 */
+    boolean failedRecently() {
+        return MonotonicTime.millis() < retryAfterMillis;
     }
 
     /**
@@ -274,31 +311,54 @@ final class NavGraphGuide {
                     return refreshed;
                 }, coordinator)
                 .whenComplete((refreshed, error) -> {
+                    if (error != null) {
+                        // 打ち切りは例外でなくnullで返るので、世代が古い回でもこれは本物の失敗
+                        fail(error);
+                    }
                     if (generation.get() != myGeneration) {
                         // 新しい組み立てが始まっている。その印を落とすと、組み立てが重なる
                         return;
                     }
                     building = false;
-                    if (error != null) {
-                        LOGGER.error("XaeroNav: 航法グラフの作成に失敗しました", error);
-                        return;
-                    }
                     if (refreshed == null) {
                         return;
                     }
+                    failures = 0;
                     built = new Built(key, at, refreshed.field());
                     retargeted = false;
                     if (logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
                         NavGraph current = graph;
                         LOGGER.info("XaeroNav: 航法グラフ (組んだセクション={}, 構築{}ms, ガイド{}ms, 辺={}, ノード={}, "
-                                        + "グラフ{}MB, ガイド{}MB, 並列{}, 窓の外={}, 中心{}の値の出どころ={})",
+                                        + "グラフ{}MB, ガイド{}MB, 窓{}(ヒープ上限{}MB), 並列{}, 窓の外={}, 中心{}の値の出どころ={})",
                                 refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
                                 refreshed.field().edges(), refreshed.field().nodes(),
                                 current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
-                                workers, farMap == null ? "直線距離" : farMap.name(), at.toShortString(),
-                                origin(refreshed.field(), at));
+                                key.window(), Runtime.getRuntime().maxMemory() >> 20, workers,
+                                farMap == null ? "直線距離" : farMap.name(), at.toShortString(), origin(refreshed.field(), at));
                     }
                 });
+    }
+
+    /**
+     * 組み立てが失敗した。しばらく組み直さず、出来上がっていたガイドとグラフも手放す——メモリ不足の後に数百MBを
+     * 抱えたままにしないためと、途中で落ちた回の組み立て用の配列を次の回に使い回さないため。
+     */
+    private void fail(Throwable error) {
+        failures++;
+        built = null;
+        retryAfterMillis = MonotonicTime.millis() + FAILURE_BACKOFF_MILLIS;
+        LOGGER.error("XaeroNav: 航法グラフの作成に失敗しました（{}回続けて）。{}秒は組み直さず、航法グラフ無しで案内します",
+                failures, FAILURE_BACKOFF_MILLIS / 1000, error);
+        // 完了済みの回にwhenCompleteを付けるとメインスレッドで呼ばれるので、グラフは段取りの1本で手放す
+        coordinator.execute(this::forgetGraph);
+    }
+
+    /** 段取りの1本で呼ぶ。 */
+    private void forgetGraph() {
+        graph = null;
+        graphKey = null;
+        farSource = null;
+        far = FarField.UNKNOWN;
     }
 
     /** 段取りの1本で走る。 */
@@ -359,13 +419,12 @@ final class NavGraphGuide {
         stalled = false;
         retargeted = false;
         nextStallRebuildMillis = 0L;
+        retryAfterMillis = 0L;
+        failures = 0;
         logGate.reset();
         coordinator.execute(() -> {
             load.flush(MonotonicTime.millis());
-            graph = null;
-            graphKey = null;
-            farSource = null;
-            far = FarField.UNKNOWN;
+            forgetGraph();
         });
     }
 
