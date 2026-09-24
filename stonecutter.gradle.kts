@@ -102,6 +102,10 @@ tasks.register("verifyDistribution") {
             val loader = node.project.substringAfterLast('-')
             "${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar" to loader
         }
+        val javaVersions = stonecutter.versions.associate { node ->
+            val loader = node.project.substringAfterLast('-')
+            "${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar" to javaVersionFor(node.version)
+        }
         val directory = layout.buildDirectory.dir("libs").get().asFile
         val actual = directory.listFiles { file -> file.extension == "jar" }
             ?.associateBy { it.name } ?: emptyMap()
@@ -110,6 +114,22 @@ tasks.register("verifyDistribution") {
         }
         expected.forEach { (name, loader) ->
             java.util.jar.JarFile(actual.getValue(name)).use { jar ->
+                // 利用者のJavaで読めないクラスが1つでも入っていれば起動しない（Java 8へ変換する1.16.5で特に）。
+                // クラスファイルのmajor versionはJava 8が52で、以降1ずつ増える
+                val maxMajor = 44 + javaVersions.getValue(name)
+                jar.entries().asSequence()
+                    .filter { it.name.endsWith(".class") && !it.name.startsWith("META-INF/versions/") }
+                    .forEach { entry ->
+                        val major = jar.getInputStream(entry).use { input ->
+                            val header = input.readNBytes(8)
+                            ((header[6].toInt() and 0xff) shl 8) or (header[7].toInt() and 0xff)
+                        }
+                        check(major <= maxMajor) { "$name: ${entry.name}がJava ${javaVersions.getValue(name)}で読めない（major $major）" }
+                    }
+                val mixinConfig = jar.getInputStream(jar.getEntry("xaeronav-xaero.mixins.json")).use { String(it.readBytes()) }
+                check(Regex("\"JAVA_(\\d+)\"").find(mixinConfig)!!.groupValues[1].toInt() <= javaVersions.getValue(name)) {
+                    "$name: mixin configのcompatibilityLevelが利用者のJavaより新しい"
+                }
                 check(jar.getEntry("xaeronav-xaero.mixins.json") != null) { "$name: mixin configがありません" }
                 val entryNames = jar.entries().asSequence().map { it.name }.toSet()
                 when (loader) {
@@ -130,9 +150,13 @@ tasks.register("verifyDistribution") {
                         check(jar.manifest.mainAttributes.getValue("MixinConfigs")
                                 == "xaeronav-xaero.mixins.json") { "$name: MixinConfigs manifestが不正です" }
                         // ForgeはFG7のjarJar（またはlegacyforgeの同名機構）でMETA-INF/jarjar/へ
-                        // ネストしたjarのまま同梱する（Forge本体はmixinextrasを同梱していない）
-                        check(entryNames.any { it.startsWith("META-INF/jarjar/mixinextras-forge-") }) {
-                            "$name: mixinextrasがjarJarで同梱されていません"
+                        // ネストしたjarのまま同梱する（Forge本体はmixinextrasを同梱していない）。
+                        // jar-in-jarの無い1.16.5は自分のパッケージへ移して直接入れる
+                        check(entryNames.any {
+                            it.startsWith("META-INF/jarjar/mixinextras-forge-")
+                                || it.startsWith("net/prason/xaeronav/shadow/mixinextras/")
+                        }) {
+                            "$name: mixinextrasが同梱されていません"
                         }
                     }
                     "neoforge" -> check(jar.getEntry("META-INF/neoforge.mods.toml") != null) {
@@ -171,9 +195,26 @@ tasks.register("printNodes") {
     group = "help"
     description = "全ノードを JSON 配列で出す（CIのmatrix用）"
     val nodes = stonecutter.versions.map { it.project to it.version }
+    val fabricApi = fabricApiVersions(file("stonecutter.properties.toml").readText())
     doLast {
         println(nodes.joinToString(",", "[", "]") { (project, version) ->
-            """{"node":"$project","minecraft":"$version","loader":"${project.substringAfterLast('-')}"}"""
+            val loader = project.substringAfterLast('-')
+            // javaは利用者の実行環境（起動確認に使うJVM）。ビルドは常にJava 21のGradleで行う
+            """{"node":"$project","minecraft":"$version","loader":"$loader","java":"${javaVersionFor(version)}",""" +
+                """"fabric_api":"${fabricApi["$loader.$version"] ?: "none"}"}"""
         })
     }
+}
+
+/** `[<ローダー>."<MCバージョン>"]`ごとの`deps.fabric_api`。CIがfabric-apiの配布jarを選ぶのに使う。 */
+fun fabricApiVersions(toml: String): Map<String, String> {
+    val result = HashMap<String, String>()
+    var table: String? = null
+    for (line in toml.lines()) {
+        Regex("""^\[(\w+)\."([^"]+)"]""").find(line.trim())?.let { table = "${it.groupValues[1]}.${it.groupValues[2]}" }
+        Regex("""^deps\.fabric_api\s*=\s*"([^"]+)"""").find(line.trim())?.let { match ->
+            table?.let { result[it] = match.groupValues[1] }
+        }
+    }
+    return result
 }

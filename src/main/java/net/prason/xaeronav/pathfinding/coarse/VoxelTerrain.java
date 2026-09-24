@@ -1,7 +1,11 @@
 package net.prason.xaeronav.pathfinding.coarse;
 
 import net.minecraft.core.BlockPos;
+//? if >=1.17 {
 import net.minecraft.world.level.LevelHeightAccessor;
+//?} else {
+/*import net.minecraft.world.level.Level;
+*///?}
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 
 /**
@@ -127,7 +131,13 @@ public final class VoxelTerrain {
      * @param lowestFloorY  地図から読めたいちばん低い床のY
      * @param highestFloorY 同じくいちばん高い床のY
      */
-    public static SearchBounds boxFor(LevelHeightAccessor level, BlockPos start, BlockPos goal,
+    public static SearchBounds boxFor(
+            //? if >=1.17 {
+            LevelHeightAccessor level,
+            //?} else {
+            /*Level level,
+            *///?}
+            BlockPos start, BlockPos goal,
             int lowestFloorY, int highestFloorY) {
         // 始点と目的地は必ず箱の中に入れる。目的地が外だとガイドの起点が決まらず表が空になり、
         // 始点が外だと見積もりが縁の値で頭打ちになる
@@ -135,7 +145,13 @@ public final class VoxelTerrain {
         int high = Math.max(highestFloorY, Math.max(start.getY(), goal.getY()));
         return new SearchBounds(
                 Math.min(start.getX(), goal.getX()) - MARGIN_BLOCKS,
-                Math.max(level.getMinBuildHeight(), low - VERTICAL_MARGIN_BLOCKS),
+                Math.max(
+                        //? if >=1.17 {
+                        level.getMinBuildHeight(),
+                        //?} else {
+                        /*0,
+                        *///?}
+                        low - VERTICAL_MARGIN_BLOCKS),
                 Math.min(start.getZ(), goal.getZ()) - MARGIN_BLOCKS,
                 Math.max(start.getX(), goal.getX()) + MARGIN_BLOCKS,
                 Math.min(level.getMaxBuildHeight() - 1, high + VERTICAL_MARGIN_BLOCKS),

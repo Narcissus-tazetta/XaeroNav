@@ -25,6 +25,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.prason.xaeronav.util.GameCompat;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.cost.DigCost;
 
@@ -173,7 +174,7 @@ public final class ChunkView implements CellSource {
      */
     public static boolean boatAvailable(Player player) {
         return ridingBoat(player)
-                || hasItem(player.getInventory(), stack -> stack.getItem() instanceof BoatItem);
+                || hasItem(GameCompat.inventory(player), stack -> stack.getItem() instanceof BoatItem);
     }
 
     /** いまボートに乗っているか。 */
@@ -228,7 +229,7 @@ public final class ChunkView implements CellSource {
         ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
         int[] hotbarEfficiency = new int[hotbar.length];
         for (int slot = 0; slot < hotbar.length; slot++) {
-            ItemStack stack = player.getInventory().getItem(slot);
+            ItemStack stack = GameCompat.inventory(player).getItem(slot);
             hotbar[slot] = stack.copy();
             // NeoForge/Forgeが足す ItemStack#getEnchantmentLevel は使わない。この階層はローダーに
             // 依存しない決まりで、他のMODがエンチャント値を動的に書き換える場合まで拾う必要も無い。
@@ -238,7 +239,11 @@ public final class ChunkView implements CellSource {
             // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
             // その2つはgetItemEnchantmentLevelのままでよい
             //? if (forge && <1.21) || neoforge {
+            //? if >=1.17 {
             hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
+            //?} else {
+            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            *///?}
             //?} else {
             /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
             *///?}
@@ -259,7 +264,7 @@ public final class ChunkView implements CellSource {
         // ultraWarmな次元（ネザー）は水を置いても即座に蒸発するので、着地寸前に水バケツを置く
         // MLGは物理的に実行できない。次元を見ずに許可すると、実行不可能な落下を経路に載せてしまう
         boolean canMlgWaterBucket = options.fallDamageToleranceEnabled() && !level.dimensionType().ultraWarm()
-                && hasItem(player.getInventory(), stack -> stack.is(Items.WATER_BUCKET));
+                && hasItem(GameCompat.inventory(player), stack -> stack.getItem() == Items.WATER_BUCKET);
         boolean boatAvailable = boatAvailable(player);
         boolean ridingBoat = ridingBoat(player);
 
@@ -276,7 +281,7 @@ public final class ChunkView implements CellSource {
         // 制限が丸ごと外れて逆に緩くなる。1個だけ使える状態に倒しておけば、足りない経路は緩和の
         // 梯子（予算を外す段）が受ける。canPlaceBlocksの方に予備を織り込まないのも同じ理由で、
         // 詰むくらいなら予備を使ってよい
-        boolean creative = player.getAbilities().instabuild;
+        boolean creative = GameCompat.abilities(player).instabuild;
         int placedBlockBudget = options.blockBudgetEnabled() && !creative
                 ? Math.max(1, placeableBlocks - options.blockBudgetReserve())
                 : 0;
@@ -290,8 +295,8 @@ public final class ChunkView implements CellSource {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
                 canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
-                deepFallPossible, minDescentTicksPerBlock, level.getMinBuildHeight(),
-                level.getMaxBuildHeight(), level.getMinSection(), true);
+                deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
+                level.getMaxBuildHeight(), GameCompat.minSection(level), true);
     }
 
     /**
@@ -303,7 +308,7 @@ public final class ChunkView implements CellSource {
      * （ボート・ロケットと同じ既知の罠）。
      */
     public static int countPlaceableBlocks(Player player) {
-        Inventory inventory = player.getInventory();
+        Inventory inventory = GameCompat.inventory(player);
         int total = 0;
         for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
             ItemStack stack = inventory.getItem(slot);

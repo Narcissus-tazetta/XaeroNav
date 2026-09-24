@@ -1,20 +1,61 @@
 import org.gradle.api.Project
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.TaskProvider
+import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.bundling.Zip
+import org.gradle.kotlin.dsl.named
+import org.gradle.kotlin.dsl.register
 
 /** `gradle.properties` に置いたMOD自身のメタデータ。ノードによらず同じ値。 */
 fun Project.modProperty(key: String): String =
     findProperty(key) as String? ?: error("Property `$key` not set.")
 
-/**
- * MC 1.20.x系かどうかで揃うMixin互換レベルの分岐点。4つの`build.*.gradle.kts`に
- * 同じ`if (minecraftVersion.startsWith("1.20."))`が並行してコピーされていたので1箇所にする。
- */
-fun mixinCompatibilityLevelFor(minecraftVersion: String): String =
-    if (minecraftVersion.startsWith("1.20.")) "JAVA_17" else "JAVA_21"
+/** 各Minecraft版で利用者に必要となるJavaの最低バージョン。 */
+fun javaVersionFor(minecraftVersion: String): Int = when {
+    minecraftVersion.startsWith("1.16.") -> 8
+    minecraftVersion.startsWith("1.20.") -> 17
+    else -> 21
+}
 
-/** リソースパックのpack_format（Minecraft Wikiのpack format表どおり）。上記と同じ分岐点。 */
-fun packFormatFor(minecraftVersion: String): Int =
-    if (minecraftVersion.startsWith("1.20.")) 15 else 34
+// 1.16.5 のソースは現行の record 等を使うため、Java 21 でコンパイルしてから
+// 配布 jar を Java 8 向けへ変換する。実行時の要件は javaVersionFor が表す。
+fun compileJavaVersionFor(minecraftVersion: String): Int =
+    if (minecraftVersion.startsWith("1.16.")) 21 else javaVersionFor(minecraftVersion)
+
+// MixinはCompatibilityLevelを実行時要件（javaVersionFor）ではなく、mixinクラス自身の
+// バイトコードが要求する言語機能で判定する。1.16.5はJava 21でコンパイルしてから配布時に
+// Java 8へ変換するため、コンパイル直後（=runClientが使う開発ビルド）のmixinクラスは
+// NESTING等のJava 11以降の機能を含む。javaVersionForの8をそのまま渡すとMixinが
+// 「JAVA_8ではNESTINGを扱えない」として拒否し起動しない。
+//
+// 1.16.5だけは21ではなく18に留める。Forge 1.16.5がバンドルするMixinフォーク
+// （architectury mixin-patched 0.8.4.12）は`CompatibilityLevel`列举がJAVA_18までしか無く、
+// JAVA_21を渡すとMixin初期化そのものが起動前に例外で落ちる（enumに存在しない値）。
+// 1.16.5のmixinクラスが実際に要る機能はNESTING（Java 11以降）だけなので18で十分。
+// 他バージョンは元々の値のままで、ここを変えると（Fabricの新しいMixinでは21が通っている）
+// 意図せず動作を変えてしまう。
+fun mixinCompatibilityLevelFor(minecraftVersion: String): String {
+    val compileVersion = compileJavaVersionFor(minecraftVersion)
+    val level = if (minecraftVersion.startsWith("1.16.")) minOf(compileVersion, 18) else compileVersion
+    return "JAVA_$level"
+}
+
+/**
+ * Fabric APIの本体モジュールが名乗るmod id。1.16.5時代の0.42.0系は"fabric"のまま
+ * （"fabric-api"への改名は後続バージョンから）で、依存宣言のキーを間違えると
+ * 実際には入っているのに「fabric-apiが無い」と判定されてmod解決が落ちる。
+ */
+fun fabricApiModIdFor(minecraftVersion: String): String =
+    if (minecraftVersion.startsWith("1.16.")) "fabric" else "fabric-api"
+
+/** リソースパックのpack_format。 */
+fun packFormatFor(minecraftVersion: String): Int = when {
+    minecraftVersion.startsWith("1.16.") -> 6
+    minecraftVersion.startsWith("1.20.") -> 15
+    else -> 34
+}
 
 /**
  * Xaeroの3モジュール（lib/worldmap/minimap）の依存座標。artifactId中のloader名部分
@@ -132,3 +173,27 @@ fun Project.commonNodeResourceProperties(
     "mixin_compatibility_level" to mixinCompatibilityLevel,
     "pack_format" to packFormat.toString(),
 )
+
+/**
+ * Java 8へ変換済みのjarを、配布できる形へ仕上げる。分類子の無い名前（他ノードの配布jarと同じ形）で出すので、
+ * 変換前のremapJarには分類子を付けて名前をずらしておくこと。
+ *
+ * <p>mixin configの`compatibilityLevel`は開発実行（Java 21のままのクラス）に合わせてあるが、
+ * Java 8のJVMでは`JAVA_8`より上をMixinが受け付けず、起動前に落ちる。クラスはすでにJava 8へ
+ * 変換されているので、配布jarの中だけ`JAVA_8`へ書き換える。
+ */
+fun Project.registerJava8Jar(shaded: Provider<RegularFile>): TaskProvider<Zip> =
+    tasks.register<Zip>("java8Jar") {
+        from(zipTree(shaded)) {
+            filesMatching("*.mixins.json") {
+                filter { line -> line.replace(Regex("\"JAVA_\\d+\""), "\"JAVA_8\"") }
+            }
+        }
+        archiveBaseName.set(tasks.named<Jar>("jar").flatMap { it.archiveBaseName })
+        archiveVersion.set(tasks.named<Jar>("jar").flatMap { it.archiveVersion })
+        archiveClassifier.set("")
+        archiveExtension.set("jar")
+        destinationDirectory.set(layout.buildDirectory.dir("libs"))
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
+    }

@@ -1,7 +1,6 @@
 package net.prason.xaeronav.client;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.xaero.XaeroPresence;
@@ -56,7 +55,7 @@ final class GoalWaypoint {
                 placedAt = null;
             } else {
                 placedAt = XaeroWaypoints.setDestination(wanted,
-                        Component.translatable("gui.xaeronav.destination_waypoint").getString()) ? wanted : null;
+                        TextCompat.translatable("gui.xaeronav.destination_waypoint").getString()) ? wanted : null;
             }
         } catch (LinkageError incompatible) {
             unavailable = true;

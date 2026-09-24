@@ -5,7 +5,12 @@ import java.util.List;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+//? if >=1.17 {
 import net.minecraft.client.gui.GuiGraphics;
+//?} else {
+/*import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.gui.GuiComponent;
+*///?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
@@ -17,6 +22,7 @@ import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * 画面上部の案内表示。近くで必要になる操作と、残りの道のり・所要時間を出す。
@@ -44,7 +50,13 @@ public final class NavHud {
     // 全ステップの走査を経路1本につき1度で済ませる
     private final PathCache<PathSuffixes> suffixes = new PathCache<>();
 
-    public void render(GuiGraphics graphics) {
+    public void render(
+            //? if >=1.17 {
+            GuiGraphics graphics
+            //?} else {
+            /*PoseStack graphics
+            *///?}
+    ) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.options.hideGui || !XaeroNavConfig.INSTANCE.hudEnabled()) {
             return;
@@ -62,20 +74,20 @@ public final class NavHud {
         PathResult result = view.currentResult();
         PathfindingState.StuckReason stuck = view.stuckReason();
         if (view.arrived()) {
-            add(Component.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
+            add(TextCompat.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
         } else if (view.flying()) {
             // 空中経路が引けなかったこと（読み込み済みの範囲に抜け道が無い）と、そもそも案内が
             // 出ていないことは別。前者を「経路なし」と同じ文言にすると、地上と同じ失敗に見える
             add(view.flightRoute().isEmpty()
-                    ? Component.translatable("hud.xaeronav.flying_no_route")
-                    : Component.translatable("hud.xaeronav.flying"), SECONDARY_COLOR);
-            add(Component.translatable("hud.xaeronav.direct_distance",
+                    ? TextCompat.translatable("hud.xaeronav.flying_no_route")
+                    : TextCompat.translatable("hud.xaeronav.flying"), SECONDARY_COLOR);
+            add(TextCompat.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, view.goal())), SECONDARY_COLOR);
             int climb = upcomingClimb(view.flightRoute());
             if (climb >= CLIMB_NOTICE_BLOCKS) {
                 // 上昇はプレイヤーが行動を要求される唯一の点。ロケットが無ければ速度と高度を
                 // 交換するしかなく、線だけ見て「登れ」と分かっても間に合わないことがある
-                add(Component.translatable("hud.xaeronav.flight_climb", climb), WARNING_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.flight_climb", climb), WARNING_COLOR);
             }
         } else if (result == null || result.steps().isEmpty()) {
             if (stuck != null) {
@@ -84,10 +96,10 @@ public final class NavHud {
                 // 「経路なし」は今回の探索の結果でしかない。次の探索では出るかもしれないので、
                 // 結論（addUnreachable）とは違う言い方にする
                 add(view.computing()
-                        ? Component.translatable("hud.xaeronav.searching")
-                        : Component.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
+                        ? TextCompat.translatable("hud.xaeronav.searching")
+                        : TextCompat.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
             }
-            add(Component.translatable("hud.xaeronav.direct_distance",
+            add(TextCompat.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, view.goal())), SECONDARY_COLOR);
         } else {
             // 部分経路が出ていても、それが目的地へ通じていないと分かったなら先に言う。この経路は
@@ -100,12 +112,12 @@ public final class NavHud {
             if (climbing) {
                 // 本来の目的地ではなく、まず地上へ出るまでの中継経路であることを示す。
                 // 出さないと、なぜ目的地と違う方向へ案内されるのか分からなくなる
-                add(Component.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
             }
             if (view.rerouted()) {
                 // 案内が急に変わった理由を出す。出さないと、それまで歩いていた道が
                 // 突然消えたようにしか見えない
-                add(Component.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
             }
             NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition());
             PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
@@ -113,54 +125,54 @@ public final class NavHud {
             boolean endsAtDestination = view.currentPathEndsAtDestination();
             PathSuffixes.Action next = ahead.nextAction(from);
             if (next != null && ahead.distanceToAction(from) <= ACTION_NOTICE_BLOCKS) {
-                add(Component.translatable(next.key()), PRIMARY_COLOR);
+                add(TextCompat.translatable(next.key()), PRIMARY_COLOR);
             } else if (guidance.nearEnd) {
-                add(Component.translatable(endpointKey(climbing, endsAtDestination)), PRIMARY_COLOR);
+                add(TextCompat.translatable(endpointKey(climbing, endsAtDestination)), PRIMARY_COLOR);
             }
-            add(Component.translatable(remainingKey(endsAtDestination),
+            add(TextCompat.translatable(remainingKey(endsAtDestination),
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
             // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
             // 気付いたのでは、そこまでの案内が前提ごと成立していない。
             // 乗っている間は出さない——すでに済んでいる支度を促し続けることになる
             if (ahead.usesBoat(from) && !ChunkView.ridingBoat(mc.player)) {
-                add(Component.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
             }
             // 持ち物で足りない経路は、予算を外した緩和の梯子を通って出てくる（他に道が無い場合）。
             // 足りているうちは黙っている——設置を含む経路はエンドではほぼ全てなので、常に出すと
             // 警告として意味を失う。クリエイティブは持ち物が空でも置けるので数えない
-            if (!mc.player.getAbilities().instabuild) {
+            if (!GameCompat.abilities(mc.player).instabuild) {
                 int needed = ahead.placements(from);
                 int available = ChunkView.countPlaceableBlocks(mc.player);
                 if (needed > available) {
-                    add(Component.translatable("hud.xaeronav.blocks_short", needed, available), WARNING_COLOR);
+                    add(TextCompat.translatable("hud.xaeronav.blocks_short", needed, available), WARNING_COLOR);
                 }
             }
             if (ahead.hasRisk(from, PathRisk.DROWNING)) {
                 // 線の色だけでは「息が続かない」ことまでは伝わらない。潜る前に分かる必要がある
-                add(Component.translatable("hud.xaeronav.drowning"), WARNING_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.drowning"), WARNING_COLOR);
             }
             if (ahead.hasRisk(from, PathRisk.MLG_REQUIRED)) {
                 // 着地の瞬間に操作が要る区間なので、辿り着いてから気付いたのでは間に合わない
-                add(Component.translatable("hud.xaeronav.mlg_required"), WARNING_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.mlg_required"), WARNING_COLOR);
             }
             if (ahead.hasRisk(from, PathRisk.FALL_DAMAGE)) {
-                add(Component.translatable("hud.xaeronav.fall_damage"), WARNING_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.fall_damage"), WARNING_COLOR);
             }
             if (ahead.hasRisk(from, PathRisk.SNEAK_OVER_MAGMA)) {
                 // 踏んでから気付くのでは遅い（走って乗ると即座に燃える）
-                add(Component.translatable("hud.xaeronav.sneak_over_magma"), WARNING_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.sneak_over_magma"), WARNING_COLOR);
             }
             // 詰みと判断済みなら「点線をたどってください」は嘘になる（その先に道が無いと
             // 分かっているから詰みなので）。結論の方だけを残す
             if (!guidance.complete && stuck == null) {
-                add(Component.translatable("hud.xaeronav.incomplete"), WARNING_COLOR);
+                add(TextCompat.translatable("hud.xaeronav.incomplete"), WARNING_COLOR);
             }
         }
 
         // mixinは当たっているのに地図へ描かれていないことに気付けるのはここだけ。
         // 経路は出ているので、黙っていると「地図連携だけ壊れた」ではなく「そういうもの」に見える
         if (XaeroHookHealth.worldMapRenderBroken()) {
-            add(Component.translatable("hud.xaeronav.hook_render_missing"), WARNING_COLOR);
+            add(TextCompat.translatable("hud.xaeronav.hook_render_missing"), WARNING_COLOR);
         }
 
         draw(graphics, mc.font);
@@ -179,8 +191,8 @@ public final class NavHud {
      * 結論の側に含める——止まっていると知らないまま待ち続けるのが一番損をする。
      */
     private void addUnreachable(PathfindingState.StuckReason reason) {
-        add(Component.translatable("hud.xaeronav.unreachable"), WARNING_COLOR);
-        add(Component.translatable(PathfindingState.stuckHintKey(reason)), SECONDARY_COLOR);
+        add(TextCompat.translatable("hud.xaeronav.unreachable"), WARNING_COLOR);
+        add(TextCompat.translatable(PathfindingState.stuckHintKey(reason)), SECONDARY_COLOR);
     }
 
     /** 経路変更時に一度だけ作る、各添字から末尾までのHUD集計。 */
@@ -300,24 +312,43 @@ public final class NavHud {
 
     private static Component time(int seconds) {
         return seconds >= 60
-                ? Component.translatable("hud.xaeronav.minutes_seconds", seconds / 60, seconds % 60)
-                : Component.translatable("hud.xaeronav.seconds", seconds);
+                ? TextCompat.translatable("hud.xaeronav.minutes_seconds", seconds / 60, seconds % 60)
+                : TextCompat.translatable("hud.xaeronav.seconds", seconds);
     }
 
-    private void draw(GuiGraphics graphics, Font font) {
+    private void draw(
+            //? if >=1.17 {
+            GuiGraphics graphics,
+            //?} else {
+            /*PoseStack graphics,
+            *///?}
+            Font font) {
         int width = 0;
         for (Component line : lines) {
             width = Math.max(width, font.width(line));
         }
+        //? if >=1.17 {
         int centerX = graphics.guiWidth() / 2;
+        //?} else {
+        /*int centerX = Minecraft.getInstance().getWindow().getGuiScaledWidth() / 2;
+        *///?}
         int boxWidth = width + PADDING_X * 2;
         int boxHeight = (lines.size() - 1) * LINE_HEIGHT + font.lineHeight + PADDING_Y * 2;
+        //? if >=1.17 {
         graphics.fill(centerX - boxWidth / 2, MARGIN_TOP, centerX + boxWidth / 2, MARGIN_TOP + boxHeight,
                 BACKGROUND_COLOR);
+        //?} else {
+        /*GuiComponent.fill(graphics, centerX - boxWidth / 2, MARGIN_TOP,
+                centerX + boxWidth / 2, MARGIN_TOP + boxHeight, BACKGROUND_COLOR);
+        *///?}
 
         int y = MARGIN_TOP + PADDING_Y;
         for (int i = 0; i < lines.size(); i++) {
+            //? if >=1.17 {
             graphics.drawCenteredString(font, lines.get(i), centerX, y, colors.get(i));
+            //?} else {
+            /*GuiComponent.drawCenteredString(graphics, font, lines.get(i), centerX, y, colors.get(i));
+            *///?}
             y += LINE_HEIGHT;
         }
     }

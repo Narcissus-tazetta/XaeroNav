@@ -786,6 +786,7 @@ public final class XaeroMapReader {
      * <p>そのまま読むと奈落の底に地面があることになり、waypointが{@code y=1}へ落ちる。地表レイヤーは
      * 常に下まで走査して必ず何かに当たるので、空気は「データが無い」の印として使える。
      */
+    @SuppressWarnings("deprecation")
     private static boolean isEmpty(MapBlock block) {
         BlockState state = block.getState();
         return state == null || state.isAir();

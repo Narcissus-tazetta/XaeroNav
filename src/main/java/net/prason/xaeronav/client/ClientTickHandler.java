@@ -3,7 +3,6 @@ package net.prason.xaeronav.client;
 import java.util.List;
 
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.platform.ModPresence;
@@ -101,15 +100,15 @@ public final class ClientTickHandler {
         if (missing.isEmpty()) {
             return;
         }
-        MutableComponent features = Component.empty();
+        MutableComponent features = TextCompat.empty();
         for (XaeroHooks.Hook hook : missing) {
             if (!features.getSiblings().isEmpty()) {
                 features.append(" / ");
             }
-            features.append(Component.translatable(hook.nameKey()));
+            features.append(TextCompat.translatable(hook.nameKey()));
             XaeroNav.LOGGER.warn("XaeroNav: Xaero連携のmixinが当たっていない ({} / {})。"
                     + "Xaeroの版が対応範囲の外にある可能性がある", hook.modId(), hook.className());
         }
-        player.displayClientMessage(Component.translatable("hud.xaeronav.hook_missing", features), false);
+        player.displayClientMessage(TextCompat.translatable("hud.xaeronav.hook_missing", features), false);
     }
 }

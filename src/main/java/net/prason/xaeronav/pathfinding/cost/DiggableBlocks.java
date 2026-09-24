@@ -5,14 +5,19 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.slf4j.Logger;
+import org.apache.logging.log4j.Logger;
 
-import com.mojang.logging.LogUtils;
+import org.apache.logging.log4j.LogManager;
 
 import net.minecraft.resources.ResourceLocation;
+//? if >=1.17 {
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.TagKey;
+//?}
 import net.minecraft.world.level.block.Block;
+//? if <1.17 {
+/*import net.minecraft.world.level.block.EntityBlock;
+*///?}
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.prason.xaeronav.pathfinding.world.BlockRegistryCompat;
@@ -35,13 +40,14 @@ import net.prason.xaeronav.pathfinding.world.BlockRegistryCompat;
  */
 public final class DiggableBlocks {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 自然地形を指すバニラのタグ。個別のブロック名を並べるより、modが追加した石・土がそのまま
      * 乗ってくるぶん堅牢になる（modの世界生成用ブロックは、洞窟が生成されるように
      * {@code #*_carver_replaceables}へ入れるのが通例）。
      */
+    //? if >=1.17 {
     private static final List<TagKey<Block>> TERRAIN_TAGS = List.of(
             // 洞窟の掘削が置き換えてよいブロック＝そのまま「掘って通ってよい地形」。石・土・砂・
             // テラコッタ・鉄/銅鉱石・砂利・砂岩・方解石・雪・氷塊、ネザー側はナイリウムとソウルサンド類
@@ -56,8 +62,10 @@ public final class DiggableBlocks {
             BlockTags.COAL_ORES, BlockTags.IRON_ORES, BlockTags.COPPER_ORES, BlockTags.GOLD_ORES,
             BlockTags.REDSTONE_ORES, BlockTags.LAPIS_ORES, BlockTags.DIAMOND_ORES, BlockTags.EMERALD_ORES
     );
+    //?}
 
     /** タグに入っていない自然地形。 */
+    //? if >=1.17 {
     private static final Set<Block> TERRAIN_BLOCKS = Set.of(
             Blocks.NETHER_QUARTZ_ORE, Blocks.ANCIENT_DEBRIS, Blocks.GILDED_BLACKSTONE,
             Blocks.GLOWSTONE, Blocks.SHROOMLIGHT, Blocks.MAGMA_BLOCK,
@@ -72,6 +80,24 @@ public final class DiggableBlocks {
             Blocks.CHORUS_PLANT, Blocks.CHORUS_FLOWER,
             Blocks.MANGROVE_ROOTS, Blocks.DIRT_PATH, Blocks.FARMLAND
     );
+    //?} else {
+    /*private static final Set<Block> TERRAIN_BLOCKS = Set.of(
+            Blocks.STONE, Blocks.GRANITE, Blocks.DIORITE, Blocks.ANDESITE,
+            Blocks.DIRT, Blocks.COARSE_DIRT, Blocks.GRASS_BLOCK, Blocks.PODZOL,
+            Blocks.SAND, Blocks.RED_SAND, Blocks.GRAVEL, Blocks.CLAY,
+            Blocks.SANDSTONE, Blocks.RED_SANDSTONE, Blocks.SNOW_BLOCK,
+            Blocks.ICE, Blocks.PACKED_ICE, Blocks.BLUE_ICE,
+            Blocks.NETHERRACK, Blocks.SOUL_SAND, Blocks.SOUL_SOIL, Blocks.BASALT,
+            Blocks.BLACKSTONE, Blocks.END_STONE, Blocks.OBSIDIAN,
+            Blocks.COAL_ORE, Blocks.IRON_ORE, Blocks.GOLD_ORE, Blocks.DIAMOND_ORE,
+            Blocks.LAPIS_ORE, Blocks.REDSTONE_ORE, Blocks.EMERALD_ORE,
+            Blocks.NETHER_GOLD_ORE, Blocks.NETHER_QUARTZ_ORE, Blocks.ANCIENT_DEBRIS,
+            Blocks.GLOWSTONE, Blocks.SHROOMLIGHT, Blocks.MAGMA_BLOCK,
+            Blocks.MUSHROOM_STEM, Blocks.BROWN_MUSHROOM_BLOCK, Blocks.RED_MUSHROOM_BLOCK,
+            Blocks.MELON, Blocks.PUMPKIN, Blocks.BAMBOO, Blocks.BAMBOO_SAPLING,
+            Blocks.CHORUS_PLANT, Blocks.CHORUS_FLOWER, Blocks.FARMLAND
+    );
+    *///?}
 
     // 掘削コスト計算はワーカースレッドから走るため、更新は必ず新しいSetへの差し替えで行う
     // （その場で変更するとイテレーション中の探索スレッドと競合する）。
@@ -81,6 +107,7 @@ public final class DiggableBlocks {
     private DiggableBlocks() {
     }
 
+    @SuppressWarnings("deprecation")
     public static boolean isDiggable(BlockState state) {
         Block block = state.getBlock();
         if (forbidden.contains(block)) {
@@ -92,17 +119,25 @@ public final class DiggableBlocks {
         // 中身を持つブロックは、壊せばその中身が失われる。チェスト・かまど・スポナーを個別に並べる
         // 代わりにここで一括で外すことで、modが足した機械もまとめて対象外になる。タグ側にも
         // 混ざりうる（#sandは怪しい砂を含む）ので、タグ判定より先に置く
-        if (state.hasBlockEntity()) {
+        if (
+                //? if >=1.17 {
+                state.hasBlockEntity()
+                //?} else {
+                /*state.getBlock() instanceof EntityBlock
+                *///?}
+        ) {
             return false;
         }
         if (TERRAIN_BLOCKS.contains(block)) {
             return true;
         }
+        //? if >=1.17 {
         for (TagKey<Block> tag : TERRAIN_TAGS) {
             if (state.is(tag)) {
                 return true;
             }
         }
+        //?}
         return false;
     }
 

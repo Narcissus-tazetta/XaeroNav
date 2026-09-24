@@ -13,13 +13,12 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
+import org.apache.logging.log4j.Logger;
 
-import com.mojang.logging.LogUtils;
+import org.apache.logging.log4j.LogManager;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
@@ -54,6 +53,7 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * クライアント側の経路探索状態。
@@ -66,7 +66,7 @@ public final class PathfindingState {
 
     public static final PathfindingState INSTANCE = new PathfindingState();
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 目的地までこの水平距離まで来たら、飛行の案内をやめて歩行の経路へ引き継ぐ（ブロック）＝3チャンク。
@@ -779,7 +779,7 @@ public final class PathfindingState {
             BlockPos fromMap = XaeroPresence.mapPresent() ? resolveGoalOnSurface(goal) : null;
             return fromMap != null ? fromMap : goal;
         }
-        int minY = level.getMinBuildHeight() + 1;
+        int minY = GameCompat.minBuildHeight(level) + 1;
         int maxY = level.getMaxBuildHeight() - 2;
         int requested = Mth.clamp(goal.getY(), minY, maxY);
         for (int offset = 0; offset <= maxY - minY; offset++) {
@@ -1126,8 +1126,8 @@ public final class PathfindingState {
             StuckReason notice = stuckTracker.takePendingNotice();
             if (notice != null) {
                 // 判断はワーカースレッドで行われる。チャットへの出力はメインスレッド専用なのでここで拾う
-                mc.player.displayClientMessage(Component.translatable("hud.xaeronav.unreachable_notice",
-                        Component.translatable(stuckHintKey(notice))), false);
+                mc.player.displayClientMessage(TextCompat.translatable("hud.xaeronav.unreachable_notice",
+                        TextCompat.translatable(stuckHintKey(notice))), false);
             }
             if (arrived) {
                 arrivedTicks++;
@@ -1254,7 +1254,7 @@ public final class PathfindingState {
             // 「打ち切られた末端に近づいたら引き直す」に落ちて毎回<b>全置換</b>され、手前の案内まで
             // 描き変わる。地上へ出る中継区間（TO_SURFACE）だけはゴールの意味が違うので対象外
             if (shown.mode() != PathMode.TO_SURFACE) {
-                int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+                int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
                 if (extend.shouldExtend(mc.player, shown, renderRadius)) {
                     // 末端から継ぎ足す。着いてから引き直すのでは遅い——探索に数百msかかり、反映は
                     // さらに次tick以降なので、その間ずっと「もう終わっている経路」を見せることになる。
@@ -1304,7 +1304,7 @@ public final class PathfindingState {
                 // 見るのは<b>いま居るステップから先</b>だけ。もう歩き終えた区間の変化はこれから通る道に
                 // 関係が無いうえ、そこから走査すると背後の変化で止まって先の変化を見落とす。
                 // 描画距離より先は goto 直後のストリーミング中に誤爆するので見ない（PathValidator参照）
-                int validationHorizon = mc.options.getEffectiveRenderDistance() * 16;
+                int validationHorizon = ClientCompat.renderDistance(mc.options) * 16;
                 long validationLap = TickLaps.start();
                 PathValidator.Failure failure = PathValidator.firstFailureFrom(mc.level, result,
                         PathProgress.INSTANCE.indexFor(result), mc.player.blockPosition(), validationHorizon);
@@ -1524,7 +1524,13 @@ public final class PathfindingState {
         stuckTracker.clearReason();
         Player player = Minecraft.getInstance().player;
         if (player != null) {
-            player.playSound(SoundEvents.NOTE_BLOCK_BELL.value(), 0.4f, 1.5f);
+            player.playSound(
+                    //? if >=1.17 {
+                    SoundEvents.NOTE_BLOCK_BELL.value(),
+                    //?} else {
+                    /*SoundEvents.NOTE_BLOCK_BELL,
+                    *///?}
+                    0.4f, 1.5f);
         }
     }
 
@@ -1687,7 +1693,7 @@ public final class PathfindingState {
         int y = player.blockPosition().getY();
         for (int dy = 0; dy <= LANDING_GROUND_SEARCH_BLOCKS; dy++) {
             cursor.set(x, y - dy, z);
-            if (cursor.getY() < level.getMinBuildHeight()) {
+            if (cursor.getY() < GameCompat.minBuildHeight(level)) {
                 break;
             }
             // 水面も降りられる場所として数える。{@code StanceFinder#isStance}が水のセルを
@@ -1722,7 +1728,7 @@ public final class PathfindingState {
      * ので、鈍らせるのは{@link ElytraTrigger}の責務にまとめてある。
      */
     private boolean airborne(Level level, Player player) {
-        if (player.getAbilities().flying) {
+        if (GameCompat.abilities(player).flying) {
             elytraTrigger.reset();
             return true;
         }
@@ -1816,7 +1822,7 @@ public final class PathfindingState {
 
         int surfaceY = surfaceReferenceY(level, start);
         boolean climbing = shouldClimbToSurface(level, start, currentGoal, surfaceY);
-        int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
         // 判定はメインスレッドでしかできない（ワールドの参照・経路への対応づけ）。結果が返る頃には
         // 別の判断材料になってしまうので、投げる時点の答えを写し取ってワーカーへ渡す
         DisplayedPath worthKeeping = pathWorthKeeping(level, player);
@@ -2186,7 +2192,7 @@ public final class PathfindingState {
             dropped = "終端に到着";
         } else if ((validationFailure = PathValidator.firstFailureFrom(level, result,
                 PathProgress.INSTANCE.indexFor(result), player.blockPosition(),
-                Minecraft.getInstance().options.getEffectiveRenderDistance() * 16)) != null) {
+                ClientCompat.renderDistance(Minecraft.getInstance().options) * 16)) != null) {
             // もう歩き終えた区間の変化では手放さない。渡ってきた橋を後ろから壊しても、
             // これから通る道が使えることの証明は失われない
             dropped = "地形が変わった";

@@ -8,6 +8,8 @@
 - Minecraft 1.21.1 / NeoForge 21.1.228 以降、Forge 52.1.16 以降、または Fabric（Fabric Loader
   0.15.11 以降 + Fabric API）
 - Minecraft 1.20.1 / Forge 47.4.23 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）
+- Minecraft 1.16.5 / Forge 36.2.39 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.42.0 以降）。
+  Java 8 で動きます
 - Java のヒープは 2GB 以上（公式ランチャーの既定値）。2.5GB 未満では航法グラフの範囲が狭くなります
   （[既知の制約](#既知の制約)を参照）
 - クライアント専用。サーバー側に入れるものはありません。Forge版を誤って専用サーバーの`mods`へ
@@ -34,11 +36,13 @@
      （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
    - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
+   - Minecraft 1.16.5: [Forge](https://files.minecraftforge.net/) 36.2.39 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.42.0 以降）。
 2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から、使うローダーと
    Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
    `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
-   1.21.1 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.20.1 なら World Map 1.46.0 以降・
+   1.21.1 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.20.1 と 1.16.5 なら World Map 1.46.0 以降・
    Minimap 26.5.0 以降。
 
 ## 何ができるか

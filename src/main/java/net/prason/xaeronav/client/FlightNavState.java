@@ -6,10 +6,10 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
 
-import com.mojang.logging.LogUtils;
+import org.apache.logging.log4j.LogManager;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -35,6 +35,7 @@ import net.prason.xaeronav.pathfinding.flight.FlightTuning;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * エリトラで滑空している間の案内。3D空中経路（太線）と、その先を繋ぐ中間目標の点線を持つ。
@@ -48,7 +49,7 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
  */
 final class FlightNavState {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 空中経路を投げ直す下限間隔（tick）。逸脱と移動のきっかけは高速で飛んでいる間ほぼ毎tick
@@ -341,7 +342,7 @@ final class FlightNavState {
         boolean rockets = hasRockets(player);
         boolean routing = XaeroNavConfig.INSTANCE.flightRoutingEnabled();
         FlightTuning tuning = tuning();
-        int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
         // 水平マージンを描画距離に揃えて、読み込み済みの正方形をまるごと探索範囲に入れる。
         // 壁を回り込む経路は始点と目的地を結ぶ帯の外へ出るので、狭いマージンでは回り込めない
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), currentGoal,
@@ -352,7 +353,7 @@ final class FlightNavState {
         // 長距離ルートは地図読みだけをここ（メインスレッド）で済ませ、解くのはワーカーで行う。
         // 解きは地図読みの数倍かかり、同期で解くと目標を切り替えるたびに描画が止まる
         CoarseRequest coarseRequest = routing ? coarseRequest(level, player, currentGoal) : CoarseRequest.NONE;
-        int minAirY = level.getMinBuildHeight() + CEILING_MARGIN_BLOCKS;
+        int minAirY = GameCompat.minBuildHeight(level) + CEILING_MARGIN_BLOCKS;
         int maxAirY = level.getMaxBuildHeight() - 1 - CEILING_MARGIN_BLOCKS;
         int passedSnapshot = coarseRequest.fresh() ? 0 : passedWaypoints;
         BlockPos aimedSnapshot = aimedWaypoint;
@@ -519,7 +520,7 @@ final class FlightNavState {
         int best = -1;
         double bestDistance = Double.MAX_VALUE;
         for (int i = 0; i < waypoints.size(); i++) {
-            double distance = waypoints.get(i).distToCenterSqr(position);
+            double distance = centerDistanceSq(waypoints.get(i), position);
             if (distance < bestDistance) {
                 bestDistance = distance;
                 best = i;
@@ -565,7 +566,7 @@ final class FlightNavState {
      * 置いてあるのと同じ理由）。
      */
     static CoarseRouter.Route solveCoarseRoute(Level level, BlockPos from, BlockPos goal, boolean rockets) {
-        return solveCoarseRoute(readCoarseMap(from, goal), level.getMinBuildHeight() + CEILING_MARGIN_BLOCKS,
+        return solveCoarseRoute(readCoarseMap(from, goal), GameCompat.minBuildHeight(level) + CEILING_MARGIN_BLOCKS,
                 level.getMaxBuildHeight() - 1 - CEILING_MARGIN_BLOCKS, from, goal, rockets);
     }
 
@@ -594,7 +595,7 @@ final class FlightNavState {
             return false;
         }
         int nearest = nearestWaypointIndex(waypoints, player.position());
-        return nearest >= 0 && Math.sqrt(waypoints.get(nearest).distToCenterSqr(player.position()))
+        return nearest >= 0 && Math.sqrt(centerDistanceSq(waypoints.get(nearest), player.position()))
                 <= COARSE_OFF_ROUTE_BLOCKS;
     }
 
@@ -629,14 +630,14 @@ final class FlightNavState {
         // 「最寄りのwaypointフォールバックが通り過ぎた点を掴んで引き返す」とまったく同じ穴
         if (aimed != null) {
             int index = waypoints.indexOf(aimed);
-            double distance = Math.sqrt(aimed.distToCenterSqr(start));
+            double distance = Math.sqrt(centerDistanceSq(aimed, start));
             if (index >= from && distance > AIM_ADVANCE_BLOCKS && distance <= reach) {
                 return new Aim(Vec3.atCenterOf(aimed), aimed, false);
             }
         }
         BlockPos target = null;
         for (int i = from; i < waypoints.size(); i++) {
-            if (Math.sqrt(waypoints.get(i).distToCenterSqr(start)) > reach) {
+            if (Math.sqrt(centerDistanceSq(waypoints.get(i), start)) > reach) {
                 break;
             }
             target = waypoints.get(i);
@@ -661,7 +662,7 @@ final class FlightNavState {
         if (tail == null || currentGoal == null) {
             return;
         }
-        int renderRadius = level == null ? 0 : Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
+        int renderRadius = level == null ? 0 : ClientCompat.renderDistance(Minecraft.getInstance().options) * 16;
         // 末端から先に残っている「読み込み済みの余地」。ここを超える目標は未ロードの中に落ちる。
         //
         // <b>探索の地平でも頭打ちにする</b>。読み込み済みの余地は最大460ブロックにもなるが、
@@ -770,7 +771,7 @@ final class FlightNavState {
         }
         Vec3 target = null;
         for (int i = nearestWaypointIndex(waypoints, tail) + 1; i < waypoints.size(); i++) {
-            if (Math.sqrt(waypoints.get(i).distToCenterSqr(tail)) > lead) {
+            if (Math.sqrt(centerDistanceSq(waypoints.get(i), tail)) > lead) {
                 break;
             }
             target = Vec3.atCenterOf(waypoints.get(i));
@@ -790,6 +791,12 @@ final class FlightNavState {
      * ここの真偽で経路の高度の取り方がはっきり変わる。
      */
     private static boolean hasRockets(Player player) {
-        return ChunkView.hasItem(player.getInventory(), stack -> stack.getItem() instanceof FireworkRocketItem);
+        return ChunkView.hasItem(GameCompat.inventory(player), stack -> stack.getItem() instanceof FireworkRocketItem);
+    }
+    private static double centerDistanceSq(BlockPos pos, Vec3 point) {
+        double x = pos.getX() + 0.5 - point.x;
+        double y = pos.getY() + 0.5 - point.y;
+        double z = pos.getZ() + 0.5 - point.z;
+        return x * x + y * y + z * z;
     }
 }

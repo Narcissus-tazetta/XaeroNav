@@ -8,9 +8,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntPredicate;
 
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
+import org.apache.logging.log4j.Logger;
 
-import com.mojang.logging.LogUtils;
+import org.apache.logging.log4j.LogManager;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -49,7 +49,7 @@ import net.prason.xaeronav.util.ChangeGate;
  */
 final class Splice {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 経路へ合流し直せる最大の距離（ブロック）。これより遠いなら、その経路はもう自分の経路では
@@ -201,7 +201,7 @@ final class Splice {
                         && blocked.distSqr(playerAt) < SPLICE_RETRY_MOVE_BLOCKS * SPLICE_RETRY_MOVE_BLOCKS)) {
             return false;
         }
-        int renderRadius = Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
+        int renderRadius = ClientCompat.renderDistance(Minecraft.getInstance().options) * 16;
         int joinIndex = joinableStepIndex(level, result.steps(), player.position(), minJoinIndex);
         if (joinIndex < 0) {
             // 黙って引き直しへ落ちると、なぜ局所修正できなかったのかがどこにも残らない。

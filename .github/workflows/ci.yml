@@ -71,7 +71,7 @@ jobs:
             if echo "$CHANGED" | grep -qE '^(stonecutter\.properties\.toml|settings\.gradle\.kts|src/main/java/net/prason/xaeronav/mixin/|src/main/java/net/prason/xaeronav/client/ClientTickHandler\.java|src/main/java/net/prason/xaeronav/xaero/XaeroHook(Probe|RuntimeProbe)\.java|src/main/resources/.*\.mixins\.json)'; then
               FULL=true
             fi
-            if echo "$CHANGED" | grep -qE '^(\.github/workflows/ci\.yml|stonecutter\.properties\.toml|settings\.gradle\.kts|gradle\.properties|gradle/|buildSrc/|build(\.forge(-legacy)?)?\.gradle\.kts|stonecutter\.gradle\.kts|src/main/(java|resources)/)'; then
+            if echo "$CHANGED" | grep -qE '^(\.github/workflows/ci\.yml|stonecutter\.properties\.toml|settings\.gradle\.kts|gradle\.properties|gradle/|buildSrc/|build(\.forge(-legacy|-116)?|\.fabric|\.neoforge)?\.gradle\.kts|stonecutter\.gradle\.kts|src/main/(java|resources)/)'; then
               SERVER=true
             fi
           fi
@@ -194,16 +194,22 @@ jobs:
           mkdir -p run/mods
           cp build/runtime-test/${{ matrix.node.node }}/mods/*.jar run/mods/
 
-      # fabric-apiの版はstonecutter.properties.tomlが持つ唯一の情報源から読む。
-      # MCバージョンが複数あるとdeps.fabric_apiの行も複数マッチするので、
-      # バージョン文字列（値の"+<mc>"サフィックス）で対象ノードの行だけに絞る
-      - id: deps
+      # fabric-apiの配布jarはリリースのタグ（deps.fabric_apiの値そのもの）から取る。mc-runtime-testに任せると
+      # タグを`<版>+<MCバージョン>`と組み立てるので、`0.42.0+1.16`のようにMCの版を丸めたタグを取れない
+      - name: Put fabric-api into the test client
         if: matrix.node.loader == 'fabric'
-        run: |
-          VERSION=$(grep 'deps.fabric_api' stonecutter.properties.toml \
-            | grep -- "+${{ matrix.node.minecraft }}\"" \
-            | cut -d'"' -f2 | cut -d'+' -f1)
-          echo "fabric_api=$VERSION" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FABRIC_API: ${{ matrix.node.fabric_api }}
+        run: gh release download "$FABRIC_API" -R FabricMC/fabric-api -p "fabric-api-$FABRIC_API.jar" -D run/mods
+
+      # HeadlessMCとMinecraftはこの時点のJAVA_HOMEで動く。Gradleのビルド（Java 21）が終わってから、
+      # 利用者と同じJavaへ切り替える
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        if: matrix.node.java != '21'
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.node.java }}
 
       # ワールドへ入ってテストが通ったあと、JVMが終了しないまま止まることがある
       # （両ローダーで発生。最後のログはサーバーの保存完了で、その先のXaeroの
@@ -255,11 +261,11 @@ jobs:
           mc: ${{ matrix.node.minecraft }}
           modloader: ${{ matrix.node.loader }}
           regex: .*${{ matrix.node.loader }}.*
-          java: 21
+          java: ${{ matrix.node.java }}
           # mc-runtime-test配布物はForgeだけ"lexforge"という別名でリリースされている
           # （modloader引数の"forge"とは別物。headlesshq/mc-runtime-testのaction.yml参照）
           mc-runtime-test: ${{ matrix.node.loader == 'forge' && 'lexforge' || matrix.node.loader }}
-          fabric-api: ${{ matrix.node.loader == 'fabric' && steps.deps.outputs.fabric_api || 'none' }}
+          fabric-api: none
           # HeadlessMCの--jvmは値1個をそのままJVM引数として渡す。空白区切りで2個を
           # まとめると後半がjava.awt.headlessの値に入り、probe propertyにならない。
           headlessmc-command: '--jvm "-Dxaeronav-ci.runtimeHookProbe=true"'
@@ -400,12 +406,11 @@ jobs:
           mkdir -p run/mods
           cp build/server-test/${{ matrix.node.node }}/mods/*.jar run/mods/
 
-      # HeadlessMCはこの時点のJAVA_HOMEをserver JVMとして登録する。Gradleとは分け、
-      # Minecraft 1.20.1だけJava 17、1.21.1はJava 21で実行する。
+      # HeadlessMCはこの時点のJAVA_HOMEをserver JVMとして登録する。Gradleとは分け、利用者と同じJavaで実行する
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: ${{ startsWith(matrix.node.minecraft, '1.20.') && '17' || '21' }}
+          java-version: ${{ matrix.node.java }}
 
       # mc-server-testはworldのload完了をpositiveに待ち、到達後にstopを送る。
       # 可変tagではなく、内容を確認したv1.1.1の署名済みcommitへ固定する。
@@ -414,7 +419,7 @@ jobs:
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: forge
-          java: ${{ startsWith(matrix.node.minecraft, '1.20.') && '17' || '21' }}
+          java: ${{ matrix.node.java }}
 
       - name: Upload server logs
         if: failure()

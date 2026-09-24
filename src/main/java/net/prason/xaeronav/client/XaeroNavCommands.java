@@ -48,6 +48,7 @@ import net.prason.xaeronav.xaero.XaeroHookHealth;
 import net.prason.xaeronav.xaero.XaeroHooks;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * {@code /xaeronav} のクライアントコマンド。
@@ -106,7 +107,7 @@ public final class XaeroNavCommands {
                                     // 指定座標ではなく解決後の目的地を出す。Yはその列で実際に立てる高さへ
                                     // 寄せられるので、指定したままを表示すると案内先と食い違って見える
                                     if (resolved != null) {
-                                        sink.apply(ctx).success(Component.translatable("commands.xaeronav.goal_walk",
+                                        sink.apply(ctx).success(TextCompat.translatable("commands.xaeronav.goal_walk",
                                                 resolved.toShortString()));
                                     }
                                     return 1;
@@ -114,13 +115,13 @@ public final class XaeroNavCommands {
                 .then(XaeroNavCommands.<S>literal("clear")
                         .executes(ctx -> {
                             PathfindingState.INSTANCE.clear();
-                            sink.apply(ctx).success(Component.translatable("commands.xaeronav.cleared"));
+                            sink.apply(ctx).success(TextCompat.translatable("commands.xaeronav.cleared"));
                             return 1;
                         }))
                 .then(XaeroNavCommands.<S>literal("version")
                         .executes(ctx -> {
                             sink.apply(ctx).success(
-                                    Component.translatable("commands.xaeronav.version", modVersion()));
+                                    TextCompat.translatable("commands.xaeronav.version", modVersion()));
                             return 1;
                         }))
                 .then(XaeroNavCommands.<S>literal("debug")
@@ -159,17 +160,17 @@ public final class XaeroNavCommands {
      */
     private static int reportHooks(NavCommandSink out) {
         for (XaeroHooks.Hook hook : XaeroHooks.Hook.values()) {
-            Component name = Component.translatable(hook.nameKey());
+            Component name = TextCompat.translatable(hook.nameKey());
             if (!ModPresence.isLoaded(hook.modId())) {
-                out.success(Component.translatable("commands.xaeronav.hooks_mod_missing", name, hook.modId()));
+                out.success(TextCompat.translatable("commands.xaeronav.hooks_mod_missing", name, hook.modId()));
             } else if (!XaeroHooks.applied(hook)) {
-                out.success(Component.translatable("commands.xaeronav.hooks_not_applied", name));
+                out.success(TextCompat.translatable("commands.xaeronav.hooks_not_applied", name));
             } else {
-                out.success(Component.translatable("commands.xaeronav.hooks_ok", name));
+                out.success(TextCompat.translatable("commands.xaeronav.hooks_ok", name));
             }
         }
         if (XaeroHookHealth.worldMapRenderBroken()) {
-            out.failure(Component.translatable("commands.xaeronav.hooks_render_broken"));
+            out.failure(TextCompat.translatable("commands.xaeronav.hooks_render_broken"));
         }
         return 1;
     }
@@ -181,16 +182,16 @@ public final class XaeroNavCommands {
      */
     private static int reportSummary(NavCommandSink out) {
         PathfindingState.DiagnosticSummary summary = PathfindingState.INSTANCE.diagnosticSummary();
-        out.success(Component.translatable("commands.xaeronav.summary_splice_refusal",
+        out.success(TextCompat.translatable("commands.xaeronav.summary_splice_refusal",
                 summary.spliceRefusal() != null
-                        ? summary.spliceRefusal() : Component.translatable("commands.xaeronav.summary_none")));
-        out.success(Component.translatable("commands.xaeronav.summary_seam_repair_refusal",
+                        ? summary.spliceRefusal() : TextCompat.translatable("commands.xaeronav.summary_none")));
+        out.success(TextCompat.translatable("commands.xaeronav.summary_seam_repair_refusal",
                 summary.seamRepairRefusal() != null
-                        ? summary.seamRepairRefusal() : Component.translatable("commands.xaeronav.summary_none")));
-        out.success(Component.translatable("commands.xaeronav.summary_unstandable_target",
+                        ? summary.seamRepairRefusal() : TextCompat.translatable("commands.xaeronav.summary_none")));
+        out.success(TextCompat.translatable("commands.xaeronav.summary_unstandable_target",
                 summary.unstandableTarget() != null
                         ? summary.unstandableTarget().toShortString()
-                        : Component.translatable("commands.xaeronav.summary_none")));
+                        : TextCompat.translatable("commands.xaeronav.summary_none")));
         return 1;
     }
 
@@ -233,7 +234,7 @@ public final class XaeroNavCommands {
             for (int i = 0; i < waypoints.size(); i++) {
                 int number = i + 1;
                 BlockPos waypoint = waypoints.get(i);
-                out.success(Component.translatable("commands.xaeronav.route_waypoint",
+                out.success(TextCompat.translatable("commands.xaeronav.route_waypoint",
                         number, waypoints.size(), waypoint.toShortString()));
             }
         });
@@ -261,7 +262,7 @@ public final class XaeroNavCommands {
             return 0;
         }
         if (!XaeroPresence.mapPresent()) {
-            out.failure(Component.translatable("commands.xaeronav.mapdata_unavailable"));
+            out.failure(TextCompat.translatable("commands.xaeronav.mapdata_unavailable"));
             return 0;
         }
 
@@ -272,7 +273,7 @@ public final class XaeroNavCommands {
             return 0;
         }
 
-        out.success(Component.translatable("commands.xaeronav.debug_running"));
+        out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
         long generation = DIAGNOSTIC.begin();
         long startNanos = System.nanoTime();
         DIAGNOSTIC.submit(generation,
@@ -286,15 +287,15 @@ public final class XaeroNavCommands {
                     long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
                     if (route.isEmpty()) {
                         if (route.reachedGoal()) {
-                            out.success(Component.translatable("commands.xaeronav.route_same_chunk"));
+                            out.success(TextCompat.translatable("commands.xaeronav.route_same_chunk"));
                             return;
                         }
-                        out.failure(Component.translatable("commands.xaeronav.route_none", elapsedMillis));
+                        out.failure(TextCompat.translatable("commands.xaeronav.route_none", elapsedMillis));
                         return;
                     }
 
                     List<BlockPos> waypoints = route.waypoints();
-                    out.success(Component.translatable(
+                    out.success(TextCompat.translatable(
                             route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
                                     : "commands.xaeronav.route_summary_partial",
                             waypoints.size(), elapsedMillis));
@@ -317,7 +318,7 @@ public final class XaeroNavCommands {
         int chunksX = maxChunkX - minChunkX + 1;
         int chunksZ = maxChunkZ - minChunkZ + 1;
         if (chunksX > ROUTE_MAX_SPAN_CHUNKS || chunksZ > ROUTE_MAX_SPAN_CHUNKS) {
-            out.failure(Component.translatable("commands.xaeronav.route_too_far"));
+            out.failure(TextCompat.translatable("commands.xaeronav.route_too_far"));
             return null;
         }
         return XaeroMapReader.readSurface(minChunkX, minChunkZ, chunksX, chunksZ, (start.getY() + goal.getY()) / 2);
@@ -344,7 +345,7 @@ public final class XaeroNavCommands {
                 CorridorLegSolver.PreparedLeg leg = CorridorLegSolver.prepare(legs.get(i), legs.get(i + 1));
                 prepared.add(new TimedLeg(leg, (System.nanoTime() - prepareStartNanos) / 1_000_000));
             }
-            out.success(Component.translatable("commands.xaeronav.debug_running"));
+            out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
             reportCorridorLeg(out, DIAGNOSTIC.begin(), prepared, 0, legCount);
         });
     }
@@ -364,7 +365,7 @@ public final class XaeroNavCommands {
         }
         TimedLeg timed = prepared.get(index);
         if (timed.leg().view() == null) {
-            out.failure(Component.translatable("commands.xaeronav.corridor_no_data",
+            out.failure(TextCompat.translatable("commands.xaeronav.corridor_no_data",
                     index + 1, total, timed.prepareElapsedMillis(), timed.leg().pendingRegions()));
             reportCorridorLeg(out, generation, prepared, index + 1, total);
             return;
@@ -379,7 +380,7 @@ public final class XaeroNavCommands {
                         return;
                     }
                     long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
-                    out.success(Component.translatable(
+                    out.success(TextCompat.translatable(
                             result.complete() ? "commands.xaeronav.corridor_leg_reached"
                                     : "commands.xaeronav.corridor_leg_partial",
                             index + 1, total, result.steps().size(), elapsedMillis, timed.leg().pendingRegions()));
@@ -397,7 +398,7 @@ public final class XaeroNavCommands {
             return 0;
         }
         if (!XaeroPresence.mapPresent()) {
-            out.failure(Component.translatable("commands.xaeronav.mapdata_unavailable"));
+            out.failure(TextCompat.translatable("commands.xaeronav.mapdata_unavailable"));
             return 0;
         }
 
@@ -413,18 +414,18 @@ public final class XaeroNavCommands {
         int known = map.knownCells();
         int total = map.totalCells();
         int percent = total == 0 ? 0 : known * 100 / total;
-        out.success(Component.translatable("commands.xaeronav.mapdata_summary",
+        out.success(TextCompat.translatable("commands.xaeronav.mapdata_summary",
                 side * 16, known, total, percent, elapsedMillis));
 
         XaeroMapReader.RegionStats regions = XaeroMapReader.surveyRegions(
                 centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side, referenceY);
-        out.success(Component.translatable("commands.xaeronav.mapdata_regions",
+        out.success(TextCompat.translatable("commands.xaeronav.mapdata_regions",
                 regions.loaded(), regions.pendingLoad(), regions.inRange()));
 
         if (regions.pendingLoad() > 0) {
             int requested = XaeroMapReader.requestLoad(
                     centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side, referenceY);
-            out.success(Component.translatable("commands.xaeronav.mapdata_requested",
+            out.success(TextCompat.translatable("commands.xaeronav.mapdata_requested",
                     requested));
         }
 
@@ -438,7 +439,7 @@ public final class XaeroNavCommands {
         int hereFloor = map.nearestFloor(centerChunkX, centerChunkZ, referenceY);
         byte hereKind = hereFloor < 0 ? CoarseMap.NO_DATA : map.kindAtFloor(centerChunkX, centerChunkZ, hereFloor);
         int hereHeight = hereFloor < 0 ? 0 : map.heightAtFloor(centerChunkX, centerChunkZ, hereFloor);
-        out.success(Component.translatable("commands.xaeronav.mapdata_here",
+        out.success(TextCompat.translatable("commands.xaeronav.mapdata_here",
                 describeKind(hereKind), hereHeight, referenceY, hereFloorCount));
         return 1;
     }
@@ -487,7 +488,7 @@ public final class XaeroNavCommands {
         final int lavaMixedCount = lavaMixed;
         final int voidCount = voidCells;
         final int noDataCount = noData;
-        out.success(Component.translatable("commands.xaeronav.mapdata_kinds",
+        out.success(TextCompat.translatable("commands.xaeronav.mapdata_kinds",
                 landCount, waterCount, lavaCount, lavaMixedCount, voidCount, noDataCount, lavaPercent));
     }
 
@@ -497,25 +498,25 @@ public final class XaeroNavCommands {
      * 効かないときに、地形が読めていないのか読む場所を間違えているのかを切り分けるためのもの。
      */
     private static void reportMapLayers(NavCommandSink out, int minChunkX, int minChunkZ, int side) {
-        out.success(Component.translatable("commands.xaeronav.mapdata_cave_mode",
+        out.success(TextCompat.translatable("commands.xaeronav.mapdata_cave_mode",
                 XaeroMapReader.caveModeType()));
 
         List<XaeroMapReader.LayerProbe> probes = XaeroMapReader.probeLayers(minChunkX, minChunkZ, side, side);
         if (probes.isEmpty()) {
-            out.success(Component.translatable("commands.xaeronav.mapdata_layers_none"));
+            out.success(TextCompat.translatable("commands.xaeronav.mapdata_layers_none"));
             return;
         }
         for (XaeroMapReader.LayerProbe probe : probes) {
-            out.success(Component.translatable("commands.xaeronav.mapdata_layer",
+            out.success(TextCompat.translatable("commands.xaeronav.mapdata_layer",
                     probe.isSurface()
-                            ? Component.translatable("commands.xaeronav.mapdata_layer_surface")
-                            : Component.literal(String.valueOf(probe.caveLayer())),
+                            ? TextCompat.translatable("commands.xaeronav.mapdata_layer_surface")
+                            : TextCompat.literal(String.valueOf(probe.caveLayer())),
                     probe.knownCells(), probe.minHeight(), probe.maxHeight()));
         }
     }
 
     private static Component describeKind(byte kind) {
-        return Component.translatable(switch (kind) {
+        return TextCompat.translatable(switch (kind) {
             case CoarseMap.LAND -> "commands.xaeronav.mapdata_land";
             case CoarseMap.WATER -> "commands.xaeronav.mapdata_water";
             case CoarseMap.LAVA -> "commands.xaeronav.mapdata_lava";
@@ -548,16 +549,16 @@ public final class XaeroNavCommands {
             return 0;
         }
 
-        int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
         BlockPos playerPos = player.blockPosition();
         SearchBounds bounds = SearchBounds.around(level, playerPos, goal,
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, MovementOptions.NONE);
-        boolean rockets = ChunkView.hasItem(player.getInventory(), stack -> stack.getItem() instanceof FireworkRocketItem);
+        boolean rockets = ChunkView.hasItem(GameCompat.inventory(player), stack -> stack.getItem() instanceof FireworkRocketItem);
         Vec3 start = player.position();
         Vec3 target = Vec3.atCenterOf(goal);
 
-        out.success(Component.translatable("commands.xaeronav.debug_running"));
+        out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
         long generation = DIAGNOSTIC.begin();
         long startedAt = System.nanoTime();
         DIAGNOSTIC.submit(generation,
@@ -569,11 +570,11 @@ public final class XaeroNavCommands {
                     }
                     long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
                     Vec3 tail = route.tail();
-                    out.success(Component.translatable("commands.xaeronav.flight_result",
+                    out.success(TextCompat.translatable("commands.xaeronav.flight_result",
                             route.points().size(), route.termination().name(), route.expandedNodes(), elapsedMillis,
                             route.cellBlocks(), rockets ? 1 : 0));
                     if (tail != null) {
-                        out.success(Component.translatable("commands.xaeronav.flight_tail",
+                        out.success(TextCompat.translatable("commands.xaeronav.flight_tail",
                                 Mth.floor(tail.x), Mth.floor(tail.y), Mth.floor(tail.z),
                                 Mth.floor(Math.sqrt(tail.distanceToSqr(target)))));
                     }
@@ -582,11 +583,11 @@ public final class XaeroNavCommands {
                         // その方向のデータが地図に無い＝未訪問ということ。Xaeroを読むためメインスレッド
                         // 専用（FlightNavStateのクラスJavadoc参照）——ここは既にメインスレッドへ戻った後
                         CoarseRouter.Route coarse = FlightNavState.solveCoarseRoute(level, playerPos, goal, rockets);
-                        out.success(Component.translatable("commands.xaeronav.flight_coarse",
+                        out.success(TextCompat.translatable("commands.xaeronav.flight_coarse",
                                 coarse.waypoints().size(), coarse.reachedGoal() ? 1 : 0));
                     }
                     // これは測るだけのコマンドで、目的地は設定しない。線を出すには goto が要る
-                    out.success(Component.translatable("commands.xaeronav.flight_diagnostic_only"));
+                    out.success(TextCompat.translatable("commands.xaeronav.flight_diagnostic_only"));
                 });
         return 1;
     }
@@ -600,7 +601,7 @@ public final class XaeroNavCommands {
         }
 
         BlockPos start = player.blockPosition();
-        int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+        int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
         int verticalMargin = PathfindingState.verticalSearchMargin(level, false);
         int normalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
 
@@ -608,7 +609,7 @@ public final class XaeroNavCommands {
                 renderRadius);
         reportPlacementAvailability(out, normal.view());
         reportGoalCell(out, level, normal.view(), normal.bounds(), start, goal, renderRadius);
-        out.success(Component.translatable("commands.xaeronav.debug_running"));
+        out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
 
         long generation = DIAGNOSTIC.begin();
         DIAGNOSTIC.submit(generation,
@@ -636,7 +637,7 @@ public final class XaeroNavCommands {
                                                   BlockPos start, BlockPos goal, int renderRadius, int normalMargin,
                                                   CapturedView normal, ProbeRun normalRun) {
         if (!XaeroNavConfig.INSTANCE.diggingEnabled()) {
-            out.success(Component.translatable("commands.xaeronav.probe_no_digging_skipped"));
+            out.success(TextCompat.translatable("commands.xaeronav.probe_no_digging_skipped"));
             continueProbeAfterDigging(out, generation, level, player, start, goal, renderRadius, normalMargin,
                     normal, normalRun);
             return;
@@ -669,7 +670,7 @@ public final class XaeroNavCommands {
         boolean widenTriggered = !normalRun.result().complete() && !budgetExhausted
                 && horizontalDistance(start, goal) <= renderRadius && normalMargin < renderRadius;
         if (!normalRun.result().complete() && budgetExhausted) {
-            out.success(Component.translatable(
+            out.success(TextCompat.translatable(
                     "commands.xaeronav.probe_widen_skipped_budget", maxExpandedNodes));
             // 上限に張り付いた回どうしを比べても展開ノード数は必ず一致するので、そこからは何も分からない。
             // 打ち切りを時間だけに任せて「この地形で目的地まで実際に何ノード要るのか」を測り、
@@ -686,7 +687,7 @@ public final class XaeroNavCommands {
                         reportProbeRun(out, "commands.xaeronav.probe_unbounded", unboundedRun);
                     });
         } else {
-            out.success(Component.translatable(widenTriggered
+            out.success(TextCompat.translatable(widenTriggered
                     ? "commands.xaeronav.probe_widen_triggered" : "commands.xaeronav.probe_widen_skipped"));
         }
         if (widenTriggered) {
@@ -721,7 +722,7 @@ public final class XaeroNavCommands {
         if (!bounds.contains(x, y, z)) {
             // 箱はゴール方向へrenderRadiusで切られる。長距離ナビの目的地をそのまま渡すと必ずここへ
             // 落ちるので、どこまでなら測れるのかを併せて出さないと同じ指定を繰り返すことになる
-            out.success(Component.translatable("commands.xaeronav.probe_goal_outside_bounds",
+            out.success(TextCompat.translatable("commands.xaeronav.probe_goal_outside_bounds",
                     Math.round(horizontalDistance(start, goal)), renderRadius));
             return;
         }
@@ -739,10 +740,10 @@ public final class XaeroNavCommands {
         Component feet = describeGoalCell(level, feetPos, feetCell);
         Component head = describeGoalCell(level, headPos, headCell);
         if (floorReachable && enterable(feetCell) && enterable(headCell)) {
-            out.success(Component.translatable("commands.xaeronav.probe_goal_ok", feet, head));
+            out.success(TextCompat.translatable("commands.xaeronav.probe_goal_ok", feet, head));
         } else {
-            out.success(Component.translatable("commands.xaeronav.probe_goal_blocked",
-                    Component.translatable(floorReachable ? "commands.xaeronav.probe_goal_cell_ok"
+            out.success(TextCompat.translatable("commands.xaeronav.probe_goal_blocked",
+                    TextCompat.translatable(floorReachable ? "commands.xaeronav.probe_goal_cell_ok"
                             : "commands.xaeronav.probe_goal_cell_blocked"), feet, head));
         }
     }
@@ -763,13 +764,13 @@ public final class XaeroNavCommands {
     private static Component describeGoalCell(Level level, BlockPos pos, long cell) {
         if (CellData.unresolvedShape(cell)) {
             ResourceLocation id = blockId(level.getBlockState(pos).getBlock());
-            return Component.translatable("commands.xaeronav.probe_goal_cell_unresolved_shape",
+            return TextCompat.translatable("commands.xaeronav.probe_goal_cell_unresolved_shape",
                     id == null ? "?" : id.toString());
         }
         if (CellData.occupiableWithoutDigging(cell)) {
-            return Component.translatable("commands.xaeronav.probe_goal_cell_ok");
+            return TextCompat.translatable("commands.xaeronav.probe_goal_cell_ok");
         }
-        return Component.translatable(Double.isInfinite(CellData.digTicks(cell))
+        return TextCompat.translatable(Double.isInfinite(CellData.digTicks(cell))
                 ? "commands.xaeronav.probe_goal_cell_blocked" : "commands.xaeronav.probe_goal_cell_dig");
     }
 
@@ -807,8 +808,8 @@ public final class XaeroNavCommands {
         SearchBounds bounds = run.bounds();
         int spanX = bounds.maxX() - bounds.minX() + 1;
         int spanZ = bounds.maxZ() - bounds.minZ() + 1;
-        Component label = Component.translatable(labelKey);
-        out.success(Component.translatable(
+        Component label = TextCompat.translatable(labelKey);
+        out.success(TextCompat.translatable(
                 result.complete() ? "commands.xaeronav.probe_summary_reached"
                         : "commands.xaeronav.probe_summary_partial",
                 label, result.steps().size(), result.expandedNodes(), run.elapsedMillis(), spanX, spanZ,
@@ -816,22 +817,22 @@ public final class XaeroNavCommands {
         if (run.loadedChunks() < run.totalChunks()) {
             // 未読み込みチャンクは進入不可セルとして扱われる（ChunkView#capture）。
             // 探索範囲の縁がまだ届いていないだけで、少し待てば同じ座標でも結果が変わりうる
-            out.success(Component.translatable("commands.xaeronav.probe_chunks_missing",
+            out.success(TextCompat.translatable("commands.xaeronav.probe_chunks_missing",
                     run.loadedChunks(), run.totalChunks()));
         }
         if (!result.steps().isEmpty()) {
             String breakdown = describeMovements(result.steps(), run.start());
-            out.success(Component.translatable("commands.xaeronav.probe_movements", breakdown));
+            out.success(TextCompat.translatable("commands.xaeronav.probe_movements", breakdown));
             reportWorkload(out, result.steps(), run.start());
         }
         if (run.trimmedPlacements() > 0) {
             // 切り落とした後の経路を見るだけでは「橋を架けなかった」と「架けたが渡り切れなかった」が
             // 同じ設置0に見える。原因が正反対なので、切った事実の方を出す
-            out.success(Component.translatable("commands.xaeronav.probe_trimmed",
+            out.success(TextCompat.translatable("commands.xaeronav.probe_trimmed",
                     run.trimmedPlacements()));
         }
         if (run.bridgeRunCapBlocked()) {
-            out.success(Component.translatable("commands.xaeronav.probe_bridge_cap_blocked",
+            out.success(TextCompat.translatable("commands.xaeronav.probe_bridge_cap_blocked",
                     XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
                     XaeroNavConfig.INSTANCE.maxLavaBridgeRunBlocks(),
                     XaeroNavConfig.INSTANCE.maxVoidBridgeRunBlocks()));
@@ -849,14 +850,14 @@ public final class XaeroNavCommands {
             // 予算（経路全体で置ける総数）も併記する。上限3つは「1本が何マス続いてよいか」しか
             // 言っておらず、橋が短く切り上げられている理由が持ち物の枚数だった回を、
             // これが無いと地形の側の話と取り違える
-            out.success(Component.translatable("commands.xaeronav.probe_placing_on",
+            out.success(TextCompat.translatable("commands.xaeronav.probe_placing_on",
                     XaeroNavConfig.INSTANCE.maxBridgeRunBlocks(),
                     XaeroNavConfig.INSTANCE.maxLavaBridgeRunBlocks(),
                     XaeroNavConfig.INSTANCE.maxVoidBridgeRunBlocks(),
                     view.placedBlockBudget()));
         } else {
-            out.success(Component.translatable("commands.xaeronav.probe_placing_off",
-                    Component.translatable(XaeroNavConfig.INSTANCE.bridgingEnabled()
+            out.success(TextCompat.translatable("commands.xaeronav.probe_placing_off",
+                    TextCompat.translatable(XaeroNavConfig.INSTANCE.bridgingEnabled()
                             ? "commands.xaeronav.probe_placing_no_blocks"
                             : "commands.xaeronav.probe_placing_disabled")));
         }
@@ -891,7 +892,7 @@ public final class XaeroNavCommands {
             }
             previous = step.pos();
         }
-        Component line = Component.translatable("commands.xaeronav.probe_workload",
+        Component line = TextCompat.translatable("commands.xaeronav.probe_workload",
                 placements, digCells, climbed, descended,
                 steps.get(steps.size() - 1).pos().getY() - start.getY());
         out.success(line);

@@ -9,6 +9,8 @@ where to go next.
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
   Fabric API)
 - Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
+- Minecraft 1.16.5, on Forge 36.2.39+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.42.0+).
+  Runs on Java 8
 - A Java heap of at least 2 GB, the official launcher's default. Below 2.5 GB the navigation graph
   covers a smaller area (see [Known limitations](#known-limitations))
 - Client-only. Nothing to install on the server. If the Forge jar is accidentally placed in a
@@ -39,13 +41,16 @@ problem here.
    - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api).
+   - Minecraft 1.16.5: [Forge](https://files.minecraftforge.net/) 36.2.39 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.42.0 or newer.
 2. Download the jar for your loader and Minecraft version from the
    [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) and drop it into your
    `mods` folder. Jars are named `xaeronav-<version>-<loader>-<minecraft version>.jar`, for example
    `xaeronav-0.3.0-fabric-1.20.1.jar`.
 3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
    optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, World Map 1.46.0 /
-   Minimap 26.5.0 on 1.20.1.
+   Minimap 26.5.0 on 1.20.1 and 1.16.5.
 
 ## What it does
 

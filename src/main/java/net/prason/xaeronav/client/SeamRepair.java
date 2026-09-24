@@ -10,9 +10,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
+import org.apache.logging.log4j.Logger;
 
-import com.mojang.logging.LogUtils;
+import org.apache.logging.log4j.LogManager;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
@@ -51,7 +51,7 @@ import net.prason.xaeronav.util.ChangeGate;
  */
 final class SeamRepair {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 繋ぎ目をまたいで解き直す長さ（繋ぎ目の手前・先それぞれ何ブロックか）。

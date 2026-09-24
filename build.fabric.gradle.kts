@@ -1,6 +1,10 @@
+import xyz.wagyourtail.jvmdg.gradle.task.DowngradeJar
+import xyz.wagyourtail.jvmdg.gradle.task.ShadeJar
+
 plugins {
     id("xaeronav.common")
     id("fabric-loom") version "1.17.20"
+    id("xyz.wagyourtail.jvmdowngrader") version "2.0.1" apply false
 }
 
 stonecutter.properties.tags(stonecutter.current.version, "fabric")
@@ -8,10 +12,25 @@ stonecutter.properties.tags(stonecutter.current.version, "fabric")
 fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 
 val minecraftVersion = dep("minecraft")
+if (minecraftVersion.startsWith("1.16.")) {
+    pluginManager.apply("xyz.wagyourtail.jvmdowngrader")
 
-// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線（MC 1.20.5以降がJava 21）。
-// fabric.mod.jsonの"java"依存へ渡す（xaeronav-xaero.mixins.jsonのcompatibilityLevelはmixinCompatibilityLevelFor）
-val javaVersion = if (minecraftVersion.startsWith("1.20.")) 17 else 21
+    // 1.16.5が既定で解決するLWJGL 3.3.2はmacOS（特にApple Silicon）で
+    // `GLFW error 65548: Cocoa: Regular windows do not have icons on macOS`を投げて
+    // Minecraft.<init>が止まる（既知の問題、LWJGL/lwjgl3#695）。新しい版へ強制する。
+    configurations.all {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "org.lwjgl") {
+                useVersion("3.3.3")
+                because("1.16.5既定のLWJGLはmacOSでウィンドウアイコン設定が例外になる")
+            }
+        }
+    }
+}
+
+// fabric.mod.jsonの"java"依存へ渡す実行時要件。
+// 1.16.5試作ノードはJava 21でコンパイルした後にJava 8へ変換する予定。
+val javaVersion = javaVersionFor(minecraftVersion)
 val mixinCompatibilityLevel = mixinCompatibilityLevelFor(minecraftVersion)
 val packFormat = packFormatFor(minecraftVersion)
 
@@ -65,8 +84,16 @@ dependencies {
 
     // Modsの一覧から設定画面を開けるようにするだけの連携。未導入でもエントリポイントが
     // 呼ばれなくなるだけなので、配布物にも実行時依存にも含めない。
-    modCompileOnly("com.terraformersmc:modmenu:${dep("modmenu")}")
-    modLocalRuntime("com.terraformersmc:modmenu:${dep("modmenu")}")
+    // 1.16.5用ModMenu 1.16.23は自身の依存にfabric-loaderを直接持つ古い形式で、
+    // Loomのremapが本来のfabric-loader(0.19.5)とは別物として扱い、runClientが
+    // 「duplicate fabric loader classes」で落ちる。ModMenu自身はloaderをMOD経由で
+    // 読み込まないので除外して問題ない。
+    modCompileOnly("com.terraformersmc:modmenu:${dep("modmenu")}") {
+        exclude(group = "net.fabricmc", module = "fabric-loader")
+    }
+    modLocalRuntime("com.terraformersmc:modmenu:${dep("modmenu")}") {
+        exclude(group = "net.fabricmc", module = "fabric-loader")
+    }
 
     // Xaeroはfabric.mod.json上optionalな連携先。コンパイルにだけ必要。
     // compileOnly（modの付かない方）だとMinecraftの型が中間マッピングのままで解決できない。
@@ -90,7 +117,7 @@ tasks.matching { it.name == "runClient" }.configureEach {
 // Fabricで配るのは中間マッピングへ戻したremapJarの方で、素のjarではない
 val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
-    from(tasks.named("remapJar"))
+    from(tasks.named(if (minecraftVersion.startsWith("1.16.")) "java8Jar" else "remapJar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
@@ -102,6 +129,7 @@ tasks.named<ProcessResources>("processResources").configure {
         // ビルド・テストしている版（deps.fabric_api）を下限として宣言する——それより下は
         // 検証していないので「動く保証がある最も低い版」とは言えない
         "fabric_api_range" to dep("fabric_api"),
+        "fabric_api_mod_id" to fabricApiModIdFor(minecraftVersion),
         "java_version" to javaVersion.toString()
     )
 
@@ -125,4 +153,19 @@ tasks.named<ProcessResources>("processResources").configure {
 
 tasks.named("configureLaunch") {
     dependsOn(tasks.named("stonecutterGenerate"))
+}
+
+if (minecraftVersion.startsWith("1.16.")) {
+    // 配布するのはJava 8へ変換した方（java8Jar）。変換前のjarは名前をずらして残す
+    tasks.named<AbstractArchiveTask>("remapJar") { archiveClassifier.set("java21") }
+    val downgraded = tasks.register<DowngradeJar>("downgradeRemapJar") {
+        inputFile.set(tasks.named<AbstractArchiveTask>("remapJar").flatMap { it.archiveFile })
+        archiveClassifier.set("java8-unshaded")
+    }
+    val shaded = tasks.register<ShadeJar>("shadeJava8Jar") {
+        inputFile.set(downgraded.flatMap { it.archiveFile })
+        archiveClassifier.set("java8-shaded")
+    }
+    val java8Jar = registerJava8Jar(shaded.flatMap { it.archiveFile })
+    tasks.named("assemble") { dependsOn(java8Jar) }
 }

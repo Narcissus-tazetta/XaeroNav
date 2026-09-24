@@ -15,8 +15,8 @@ import java.util.function.Supplier;
 
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.file.FileNotFoundAction;
-import com.mojang.logging.LogUtils;
-import org.slf4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * NeoForgeの{@code ModConfigSpec}が持っていない場所（Fabric）での保存先。
@@ -31,7 +31,7 @@ import org.slf4j.Logger;
  */
 public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger();
 
     private final CommentedFileConfig file;
     private final Path path;

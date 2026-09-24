@@ -2,13 +2,11 @@
 set -euo pipefail
 
 node="${1:-}"
-case "$node" in
-    1.21.1-fabric|1.21.1-forge|1.21.1-neoforge|1.20.1-fabric|1.20.1-forge) ;;
-    *)
-        echo "Usage: $0 <1.21.1-fabric|1.21.1-forge|1.21.1-neoforge|1.20.1-fabric|1.20.1-forge> [gradle args...]" >&2
-        exit 2
-        ;;
-esac
+# ノードの一覧はsettings.gradle.ktsにしかない。名前の形だけ見て、無いノードはGradleに断らせる
+if [[ ! "$node" =~ ^[0-9]+(\.[0-9]+)+-(fabric|forge|neoforge)$ ]]; then
+    echo "Usage: $0 <MCバージョン>-<fabric|forge|neoforge> [gradle args...]  (例: 1.21.1-neoforge)" >&2
+    exit 2
+fi
 shift
 
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"

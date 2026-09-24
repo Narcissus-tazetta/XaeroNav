@@ -99,6 +99,10 @@ class LanguageKeyTest {
         // Xaeroの翻訳キー（"gui.xaero_..."）。うちのlangに declare するものではない
         // （うちの実際のキーは"gui.xaeronav..."で、間にアンダースコアが入らないため衝突しない）
         undeclared.removeIf(key -> key.startsWith("gui.xaero_"));
+        // 1.16.5のXaeroNavConfigScreen（OptionInstance等が無い旧Screen API向けの
+        // stonecutter分岐、`//? if <1.17`）が使う、Minecraft本体が既に持つ翻訳キー。
+        // うちのlangへ複製する対象ではない
+        undeclared.removeAll(Set.of("gui.back", "gui.next", "gui.done"));
 
         assertTrue(undeclared.isEmpty(),
                 "コードで参照しているのに lang ファイルに無いキー: " + undeclared);
