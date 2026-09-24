@@ -222,7 +222,7 @@ final class Splice {
         PathValidator.Failure failure = PathValidator.firstFailureFrom(level, result, joinIndex,
                 playerAt, renderRadius);
         if (failure != null) {
-            LOGGER.info("XaeroNav: 経路上のセルが変化していたため合流を諦めました ({})", failure.reason());
+            LOGGER.debug("XaeroNav: 経路上のセルが変化していたため合流を諦めました ({})", failure.reason());
             return false;
         }
 
@@ -264,7 +264,7 @@ final class Splice {
                 }
                 if (!splice.complete() || splice.steps().isEmpty()) {
                     blockedFrom = playerAt;
-                    LOGGER.info("XaeroNav: 経路へ合流できませんでした ({}, 合流点={}, 展開ノード数={})",
+                    LOGGER.debug("XaeroNav: 経路へ合流できませんでした ({}, 合流点={}, 展開ノード数={})",
                             splice.termination(), joinPos.toShortString(), splice.expandedNodes());
                     return;
                 }
@@ -278,7 +278,7 @@ final class Splice {
                     // 無く、ガイドが何を言って断ったのかが追えなかった。物差しの3項を並べておけば、
                     // 「ガイドが合流点を過大評価した」のか「本当に引き返しだった」のかが1行で割れる
                     blockedFrom = playerAt;
-                    LOGGER.info("XaeroNav: 合流は引き返しになるので諦めました (合流点={}, 合流区間={}tick, "
+                    LOGGER.debug("XaeroNav: 合流は引き返しになるので諦めました (合流点={}, 合流区間={}tick, "
                                     + "残り 現在地={} 合流点={}, 経路の実残り={}tick, 物差し={})",
                             joinPos.toShortString(), Math.round(spliceCost),
                             remainingAt(playerAt, currentGoal, guide),
@@ -293,7 +293,7 @@ final class Splice {
                 long spliceLap = TickLaps.start();
                 host.setDisplayed(spliced(shown, splice, joinIndex));
                 TickLaps.add("合流の差し替え", spliceLap);
-                LOGGER.info("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
+                LOGGER.debug("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
                         splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
             } finally {
                 onChanged.run();
@@ -323,7 +323,7 @@ final class Splice {
         if (!refusalGate.changed(reason)) {
             return;
         }
-        LOGGER.info("XaeroNav: 経路への合流を諦めました ({}, 経路={}ステップ, 最小添字={}, 合流点添字={})",
+        LOGGER.debug("XaeroNav: 経路への合流を諦めました ({}, 経路={}ステップ, 最小添字={}, 合流点添字={})",
                 reason, steps, minJoinIndex, joinIndex);
     }
 

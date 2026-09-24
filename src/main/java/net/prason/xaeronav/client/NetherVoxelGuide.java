@@ -307,7 +307,7 @@ final class NetherVoxelGuide {
                     }
                     if (guide == null) {
                         // 黙ってガイド無しへ落とさない。遠距離ネザーで線が出ないのはまさにこれ
-                        LOGGER.info("XaeroNav: 3D粗層の起点を決められませんでした (目的地={}, 箱={})",
+                        LOGGER.debug("XaeroNav: 3D粗層の起点を決められませんでした (目的地={}, 箱={})",
                                 goal.toShortString(), box);
                         return;
                     }
@@ -315,7 +315,7 @@ final class NetherVoxelGuide {
                     // 膨らみ＝始点の見積もり÷直線距離。<b>この層が効いているかはここだけで分かる</b>
                     // ——1倍付近なら幾何ヒューリスティックと同じことしか言っていない。
                     // 箱も出す: Yの範囲が歩ける高さより広いと、格子の大半が天井の上の空きになる
-                    LOGGER.info("XaeroNav: 3D粗層 (床={}, {}, セル={}, 辺={}, 膨らみ{}倍, 箱={}, "
+                    LOGGER.debug("XaeroNav: 3D粗層 (床={}, {}, セル={}, 辺={}, 膨らみ{}倍, 箱={}, "
                                     + "今回の床Y={}, 覚えている床={}, 地図{}ms, Dijkstra{}ms)",
                             floors, terrain.breakdown(), terrain.cellCount(), terrain.cellBlocks(),
                             round(inflation(guide, player, goal)), box,

@@ -354,7 +354,7 @@ final class SeamRepair {
                 long replaceLap = TickLaps.start();
                 host.setDisplayed(withSection(shown, repaired.steps(), sectionFrom, sectionTo));
                 TickLaps.add("解き直しの差し替え", replaceLap);
-                LOGGER.info("XaeroNav: 繋ぎ目を解き直しました ({}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
+                LOGGER.debug("XaeroNav: 繋ぎ目を解き直しました ({}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
                         label, Math.round(current), Math.round(replacement),
                         sectionTo - sectionFrom + 1, repaired.steps().size(), repaired.expandedNodes());
             } finally {
@@ -372,7 +372,7 @@ final class SeamRepair {
         if (!refusalGate.changed(reason)) {
             return;
         }
-        LOGGER.info("XaeroNav: 繋ぎ目の解き直しを見送りました ({})", reason);
+        LOGGER.debug("XaeroNav: 繋ぎ目の解き直しを見送りました ({})", reason);
     }
 
     /** {@code from}以降で、この座標を踏んでいるステップの添字。無ければ{@code -1}。 */
