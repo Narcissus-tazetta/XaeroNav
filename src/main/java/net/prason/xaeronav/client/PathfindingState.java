@@ -1271,7 +1271,7 @@ public final class PathfindingState {
                     // 案内の無い状態で立たされる（実機報告「ルートの先まで着いて計算が追いついていない」）。
                     // <b>継ぎ足しがなぜ間に合わなかったのか</b>が分からないと直しようがないので、
                     // 断った理由をここで残す。1本の経路につき1回しか出ない（この直後にcomputingが立つ）
-                    LOGGER.info("XaeroNav: 経路の末端に着いたので引き直します (継ぎ足せなかった理由={}, {}ステップ)",
+                    LOGGER.debug("XaeroNav: 経路の末端に着いたので引き直します (継ぎ足せなかった理由={}, {}ステップ)",
                             extend.extendRefusal(mc.player, shown, renderRadius), shown.result().steps().size());
                     recalculate("経路の末端に到着");
                     return;
@@ -1333,12 +1333,12 @@ public final class PathfindingState {
         if (splice.trySplice(level, player, shown, failure.stepIndex() + 1)) {
             // 迂回はHUDで知らせない。合流点から先はそのまま残るので「歩いていた道が突然消えた」
             // ことにはならず、橋を架けながら置くたびに警告が出続けるだけになる
-            LOGGER.info("XaeroNav: 経路上のセルが変化したため塞がった箇所を迂回します ({})", failure.reason());
+            LOGGER.debug("XaeroNav: 経路上のセルが変化したため塞がった箇所を迂回します ({})", failure.reason());
             return;
         }
         // 迂回できずに全部引き直す。案内が急に変わる理由が分からないままなので、変わったこと自体を
         // 知らせる
-        LOGGER.info("XaeroNav: 経路上のセルが変化したため引き直します ({})", failure.reason());
+        LOGGER.debug("XaeroNav: 経路上のセルが変化したため引き直します ({})", failure.reason());
         rerouteNoticeTicks = REROUTE_NOTICE_TICKS;
         recalculate("経路上のセルが変化");
     }
@@ -1629,7 +1629,7 @@ public final class PathfindingState {
         if (!replacement.steps().isEmpty() && newLeft <= oldLeft + ROUTE_REGRESSION_LOG_BLOCKS) {
             return;
         }
-        LOGGER.info("XaeroNav: 引き直しで経路が後退しました (理由={}, 再挑戦={}, 始点={}, "
+        LOGGER.debug("XaeroNav: 引き直しで経路が後退しました (理由={}, 再挑戦={}, 始点={}, "
                         + "前={}ステップ/{}/{}/末端から目的地まで{}, 新={}ステップ/{}/{}/末端から目的地まで{}, 展開={})",
                 trigger, forced, start.toShortString(),
                 old.steps().size(), old.complete() ? "完走" : "途中まで", before.mode(), Math.round(oldLeft),
@@ -2013,7 +2013,7 @@ public final class PathfindingState {
                     // 打ち切り理由を併記するのは、「資源が足りない」と「範囲内に道が無い」が
                     // 到達=falseでは区別できないため。前者は目的地を手前に取れば解決するが、
                     // 後者は何度やっても同じで、打つ手がまったく違う
-                    LOGGER.info("XaeroNav: 粗い経由地チェーンで再挑戦しました"
+                    LOGGER.debug("XaeroNav: 粗い経由地チェーンで再挑戦しました"
                                     + " (目標={}, 到達={}, {}, 展開ノード数={}, ステップ数={}, 設置可={}, 橋={}本)",
                             finalTarget.toShortString(), result.complete(), result.termination(),
                             result.expandedNodes(), result.steps().size(),
@@ -2107,7 +2107,7 @@ public final class PathfindingState {
                     if (worthKeeping.result().complete()) {
                         // 完走した経路は「ここからそこまで実際に歩ける」という証明で、未到達の結果は
                         // その証明を持たない。証明を持たないもので上書きしない（pathWorthKeeping参照）
-                        LOGGER.info("XaeroNav: 完走した経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {})",
+                        LOGGER.debug("XaeroNav: 完走した経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {})",
                                 worthKeeping.result().steps().size(), result.steps().size(), result.termination());
                         return;
                     }
@@ -2119,7 +2119,7 @@ public final class PathfindingState {
                         // 途中までどうしなら、目的地の近くまで引けている方が案内として上。予算切れの探索は
                         // 引き直すたびに違う所で打ち切られるので、比べずに差し替えると、目的地まで16ブロックの
                         // 所まで引けていた経路が145ブロック手前で切れる経路へ縮む（実機のネザー）
-                        LOGGER.info("XaeroNav: 途中までの経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {}, "
+                        LOGGER.debug("XaeroNav: 途中までの経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {}, "
                                         + "末端の残り 表示中={} 新={}, 物差し={})",
                                 worthKeeping.result().steps().size(), result.steps().size(), result.termination(),
                                 Math.round(kept.oldLeft()), Math.round(kept.newLeft()), kept.yardstick());
@@ -2205,7 +2205,7 @@ public final class PathfindingState {
             if (validationFailure != null) {
                 noteUnusableCell(validationFailure);
             }
-            LOGGER.info("XaeroNav: 完走した経路を手放しました"
+            LOGGER.debug("XaeroNav: 完走した経路を手放しました"
                             + " (理由={}, {}ステップ, 経路までの距離={}, 対応づけ={}, 現在地={}, 経路の先頭={}{})",
                     dropped, result.steps().size(), Math.round(offPath), tracked,
                     player.blockPosition().toShortString(), result.steps().get(0).pos().toShortString(),
@@ -2457,7 +2457,7 @@ public final class PathfindingState {
         if (!detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS, REVIEW_MIN_EXTRA_RATIO)) {
             return false;
         }
-        LOGGER.info("XaeroNav: 組み直したガイドで見ると遠回りなので引き直します (余計に{}tick, 見直した区間{}tick, 現在地={})",
+        LOGGER.debug("XaeroNav: 組み直したガイドで見ると遠回りなので引き直します (余計に{}tick, 見直した区間{}tick, 現在地={})",
                 Math.round(detour.extraTicks()), Math.round(detour.walkedTicks()), at.toShortString());
         reviewReplannedAt = at;
         recalculate("ガイドの見直しで遠回り");
@@ -2620,7 +2620,7 @@ public final class PathfindingState {
         if (!unstandableTargetGate.changed(target)) {
             return;
         }
-        LOGGER.info("XaeroNav: 探索目標に立てません (目標={}, 種別={}, 中間目標#{}, 層2の精緻版={})",
+        LOGGER.debug("XaeroNav: 探索目標に立てません (目標={}, 種別={}, 中間目標#{}, 層2の精緻版={})",
                 target.toShortString(), mode, waypointIndex,
                 refinedRouteInUse() ? "使用中" : "無し");
     }
@@ -2645,6 +2645,9 @@ public final class PathfindingState {
      * {@link #SUSPICIOUS_TERRAIN_EDIT_FRACTION}も超えたときだけ出す。
      */
     private void noteSuspiciousShape(BlockPos start, BlockPos target, PathResult result) {
+        if (!LOGGER.isDebugEnabled()) {
+            return;
+        }
         List<PathStep> steps = result.steps();
         if (steps.isEmpty()) {
             return;
@@ -2696,7 +2699,7 @@ public final class PathfindingState {
         int finalTurns = turns;
         int finalBridges = bridges;
         int finalDigs = digs;
-        NavGraphGuide.logOffThread(() -> LOGGER.info("XaeroNav: 経路が直線から大きく外れています "
+        NavGraphGuide.logOffThread(() -> LOGGER.debug("XaeroNav: 経路が直線から大きく外れています "
                         + "(ずれ={}ブロック, 目標まで{}ブロック, {}ステップ, 曲がり{}, 橋{}, 掘削{}, 内訳={}, "
                         + "始点の値の出どころ={}, 末端{}の値の出どころ={})",
                 Math.round(finalDeviation), Math.round(length), steps.size(), finalTurns, finalBridges, finalDigs, kinds,
@@ -2720,7 +2723,7 @@ public final class PathfindingState {
         if (!result.complete() && (result.steps().isEmpty()
                 || horizontalDistance(start, end) < MIN_EXTEND_PROGRESS_BLOCKS)) {
             stalledSearches.incrementAndGet();
-            LOGGER.info("XaeroNav: 詳細探索が十分に前進できません (始点={}, 目標={}, 末端={}, {}, 展開={}, ステップ={})",
+            LOGGER.debug("XaeroNav: 詳細探索が十分に前進できません (始点={}, 目標={}, 末端={}, {}, 展開={}, ステップ={})",
                     start.toShortString(), target.toShortString(), end.toShortString(),
                     result.termination(), result.expandedNodes(), result.steps().size());
         }
@@ -2923,7 +2926,7 @@ public final class PathfindingState {
             mapRetryBefore = null;
             // 引き直したこと自体より「地図が埋まって大局が変わったか」が知りたい。変わらないなら、
             // 遠回りの原因は読み込み待ちではなく別にある
-            LOGGER.info("XaeroNav: 地図の読み込みを待って長距離ルートを引き直しました"
+            LOGGER.debug("XaeroNav: 地図の読み込みを待って長距離ルートを引き直しました"
                             + " (未読み込みリージョン={}→{}, 中間目標={}→{}個, {}, {}回目/{})",
                     before.pendingRegions(), thisRoute.pendingRegions(),
                     before.waypoints().size(), waypoints.size(),
@@ -3206,16 +3209,11 @@ public final class PathfindingState {
         noteMapNotGrowing(start, window, map);
         // 地図がどれだけ見えていたかを残す。「溶岩をLAVAとして見たうえで通した」のか「まだ
         // NO_DATAで見えていなかった」のかは、ここが黙っていると実機ログから区別できない——
-        // 未知セルはCoarseRouterでほぼ最安なので、見えていなければ溶岩の海を直進するルートが
-        // 引かれる。読み込み待ちのリージョンがあるときだけINFOにする（普段は静かにしておく）
-        if (window.pendingRegions() > 0) {
-            LOGGER.info("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン={}, 読み取り={}ms)",
+        // 未知セルはCoarseRouterでほぼ最安なので、見えていなければ溶岩の海を直進するルートが引かれる
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン={}, 読み取り={}ms)",
                     map.knownCells(), map.totalCells(), map.kindBreakdown(), window.layerBreakdown(),
                     window.pendingRegions(), window.readMillis());
-        } else if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン=0, 読み取り={}ms)",
-                    map.knownCells(), map.totalCells(), map.kindBreakdown(), window.layerBreakdown(),
-                    window.readMillis());
         }
         // 実機のカクつきがメインスレッドの地図読み取り側かを継続的に見張る。1tick(20TPS)相当の
         // 50msを超えたら、閾値以下に戻るまでの間も5秒おきに知らせる（毎回だと洪水になる）

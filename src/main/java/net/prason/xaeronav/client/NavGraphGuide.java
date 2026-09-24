@@ -151,7 +151,7 @@ final class NavGraphGuide {
     private static final long LOG_INTERVAL_MILLIS = 10_000L;
 
     /** 負荷の集計（{@link Load}）を出す間隔。 */
-    private static final long LOAD_LOG_INTERVAL_MILLIS = 30_000L;
+    private static final long LOAD_LOG_INTERVAL_MILLIS = 300_000L;
 
     /** 組み立ての段取りを回す1本。探索用のワーカーを塞がないよう分ける。 */
     private final ExecutorService coordinator = Executors.newSingleThreadExecutor(runnable -> {
@@ -393,9 +393,9 @@ final class NavGraphGuide {
                     failures = 0;
                     built = new Built(key, at, refreshed.field());
                     retargeted = false;
-                    if (logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
+                    if (LOGGER.isDebugEnabled() && logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
                         NavGraph current = graph;
-                        LOGGER.info("XaeroNav: 航法グラフ (組んだセクション={}, 構築{}ms, ガイド{}ms, 辺={}, ノード={}, "
+                        LOGGER.debug("XaeroNav: 航法グラフ (組んだセクション={}, 構築{}ms, ガイド{}ms, 辺={}, ノード={}, "
                                         + "グラフ{}MB, ガイド{}MB, 窓{}(ヒープ上限{}MB), 並列{}, 窓の外={}, 中心{}の値の出どころ={})",
                                 refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
                                 refreshed.field().edges(), refreshed.field().nodes(),
@@ -496,8 +496,9 @@ final class NavGraphGuide {
     }
 
     /**
-     * 歩いている間に組み直しがどれだけ回っているか。重さの報告（#54）を実機で切り分けるための集計で、
-     * {@link #LOAD_LOG_INTERVAL_MILLIS}ごとにまとめて出す。<b>段取りの1本だけが触る。</b>
+     * 歩いている間に組み直しがどれだけ回っているか。{@link #LOAD_LOG_INTERVAL_MILLIS}ごとにまとめて出す。
+     * 利用者のログにも残すのは、ヒープの小さい環境で重い・メモリが足りないという報告をこの1行で切り分けるため。
+     * <b>段取りの1本だけが触る。</b>
      */
     private static final class Load {
 

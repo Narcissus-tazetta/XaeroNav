@@ -34,6 +34,9 @@ neoForge {
         create("client") {
             client()
             gameDirectory = rootProject.layout.projectDirectory.dir("run")
+            // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
+            // XaeroNavのDEBUGが開発クライアントではどこにも出ない。latest.logはINFOのままなので配布版と同じ出方になる
+            logLevel = org.slf4j.event.Level.DEBUG
             // 既定のヒープは実機のメモリの1/4で、開発機では6GBになる。ランチャー既定の2GBで起きることは
             // `-Pxaeronav.clientHeap=2G` で上限を絞らないと再現しない
             providers.gradleProperty("xaeronav.clientHeap").orNull?.let { jvmArgument("-Xmx$it") }

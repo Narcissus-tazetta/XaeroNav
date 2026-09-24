@@ -400,7 +400,7 @@ final class FlightNavState {
                         Aim aim = result.aim();
                         aimedWaypoint = aim.aimed();
                         if (aim.switched()) {
-                            LOGGER.info("XaeroNav: 空中経路の目標を切り替えました (目標={}, {}, {}, 中間目標={}本)",
+                            LOGGER.debug("XaeroNav: 空中経路の目標を切り替えました (目標={}, {}, {}, 中間目標={}本)",
                                     aim.aimed().getX(), aim.aimed().getY(), aim.aimed().getZ(),
                                     coarseRoute == null ? 0 : coarseRoute.waypoints().size());
                         }
@@ -721,7 +721,7 @@ final class FlightNavState {
                             return;
                         }
                         Vec3 grown = extension.tail();
-                        LOGGER.info("XaeroNav: 空中経路の継ぎ足し ({}, 展開={}, {}ms, 伸び={}ブロック, 格子={})",
+                        LOGGER.debug("XaeroNav: 空中経路の継ぎ足し ({}, 展開={}, {}ms, 伸び={}ブロック, 格子={})",
                                 extension.termination(), extension.expandedNodes(),
                                 (System.nanoTime() - startedAt) / 1_000_000L,
                                 grown == null ? 0 : Mth.floor(tail.distanceTo(grown)), extension.cellBlocks());

@@ -538,9 +538,11 @@ public final class PathfindingExecutor {
         // 通れるので、奈落がそちらへ倒れていれば奈落を突っ切る線が安く見える理由になる。
         // 内訳はCoarseRouterのNO_DATA較正の入力そのものでもあるので、値の妥当性確認にも要る。
         // 実際にこの内訳で「奈落は正しく検出されている」を確認し、原因の候補を1つ潰した
-        LOGGER.info("XaeroNav: 粗い経由地チェーンの地図 (既知セル={}/{}, {}, 中間目標={}個, 溶岩={})",
-                coarseMap.knownCells(), coarseMap.totalCells(), coarseMap.kindBreakdown(),
-                route.waypoints().size(), bridgePolicy);
+        if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug("XaeroNav: 粗い経由地チェーンの地図 (既知セル={}/{}, {}, 中間目標={}個, 溶岩={})",
+                    coarseMap.knownCells(), coarseMap.totalCells(), coarseMap.kindBreakdown(),
+                    route.waypoints().size(), bridgePolicy);
+        }
         if (route.waypoints().isEmpty()) {
             // 粗い側でも道が見つからない（孤立した地形等）。直接探索と同じ結果に留める
             CostToGo directCostToGo = costToGoGuideEnabled
@@ -625,7 +627,7 @@ public final class PathfindingExecutor {
             // 動けていないのか、最後の区間だけ届かないのか」が切り分けられない——実機の
             // 「展開30万・ステップ数2」がどちらなのかを、合算値からは判断できなかった。
             // チェーンが走るのは通常探索が失敗した後だけとはいえ、1回で区間数ぶんの行が出るので
-            // debugに留める（下の集計行はINFOのまま残る）
+            // debugに留める
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("XaeroNav: 区間{}/{} {} → {} (到達={}, {}, 展開ノード数={}, ステップ数={}, {}ms)",
                         i + 1, rawLegGoals.size(), currentLegStart.toShortString(), legGoal.toShortString(),
