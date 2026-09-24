@@ -179,7 +179,7 @@ fun Project.commonNodeResourceProperties(
 /**
  * `pack.mcmeta`の形式の宣言。1.21.9（リソース形式65）以降は`pack_format`ではなく`min_format`/`max_format`で書く。
  *
- * <p>Forgeは同じ`pack.mcmeta`をデータパックとしても読み、データ側（形式81以下を名乗るなら`supported_formats`が要る）と
+ * <p>Forge・NeoForgeは同じ`pack.mcmeta`をデータパックとしても読み、データ側（形式81以下を名乗るなら`supported_formats`が要る）と
  * リソース側（65以上を名乗るなら`supported_formats`を書いてはいけない）の両方を満たす書き方は無い。Forge自身と同じく
  * データの形式で宣言する。MODのリソースは互換の判定によらず読み込まれる。
  */
@@ -189,7 +189,7 @@ fun packFormatFields(packFormat: Int, dataPackFormat: Int? = null): String = whe
     else -> "\"pack_format\": $packFormat,"
 }
 
-/** データパックの形式（クライアントjarのversion.jsonの`pack_version.data_major`）。1.21.9以降のForgeだけが使う。 */
+/** データパックの形式（クライアントjarのversion.jsonの`pack_version.data_major`）。1.21.9以降のForge・NeoForgeだけが使う。 */
 fun dataPackFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
     "1.21.11" -> 94
     else -> error("データパックの形式が未登録のMinecraft $minecraftVersion。クライアントjarのversion.jsonから足すこと")

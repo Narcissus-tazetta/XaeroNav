@@ -6,7 +6,8 @@ A client-side Minecraft mod that finds a route you can actually walk to a destin
 it in the world, on Xaero's World Map, and on Xaero's Minimap. The top of the screen tells you
 where to go next.
 
-- Minecraft 1.21.11, on Forge 61.2.1+ or Fabric (Fabric Loader 0.17.3+ and Fabric API 0.141.6+)
+- Minecraft 1.21.11, on NeoForge 21.11.45+, Forge 61.2.1+, or Fabric (Fabric Loader 0.17.3+ and
+  Fabric API 0.141.6+)
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
   Fabric API)
 - Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
@@ -36,7 +37,8 @@ problem here.
 ## Installation
 
 1. Install a loader:
-   - Minecraft 1.21.11: [Forge](https://files.minecraftforge.net/) 61.2.1 or newer, or
+   - Minecraft 1.21.11: [NeoForge](https://neoforged.net/) 21.11.45 or newer,
+     [Forge](https://files.minecraftforge.net/) 61.2.1 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.17.3 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 or newer.
    - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 or newer,

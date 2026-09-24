@@ -9,9 +9,14 @@ fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 
 val minecraftVersion = dep("minecraft")
 
-// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線（このノードは今のところ常に1.21.1系なのでJAVA_21固定）
+// xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線
 val mixinCompatibilityLevel = mixinCompatibilityLevelFor(minecraftVersion)
 val packFormat = packFormatFor(minecraftVersion)
+
+// MC版の異なるXaero jarを同じmodsへ混在させない。1.21.1だけは最初のノードとして使ってきたrun/直下
+// （ワールド・設定・Xaeroの地図データがある）をそのまま使う
+val runDir = rootProject.layout.projectDirectory.dir(
+    if (stonecutter.current.project == "1.21.1-neoforge") "run" else "run/${stonecutter.current.project}")
 
 neoForge {
     version = dep("neoforge")
@@ -33,7 +38,7 @@ neoForge {
     runs {
         create("client") {
             client()
-            gameDirectory = rootProject.layout.projectDirectory.dir("run")
+            gameDirectory = runDir
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
             // XaeroNavのDEBUGが開発クライアントではどこにも出ない。latest.logはINFOのままなので配布版と同じ出方になる
             logLevel = org.slf4j.event.Level.DEBUG
@@ -90,7 +95,7 @@ dependencies {
 // 残るが、mods以下を消して入れ直せば済む。
 val installXaeroMods = tasks.register<Copy>("installXaeroMods") {
     from(xaeroRuntimeMods)
-    into(rootProject.layout.projectDirectory.dir("run/mods"))
+    into(runDir.dir("mods"))
 }
 
 tasks.matching { it.name == "runClient" }.configureEach {
@@ -107,8 +112,14 @@ val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
 tasks.named<ProcessResources>("processResources").configure {
     val replaceProperties = commonNodeResourceProperties(
         minecraftVersion, dep("xaero_worldmap_min"), dep("xaero_minimap_min"), mixinCompatibilityLevel, packFormat) + mapOf(
-        "neoforge_loader_version_range" to dep("neoforge_loader_range")
-    )
+        "neoforge_loader_version_range" to dep("neoforge_loader_range"),
+        "neoforge_version_range" to dep("neoforge_range"),
+    ) + if (packFormat >= 65) {
+        // NeoForgeもForgeと同じく、MODのpack.mcmetaをデータパックとしても検証する（packFormatFields参照）
+        mapOf("pack_format_fields" to packFormatFields(packFormat, dataPackFormatFor(minecraftVersion)))
+    } else {
+        emptyMap()
+    }
 
     inputs.properties(replaceProperties)
 

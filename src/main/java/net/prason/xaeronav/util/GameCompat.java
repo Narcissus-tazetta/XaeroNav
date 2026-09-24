@@ -73,10 +73,12 @@ public final class GameCompat {
     }
     *///?}
 
-    /** 水を置いても蒸発する次元か（ネザー）。 */
-    public static boolean waterEvaporates(Level level) {
+    /** 水を置いても蒸発する場所か（ネザー）。 */
+    public static boolean waterEvaporates(Level level, BlockPos pos) {
         //? if >=1.21.11 {
-        /*return level.environmentAttributes().getDimensionValue(EnvironmentAttributes.WATER_EVAPORATES);
+        /*// バイオームごとに変えられる属性なので位置を渡して読む。getDimensionValueは開発環境
+        // （NeoForgeの開発実行など）でだけ例外を投げ、本番では黙ってバイオームの上書きを無視する
+        return level.environmentAttributes().getValue(EnvironmentAttributes.WATER_EVAPORATES, pos);
         *///?} else {
         return level.dimensionType().ultraWarm();
         //?}

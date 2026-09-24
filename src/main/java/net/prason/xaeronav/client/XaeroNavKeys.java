@@ -29,8 +29,14 @@ public final class XaeroNavKeys {
 
     //? if >=1.21.11 {
     /*// カテゴリの表示名は`key.category.<名前空間>.<パス>`の翻訳キーから引かれる
-    private static final KeyMapping.Category CATEGORY =
+    //? if neoforge {
+    // NeoForgeはバニラのCategory.registerを非推奨にしていて、RegisterKeyMappingsEvent#registerCategoryで登録する
+    public static final KeyMapping.Category CATEGORY =
+            new KeyMapping.Category(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "main"));
+    //?} else {
+    /^private static final KeyMapping.Category CATEGORY =
             KeyMapping.Category.register(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "main"));
+    ^///?}
     *///?} else {
     private static final String CATEGORY = "key.categories.xaeronav";
     //?}
