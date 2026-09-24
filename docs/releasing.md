@@ -17,7 +17,7 @@ GitHub Release には Actions の組み込み `GITHUB_TOKEN` を使うため、�
 
 ## 毎回のリリース
 
-1. `changelogs/<X.Y.Z>.md` に公開する変更点を書く。これは Modrinth、CurseForge、GitHub Release の共通本文になる。ファイルが無いか空なら処理は開始しない。
+1. `changelogs/<X.Y.Z>.md` に公開する変更点を書く。これは Modrinth、CurseForge、GitHub Release の共通本文になる。ファイルが無いか空なら処理は開始しない。リポジトリ直下の `CHANGELOG.md` はこのディレクトリへの案内だけなので、リリースごとの更新は要らない。
 2. 変更点を含むコミットを `main` へ反映する。
 3. GitHub Actions の **Release → Run workflow** で `X.Y.Z` を入力する。またはそのコミットへ `vX.Y.Z` タグを push する。
 4. ビルドと配布 JAR の検査後、各ローダー・Minecraft 版を Modrinth と CurseForge に個別投稿する。全10件が成功すると、GitHub Release を下書きなしで公開する。

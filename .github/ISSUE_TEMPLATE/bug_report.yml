@@ -39,7 +39,7 @@ body:
     attributes:
       label: Xaero's World Map / Minimap version
       description: Write "not installed" for either one you do not have. Map integration is optional, and knowing which half is present narrows most rendering reports down immediately.
-      placeholder: "World Map 1.44.2 / Minimap not installed"
+      placeholder: "World Map 1.46.0 / Minimap not installed"
     validations:
       required: true
 

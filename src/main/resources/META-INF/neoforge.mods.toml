@@ -41,13 +41,13 @@ side="BOTH"
 [[dependencies.${mod_id}]]
 modId="xaeroworldmap"
 type="optional"
-versionRange="[${xaero_worldmap_version},)"
+versionRange="[${xaero_worldmap_min_version},)"
 ordering="AFTER"
 side="CLIENT"
 
 [[dependencies.${mod_id}]]
 modId="xaerominimap"
 type="optional"
-versionRange="[${xaero_minimap_version},)"
+versionRange="[${xaero_minimap_min_version},)"
 ordering="AFTER"
 side="CLIENT"
