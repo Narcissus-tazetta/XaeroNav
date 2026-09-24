@@ -78,6 +78,11 @@ final class PathGeometry {
      */
     final boolean[] segmentSunk;
     /**
+     * 両端のセルがどちらも水の区間か。水の外から見ると、この区間は水の描画に深度で隠れる
+     * （{@code PathRenderer#THROUGH_WATER_ALPHA}）。
+     */
+    final boolean[] segmentInWater;
+    /**
      * 危険区間か（{@link PathColors.Kind#DANGER}）。色だけに頼らない識別のため、描画側が
      * 破線で強調する（A11Y-01）。区間内のステップは同じ色＝同じ分類にまとめられているので、
      * 区間ごとに1つ持てば足りる。
@@ -107,7 +112,8 @@ final class PathGeometry {
     final int fadeFromSegment;
 
     private PathGeometry(double[] pointX, double[] pointY, double[] pointZ, float[] segmentColor,
-                         int[] segmentEndStep, boolean[] segmentSunk, boolean[] segmentDashed,
+                         int[] segmentEndStep, boolean[] segmentSunk, boolean[] segmentInWater,
+                         boolean[] segmentDashed,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
                          boolean[] highlightPlacement, int[] highlightStep, int fadeFromSegment) {
         this.pointX = pointX;
@@ -116,6 +122,7 @@ final class PathGeometry {
         this.segmentColor = segmentColor;
         this.segmentEndStep = segmentEndStep;
         this.segmentSunk = segmentSunk;
+        this.segmentInWater = segmentInWater;
         this.segmentDashed = segmentDashed;
         this.highlightX = highlightX;
         this.highlightY = highlightY;
@@ -242,16 +249,19 @@ final class PathGeometry {
 
         // 沈めて描いた点。区間ごとの印（segmentSunk）を後から組み立てるために持つ
         boolean[] rawSunk = new boolean[count + 1];
+        boolean[] rawInWater = new boolean[count + 1];
         // 危険区間か（区間ごとの印segmentDashedを後から組み立てるために持つ、A11Y-01）
         boolean[] rawDangerous = new boolean[count];
 
         rawBlock[0] = start;
         // 始点は、そこから出ていく1手と同じ扱いにする。別扱いにすると先頭の1区間だけ段差になる
         rawSunk[0] = center(level, start, steps.isEmpty() ? null : steps.get(0), rawX, rawY, rawZ, 0);
+        rawInWater[0] = level.getFluidState(start).is(FluidTags.WATER);
         for (int i = 0; i < count; i++) {
             PathStep step = steps.get(i);
             rawBlock[i + 1] = step.pos();
             rawSunk[i + 1] = center(level, step.pos(), step, rawX, rawY, rawZ, i + 1);
+            rawInWater[i + 1] = level.getFluidState(step.pos()).is(FluidTags.WATER);
             rawColor[i] = PathColors.forStep(step);
             rawDangerous[i] = PathColors.kindFor(step) == PathColors.Kind.DANGER;
         }
@@ -302,6 +312,7 @@ final class PathGeometry {
 
         float[] flatSegmentColor = new float[segments * 3];
         boolean[] flatSegmentSunk = new boolean[segments];
+        boolean[] flatSegmentInWater = new boolean[segments];
         boolean[] flatSegmentDashed = new boolean[segments];
         int startRaw = 0;
         for (int i = 0; i < segments; i++) {
@@ -310,6 +321,7 @@ final class PathGeometry {
             flatSegmentColor[i * 3 + 2] = outColor[i][2];
             int endRaw = outEndStep[i] + 1;
             flatSegmentSunk[i] = rawSunk[startRaw] && rawSunk[endRaw];
+            flatSegmentInWater[i] = rawInWater[startRaw] && rawInWater[endRaw];
             // 区間内は同じ色＝同じ分類にまとめられているので、末尾ステップの判定で区間全体を代表できる
             flatSegmentDashed[i] = rawDangerous[outEndStep[i]];
             startRaw = endRaw;
@@ -362,7 +374,8 @@ final class PathGeometry {
 
         return new PathGeometry(
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
-                flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentDashed,
+                flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentInWater,
+                flatSegmentDashed,
                 hx, hy, hz, hColor, hPlacement, hStep, Math.min(fadeFromSegment, segments));
     }
 

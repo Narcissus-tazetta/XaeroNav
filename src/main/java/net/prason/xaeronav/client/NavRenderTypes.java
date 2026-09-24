@@ -2,9 +2,11 @@ package net.prason.xaeronav.client;
 
 import java.util.OptionalDouble;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 
+import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
 
@@ -47,6 +49,18 @@ final class NavRenderTypes {
                     .setDepthTestState(RenderStateShard.NO_DEPTH_TEST)
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
+
+    /**
+     * 深度テストを切ってから描く。{@code NO_DEPTH_TEST}（関数"always"）は、バニラの実装では
+     * 深度テストの状態に<b>触らない</b>という意味で、切ってはくれない。NeoForge/Forgeの
+     * {@code AFTER_TRANSLUCENT_BLOCKS}は半透明の地形を描いた後片付けの<b>前</b>に呼ばれるので、
+     * 深度テストが有効なまま残っている。切らないと水の中の線や壁の中の枠がそのまま隠れる。
+     * 後始末は要らない——次に描くレイヤーが自分の深度テストを設定する。
+     */
+    static void endOccludedBatch(MultiBufferSource.BufferSource bufferSource, RenderType type) {
+        RenderSystem.disableDepthTest();
+        bufferSource.endBatch(type);
+    }
 
     private NavRenderTypes() {
     }
