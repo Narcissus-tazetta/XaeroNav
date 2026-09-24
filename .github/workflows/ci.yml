@@ -164,6 +164,9 @@ jobs:
     # クリティカルパスを「build + runtime」から「長い方だけ」にする。
     needs: discover
     runs-on: ubuntu-latest
+    # stepのtimeout-minutesだけでは、step以外で止まったときに既定の6時間まで必須チェックが埋まる。
+    # 普段は3〜4分。ランナーごと応答しなくなった場合はこれでも止まらないことがある
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
