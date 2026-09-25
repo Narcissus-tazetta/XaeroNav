@@ -154,7 +154,7 @@ Movement:
 | Light cyan | Riding a boat |
 | Purple | Ladder or vine |
 | Pink | Jumping a gap |
-| Orange | Digging (target block highlighted through walls) |
+| Orange | Digging (target block outlined) |
 | Cyan | Bridging with placed blocks |
 | Teal | Fall softened by placing water at the last moment (MLG) |
 
