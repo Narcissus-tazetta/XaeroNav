@@ -22,10 +22,15 @@ public interface FarField {
      * （実測: エンドで目的地が窓の外に出るルートが1.022→1.235倍、従来の区間へ落ちた）。
      */
     static FarField straightLineTo(BlockPos goal) {
+        return straightLineTo(goal, 1.0);
+    }
+
+    /** 目的地までの幾何下限の{@code scale}倍。 */
+    static FarField straightLineTo(BlockPos goal, double scale) {
         return new FarField() {
             @Override
             public double at(int x, int y, int z) {
-                return Heuristic.estimate(x, y, z, goal.getX(), goal.getY(), goal.getZ());
+                return scale * Heuristic.estimate(x, y, z, goal.getX(), goal.getY(), goal.getZ());
             }
 
             @Override
@@ -46,6 +51,33 @@ public interface FarField {
     }
 
     double at(int x, int y, int z);
+
+    /**
+     * {@code (x, y, z)}（窓の中心に立つプレイヤー）より、この推定で目的地から遠い点を{@link Double#POSITIVE_INFINITY}にする。
+     *
+     * <p>窓の中は実コスト、外は推定なので、推定が実際より安い地形（ジ・エンドの奈落の渡り）では、窓の中で渡るより
+     * 「後ろの縁から窓の外へ出て、推定の安い値段で渡り直す」方が安く見える。実機では島の突端に着くたびに来た道の縁へ
+     * 案内が戻った（層1の値で、西の縁913+18265に対し東へ実際に渡る4366+15874）。推定そのものの上で遠ざかる縁は
+     * 正しい出口になりえない——推定の最短経路が回り込むなら、その先の縁は値が下がっていくので残る。
+     */
+    static FarField forwardOf(FarField far, int x, int y, int z) {
+        double limit = far.at(x, y, z);
+        if (!Double.isFinite(limit)) {
+            return far;
+        }
+        return new FarField() {
+            @Override
+            public double at(int px, int py, int pz) {
+                double value = far.at(px, py, pz);
+                return value < limit ? value : Double.POSITIVE_INFINITY;
+            }
+
+            @Override
+            public boolean onlyWhenGoalOutside() {
+                return far.onlyWhenGoalOutside();
+            }
+        };
+    }
 
     /**
      * 「情報が無ければ0」の約束で作られたガイド（{@code CoarseRouter#costToGo}など）を包む。

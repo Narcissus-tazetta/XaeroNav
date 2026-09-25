@@ -14,4 +14,12 @@ package net.prason.xaeronav.pathfinding.astar;
 public interface CostToGo {
 
     double estimate(int x, int y, int z);
+
+    /**
+     * 探索のノードに付ける値。見積もりの材料を持たないセルでは{@link Double#NaN}を返してよい。
+     * {@link AStarPathfinder}はそこで{@link #estimate}を使い、さらに親の値から1手のコストより下がらないよう引き上げる。
+     */
+    default double searchEstimate(int x, int y, int z) {
+        return estimate(x, y, z);
+    }
 }

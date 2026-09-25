@@ -343,14 +343,18 @@ final class Extend {
             blockExtend(from, playerAt);
             return;
         }
-        PathfindingState.DetailTarget detail = host.selectDetailTarget(from, currentGoal, lead, reach,
-                boatAvailable, false, shown.waypointIndex(), ceilingDimension, navGraphGuided);
+        PathfindingState.DetailTarget detail = PathfindingState.landingOr(goalGuide, currentGoal,
+                host.selectDetailTarget(from, currentGoal, lead, reach, boatAvailable, false, shown.waypointIndex(),
+                        ceilingDimension, navGraphGuided));
         BlockPos target = detail.target();
         // 目的地をそのまま狙っているときは、遠くても止めない（箱が切るので探索は有限）。
-        // 中間目標を狙うときだけ「伸ばす先が読み込み済みチャンクの外」を歯止めにする
+        // 中間目標を狙うときだけ「伸ばす先が読み込み済みチャンクの外」を歯止めにする。
+        // 着地点は窓のグラフのノード＝読み込み済みなので止めない
         boolean aimingAtGoal = target.equals(currentGoal);
+        boolean landing = goalGuide != null && goalGuide.landing() != null
+                && target.equals(goalGuide.landing().target());
         if (target.equals(from)
-                || (!aimingAtGoal && PathfindingState.horizontalDistance(from, target) > lead)) {
+                || (!aimingAtGoal && !landing && PathfindingState.horizontalDistance(from, target) > lead)) {
             // これ以上伸ばす先が無いか、伸ばす先が読み込み済みチャンクの外（中間目標が1つも
             // 残りの中に無いとselectDetailTargetは本来の目的地へフォールバックする）。
             // 歯止めを立てないと、shouldExtendが毎tick真を返し続け、そのたびに
@@ -362,7 +366,7 @@ final class Extend {
         NavigationTuning tuning = XaeroNavConfig.INSTANCE.navigationTuning();
         SearchBounds bounds = navGraphGuided
                 ? PathfindingState.navGraphBounds(level, from, target, playerAt, renderRadius,
-                        tuning.searchHorizontalMargin())
+                        tuning.searchHorizontalMargin(), landing)
                 : SearchBounds.around(level, from, target, tuning.searchHorizontalMargin(),
                         PathfindingState.verticalSearchMargin(level, false), renderRadius);
         long captureLap = TickLaps.start();
@@ -382,7 +386,7 @@ final class Extend {
                 Carryover.placements(steps, PathProgress.INSTANCE.indexFor(shown.result()) + 1));
         PlannedCellSource futureTerrain = new PlannedCellSource(view, steps,
                 PathProgress.INSTANCE.indexFor(shown.result()) + 1);
-        CostToGo prepared = goalGuide != null && aimingAtGoal ? goalGuide.costToGo() : null;
+        CostToGo prepared = PathfindingState.preparedGuide(goalGuide, currentGoal, target);
         CompletableFuture<PathResult> extendFuture = executor.submit(
                 AvoidedCellSource.wrap(futureTerrain, recentFailures.avoided()), from, target, limits,
                 costToGoGuideEnabled, detail.goalRadius(), carried, prepared);

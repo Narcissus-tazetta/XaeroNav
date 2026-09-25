@@ -571,12 +571,26 @@ public final class WindowField implements CostToGo {
      * 各ノードで「値段＋行き先の値」が自分の値に一致する辺を辿れば出どころに着く。
      */
     public @Nullable Descent descend(int x, int y, int z) {
+        return descend(x, y, z, null);
+    }
+
+    /** 下る途中で踏む点。 */
+    @FunctionalInterface
+    public interface Trail {
+        void visit(int x, int y, int z);
+    }
+
+    /** {@link #descend(int, int, int)}と同じ。踏んだ点を始点から順に{@code trail}へ渡す（窓の外の出口は渡さない）。 */
+    public @Nullable Descent descend(int x, int y, int z, @Nullable Trail trail) {
         int id = index.resolveAbsolute(x, y, z);
         if (id < 0 || !Double.isFinite(distance[id])) {
             return null;
         }
         double inside = 0;
         for (int guard = 0; guard < distance.length; guard++) {
+            if (trail != null) {
+                trail.visit(x, y, z);
+            }
             if (x == goal.getX() && y == goal.getY() && z == goal.getZ()) {
                 return new Descent(goal, inside, 0, true);
             }
@@ -659,6 +673,31 @@ public final class WindowField implements CostToGo {
         if (id == OUTSIDE) {
             return outside(x, y, z);
         }
+        double nearest = nearest(x, y, z);
+        return Double.isFinite(nearest) ? nearest : outside(x, y, z);
+    }
+
+    /**
+     * 組んだセクションの中で値を持たない点（殻の外、または目的地へ繋がらないノード）で、近くにも値が無ければ{@link Double#NaN}。
+     *
+     * <p>そこで{@link #outside}（窓の外の推定や幾何下限）を探索の値にすると、隣の島の上のノードより数千tick安く見える穴になる。
+     * 外してしまうとグラフが持たない橋（目的地へ向かないL字の橋など）を探索が架けられなくなるので、値は探索側で親から引き継ぐ。
+     */
+    @Override
+    public double searchEstimate(int x, int y, int z) {
+        int id = index.resolveAbsolute(x, y, z);
+        if (id >= 0 && Double.isFinite(distance[id])) {
+            return distance[id];
+        }
+        if (id == OUTSIDE) {
+            return outside(x, y, z);
+        }
+        double nearest = nearest(x, y, z);
+        return Double.isFinite(nearest) ? nearest : Double.NaN;
+    }
+
+    /** {@link #NEAREST_REACH}以内のノードの値から延ばした値。無ければ{@link Double#POSITIVE_INFINITY}。 */
+    private double nearest(int x, int y, int z) {
         double nearest = Double.POSITIVE_INFINITY;
         for (int dx = -NEAREST_REACH; dx <= NEAREST_REACH; dx++) {
             for (int dy = -NEAREST_REACH; dy <= NEAREST_REACH; dy++) {
@@ -671,7 +710,7 @@ public final class WindowField implements CostToGo {
                 }
             }
         }
-        return Double.isFinite(nearest) ? nearest : outside(x, y, z);
+        return nearest;
     }
 
     /** グラフから値を引けない点。外の値があればそれ、無ければ目的地までの幾何下限。 */

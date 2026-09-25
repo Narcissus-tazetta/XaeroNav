@@ -3,6 +3,7 @@ package net.prason.xaeronav.client;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -1868,9 +1869,9 @@ public final class PathfindingState {
             // searchToSurfaceが自前の領域ゴール（y >= surfaceY）を使うので、この値は読まれない
             goalRadius = 0;
         } else {
-            DetailTarget detail = selectDetailTarget(start, currentGoal, renderRadius,
+            DetailTarget detail = landingOr(goalGuide, currentGoal, selectDetailTarget(start, currentGoal, renderRadius,
                     detailHorizon(renderRadius), boatAvailable, true, -1,
-                    level.dimensionType().hasCeiling(), navGraphGuided);
+                    level.dimensionType().hasCeiling(), navGraphGuided));
             target = detail.target();
             mode = target.equals(currentGoal) ? PathMode.GOAL : PathMode.WAYPOINT;
             waypointIndex = detail.waypointIndex();
@@ -1924,8 +1925,10 @@ public final class PathfindingState {
             horizontalMargin = renderRadius;
             coarseGuided = true;
         }
+        boolean aimingAtLanding = goalGuide != null && goalGuide.landing() != null
+                && target.equals(goalGuide.landing().target());
         SearchBounds bounds = navGraphGuided
-                ? navGraphBounds(level, start, target, start, renderRadius, horizontalMargin)
+                ? navGraphBounds(level, start, target, start, renderRadius, horizontalMargin, aimingAtLanding)
                 : SearchBounds.around(level, start, target, horizontalMargin, verticalSearchMargin(level, wideSearch),
                         renderRadius);
         long captureLap = TickLaps.start();
@@ -1969,9 +1972,7 @@ public final class PathfindingState {
         ResourceKey<Level> searchDimension = level.dimension();
         CompletableFuture<PathResult> future;
         boolean costToGoGuideEnabled = tuning.costToGoGuideEnabled();
-        // 3D粗層・航法グラフは最終目的地に対して組む。中間目標を狙う探索には掛けない——
-        // 起点が目的地に固定された表なので、別の点を狙う探索では方向がずれる
-        CostToGo prepared = goalGuide != null && finalTarget.equals(currentGoal) ? goalGuide.costToGo() : null;
+        CostToGo prepared = preparedGuide(goalGuide, currentGoal, finalTarget);
         // 直前の再確認が不成立と判定したセルは、この探索でも選ばせない。避けないと、引き直した
         // 経路がまた同じセルを通って即座に無効と判断される（{@link RecentFailures}参照）
         List<BlockPos> avoided = recentFailures.avoided();
@@ -2502,22 +2503,31 @@ public final class PathfindingState {
                     XaeroNavConfig.INSTANCE.movementOptions().lavaBridgingEnabled());
             TickLaps.add("3D粗層の起動", voxelLap);
             if (voxel == null || !navGraphEnabled) {
-                return voxel == null ? null : new GoalGuide(voxel, false);
+                return voxel == null ? null : new GoalGuide(voxel, false, null);
             }
             // 窓の外が幾何下限だとネザーは3D粗層だけより悪い（実測1.257倍）。3D粗層が組み上がってから航法グラフを使う
             fallback = voxel;
             far = new NavGraphGuide.Far("3D粗層", voxel, () -> FarField.of(
-                    (x, y, z) -> NavGraphGuide.VOXEL_FAR_SCALE * voxel.estimate(x, y, z)));
+                    (x, y, z) -> NavGraphGuide.VOXEL_FAR_SCALE * voxel.estimate(x, y, z)), false);
         } else if (!navGraphEnabled) {
             return null;
         } else {
             CoarseMapForGoal latestMap = latestCoarseMap;
             CoarseMap map = latestMap != null && latestMap.goal().equals(currentGoal) ? latestMap.map() : null;
-            // 層1を窓の外の推定に使うのは現世だけ。エンドの層1は奈落と島を2.5Dの床で持つだけで、窓の境界に置くと
-            // 幾何下限より悪い（実測: 1.197倍に対して1.009倍）
-            far = map == null || level.dimension() == Level.END ? null
-                    : new NavGraphGuide.Far("層1", map, () -> FarField.of(
-                            CoarseRouter.costToGo(map, currentGoal, false, CoarseRouter.BridgePolicy.BRIDGE)));
+            if (level.dimension() == Level.END) {
+                // 窓の外は目的地までの直線距離に、長距離ルート（黄色い線）が未知のセルに付ける値段を掛ける。
+                // 窓の中の橋は正確に数えるので、外を1倍にすると「窓の中では渡らず、窓の外で安く渡ったことにする」出口が勝ち、
+                // 目的地へほとんど近づかない縁が選ばれる（実機の保存地形: 1倍で前進53ブロック、3倍で314ブロック）。
+                // 層1そのものは既知の陸を1倍・未知を約5倍で数えるので、既知の陸沿いの遠回りへ引かれて窓の外には使えない。
+                // 推定の上で後ろになる縁は種にしない（NavGraphGuide.Far#forwardOnly）
+                double scale = map == null ? 1.0 : CoarseRouter.unknownMultiplier(map);
+                far = new NavGraphGuide.Far("直線距離x" + String.format(Locale.ROOT, "%.1f", scale),
+                        map == null ? currentGoal : map, () -> FarField.straightLineTo(currentGoal, scale), true);
+            } else {
+                far = map == null ? null
+                        : new NavGraphGuide.Far("層1", map, () -> FarField.of(
+                                CoarseRouter.costToGo(map, currentGoal, false, CoarseRouter.BridgePolicy.BRIDGE)), false);
+            }
         }
         long navGraphLap = TickLaps.start();
         WindowField field = navGraphGuide.forGoal(level, player, currentGoal, renderRadius,
@@ -2525,15 +2535,76 @@ public final class PathfindingState {
         TickLaps.add("航法グラフの起動", navGraphLap);
         // 窓の中の目的地が殻に繋がっていない回は使わない。窓全体の値が縁の外の推定だけから来る
         if (field != null && field.reachesGoal()) {
-            return new GoalGuide(field, true);
+            return new GoalGuide(field, true, level.dimension() == Level.END ? landing(level, field, from) : null);
         }
-        return fallback == null ? null : new GoalGuide(fallback, false);
+        return fallback == null ? null : new GoalGuide(fallback, false, null);
+    }
+
+    /**
+     * 目的地が窓の外にあるとき、窓のガイドを{@code from}から下って最後に床の上に立つ点。そこを狙う探索のガイドも添える。
+     *
+     * <p>ジ・エンドで目的地をそのまま狙うと、探索は予算を焼き切ってから途中の点を選ぶ。その点は400tick以内で
+     * （{@code AStarPathfinder#FALLBACK_BUDGET_TICKS}）、架けかけの橋は切り落とされる（渡り切れると示せていない）ので、
+     * 橋1本が数千tickかかる島渡りでは陸を少し歩くだけの経路か0手になる（実機で「実到達0ブロック」が続いた）。
+     * 窓の中の最適な道はガイドが知っているので、その上の着地点を狙えば橋ごと届く（実機の保存地形12地点すべて、展開265〜58,331ノード）。
+     */
+    private static @Nullable Landing landing(Level level, WindowField field, BlockPos from) {
+        BlockPos[] landed = {null};
+        WindowField.Descent descent = field.descend(from.getX(), from.getY(), from.getZ(), (x, y, z) -> {
+            if (!level.isEmptyBlock(new BlockPos(x, y - 1, z))) {
+                landed[0] = new BlockPos(x, y, z);
+            }
+        });
+        if (descent == null || descent.reachedGoal() || landed[0] == null || landed[0].equals(from)) {
+            return null;
+        }
+        BlockPos target = landed[0];
+        double base = field.exact(target.getX(), target.getY(), target.getZ());
+        return new Landing(target, new CostToGo() {
+            @Override
+            public double estimate(int x, int y, int z) {
+                return Math.max(0.0, field.estimate(x, y, z) - base);
+            }
+
+            @Override
+            public double searchEstimate(int x, int y, int z) {
+                double value = field.searchEstimate(x, y, z);
+                return Double.isNaN(value) ? value : Math.max(0.0, value - base);
+            }
+        });
+    }
+
+    /** 窓のガイドの上の着地点と、そこを狙う探索のガイド（目的地までの値から着地点の値を引いたもの）。 */
+    record Landing(BlockPos target, CostToGo guide) {
     }
 
     /**
      * {@link #goalGuide}の結果。{@code navGraph}なら探索の作り方も変える（{@link #navGraphLimits}・{@link #navGraphBounds}）。
+     * {@code landing}があれば目的地ではなくそこを狙う（ジ・エンドだけ。{@link #landing}）。
      */
-    record GoalGuide(CostToGo costToGo, boolean navGraph) {
+    record GoalGuide(CostToGo costToGo, boolean navGraph, @Nullable Landing landing) {
+    }
+
+    /** 着地点があれば、目的地を狙うはずだった目標をそこへ差し替える。 */
+    static DetailTarget landingOr(@Nullable GoalGuide goalGuide, BlockPos currentGoal, DetailTarget detail) {
+        Landing landing = goalGuide == null ? null : goalGuide.landing();
+        return landing != null && detail.target().equals(currentGoal) ? new DetailTarget(landing.target(), -1, 0)
+                : detail;
+    }
+
+    /**
+     * 探索へ渡す作り済みのガイド。3D粗層・航法グラフは最終目的地に対して組むので、中間目標を狙う探索には掛けない——
+     * 起点が目的地に固定された表なので、別の点を狙う探索では方向がずれる。着地点だけはその値を引いて使う。
+     */
+    static @Nullable CostToGo preparedGuide(@Nullable GoalGuide goalGuide, BlockPos currentGoal, BlockPos target) {
+        if (goalGuide == null) {
+            return null;
+        }
+        if (target.equals(currentGoal)) {
+            return goalGuide.costToGo();
+        }
+        Landing landing = goalGuide.landing();
+        return landing != null && target.equals(landing.target()) ? landing.guide() : null;
     }
 
     /**
@@ -2551,9 +2622,12 @@ public final class PathfindingState {
      * 高さを切らないのは、ガイドが掘り上がる・降りる道を指したときに箱の外で行き止まらせないため。
      */
     static SearchBounds navGraphBounds(Level level, BlockPos from, BlockPos target, BlockPos player,
-                                       int renderRadius, int horizontalMargin) {
+                                       int renderRadius, int horizontalMargin, boolean wholeWindow) {
         int window = NavGraphGuide.window(renderRadius);
-        SearchBounds box = SearchBounds.around(level, from, target, horizontalMargin, level.getHeight(), window);
+        // 着地点を狙うときは窓全体を見る。ガイドの道は始点と目標を結ぶ帯を大きく外れることがあり（実機のエンド: 目標の
+        // 真西から北へ68ブロック回り込んで島を渡る）、帯で切ると探索はその道を1歩も辿れずに予算を焼く
+        SearchBounds box = SearchBounds.around(level, from, target, wholeWindow ? 2 * window : horizontalMargin,
+                level.getHeight(), window);
         return new SearchBounds(Math.max(box.minX(), player.getX() - window), box.minY(),
                 Math.max(box.minZ(), player.getZ() - window), Math.min(box.maxX(), player.getX() + window),
                 box.maxY(), Math.min(box.maxZ(), player.getZ() + window));

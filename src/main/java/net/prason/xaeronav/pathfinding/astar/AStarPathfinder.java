@@ -900,6 +900,7 @@ public final class AStarPathfinder {
         // costToGoは特定のゴール座標に紐付いたテーブルなので、ゴールが1点に定まらない
         // surfaceGoalモードでは使わない
         double heuristic;
+        boolean guideHole = false;
         if (surfaceGoal) {
             heuristic = Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
         } else {
@@ -923,10 +924,13 @@ public final class AStarPathfinder {
                 // 上回った瞬間に経路の形が変わる。層1の解像度に由来する上振れは
                 // {@code CoarseRouter#centerOffsetCost}が落としてある——あれが無いと
                 // hに16ブロック周期の鋸歯が乗り、経路がチャンク境界へ吸い寄せられて直角になる
-                heuristic = Math.max(heuristic, costToGo.estimate(x, y, z) - radiusAllowance);
+                double guide = costToGo.searchEstimate(x, y, z);
+                guideHole = Double.isNaN(guide);
+                heuristic = Math.max(heuristic,
+                        (guideHole ? costToGo.estimate(x, y, z) : guide) - radiusAllowance);
             }
         }
-        PathNode created = new PathNode(x, y, z, boating, heuristic);
+        PathNode created = new PathNode(x, y, z, boating, heuristic, guideHole);
         page[index] = created;
         createdNodes++;
         return created;
@@ -1123,6 +1127,13 @@ public final class AStarPathfinder {
         PathNode neighbor = node(x, y, z, boating);
         if (neighbor.closed || neighbor.cost - (from.cost + edgeCost) <= MIN_IMPROVEMENT) {
             return;
+        }
+        // ガイドの穴（航法グラフの殻の外の奈落など）は幾何下限しか持たず、隣の島の上の値より数千tick安い。
+        // そのままだと探索は島の突端から全方向の奈落へ潜って予算を焼く（実機エンド: 島の突端で作った節点の50〜97%、
+        // 経路は架けかけの橋を切り落として0手）。親の値から1手ぶんしか下がらないようにする（pathmax）
+        if (neighbor.guideHole) {
+            neighbor.estimatedCostToGoal = Math.max(neighbor.estimatedCostToGoal,
+                    from.estimatedCostToGoal - edgeCost);
         }
 
         // 移動の種類に関わらず、着地点で頭が水に浸かるならその移動にかかった時間だけ息が減る。

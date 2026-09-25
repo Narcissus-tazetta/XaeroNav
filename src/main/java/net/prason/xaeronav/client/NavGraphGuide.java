@@ -202,8 +202,9 @@ final class NavGraphGuide {
      *
      * @param name ログに出す名前
      * @param make 段取りの1本で呼ぶ
+     * @param forwardOnly 組み直すたびに、窓の中心より推定の上で目的地から遠い縁を種から外す（{@link FarField#forwardOf}）
      */
-    record Far(String name, Object source, Supplier<FarField> make) {
+    record Far(String name, Object source, Supplier<FarField> make, boolean forwardOnly) {
     }
 
     /**
@@ -477,8 +478,10 @@ final class NavGraphGuide {
             farSource = source;
         }
         int window = key.window();
+        FarField seeds = farMap != null && farMap.forwardOnly() ? FarField.forwardOf(far, at.getX(), at.getY(), at.getZ())
+                : far;
         return current.refresh(view::forGraphBuild, at.getX(), at.getZ(), window,
-                LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), far, pool, workers, cancelled);
+                LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), seeds, pool, workers, cancelled);
     }
 
     /**

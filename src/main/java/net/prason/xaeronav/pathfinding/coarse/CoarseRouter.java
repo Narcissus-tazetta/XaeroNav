@@ -717,6 +717,11 @@ public final class CoarseRouter {
         return startIndex;
     }
 
+    /** 長距離ルート（{@link #findRoute}）が未知のセルに付ける倍率。奈落は橋で通す前提（{@link BridgePolicy#ALLOW}）。 */
+    public static double unknownMultiplier(CoarseMap map) {
+        return calibratedUnknownMultiplier(map, BridgePolicy.ALLOW);
+    }
+
     /**
      * {@link #UNKNOWN_MULTIPLIER}を、この{@code map}で<b>既に分かっている</b>陸:奈落比から
      * 較正する。{@code findRoute}が引く経路（好みを含む値）だけが対象——{@link #costToGo}の
