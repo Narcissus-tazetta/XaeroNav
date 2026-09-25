@@ -40,8 +40,13 @@ final class PathValidator {
      * （足場なら足元、身体が通る前提のセルならそのセル）。ステップ自身の座標とは限らない。
      * 次の探索がそこを選び直さないために要る（{@link
      * net.prason.xaeronav.pathfinding.world.AvoidedCellSource}）。
+     *
+     * <p>{@code placedAhead}は、塞いだのが<b>後のステップで置く予定の位置</b>だったか。足元に置いて上る手の置く先は
+     * 直前の手で立つセルそのものなので、前方に見えた枠へ手前から置くとその手が塞がる。置かれたのは計画どおりの足場で、
+     * 探索と検査の食い違いではないから、避けるセルに入れてはいけない——入れると置いたブロックに乗れず、
+     * 1段上って乗れば済むところを遠回りの合流になる（実機2026-09-26: 修復は2手で届くのに19手の迂回になった）。
      */
-    record Failure(int stepIndex, BlockPos unusableCell, String reason) {
+    record Failure(int stepIndex, BlockPos unusableCell, String reason, boolean placedAhead) {
     }
 
     /** 不成立だったセルと、その理由。{@link Failure}からステップの添字を除いたもの。 */
@@ -110,8 +115,11 @@ final class PathValidator {
             CellFailure failure = cellFailure(level, step, i, cursor, plannedDigs,
                     pos -> bridgeStillToBePlaced(steps, fromIndex, stepIndex, pos));
             if (failure != null) {
+                int placedAt = laterPlacement(steps, i, failure.unusableCell());
                 return new Failure(i, failure.unusableCell(), failure.reason()
-                        + plannedPlacementNote(failure.unusableCell(), plannedPlacements, fromIndex));
+                        + plannedPlacementNote(failure.unusableCell(), plannedPlacements, fromIndex)
+                        + (placedAt < 0 ? "" : ", 後のステップ%dで置く予定の位置".formatted(placedAt)),
+                        placedAt >= 0);
             }
             // 自分の設置は自分の足場の判定より後に数える。このステップで置くブロックはこのステップの前提ではない
             if (step.placedBlockPos() != null) {
@@ -119,6 +127,16 @@ final class PathValidator {
             }
         }
         return null;
+    }
+
+    /** {@code cell}へブロックを置く、{@code stepIndex}より後のステップ。無ければ-1。 */
+    private static int laterPlacement(List<PathStep> steps, int stepIndex, BlockPos cell) {
+        for (int j = stepIndex + 1; j < steps.size(); j++) {
+            if (cell.equals(steps.get(j).placedBlockPos())) {
+                return j;
+            }
+        }
+        return -1;
     }
 
     /**

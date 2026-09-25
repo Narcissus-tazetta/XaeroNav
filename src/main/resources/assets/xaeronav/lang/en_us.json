@@ -52,7 +52,6 @@
   "hud.xaeronav.mlg_required": "Route includes a drop needing a water bucket landing (MLG)",
   "hud.xaeronav.action_dig": "Dig through blocks ahead",
   "hud.xaeronav.action_place": "Place blocks to cross ahead",
-  "hud.xaeronav.action_pillar": "Pillar up ahead: stand at the step, jump and place a block under you",
   "hud.xaeronav.action_jump": "Jump a gap ahead",
   "hud.xaeronav.action_climb": "Climb ahead",
   "hud.xaeronav.remaining": "%1$s blocks left · about %2$s",

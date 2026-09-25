@@ -58,18 +58,6 @@ class NavHudPathSuffixesTest {
         assertEquals(0, suffixes.placements(3));
     }
 
-    @Test
-    void placingUnderYourOwnFeetIsAPillarNotABridge() {
-        BlockPos base = new BlockPos(1, 64, 0);
-        PathResult path = new PathResult(List.of(
-                new PathStep(base, MovementType.TRAVERSE, 1.0, List.of(base), List.of(), PathRisk.NONE, null),
-                new PathStep(base.above(), MovementType.ASCEND, 1.0, List.of(base.above()), List.of(), PathRisk.NONE,
-                        base)),
-                PathResult.Termination.REACHED_GOAL, 2, 2);
-
-        assertEquals(NavHud.PathSuffixes.Action.PILLAR, new NavHud.PathSuffixes(path).nextAction(0));
-    }
-
     private static PathStep step(int x, MovementType movement, PathRisk risk, boolean bridging) {
         BlockPos pos = new BlockPos(x, 64, 0);
         return new PathStep(pos, movement, 1.0, List.of(pos), List.of(), risk,

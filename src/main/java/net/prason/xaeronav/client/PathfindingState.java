@@ -2232,7 +2232,9 @@ public final class PathfindingState {
      * （{@link RecentFailures}参照）。
      */
     private void noteUnusableCell(PathValidator.Failure failure) {
-        recentFailures.note(failure.unusableCell());
+        if (!failure.placedAhead()) {
+            recentFailures.note(failure.unusableCell());
+        }
     }
 
     /**

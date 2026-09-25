@@ -561,8 +561,7 @@ public final class PathRenderer {
      */
     private boolean highlightVisible(PathGeometry geometry, int index, int matched, Vec3 camera,
                                      double cullRadiusSq) {
-        if (geometry.highlightStep[index] < matched
-                || geometry.highlightPillar[index] && geometry.highlightStep[index] - 1 > matched) {
+        if (geometry.highlightStep[index] < matched) {
             return false;
         }
         double dx = geometry.highlightX[index] + 0.5 - camera.x;
