@@ -30,15 +30,15 @@ class NetherTrapBenchTest {
 
     /** 実機の既定（{@code NavGraphGuide.WINDOW_BLOCKS}）。{@code -Pxaeronav.window=240}で振れる。 */
     private static final int WINDOW = Integer.getInteger("xaeronav.window", 224);
-    private static final BlockPos GOAL = new BlockPos(-53, Integer.getInteger("xaeronav.goalY", 68), 716);
+    static final BlockPos GOAL = new BlockPos(-53, Integer.getInteger("xaeronav.goalY", 68), 716);
     private static final BlockPos TRAP = new BlockPos(-65, 47, 521);
-    private static final List<BlockPos> STARTS = List.of(new BlockPos(-12, 64, 349), new BlockPos(72, 69, 439),
+    static final List<BlockPos> STARTS = List.of(new BlockPos(-12, 64, 349), new BlockPos(72, 69, 439),
             new BlockPos(131, 39, 652));
 
     static FakeCells cells() throws IOException {
-        return TerrainFixture.load("/nether_trap.txt.gz", bounds -> FakeCells.empty(bounds)
+        return TerrainFixture.solidFloorIfRequested(TerrainFixture.load("/nether_trap.txt.gz", bounds -> FakeCells.empty(bounds)
                 .canPlaceBlocks(true).maxFallDamagePoints(0).maxBridgeRunBlocks(96).maxVoidBridgeRunBlocks(96)
-                .maxLavaBridgeRunBlocks(30));
+                .maxLavaBridgeRunBlocks(30)));
     }
 
     /**

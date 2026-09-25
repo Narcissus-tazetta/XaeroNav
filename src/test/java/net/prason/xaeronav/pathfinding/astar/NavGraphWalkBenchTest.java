@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
+import net.prason.xaeronav.pathfinding.coarse.VoxelTerrain;
 import net.prason.xaeronav.pathfinding.coarse.XaeroMapModel;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
 import net.prason.xaeronav.pathfinding.navgraph.LoadedArea;
@@ -20,6 +21,7 @@ import net.prason.xaeronav.pathfinding.navgraph.NavGraph;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
+import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.pathfinding.world.TerrainFixture;
 import net.prason.xaeronav.pathfinding.world.WindowedCells;
@@ -41,7 +43,24 @@ class NavGraphWalkBenchTest {
     private record Stats(long[] buildMillis, long[] fieldMillis, int[] maxEdges, long[] maxBytes) {
     }
 
-    private static Function<BlockPos, CostToGo> guide(FakeCells cells, BlockPos goal, FarField far, Stats stats) {
+    /**
+     * 本番の{@code NavGraphGuide.Far#forwardOnly}と同じく、組み直すたびに窓の中心より推定の上で遠い縁を種から外す。
+     * {@code -Pxaeronav.forwardOnly=true}。
+     */
+    private static final boolean FORWARD_ONLY = Boolean.getBoolean("xaeronav.forwardOnly");
+
+    /**
+     * 3D粗層を本番（{@code NetherVoxelGuide}）と同じくプレイヤーの位置で組み直す。{@code -Pxaeronav.voxelFollow=true}。
+     * 既定は始点で1回だけ組む——それでは離れるほど箱が広がってセル辺が粗くなる効果が模型に出ない。
+     */
+    private static final boolean VOXEL_FOLLOW = Boolean.getBoolean("xaeronav.voxelFollow");
+
+    /** 本番の{@code NetherVoxelGuide.REBUILD_MOVE_BLOCKS}・{@code REBUILD_INSET_BLOCKS}。 */
+    private static final double VOXEL_REBUILD_MOVE_BLOCKS = 128.0;
+    private static final int VOXEL_REBUILD_INSET_BLOCKS = 32;
+
+    private static Function<BlockPos, CostToGo> guide(FakeCells cells, BlockPos goal, Function<BlockPos, FarField> farAt,
+                                                      Stats stats) {
         NavGraph graph = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
         // 実機はガイドを作り直している間も古いガイドで探す。前に作った中心からこれだけ歩くまで作り直さない
         int lag = Integer.getInteger("xaeronav.navGraphLag", 0);
@@ -51,6 +70,10 @@ class NavGraphWalkBenchTest {
             if (last[0] == null || (!player.equals(last[0]) && Math.max(Math.abs(player.getX() - last[0].getX()),
                     Math.abs(player.getZ() - last[0].getZ())) >= lag)) {
                 CellSource window = new WindowedCells(cells, player, WINDOW);
+                FarField far = farAt.apply(player);
+                if (FORWARD_ONLY) {
+                    far = FarField.forwardOf(far, player.getX(), player.getY(), player.getZ());
+                }
                 // 実機と同じく並列に組む。FakeCellsは読むだけなら共有してよい
                 NavGraph.Refreshed refreshed = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
                         LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
@@ -131,12 +154,70 @@ class NavGraphWalkBenchTest {
 
     private static void measure(String name, FakeCells cells, List<BlockPos[]> routes, ProgressiveWalk.Mode mode,
                                 ProgressiveWalk.Aim currentAim, Function<BlockPos[], FarField> farFor) {
+        measureFollowing(name, cells, routes, mode, currentAim, route -> {
+            FarField far = farFor.apply(route);
+            return player -> far;
+        });
+    }
+
+    /** 歩き通しの各点で「それまでの最接近」から目的地へ水平に何ブロック遠ざかったかの最大。 */
+    private static double worstRetreat(List<PathStep> steps, BlockPos goal) {
+        double closest = Double.POSITIVE_INFINITY;
+        double worst = 0;
+        for (PathStep step : steps) {
+            double left = Math.hypot(step.pos().getX() - goal.getX(), step.pos().getZ() - goal.getZ());
+            closest = Math.min(closest, left);
+            worst = Math.max(worst, left - closest);
+        }
+        return worst;
+    }
+
+    /**
+     * 3D粗層×{@code scale}の窓の外の推定。{@link #VOXEL_FOLLOW}なら本番と同じ引き金（組んだ所から128歩いた・箱の縁から32以内）で
+     * プレイヤーの位置から組み直す。
+     */
+    private static Function<BlockPos, FarField> voxelFar(FakeCells cells, BlockPos start, BlockPos goal, double scale) {
+        CostToGo[] voxel = {XaeroMapModel.guide(cells, start, goal, NetherLiveWalkTest.NETHER_MIN_Y,
+                NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L)};
+        if (!VOXEL_FOLLOW) {
+            FarField far = FarField.of((x, y, z) -> scale * voxel[0].estimate(x, y, z));
+            return player -> far;
+        }
+        BlockPos[] builtAt = {start};
+        return player -> {
+            SearchBounds box = XaeroMapModel.guideBox(builtAt[0], goal, NetherLiveWalkTest.NETHER_MIN_Y,
+                    NetherLiveWalkTest.NETHER_MAX_Y);
+            boolean inside = player.getX() >= box.minX() + VOXEL_REBUILD_INSET_BLOCKS
+                    && player.getX() <= box.maxX() - VOXEL_REBUILD_INSET_BLOCKS
+                    && player.getZ() >= box.minZ() + VOXEL_REBUILD_INSET_BLOCKS
+                    && player.getZ() <= box.maxZ() - VOXEL_REBUILD_INSET_BLOCKS;
+            if (!inside || Math.hypot(player.getX() - builtAt[0].getX(), player.getZ() - builtAt[0].getZ())
+                    >= VOXEL_REBUILD_MOVE_BLOCKS) {
+                builtAt[0] = player;
+                voxel[0] = XaeroMapModel.guide(cells, player, goal, NetherLiveWalkTest.NETHER_MIN_Y,
+                        NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L);
+                if (Boolean.getBoolean("xaeronav.navGraphVerbose")) {
+                    System.out.printf(Locale.ROOT, "  3D粗層を組み直し %s 辺%d%n", player.toShortString(),
+                            VoxelTerrain.cellBlocksFor(XaeroMapModel.guideBox(player, goal,
+                                    NetherLiveWalkTest.NETHER_MIN_Y, NetherLiveWalkTest.NETHER_MAX_Y)));
+                }
+            }
+            CostToGo current = voxel[0];
+            return FarField.of((x, y, z) -> scale * current.estimate(x, y, z));
+        };
+    }
+
+    private static void measureFollowing(String name, FakeCells cells, List<BlockPos[]> routes, ProgressiveWalk.Mode mode,
+                                         ProgressiveWalk.Aim currentAim,
+                                         Function<BlockPos[], Function<BlockPos, FarField>> farFor) {
         List<List<Double>> ratios = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        List<Double> retreats = new ArrayList<>();
         for (BlockPos[] route : routes.subList(0, Math.min(routes.size(), Integer.getInteger("xaeronav.routeLimit", 99)))) {
             BlockPos start = StanceFinder.resolveStart(cells, route[0]);
             BlockPos goal = StanceFinder.resolveGoal(cells, route[1]);
             double best = ProgressiveWalk.fullVisibilityBest(cells, start, goal);
-            FarField far = farFor.apply(new BlockPos[] {start, goal});
+            Function<BlockPos, FarField> farAt = farFor.apply(new BlockPos[] {start, goal});
+            FarField far = farAt.apply(start);
 
             // 航法グラフの実装だけを測り直すときは、重い2本（現行・閉包の窓）を飛ばす
             boolean graphOnly = Boolean.getBoolean("xaeronav.navGraphOnly");
@@ -149,7 +230,9 @@ class NavGraphWalkBenchTest {
             ProgressiveWalk.UNGUIDED_LEGS.set(0);
             ProgressiveWalk.REVIEWS.set(0);
             ProgressiveWalk.Trace graphWalk = ProgressiveWalk.trace(cells, start, goal, WINDOW, mode,
-                    ProgressiveWalk.Aim.GOAL, guide(cells, goal, far, stats), 1.0);
+                    ProgressiveWalk.Aim.GOAL, guide(cells, goal, farAt, stats), 1.0);
+            double retreat = worstRetreat(graphWalk.steps(), goal);
+            retreats.add(retreat);
             double[] values = new double[3];
             ProgressiveWalk.Trace[] traces = {current, closureWalk, graphWalk};
             for (int i = 0; i < 3; i++) {
@@ -158,9 +241,10 @@ class NavGraphWalkBenchTest {
                 ratios.get(i).add(values[i]);
             }
             System.out.printf(Locale.ROOT,
-                    "%s %s→%s 基準%.0f tick 現行%.3f 閉包の窓%.3f 航法グラフ%.5f(%.0f tick) 使えない区間%d 見直し%d 描き変わり%d(足元%d) 繋ぎ目%d 構築計%dms ガイド計%dms(最大%dms) 辺最大%d グラフ最大%dMB ガイド最大%dMB %s%n",
+                    "%s %s→%s 基準%.0f tick 現行%.3f 閉包の窓%.3f 航法グラフ%.5f(%.0f tick) 最大の後退%.0f 使えない区間%d 見直し%d 描き変わり%d(足元%d) 繋ぎ目%d 構築計%dms ガイド計%dms(最大%dms) 辺最大%d グラフ最大%dMB ガイド最大%dMB %s%n",
                     name, start.toShortString(), goal.toShortString(), best, values[0], values[1], values[2],
                     graphWalk.steps().isEmpty() ? Double.POSITIVE_INFINITY : ProgressiveWalk.cost(graphWalk.steps()),
+                    retreat,
                     ProgressiveWalk.UNGUIDED_LEGS.get(), ProgressiveWalk.REVIEWS.get(), graphWalk.redraws(),
                     graphWalk.nearRedraws(), graphWalk.joints().size(), stats.buildMillis()[0], stats.fieldMillis()[0], stats.fieldMillis()[1],
                     stats.maxEdges()[0], stats.maxBytes()[0] >> 20, stats.maxBytes()[1] >> 20, graphWalk.stopped());
@@ -172,6 +256,8 @@ class NavGraphWalkBenchTest {
                     list.stream().filter(Double::isFinite).mapToDouble(Double::doubleValue).average().orElse(0),
                     list.stream().mapToDouble(Double::doubleValue).max().orElse(0));
         }
+        System.out.printf(Locale.ROOT, "== %s 航法グラフ 最大の後退 %s (forwardOnly=%s voxelFollow=%s)%n", name,
+                retreats.stream().map(r -> String.format(Locale.ROOT, "%.0f", r)).toList(), FORWARD_ONLY, VOXEL_FOLLOW);
     }
 
     private static FakeCells overworld(String resource) throws IOException {
@@ -239,11 +325,8 @@ class NavGraphWalkBenchTest {
                 new BlockPos[] {new BlockPos(-271, 64, 395), new BlockPos(-333, 59, 694)},
                 new BlockPos[] {new BlockPos(-261, 66, 448), new BlockPos(-333, 59, 694)},
                 new BlockPos[] {new BlockPos(-212, 48, 553), new BlockPos(-333, 59, 694)});
-        measure("ネザー溶岩の海", cells, routes, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, route -> {
-            CostToGo voxel = XaeroMapModel.guide(cells, route[0], route[1], NetherLiveWalkTest.NETHER_MIN_Y,
-                    NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L);
-            return FarField.of((x, y, z) -> scale * voxel.estimate(x, y, z));
-        });
+        measureFollowing("ネザー溶岩の海", cells, routes, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL,
+                route -> voxelFar(cells, route[0], route[1], scale));
     }
 
     @Test
@@ -251,11 +334,18 @@ class NavGraphWalkBenchTest {
         FakeCells cells = NetherLiveWalkTest.terrain();
         // 3D粗層は真の残りの0.77倍前後に縮んでいて、窓の中の正確な値と尺度が食い違う。その倍率を戻して測り分ける
         double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.0"));
-        measure("ネザー(外=3D粗層x" + scale + ")", cells, NetherLiveWalkTest.routes(), ProgressiveWalk.Mode.REPAIR,
-                ProgressiveWalk.Aim.GOAL, route -> {
-                    CostToGo voxel = XaeroMapModel.guide(cells, route[0], route[1], NetherLiveWalkTest.NETHER_MIN_Y,
-                            NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L);
-                    return FarField.of((x, y, z) -> scale * voxel.estimate(x, y, z));
-                });
+        measureFollowing("ネザー(外=3D粗層x" + scale + ")", cells, NetherLiveWalkTest.routes(), ProgressiveWalk.Mode.REPAIR,
+                ProgressiveWalk.Aim.GOAL, route -> voxelFar(cells, route[0], route[1], scale));
+    }
+
+    /** 実機で罠(-65,47,521)へ入っては引き返した溶岩の多い地形（{@link NetherTrapBenchTest}）。条件は実機の既定に揃える。 */
+    @Test
+    void netherTrap() throws IOException {
+        FakeCells cells = NetherTrapBenchTest.cells();
+        double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
+        List<BlockPos[]> routes = NetherTrapBenchTest.STARTS.stream()
+                .map(start -> new BlockPos[] {start, NetherTrapBenchTest.GOAL}).toList();
+        measureFollowing("ネザー罠", cells, routes, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL,
+                route -> voxelFar(cells, route[0], route[1], scale));
     }
 }

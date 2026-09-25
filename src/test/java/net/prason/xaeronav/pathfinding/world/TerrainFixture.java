@@ -137,4 +137,31 @@ public final class TerrainFixture {
         int y = standableY(cells, bounds, x, z);
         return y == Integer.MIN_VALUE ? null : new BlockPos(x, y, z);
     }
+
+    /**
+     * 各列のいちばん下のブロックより下を石で埋める。書き出し（{@code tools/dump_terrain_columns.py}）は箱の底を最下ブロックの
+     * 8段下に取るので、そのままだと全列の底が空いていて、航法グラフが溶岩の海を奈落として扱う（実機のネザーは底が岩盤）。
+     * {@code -Pxaeronav.solidFloor=true}のときだけ掛ける——既存の番人の数字はこの形で測ってある。
+     */
+    public static FakeCells solidFloorIfRequested(FakeCells cells) {
+        if (!Boolean.getBoolean("xaeronav.solidFloor")) {
+            return cells;
+        }
+        SearchBounds b = cells.bounds();
+        for (int x = b.minX(); x <= b.maxX(); x++) {
+            for (int z = b.minZ(); z <= b.maxZ(); z++) {
+                int lowest = b.minY();
+                while (lowest <= b.maxY() && CellData.passableEmpty(cells.cell(x, lowest, z))) {
+                    lowest++;
+                }
+                if (lowest > b.maxY()) {
+                    continue;
+                }
+                for (int y = b.minY(); y < lowest; y++) {
+                    cells.set(x, y, z, FakeCells.STONE);
+                }
+            }
+        }
+        return cells;
+    }
 }
