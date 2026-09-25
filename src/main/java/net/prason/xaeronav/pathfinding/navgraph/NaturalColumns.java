@@ -1,6 +1,8 @@
 package net.prason.xaeronav.pathfinding.navgraph;
 
+import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import org.jspecify.annotations.Nullable;
 
@@ -29,6 +31,11 @@ public final class NaturalColumns {
      * 窓全体の構築が15倍遅くなった（実測: ネザーの窓4,410セクションで41.9秒、読み直さなければ数秒）。
      */
     private final ConcurrentHashMap<Long, long[]> incomplete = new ConcurrentHashMap<>();
+    /**
+     * 列ごとの岸の高さと橋の長さ（{@link #shore}）。後ろの列の中身に依存するので、どこかが変われば全部捨てる。
+     * 読み込み中の列を含むことがあるので、{@link #forgetIncomplete}でも捨てる。
+     */
+    private final ConcurrentHashMap<Long, AtomicReferenceArray<int[]>> shores = new ConcurrentHashMap<>();
 
     /** @param minY ビット0に当たる高さ。{@code maxY}まで含む */
     public NaturalColumns(int minY, int maxY) {
@@ -75,6 +82,23 @@ public final class NaturalColumns {
         return (bits[256 * words + (column >> 6)] >>> column & 1L) != 0;
     }
 
+    /**
+     * 列({@code x},{@code z})の底から続く空っぽのセルの数（ビット）。浮いた島・自分で架けた橋の下もここまでは奈落。
+     * 底まで空っぽなら高さ全部、底が埋まっていれば0。
+     */
+    private int voidBelow(CellSource cells, int x, int z) {
+        long[] bits = chunkBits(cells, x, z);
+        int column = Math.floorMod(x, 16) + Math.floorMod(z, 16) * 16;
+        return (int) bits[256 * words + 4 + 256 + column];
+    }
+
+    /** 列({@code x},{@code z})のいちばん上のブロックの1つ上のビット。ここから上は空っぽ。列が空っぽなら0。 */
+    private int voidAbove(CellSource cells, int x, int z) {
+        long[] bits = chunkBits(cells, x, z);
+        int column = Math.floorMod(x, 16) + Math.floorMod(z, 16) * 16;
+        return (int) bits[256 * words + 4 + 512 + column];
+    }
+
     private long[] chunkBits(CellSource cells, int x, int z) {
         int chunkX = Math.floorDiv(x, 16);
         int chunkZ = Math.floorDiv(z, 16);
@@ -87,49 +111,189 @@ public final class NaturalColumns {
     }
 
     /**
-     * 奈落の列({@code x},{@code z})のうち、目的地へ向かう橋が通りうる高さのビット。奈落でなければ全部0。
+     * 下が奈落の列({@code x},{@code z})のうち、目的地へ向かう橋が通りうる高さのビット。底が埋まった列は溶岩の海だけを見る。
      *
      * <p>{@link SectionShell}は自然に立てる点から水平8ブロックしか持たないので、それより広い奈落を渡る橋の途中が
      * グラフから抜け、向こう岸の島が目的地へ繋がらない（実機のエンドの外側の島: 島の間が80〜100ブロックで、
      * ガイドが幾何下限に落ちて経路が1本も出なかった）。
      *
-     * <p>橋は目的地へ近づく向きにしか張られない（{@code BuildMoves#addBridge}）ので、見るのは各軸で目的地から遠い側の
-     * いちばん近い岸と、近い側のいちばん近い岸だけ。手前の岸が{@code reach}以内に無ければ橋はこの列に届かない。
-     * 岸の高さが揃っていないと着いた先で柱を積むので、両岸の立てる高さの間を上下{@link SectionShell#VERTICAL}まで埋める。
+     * <p>奈落の上の橋は目的地へ近づく向きにしか張られない（{@code BuildMoves#addBridge}）ので、橋がこの列に来られるのは、
+     * 目的地から遠い側（各軸で後ろ）に{@code reach}以内で岸があるときだけ。L字に折れる橋もあるので、後ろの岸は軸の上だけでなく
+     * 後ろ側の象限から探す（{@link #behind}）。岸の高さが揃っていないと着いた先で柱を積むので、目的地側の軸上の岸の高さまで含め、
+     * 上下{@link SectionShell#VERTICAL}まで埋める。
      */
     long[] bridgeCorridor(CellSource cells, int x, int z, int goalX, int goalZ, int reach, int lavaReach) {
         long[] corridor = new long[words];
-        if (!voidColumn(cells, x, z)) {
+        int voidBelow = voidBelow(cells, x, z);
+        if (voidBelow < 3) {
             return lavaReach > 0 ? lavaCorridor(cells, x, z, lavaReach, corridor) : corridor;
         }
-        int low = Integer.MAX_VALUE;
-        int high = Integer.MIN_VALUE;
-        boolean fromShore = false;
+        long[] pass = passable(cells, x, z);
+        int[] behind = behind(cells, x, z, goalX, goalZ, reach, pass);
+        if (behind.length == 0) {
+            return corridor;
+        }
+        int nearLow = Integer.MAX_VALUE;
+        int nearHigh = Integer.MIN_VALUE;
         int[][] axes = {{Integer.signum(goalX - x), 0}, {0, Integer.signum(goalZ - z)}};
         for (int[] axis : axes) {
             if (axis[0] == 0 && axis[1] == 0) {
                 continue;
             }
-            for (int side = -1; side <= 1; side += 2) {
-                int[] span = nearestShoreSpan(cells, x, z, axis[0] * side, axis[1] * side, reach);
-                if (span == null) {
-                    continue;
-                }
-                // 目的地から遠い側（橋を架け始める岸）が見つかったときだけ、この列を橋が通る
-                fromShore |= side < 0;
-                low = Math.min(low, span[0]);
-                high = Math.max(high, span[1]);
+            int[] span = nearestShoreSpan(cells, x, z, axis[0], axis[1], reach, voidBelow - 2);
+            if (span != null) {
+                nearLow = Math.min(nearLow, span[0]);
+                nearHigh = Math.max(nearHigh, span[1]);
             }
         }
-        if (!fromShore) {
-            return corridor;
+        int closest = -1;
+        for (int entry : behind) {
+            int bit = shoreHeight(entry);
+            fill(corridor, bit - SectionShell.VERTICAL, bit + SectionShell.VERTICAL);
+            if (nearLow <= nearHigh && (closest < 0 || gap(bit, nearLow, nearHigh) < gap(closest, nearLow, nearHigh))) {
+                closest = bit;
+            }
         }
-        int from = Math.max(0, low - SectionShell.VERTICAL);
-        int to = Math.min(height - 1, high + SectionShell.VERTICAL);
-        for (int bit = from; bit <= to; bit++) {
-            corridor[bit >> 6] |= 1L << bit;
+        // 岸の高さが揃っていないと着いた先で柱を積むので、いちばん近い高さから向こう岸の高さまでを埋める
+        if (closest >= 0) {
+            fill(corridor, Math.min(closest, nearLow) - SectionShell.VERTICAL,
+                    Math.max(closest, nearHigh) + SectionShell.VERTICAL);
+        }
+        for (int w = 0; w < words; w++) {
+            corridor[w] &= pass[w];
         }
         return corridor;
+    }
+
+    private static int gap(int bit, int low, int high) {
+        return bit < low ? low - bit : bit > high ? bit - high : 0;
+    }
+
+    private void fill(long[] bits, int from, int to) {
+        for (int bit = Math.max(0, from); bit <= Math.min(height - 1, to); bit++) {
+            bits[bit >> 6] |= 1L << bit;
+        }
+    }
+
+    /**
+     * 列({@code x},{@code z})で橋が通れる高さ（足場を置くセルと体の2セルが空いている）。下が底まで空いている高さか、
+     * いちばん上のブロックより上。浮いた島の下を潜る橋も、島の上空を渡る橋もある（実機のエンド: 小島の4ブロック下、
+     * 島の頂上の12ブロック上を渡る橋がグラフから抜け、その先が目的地へ繋がらなかった）。
+     */
+    private long[] passable(CellSource cells, int x, int z) {
+        long[] pass = new long[words];
+        fill(pass, 0, voidBelow(cells, x, z) - 2);
+        fill(pass, voidAbove(cells, x, z) + 1, height - 2);
+        return pass;
+    }
+
+    /**
+     * 1列が覚えておく岸の高さの数。近い岸から残す。
+     *
+     * <p>絞らないと、奈落を渡るうちに後ろの象限にある島の高さが次々に運ばれて殻が膨らむ（高さを区間で持った試作では、
+     * 実機のエンドの窓のグラフが2.3倍の約530MBになった。8個なら+13〜37%）。
+     */
+    private static final int MAX_SHORE_HEIGHTS = 8;
+
+    /** 橋が届く後ろの岸が無い。 */
+    private static final int[] NO_SHORE = new int[0];
+
+    private static int shoreEntry(int height, int distance) {
+        return distance << 16 | height;
+    }
+
+    private static int shoreHeight(int entry) {
+        return entry & 0xFFFF;
+    }
+
+    private static int shoreDistance(int entry) {
+        return entry >>> 16;
+    }
+
+    /**
+     * 列({@code x},{@code z})へ、目的地から遠い側（各軸で後ろ）の隣の列から橋で来られる高さと、その高さの岸からの橋の長さ。
+     * この列で通れない高さ（{@code pass}の外）と、橋の長さが{@code reach}を超える高さは落とす。
+     */
+    private int[] behind(CellSource cells, int x, int z, int goalX, int goalZ, int reach, long[] pass) {
+        int sx = Integer.signum(goalX - x);
+        int sz = Integer.signum(goalZ - z);
+        int[] merged = new int[2 * MAX_SHORE_HEIGHTS];
+        int count = 0;
+        for (int axis = 0; axis < 2; axis++) {
+            if ((axis == 0 ? sx : sz) == 0) {
+                continue;
+            }
+            int[] shore = shore(cells, axis == 0 ? x - sx : x, axis == 0 ? z : z - sz, goalX, goalZ, reach);
+            for (int entry : shore) {
+                int bit = shoreHeight(entry);
+                int distance = shoreDistance(entry) + 1;
+                if (distance > reach || (pass[bit >> 6] >>> bit & 1L) == 0) {
+                    continue;
+                }
+                count = addShore(merged, count, bit, distance);
+            }
+        }
+        return nearest(merged, count);
+    }
+
+    /** 同じ高さは短い方を残して足す。 */
+    private static int addShore(int[] entries, int count, int bit, int distance) {
+        for (int i = 0; i < count; i++) {
+            if (shoreHeight(entries[i]) == bit) {
+                if (shoreDistance(entries[i]) > distance) {
+                    entries[i] = shoreEntry(bit, distance);
+                }
+                return count;
+            }
+        }
+        entries[count] = shoreEntry(bit, distance);
+        return count + 1;
+    }
+
+    /** 近い岸から{@link #MAX_SHORE_HEIGHTS}個。 */
+    private static int[] nearest(int[] entries, int count) {
+        if (count == 0) {
+            return NO_SHORE;
+        }
+        int[] sorted = Arrays.copyOf(entries, count);
+        // 距離が上位ビットなので、そのまま並べれば近い順
+        Arrays.sort(sorted);
+        return sorted.length > MAX_SHORE_HEIGHTS ? Arrays.copyOf(sorted, MAX_SHORE_HEIGHTS) : sorted;
+    }
+
+    /**
+     * 列({@code x},{@code z})を橋の岸として見たときの高さと橋の長さ。立てる高さは長さ0、下か上が空いていれば、後ろから通り抜けて
+     * 来られる高さ（{@link #behind}）もその長さのまま足す。後ろの列から順に引き継ぐので、L字に折れる橋の岸も列ごとに隣を2つ見るだけで分かる
+     * ——探すたびに軸の上を辿るとL字を拾えず、拾おうとすれば後ろの象限全体（約4,600列）を読むことになる。
+     */
+    private int[] shore(CellSource cells, int x, int z, int goalX, int goalZ, int reach) {
+        if (!cells.isInBounds(x, minY, z)) {
+            return NO_SHORE;
+        }
+        long key = ((long) Math.floorDiv(x, 16) << 32) | (Math.floorDiv(z, 16) & 0xFFFFFFFFL);
+        AtomicReferenceArray<int[]> memo = shores.computeIfAbsent(key, k -> new AtomicReferenceArray<>(256));
+        int column = Math.floorMod(x, 16) + Math.floorMod(z, 16) * 16;
+        int[] known = memo.get(column);
+        if (known != null) {
+            return known;
+        }
+        int[] through = voidBelow(cells, x, z) >= 3 ? behind(cells, x, z, goalX, goalZ, reach, passable(cells, x, z))
+                : NO_SHORE;
+        int[] entries = new int[MAX_SHORE_HEIGHTS * 2 + height];
+        int count = 0;
+        for (int w = 0; w < words; w++) {
+            long bits = word(cells, x, z, w);
+            while (bits != 0) {
+                count = addShore(entries, count, (w << 6) + Long.numberOfTrailingZeros(bits), 0);
+                bits &= bits - 1;
+            }
+        }
+        for (int entry : through) {
+            count = addShore(entries, count, shoreHeight(entry), shoreDistance(entry));
+        }
+        int[] result = nearest(entries, count);
+        memo.set(column, result);
+        return result;
     }
 
     /**
@@ -193,8 +357,15 @@ public final class NaturalColumns {
         return corridor;
     }
 
-    /** ({@code x},{@code z})から({@code dx},{@code dz})の向きに最初に当たる奈落でない列の、立てる高さの最小・最大ビット。 */
-    private int @Nullable [] nearestShoreSpan(CellSource cells, int x, int z, int dx, int dz, int reach) {
+    /**
+     * ({@code x},{@code z})から({@code dx},{@code dz})の向きに最初に当たる岸の列の、立てる高さの最小・最大ビット。
+     *
+     * <p>{@code ceiling}は、この列で橋が通れるいちばん上のビット。立てる所がすべてそれより上で、自分も下が空いている列
+     * （奈落に浮いた小島・自分で架けた橋）は岸に数えずその先を探す——そこの下を潜る橋の高さを決めるのは、さらに先の岸
+     * （実機のエンド: 小島の上の高さ66を岸にして、4ブロック下の高さ60を通る橋が抜けていた）。
+     */
+    private int @Nullable [] nearestShoreSpan(CellSource cells, int x, int z, int dx, int dz, int reach,
+                                              int ceiling) {
         for (int k = 1; k <= reach; k++) {
             int px = x + dx * k;
             int pz = z + dz * k;
@@ -213,6 +384,9 @@ public final class NaturalColumns {
                     high = Math.max(high, (w << 6) + 63 - Long.numberOfLeadingZeros(bits));
                 }
             }
+            if (low <= high && low > ceiling + SectionShell.VERTICAL && voidBelow(cells, px, pz) >= 3) {
+                continue;
+            }
             // 立てる所の無い岸（読み込まれていない列・浮いた柱）からは橋を架けない
             return low > high ? null : new int[] {low, high};
         }
@@ -224,21 +398,25 @@ public final class NaturalColumns {
         long key = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
         chunks.remove(key);
         incomplete.remove(key);
+        shores.clear();
     }
 
     /** 読み込みの途中だったチャンクを忘れる。読める範囲が変わる前（組み直しの頭）に呼ぶ。 */
     public void forgetIncomplete() {
         incomplete.clear();
+        shores.clear();
     }
 
     public void clear() {
         chunks.clear();
         incomplete.clear();
+        shores.clear();
     }
 
     private long[] scan(CellSource cells, int chunkX, int chunkZ, long key) {
-        // 末尾の4語は列ごとの「底まで空っぽ」の印、その後の256語は列ごとの溶岩の面（lavaSurfaceの値+1）
-        long[] bits = new long[256 * words + 4 + 256];
+        // 末尾の4語は列ごとの「底まで空っぽ」の印、その後の256語は列ごとの溶岩の面（lavaSurfaceの値+1）、
+        // さらに256語は列ごとの底から続く空っぽの数（voidBelow）、256語はいちばん上のブロックの1つ上（voidAbove）
+        long[] bits = new long[256 * words + 4 + 256 + 256 + 256];
         boolean absent = false;
         for (int lx = 0; lx < 16; lx++) {
             for (int lz = 0; lz < 16; lz++) {
@@ -249,10 +427,18 @@ public final class NaturalColumns {
                 long feet = cells.cell(x, minY + 1, z);
                 absent |= !CellData.present(below);
                 boolean empty = CellData.passableEmpty(below) && CellData.passableEmpty(feet);
+                int voidBelow = !CellData.passableEmpty(below) ? 0 : !CellData.passableEmpty(feet) ? 1 : -1;
+                int voidAbove = !CellData.passableEmpty(feet) ? 2 : !CellData.passableEmpty(below) ? 1 : 0;
                 int lavaTop = -1;
                 for (int y = minY + 1; y < minY + height - 1; y++) {
                     long head = cells.cell(x, y + 1, z);
                     empty &= CellData.passableEmpty(head);
+                    if (!CellData.passableEmpty(head)) {
+                        if (voidBelow < 0) {
+                            voidBelow = y + 1 - minY;
+                        }
+                        voidAbove = y + 2 - minY;
+                    }
                     if (CellData.lava(below) && CellData.passableEmpty(feet)) {
                         lavaTop = y - minY;
                     }
@@ -267,6 +453,8 @@ public final class NaturalColumns {
                     bits[256 * words + (column >> 6)] |= 1L << column;
                 }
                 bits[256 * words + 4 + column] = lavaTop + 1;
+                bits[256 * words + 4 + 256 + column] = voidBelow < 0 ? height : voidBelow;
+                bits[256 * words + 4 + 512 + column] = voidAbove;
             }
         }
         (absent ? incomplete : chunks).put(key, bits);

@@ -26,8 +26,13 @@ final class PathNode {
      */
     final boolean boating;
 
-    /** ゴールまでの推定コスト。座標とゴールが決まれば不変なので生成時に1度だけ計算する。 */
-    final double estimatedCostToGoal;
+    /**
+     * ゴールまでの推定コスト。生成時に1度だけ計算する。{@link #guideHole}のノードだけ、緩和のたびに親から引き継いで上がる。
+     */
+    double estimatedCostToGoal;
+
+    /** ガイドがこのセルの値を持たない（{@link CostToGo#searchEstimate}が{@link Double#NaN}）。 */
+    final boolean guideHole;
 
     double cost = ActionCosts.INFEASIBLE;
     double combinedCost;
@@ -108,11 +113,16 @@ final class PathNode {
     boolean closed;
 
     PathNode(int x, int y, int z, boolean boating, double estimatedCostToGoal) {
+        this(x, y, z, boating, estimatedCostToGoal, false);
+    }
+
+    PathNode(int x, int y, int z, boolean boating, double estimatedCostToGoal, boolean guideHole) {
         this.x = x;
         this.y = y;
         this.z = z;
         this.boating = boating;
         this.estimatedCostToGoal = estimatedCostToGoal;
+        this.guideHole = guideHole;
     }
 
     boolean isOpen() {
