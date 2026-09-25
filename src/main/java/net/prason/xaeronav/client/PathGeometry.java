@@ -108,6 +108,12 @@ final class PathGeometry {
      * セルが{@code replaceable}のまま＝背後に青い枠が残り続ける。
      */
     final int[] highlightStep;
+    /**
+     * 設置予定地が「足元に置いて真上へ上る」手のものか。置く先は直前の手で立つセルそのものなので、そこへ着く前に
+     * 置かれると立つ場所が埋まり、手前からは2段上れず計画が成り立たなくなる（実機2026-09-26: 前方に見えた枠へ
+     * 手前から置き、引き直しで横にまた置く枠が出た）。描画側はこの枠を踏み切り点に着くまで出さない。
+     */
+    final boolean[] highlightPillar;
     /** この区間から先は打ち切られた末端。手前から順に薄くしていく。到達済みの経路では区間数と同じ。 */
     final int fadeFromSegment;
 
@@ -115,7 +121,8 @@ final class PathGeometry {
                          int[] segmentEndStep, boolean[] segmentSunk, boolean[] segmentInWater,
                          boolean[] segmentDashed,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
-                         boolean[] highlightPlacement, int[] highlightStep, int fadeFromSegment) {
+                         boolean[] highlightPlacement, int[] highlightStep, boolean[] highlightPillar,
+                         int fadeFromSegment) {
         this.pointX = pointX;
         this.pointY = pointY;
         this.pointZ = pointZ;
@@ -130,6 +137,7 @@ final class PathGeometry {
         this.highlightColor = highlightColor;
         this.highlightPlacement = highlightPlacement;
         this.highlightStep = highlightStep;
+        this.highlightPillar = highlightPillar;
         this.fadeFromSegment = fadeFromSegment;
     }
 
@@ -327,6 +335,7 @@ final class PathGeometry {
         float[] hColor = new float[highlightCapacity * 3];
         boolean[] hPlacement = new boolean[highlightCapacity];
         int[] hStep = new int[highlightCapacity];
+        boolean[] hPillar = new boolean[highlightCapacity];
         int highlights = 0;
         for (int i = 0; i < count; i++) {
             PathStep step = steps.get(i);
@@ -351,6 +360,7 @@ final class PathGeometry {
                 hColor[highlights * 3 + 2] = PathColors.BRIDGE[2];
                 hPlacement[highlights] = true;
                 hStep[highlights] = i;
+                hPillar[highlights] = placesUnderPrevious(steps, i, start);
                 highlights++;
             }
         }
@@ -359,7 +369,17 @@ final class PathGeometry {
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentInWater,
                 flatSegmentDashed,
-                hx, hy, hz, hColor, hPlacement, hStep, Math.min(fadeFromSegment, segments));
+                hx, hy, hz, hColor, hPlacement, hStep, hPillar, Math.min(fadeFromSegment, segments));
+    }
+
+    /**
+     * {@code index}のステップが、直前の手で立つセル（先頭なら経路の始点）へ置いて上る手か。橋の置く先は着地点の下で、
+     * 直前の位置とは重ならない。
+     */
+    static boolean placesUnderPrevious(List<PathStep> steps, int index, BlockPos start) {
+        BlockPos placed = steps.get(index).placedBlockPos();
+        BlockPos previous = index == 0 ? start : steps.get(index - 1).pos();
+        return placed != null && placed.equals(previous);
     }
 
     /**
