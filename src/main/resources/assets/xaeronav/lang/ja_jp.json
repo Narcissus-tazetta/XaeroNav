@@ -52,6 +52,7 @@
   "hud.xaeronav.mlg_required": "水バケツ着地（MLG）が必要です",
   "hud.xaeronav.action_dig": "この先でブロックを掘ります",
   "hud.xaeronav.action_place": "この先で足場を置きます",
+  "hud.xaeronav.action_pillar": "この先の段差は、その下に立ってジャンプし足元にブロックを置いて上ります",
   "hud.xaeronav.action_jump": "この先で隙間を跳び越えます",
   "hud.xaeronav.action_climb": "この先で登ります",
   "hud.xaeronav.remaining": "残り%1$sブロック · 約%2$s",

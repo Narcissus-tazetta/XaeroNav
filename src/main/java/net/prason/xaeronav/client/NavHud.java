@@ -214,6 +214,9 @@ public final class NavHud {
         enum Action {
             DIG("hud.xaeronav.action_dig"),
             PLACE("hud.xaeronav.action_place"),
+            // 置く枠は踏み切り点に着くまで出さない（PathGeometry#highlightPillar）ので、近づく間は線が壁を
+            // 真上へ上るだけに見え、2段を跳べと言われているように読める。何をするかは文で先に伝える
+            PILLAR("hud.xaeronav.action_pillar"),
             JUMP("hud.xaeronav.action_jump"),
             CLIMB("hud.xaeronav.action_climb");
 
@@ -253,7 +256,7 @@ public final class NavHud {
                 boats[i] = boats[i + 1] || step.boating();
                 placements[i] = placements[i + 1] + (step.bridging() ? 1 : 0);
                 actions[i] = step.digging() ? Action.DIG
-                        : step.bridging() ? Action.PLACE
+                        : step.bridging() ? (PathGeometry.placesUnderPrevious(steps, i, null) ? Action.PILLAR : Action.PLACE)
                         : step.movement() == MovementType.JUMP ? Action.JUMP
                         : step.climbing() ? Action.CLIMB : null;
                 nextActionSteps[i] = actions[i] != null ? i : nextActionSteps[i + 1];
