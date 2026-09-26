@@ -222,7 +222,8 @@ class NavGraphWalkBenchTest {
                                          Function<BlockPos[], Function<BlockPos, FarField>> farFor) {
         List<List<Double>> ratios = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         List<Double> retreats = new ArrayList<>();
-        for (BlockPos[] route : routes.subList(0, Math.min(routes.size(), Integer.getInteger("xaeronav.routeLimit", 99)))) {
+        for (BlockPos[] route : routes.subList(Math.min(routes.size(), Integer.getInteger("xaeronav.routeSkip", 0)),
+                Math.min(routes.size(), Integer.getInteger("xaeronav.routeLimit", 99)))) {
             BlockPos start = StanceFinder.resolveStart(cells, route[0]);
             BlockPos goal = StanceFinder.resolveGoal(cells, route[1]);
             double best = ProgressiveWalk.fullVisibilityBest(cells, start, goal);
