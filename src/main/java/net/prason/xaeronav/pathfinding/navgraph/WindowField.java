@@ -649,6 +649,28 @@ public final class WindowField implements CostToGo {
     }
 
     /**
+     * {@code (x, y, z)}からガイドを下った道筋の水平の外接箱を{@code pad}広げたもの（{@code {minX, minZ, maxX, maxZ}}）。
+     * 下れない、または道筋が目的地に届かず幾何下限の推定へ出るなら{@code null}。
+     *
+     * <p>探索の箱を始点と目標の外接箱だけで切ると、ガイドが正確でも最適な回り込みが箱の外に落ちる（実測: ネザーで箱の壁に沿って
+     * 14ブロックの橋を架け1.246倍）。幾何下限が指す縁は地形を見ていないので、そこへ向かう道筋では箱を広げない
+     * （エンドの外側の島で11113→15613tick）。
+     */
+    public int @Nullable [] descentBox(int x, int y, int z, int pad) {
+        int[] box = {x, z, x, z};
+        Descent descent = descend(x, y, z, (px, py, pz) -> {
+            box[0] = Math.min(box[0], px);
+            box[1] = Math.min(box[1], pz);
+            box[2] = Math.max(box[2], px);
+            box[3] = Math.max(box[3], pz);
+        });
+        if (descent == null || !descent.reachedGoal() && far.onlyWhenGoalOutside()) {
+            return null;
+        }
+        return new int[] {box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad};
+    }
+
+    /**
      * この点の値が、窓の中を実際に辿った結果から来ているか。<b>2点の値を引き算するなら、どちらもこれを満たすこと</b>
      * ——縁の近くと窓の外の値は{@link FarField}の推定で、尺度が窓の中と揃っていない（ネザーの3D粗層は
      * {@code NavGraphGuide.VOXEL_FAR_SCALE}倍して置いてある）。差を取ると推定のずれがそのまま結論になる。

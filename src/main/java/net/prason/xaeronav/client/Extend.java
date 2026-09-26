@@ -366,7 +366,7 @@ final class Extend {
         NavigationTuning tuning = XaeroNavConfig.INSTANCE.navigationTuning();
         SearchBounds bounds = navGraphGuided
                 ? PathfindingState.navGraphBounds(level, from, target, playerAt, renderRadius,
-                        tuning.searchHorizontalMargin(), landing)
+                        tuning.searchHorizontalMargin(), landing, goalGuide.costToGo())
                 : SearchBounds.around(level, from, target, tuning.searchHorizontalMargin(),
                         PathfindingState.verticalSearchMargin(level, false), renderRadius);
         long captureLap = TickLaps.start();

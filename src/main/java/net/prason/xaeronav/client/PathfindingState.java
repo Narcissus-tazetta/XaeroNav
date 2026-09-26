@@ -1928,7 +1928,8 @@ public final class PathfindingState {
         boolean aimingAtLanding = goalGuide != null && goalGuide.landing() != null
                 && target.equals(goalGuide.landing().target());
         SearchBounds bounds = navGraphGuided
-                ? navGraphBounds(level, start, target, start, renderRadius, horizontalMargin, aimingAtLanding)
+                ? navGraphBounds(level, start, target, start, renderRadius, horizontalMargin, aimingAtLanding,
+                        goalGuide.costToGo())
                 : SearchBounds.around(level, start, target, horizontalMargin, verticalSearchMargin(level, wideSearch),
                         renderRadius);
         long captureLap = TickLaps.start();
@@ -2622,18 +2623,28 @@ public final class PathfindingState {
      *
      * <p>窓の外ではガイドが層1か幾何の推定に落ちるので、そこまで広げると測っていない探索になる。
      * 高さを切らないのは、ガイドが掘り上がる・降りる道を指したときに箱の外で行き止まらせないため。
+     * ガイドを下った道筋は帯の外でも含める（{@link WindowField#descentBox}）。
      */
     static SearchBounds navGraphBounds(Level level, BlockPos from, BlockPos target, BlockPos player,
-                                       int renderRadius, int horizontalMargin, boolean wholeWindow) {
+                                       int renderRadius, int horizontalMargin, boolean wholeWindow, CostToGo guide) {
         int window = NavGraphGuide.window(renderRadius);
         // 着地点を狙うときは窓全体を見る。ガイドの道は始点と目標を結ぶ帯を大きく外れることがあり（実機のエンド: 目標の
         // 真西から北へ68ブロック回り込んで島を渡る）、帯で切ると探索はその道を1歩も辿れずに予算を焼く
         SearchBounds box = SearchBounds.around(level, from, target, wholeWindow ? 2 * window : horizontalMargin,
                 level.getHeight(), window);
+        int[] trail = guide instanceof WindowField field
+                ? field.descentBox(from.getX(), from.getY(), from.getZ(), DESCENT_BOX_PAD_BLOCKS) : null;
+        if (trail != null) {
+            box = new SearchBounds(Math.min(box.minX(), trail[0]), box.minY(), Math.min(box.minZ(), trail[1]),
+                    Math.max(box.maxX(), trail[2]), box.maxY(), Math.max(box.maxZ(), trail[3]));
+        }
         return new SearchBounds(Math.max(box.minX(), player.getX() - window), box.minY(),
                 Math.max(box.minZ(), player.getZ() - window), Math.min(box.maxX(), player.getX() + window),
                 box.maxY(), Math.min(box.maxZ(), player.getZ() + window));
     }
+
+    /** ガイドを下った道筋の外接箱を広げる幅。探索はガイドの道の数ブロック脇を通る（実測で5ブロック外へ回り込む）。 */
+    static final int DESCENT_BOX_PAD_BLOCKS = 16;
 
     /**
      * ルート上に狙える点が無いときの目標。

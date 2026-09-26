@@ -151,6 +151,9 @@ final class ProgressiveWalk {
     /** {@code XaeroNavConfig#searchHorizontalMargin}の既定。 */
     private static final int SEARCH_HORIZONTAL_MARGIN = Integer.getInteger("xaeronav.searchMargin", 64);
 
+    /** {@code PathfindingState#DESCENT_BOX_PAD_BLOCKS}。 */
+    private static final int DESCENT_BOX_PAD_BLOCKS = 16;
+
     /** 1区間に渡す予算（{@code XaeroNavConfig#searchLimits}の既定）。 */
     private static final SearchLimits LIVE_LIMITS =
             new SearchLimits(LEG_NODE_BUDGET, 30_000, AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT);
@@ -192,7 +195,15 @@ final class ProgressiveWalk {
     private static PathResult legToGoal(PathfindingExecutor executor, CellSource all, BlockPos player,
                                         int radius, BlockPos from, BlockPos goal, List<PathStep> planned,
                                         CostToGo wide, double weight) {
-        CellSource view = new PlannedCellSource(boxedView(all, player, radius, from, goal), planned, 0);
+        // 実機のPathfindingState#navGraphBoundsと同じく、ガイドを下った道筋を箱に含める
+        SearchBounds box = searchBox(all, from, goal, radius);
+        int[] trail = wide instanceof WindowField field ? field.descentBox(from.getX(), from.getY(), from.getZ(),
+                DESCENT_BOX_PAD_BLOCKS) : null;
+        if (trail != null) {
+            box = new SearchBounds(Math.min(box.minX(), trail[0]), box.minY(), Math.min(box.minZ(), trail[1]),
+                    Math.max(box.maxX(), trail[2]), box.maxY(), Math.max(box.maxZ(), trail[3]));
+        }
+        CellSource view = new PlannedCellSource(new WindowedCells(all, player, radius, box), planned, 0);
         Carryover carried = Carryover.after(planned);
         try {
             PathResult result =
