@@ -36,9 +36,9 @@ class NetherTrapBenchTest {
             new BlockPos(131, 39, 652));
 
     static FakeCells cells() throws IOException {
-        return TerrainFixture.solidFloorIfRequested(TerrainFixture.load("/nether_trap.txt.gz", bounds -> FakeCells.empty(bounds)
+        return TerrainFixture.load("/nether_trap.txt.gz", bounds -> FakeCells.empty(bounds)
                 .canPlaceBlocks(true).maxFallDamagePoints(0).maxBridgeRunBlocks(96).maxVoidBridgeRunBlocks(96)
-                .maxLavaBridgeRunBlocks(30)));
+                .maxLavaBridgeRunBlocks(30));
     }
 
     /**

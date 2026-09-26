@@ -51,9 +51,9 @@ class NetherLiveWalkTest {
     }
 
     static FakeCells terrain() throws IOException {
-        return TerrainFixture.solidFloorIfRequested(TerrainFixture.load("/nether_wide.txt.gz", bounds -> FakeCells.empty(bounds)
+        return TerrainFixture.load("/nether_wide.txt.gz", bounds -> FakeCells.empty(bounds)
                 .canPlaceBlocks(true).maxFallDamagePoints(6)
-                .maxBridgeRunBlocks(96).maxVoidBridgeRunBlocks(96)));
+                .maxBridgeRunBlocks(96).maxVoidBridgeRunBlocks(96));
     }
 
     private static String ratio(ProgressiveWalk.Trace trace, double best) {
