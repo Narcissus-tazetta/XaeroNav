@@ -184,7 +184,7 @@ The numbers illustrate "cheapest ticks from here to the goal". The search simply
 
 - The window is a square centered on the player, reaching 224 blocks in each direction, or less if
   your render distance is shorter. If the Java heap limit is below 2.5 GB it shrinks to 160 blocks
-  (the graph and guide can take up to about 610 MB at 224, about 330 MB at 160).
+  (the graph and guide can take up to about 460 MB at 224, about 260 MB at 160).
 - The detailed search's bounding box is cut to the same window. Outside the window the guide falls
   back to an estimate, so the box and the window are kept aligned.
 

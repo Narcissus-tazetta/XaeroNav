@@ -5,6 +5,7 @@ import java.util.function.BooleanSupplier;
 
 import org.jspecify.annotations.Nullable;
 
+import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 
 import net.minecraft.core.BlockPos;
@@ -13,29 +14,37 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
 
 /**
  * 1セクションから出る辺。出発点（ノード）はセクション内の位置のビットで持ち、番号は位置の昇順。
- * 辺はノード番号順に並べ、{@link MoveTable}の番号だけを持つ。
+ * 辺は{@link MoveTable}の番号だけを持つ。
  *
- * <p>1辺2バイト＋1ノード4バイト。同じ出発点・行き先の辺は種類違いで何本も生成されるので、いちばん安いものだけ残す。
+ * <p>ノードの辺の並び（移動の番号の列）はセクションの中で同じものが多い（実測: 異なる並びはノードの6〜30%）ので、
+ * 異なる並びだけを覚え、ノードは並びの番号を持つ。同じ出発点・行き先の辺は種類違いで何本も生成されるので、
+ * いちばん安いものだけ残す。
  */
 final class SectionEdges {
 
     /** セクション内の位置 {@code lx | lz << 4 | ly << 8} のビット（4096）を収める語数。 */
     private static final int WORDS = SectionMoves.SIZE * SectionMoves.SIZE * SectionMoves.SIZE / 64;
 
-    static final SectionEdges EMPTY = new SectionEdges(new long[WORDS], new int[1], new char[0]);
+    static final SectionEdges EMPTY = new SectionEdges(new long[WORDS], new char[0], new int[1], new char[0], 0);
 
     private final long[] nodeBits;
     /** 語ごとの、それより前の語にあるノードの数。 */
     private final char[] rank;
-    /** ノード{@code i}の辺は {@code move[edgeStart[i]..edgeStart[i+1])}。 */
-    final int[] edgeStart;
+    /** ノード{@code i}の辺の並びの番号。 */
+    private final char[] pattern;
+    /** 並び{@code p}は {@code move[patternStart[p]..patternStart[p+1])}。 */
+    private final int[] patternStart;
     final char[] move;
     final int nodes;
+    /** 並びを共有する前の辺の数。 */
+    private final int edges;
 
-    private SectionEdges(long[] nodeBits, int[] edgeStart, char[] move) {
+    private SectionEdges(long[] nodeBits, char[] pattern, int[] patternStart, char[] move, int edges) {
         this.nodeBits = nodeBits;
-        this.edgeStart = edgeStart;
+        this.pattern = pattern;
+        this.patternStart = patternStart;
         this.move = move;
+        this.edges = edges;
         this.rank = new char[WORDS];
         int count = 0;
         for (int w = 0; w < WORDS; w++) {
@@ -46,7 +55,16 @@ final class SectionEdges {
     }
 
     int size() {
-        return move.length;
+        return edges;
+    }
+
+    /** ノード{@code node}の辺は {@code move[first(node)..end(node))}。 */
+    int first(int node) {
+        return patternStart[pattern[node]];
+    }
+
+    int end(int node) {
+        return patternStart[pattern[node] + 1];
     }
 
     static int local(int x, int y, int z) {
@@ -75,7 +93,7 @@ final class SectionEdges {
 
     /** 覚えている配列のおおよそのバイト数。 */
     long bytes() {
-        return 8L * WORDS + 2L * WORDS + 4L * edgeStart.length + 2L * move.length + 64;
+        return 8L * WORDS + 2L * WORDS + 2L * pattern.length + 4L * patternStart.length + 2L * move.length + 64;
     }
 
     /** @return 打ち切られたら{@code null} */
@@ -179,21 +197,53 @@ final class SectionEdges {
         char[] ids = new char[kinds];
         moves.intern(w.kindOffset, w.kindCost, kinds, ids);
 
-        int[] edgeStart = new int[nodeCount + 1];
-        char[] move = new char[n];
+        // 並びを番号順に積み、同じ並びは先に積んだものを指す
+        char[] all = w.all(n);
+        for (int i = 0; i < n; i++) {
+            all[i] = ids[edgeDistinct[i]];
+        }
+        char[] pattern = new char[nodeCount];
+        int[] patternStart = w.patternStart(nodeCount + 1);
+        int[] table = w.table;
+        // 表は半分以上空くように取る。セクションごとに埋め直すので、ノードが少ないセクションで表全体を埋めない
+        int mask = (Integer.highestOneBit(nodeCount) << 2) - 1;
+        Arrays.fill(table, 0, mask + 1, -1);
+        int patterns = 0;
+        int stored = 0;
         int node = 0;
         int previous = 0;
         for (int l = 0; l < LOCALS; l++) {
-            if ((nodeBits[l >> 6] & 1L << l) != 0) {
-                edgeStart[node++] = previous;
-                previous = groupEnd[l];
+            if ((nodeBits[l >> 6] & 1L << l) == 0) {
+                continue;
             }
+            int from = previous;
+            int to = groupEnd[l];
+            previous = to;
+            int hash = 1;
+            for (int i = from; i < to; i++) {
+                hash = 31 * hash + all[i];
+            }
+            int at = HashCommon.mix(hash) & mask;
+            int found = -1;
+            for (int p = table[at]; p >= 0; p = table[at = at + 1 & mask]) {
+                if (Arrays.equals(all, patternStart[p], patternStart[p + 1], all, from, to)) {
+                    found = p;
+                    break;
+                }
+            }
+            if (found < 0) {
+                // 積んだ並びは all の前へ詰め直す。詰め先は読み終えた位置より前なので、まだ読んでいない並びは壊さない
+                System.arraycopy(all, from, all, stored, to - from);
+                patternStart[patterns] = stored;
+                stored += to - from;
+                patternStart[patterns + 1] = stored;
+                table[at] = patterns;
+                found = patterns++;
+            }
+            pattern[node++] = (char) found;
         }
-        edgeStart[nodeCount] = n;
-        for (int i = 0; i < n; i++) {
-            move[i] = ids[edgeDistinct[i]];
-        }
-        return new SectionEdges(nodeBits, edgeStart, move);
+        return new SectionEdges(nodeBits, pattern, Arrays.copyOf(patternStart, patterns + 1),
+                Arrays.copyOf(all, stored), n);
     }
 
     /** セクション内の位置の数。 */
@@ -213,6 +263,9 @@ final class SectionEdges {
         int[] sortedOffset = new int[0];
         float[] sortedCost = new float[0];
         private int[] edgeDistinct = new int[0];
+        private char[] all = new char[0];
+        private int[] patternStart = new int[0];
+        final int[] table = new int[4 * LOCALS];
         int[] kindOffset = new int[1 << 9];
         float[] kindCost = new float[1 << 9];
         final Long2IntOpenHashMap distinct = new Long2IntOpenHashMap();
@@ -245,6 +298,20 @@ final class SectionEdges {
                 edgeDistinct = new int[size + size / 2];
             }
             return edgeDistinct;
+        }
+
+        char[] all(int size) {
+            if (all.length < size) {
+                all = new char[size + size / 2];
+            }
+            return all;
+        }
+
+        int[] patternStart(int size) {
+            if (patternStart.length < size) {
+                patternStart = new int[size];
+            }
+            return patternStart;
         }
 
         void kind(int id, int moveOffset, float moveCost) {

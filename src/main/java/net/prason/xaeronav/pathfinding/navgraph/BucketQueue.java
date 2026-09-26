@@ -18,7 +18,15 @@ final class BucketQueue {
     /** {@link #head}のうち使っている範囲。 */
     private int buckets;
 
-    void clear(int bucketCount) {
+    /**
+     * @param items 積む見込みの数。窓の逆Dijkstraはノード数の1.0〜1.5倍積む（実測）。倍々に伸ばすと最悪で半分が空き、
+     *              伸ばす瞬間は古い配列と合わせて3倍を持つので、見込みで先に取っておく
+     */
+    void clear(int bucketCount, int items) {
+        if (value.length < items) {
+            value = new int[items];
+            next = new int[items];
+        }
         if (head.length < bucketCount) {
             head = new int[bucketCount + bucketCount / 4];
         }
@@ -36,8 +44,8 @@ final class BucketQueue {
             buckets = bucket + 1;
         }
         if (size == value.length) {
-            value = Arrays.copyOf(value, size * 2);
-            next = Arrays.copyOf(next, size * 2);
+            value = Arrays.copyOf(value, size + size / 4);
+            next = Arrays.copyOf(next, size + size / 4);
         }
         value[size] = item;
         next[size] = head[bucket];

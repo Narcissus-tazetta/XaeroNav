@@ -164,8 +164,8 @@ public final class WindowField implements CostToGo {
             return inMove;
         }
 
-        BucketQueue queue(int buckets) {
-            queue.clear(buckets);
+        BucketQueue queue(int buckets, int items) {
+            queue.clear(buckets, items);
             return queue;
         }
 
@@ -317,7 +317,7 @@ public final class WindowField implements CostToGo {
                             distance[from] = Math.min(distance[from], value);
                         }
                     }
-                    for (int e = section.edgeStart[i]; e < section.edgeStart[i + 1]; e++) {
+                    for (int e = section.first(i), end = section.end(i); e < end; e++) {
                         int m = section.move[e];
                         int tx = lx + moves.dx[m];
                         int ty = ly + moves.dy[m];
@@ -360,7 +360,7 @@ public final class WindowField implements CostToGo {
                 SectionEdges section = sections[s];
                 for (int i = 0; i < section.nodes; i++) {
                     int local = position[offsets[s] + i];
-                    for (int e = section.edgeStart[i]; e < section.edgeStart[i + 1]; e++) {
+                    for (int e = section.first(i), end = section.end(i); e < end; e++) {
                         int move = section.move[e];
                         int target = index.resolve(s, (local & 15) + moves.dx[move],
                                 (local >> 8 & 15) + moves.dy[move], (local >> 4 & 15) + moves.dz[move]);
@@ -396,7 +396,7 @@ public final class WindowField implements CostToGo {
             // 振った移動の値段はどれもこの幅以上なので、バケットを前から空にするだけで確定順になる。
             // 窓の外のセクションの移動も含む最小値だが、幅が狭いぶんには正しさは変わらない
             double width = moves.minCost;
-            BucketQueue queue = buffers.queue((int) ((top - base) / width) + 1);
+            BucketQueue queue = buffers.queue((int) ((top - base) / width) + 1, n + n / 4);
             for (int i = 0; i < n; i++) {
                 if (Double.isFinite(distance[i])) {
                     queue.push((int) ((distance[i] - base) / width), i);
@@ -606,7 +606,7 @@ public final class WindowField implements CostToGo {
             if (Math.abs(x - centerX) > radius - EDGE_SEED_BAND || Math.abs(z - centerZ) > radius - EDGE_SEED_BAND) {
                 best = far.at(x, y, z);
             }
-            for (int e = section.edgeStart[node]; e < section.edgeStart[node + 1]; e++) {
+            for (int e = section.first(node), end = section.end(node); e < end; e++) {
                 int m = section.move[e];
                 int tx = x + moves.dx[m];
                 int ty = y + moves.dy[m];

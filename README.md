@@ -198,7 +198,7 @@ Other markings:
 | `blockBudgetReserve` | `0` | Blocks held back from that budget |
 | `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
-| `costToGoGuideEnabled` | `true` | Guide the detailed search with a cost-to-go estimate. This builds a navigation graph of the loaded area in the background and aims straight at the destination (uses spare CPU cores and up to about 610 MB, or about 330 MB when the Java heap limit is below 2.5 GB); until the graph is ready, the coarse route's estimate is used. `false` falls back to straight-line distance |
+| `costToGoGuideEnabled` | `true` | Guide the detailed search with a cost-to-go estimate. This builds a navigation graph of the loaded area in the background and aims straight at the destination (uses spare CPU cores and up to about 460 MB, or about 260 MB when the Java heap limit is below 2.5 GB); until the graph is ready, the coarse route's estimate is used. `false` falls back to straight-line distance |
 | `detailHorizonBlocks` | `96` | Max horizontal distance the detailed search targets in one shot; farther destinations get intermediate waypoints |
 | `maxBridgeRunBlocks` | `96` | How many consecutive blocks a bridge over open air can run before it's abandoned for a detour (`0` = unlimited) |
 | `maxLavaBridgeRunBlocks` | `30` | Same, but specifically for bridges over lava (`0` = unlimited) |
