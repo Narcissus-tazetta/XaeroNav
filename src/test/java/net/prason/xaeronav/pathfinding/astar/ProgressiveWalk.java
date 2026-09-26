@@ -228,8 +228,8 @@ final class ProgressiveWalk {
     /** 区間の始点が目的地へ繋がる殻の外にあるときも、航法グラフを使わないか（計測の切り替え）。 */
     private static final boolean REFUSE_DISCONNECTED_START = Boolean.getBoolean("xaeronav.navGraphRefuseCut");
 
-    /** 組み直したガイドで引いてある経路を見直す閾値（{@code RouteReview}）。負なら見直さない。 */
-    private static final double REVIEW_MIN_EXTRA_TICKS = Double.parseDouble(System.getProperty("xaeronav.reviewTicks", "-1"));
+    /** 組み直したガイドで引いてある経路を見直す閾値（{@code PathfindingState#REVIEW_MIN_EXTRA_TICKS}）。負なら見直さない。 */
+    private static final double REVIEW_MIN_EXTRA_TICKS = Double.parseDouble(System.getProperty("xaeronav.reviewTicks", "40"));
     private static final double REVIEW_MIN_EXTRA_RATIO = Double.parseDouble(System.getProperty("xaeronav.reviewRatio", "0.05"));
 
     /** {@code PathfindingState#REVIEW_RETRY_MOVE_BLOCKS}。 */
@@ -472,7 +472,7 @@ final class ProgressiveWalk {
                 // 実機は区間を投げない再計算のたびにもガイドの組み直しを判定する（NavGraphGuide#forGoal）
                 CostToGo latest = guideAt.apply(player);
                 if (REVIEW_MIN_EXTRA_TICKS >= 0 && latest != reviewed && latest instanceof WindowField field
-                        && !planned.isEmpty()
+                        && field.reachesGoal() && !planned.isEmpty()
                         && (reviewReplannedAt == null || horizontal(player, reviewReplannedAt) >= REVIEW_RETRY_MOVE)) {
                     reviewed = latest;
                     RouteReview.Detour detour = RouteReview.detour(field, player, planned, 0);
