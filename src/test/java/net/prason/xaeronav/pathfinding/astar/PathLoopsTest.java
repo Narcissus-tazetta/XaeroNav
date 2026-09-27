@@ -3,8 +3,11 @@ package net.prason.xaeronav.pathfinding.astar;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -66,5 +69,82 @@ class PathLoopsTest {
         assertEquals(List.of(new BlockPos(1, 64, 0), new BlockPos(2, 64, 0), new BlockPos(5, 64, 0)),
                 positions(folded));
         assertTrue(folded.size() == 3);
+    }
+
+    private static PathStep walk(int x, int z) {
+        return new PathStep(new BlockPos(x, 64, z), MovementType.TRAVERSE, 4.0, List.of(), List.of(), PathRisk.NONE, null);
+    }
+
+    /** 東へ伸びた経路の先で引き返し、10ブロック離れて西へ戻ってから南へ抜ける継ぎ足し（V字）。 */
+    @Test
+    void findsAReturnThatRunsBesideTheWayOut() {
+        List<PathStep> route = new ArrayList<>();
+        for (int x = 0; x <= 40; x++) {
+            route.add(walk(x, 0));
+        }
+        List<PathStep> tail = new ArrayList<>();
+        for (int z = 1; z <= 10; z++) {
+            tail.add(walk(40, z));
+        }
+        for (int x = 39; x >= 0; x--) {
+            tail.add(walk(x, 10));
+        }
+        for (int z = 11; z <= 30; z++) {
+            tail.add(walk(0, z));
+        }
+        PathLoops.Return found = PathLoops.widestReturn(route, tail, 0, 16, 6, 20, 3);
+        assertNotNull(found);
+        assertEquals(0, found.entry());
+        BlockPos rejoin = tail.get(found.rejoin()).pos();
+        assertTrue(Math.max(Math.abs(rejoin.getX()), Math.abs(rejoin.getZ())) <= 16);
+    }
+
+    @Test
+    void findsNoReturnWhenTheTailKeepsGoing() {
+        List<PathStep> route = new ArrayList<>();
+        for (int x = 0; x <= 40; x++) {
+            route.add(walk(x, 0));
+        }
+        List<PathStep> tail = new ArrayList<>();
+        for (int x = 41; x <= 80; x++) {
+            tail.add(walk(x, 0));
+        }
+        assertNull(PathLoops.widestReturn(route, tail, 0, 16, 6, 20, 3));
+    }
+
+    /** 歩き終えた所（{@code fromIndex}より前）へ戻る輪は切り落とせないので拾わない。 */
+    @Test
+    void ignoresAReturnToWhereThePlayerHasAlreadyWalked() {
+        List<PathStep> route = new ArrayList<>();
+        for (int x = 0; x <= 40; x++) {
+            route.add(walk(x, 0));
+        }
+        List<PathStep> tail = new ArrayList<>();
+        for (int x = 39; x >= 0; x--) {
+            tail.add(walk(x, 5));
+        }
+        assertNull(PathLoops.widestReturn(route, tail, 38, 16, 6, 20, 3));
+    }
+
+    @Test
+    void laterStepsDependOnABlockPlacedInTheCutSection() {
+        List<PathStep> steps = List.of(at(1), bridgeAt(2), at(3), at(4),
+                new PathStep(new BlockPos(2, 65, 0), MovementType.ASCEND, 8.0, List.of(), List.of(), PathRisk.NONE, null));
+        // 2に置いたブロック(2,63,0)は後の手の足場ではない（後の手は(2,65,0)に立つので足場は(2,64,0)）
+        assertFalse(PathLoops.laterStepsDependOn(steps, 1, 2));
+        List<PathStep> standing = List.of(at(1), bridgeAt(2), at(3),
+                new PathStep(new BlockPos(2, 64, 0), MovementType.TRAVERSE, 4.0, List.of(), List.of(), PathRisk.NONE, null));
+        assertTrue(PathLoops.laterStepsDependOn(standing, 1, 2));
+    }
+
+    @Test
+    void laterStepsDependOnAHoleDugInTheCutSection() {
+        BlockPos hole = new BlockPos(5, 64, 0);
+        List<PathStep> steps = List.of(at(1),
+                new PathStep(new BlockPos(2, 64, 0), MovementType.TRAVERSE, 20.0, List.of(), List.of(hole), PathRisk.NONE, null),
+                at(3),
+                new PathStep(hole, MovementType.TRAVERSE, 4.0, List.of(hole), List.of(), PathRisk.NONE, null));
+        assertTrue(PathLoops.laterStepsDependOn(steps, 1, 2));
+        assertFalse(PathLoops.laterStepsDependOn(steps, 0, 0));
     }
 }

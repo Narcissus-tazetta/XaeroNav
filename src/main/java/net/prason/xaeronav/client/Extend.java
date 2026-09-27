@@ -58,8 +58,17 @@ final class Extend {
      */
     private static final double EXTEND_RETRY_MOVE_BLOCKS = 16.0;
 
-    /** {@link #noteLoop}が「同じ場所へ戻った」とみなす各軸の距離。 */
-    private static final int LOOP_NEAR_BLOCKS = 2;
+    /**
+     * {@link #noteLoop}が「戻ってきた」とみなす水平の距離（各軸）。窓の縁の先の行き止まりから引き返す線は、来た線と十数ブロック
+     * 離れて並ぶことがある（実機のエンドのV字）。
+     */
+    private static final int LOOP_NEAR_BLOCKS = 16;
+
+    /** {@link #noteLoop}が「戻ってきた」とみなす高さの差。 */
+    private static final int LOOP_NEAR_Y = 6;
+
+    /** 両端が1ブロック離れるごとに要求する、経路に沿った遠回りのステップ数。離れた2点の間を普通に歩いた線を輪とみなさない。 */
+    private static final int LOOP_GAP_PER_BLOCK = 3;
 
     /**
      * {@link #noteLoop}が輪とみなす、経路に沿った最小のステップ数。末端の近くで向きを変えるだけの
@@ -436,7 +445,8 @@ final class Extend {
                 // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
                 // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
                 long loopLap = TickLaps.start();
-                SeamRepair.Loop loop = noteLoop(steps, tail, target, result, navGraphGuided);
+                SeamRepair.Loop loop = noteLoop(steps, tail, PathProgress.INSTANCE.indexFor(current.result()) + 1,
+                        target, result, navGraphGuided);
                 TickLaps.add("輪の検出", loopLap);
                 long retreatLap = TickLaps.start();
                 noteRetreatingTail(from, tail.get(tail.size() - 1).pos(), currentGoal, target, result, goalGuide);
@@ -501,44 +511,28 @@ final class Extend {
     }
 
     /**
-     * 継ぎ足す区間が既存の経路のずっと手前へ戻ってくるなら1行残す。継ぎ足しは末端から先だけを解くので、
+     * 継ぎ足す区間が既存の経路の手前の近くへ戻ってくるなら1行残す。継ぎ足しは末端から先だけを解くので、
      * 戻ってきても手前の経路は見直されず、線が輪を描いたまま表示される。輪は後で繋ぎ目の解き直しが
      * 切ることもあるが、「なぜ継ぎ足しが戻る向きへ伸びたか」はそこからは分からない。
      * 経路に沿って最も多くのステップを遠回りしている組を出す。
      *
+     * @param fromIndex プレイヤーの次に踏むステップの添字。歩き終えた所へ戻る輪は切り落とせない
      * @return 輪の両端（{@link SeamRepair#queueLoop}へ渡して切り落とす）。輪が無ければ{@code null}
      */
-    private static SeamRepair.@Nullable Loop noteLoop(List<PathStep> route, List<PathStep> tail, BlockPos target, PathResult result,
-            boolean navGraphGuided) {
-        int bestGap = -1;
-        int bestRoute = -1;
-        int bestTail = -1;
-        for (int j = 0; j < tail.size(); j++) {
-            BlockPos at = tail.get(j).pos();
-            for (int k = 0; k < route.size(); k++) {
-                int gap = route.size() - k + j;
-                if (gap <= bestGap || gap < LOOP_MIN_GAP_STEPS) {
-                    break;
-                }
-                BlockPos p = route.get(k).pos();
-                if (Math.abs(p.getX() - at.getX()) <= LOOP_NEAR_BLOCKS && Math.abs(p.getY() - at.getY()) <= LOOP_NEAR_BLOCKS
-                        && Math.abs(p.getZ() - at.getZ()) <= LOOP_NEAR_BLOCKS) {
-                    bestGap = gap;
-                    bestRoute = k;
-                    bestTail = j;
-                    break;
-                }
-            }
-        }
-        if (bestGap < 0) {
+    private static SeamRepair.@Nullable Loop noteLoop(List<PathStep> route, List<PathStep> tail, int fromIndex,
+            BlockPos target, PathResult result, boolean navGraphGuided) {
+        PathLoops.Return found = PathLoops.widestReturn(route, tail, fromIndex, LOOP_NEAR_BLOCKS, LOOP_NEAR_Y,
+                LOOP_MIN_GAP_STEPS, LOOP_GAP_PER_BLOCK);
+        if (found == null) {
             return null;
         }
         LOGGER.debug("XaeroNav: 継ぎ足しが経路の手前へ戻ってきました (継ぎ足しの{}ステップ目={}, 経路の{}ステップ目={}の近く, "
                         + "経路に沿って{}ステップの輪, 経路={}ステップ, 継ぎ足し={}ステップ/{}, 末端={}, 狙った先={}, 航法グラフ={})",
-                bestTail, tail.get(bestTail).pos().toShortString(), bestRoute, route.get(bestRoute).pos().toShortString(),
-                bestGap, route.size(), tail.size(), result.termination(), route.get(route.size() - 1).pos().toShortString(),
-                target.toShortString(), navGraphGuided);
-        return new SeamRepair.Loop(route.get(bestRoute).pos(), tail.get(bestTail).pos());
+                found.rejoin(), tail.get(found.rejoin()).pos().toShortString(), found.entry(),
+                route.get(found.entry()).pos().toShortString(), found.gap(), route.size(), tail.size(),
+                result.termination(), route.get(route.size() - 1).pos().toShortString(), target.toShortString(),
+                navGraphGuided);
+        return new SeamRepair.Loop(route.get(found.entry()).pos(), tail.get(found.rejoin()).pos());
     }
 
     /**

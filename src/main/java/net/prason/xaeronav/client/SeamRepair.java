@@ -7,7 +7,6 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.jspecify.annotations.Nullable;
 import org.apache.logging.log4j.Logger;
@@ -134,15 +133,20 @@ final class SeamRepair {
     private final Queue<BlockPos> pending = new ConcurrentLinkedQueue<>();
 
     /**
-     * 継ぎ足しが経路の手前へ並走して戻ってきた輪の両端（{@code Extend#noteLoop}）。1つだけ覚える——
-     * 新しい輪が見つかる頃には、古い輪は解き直したか、プレイヤーが通り過ぎている。
+     * 継ぎ足しが経路の手前へ並走して戻ってきた輪の両端（{@code Extend#noteLoop}）。
      *
-     * <p>繋ぎ目の列とは別に持つ。{@link PathLoops}が畳めるのは同じ座標を2度踏む輪だけで、1〜2ブロック横を
+     * <p>1つだけでなく複数覚える。同じtickに続いた継ぎ足しの小さな輪が大きな輪を上書きすると、大きな方が残る
+     * （実機のエンド: 153ステップの輪が26ステップの輪に上書きされ、V字が残った）。
+     *
+     * <p>繋ぎ目の列とは別に持つ。{@link PathLoops#fold}が畳めるのは同じ座標を2度踏む輪だけで、横を
      * 並走して戻る輪は残る。繋ぎ目の前後{@link #SPAN_BLOCKS}を解き直す通常の修復では、輪の入口が
      * {@link #KEEP_BLOCKS}の内側（足元）にあると入口ごと残ってしまう。輪の両端をそのまま区間にすれば、
      * 入口より手前の線は1ブロックも変わらない。
      */
-    private final AtomicReference<Loop> pendingLoop = new AtomicReference<>();
+    private final ConcurrentLinkedQueue<Loop> pendingLoops = new ConcurrentLinkedQueue<>();
+
+    /** 覚えておく輪の数。溢れたら古い方から捨てる。 */
+    private static final int LOOP_QUEUE_LIMIT = 4;
 
     /** 輪の入口（経路側）と、戻ってきた所（継ぎ足し側）。 */
     record Loop(BlockPos entry, BlockPos rejoin) {
@@ -163,12 +167,15 @@ final class SeamRepair {
 
     /** 解き直し待ちの繋ぎ目が1つも無いか。 */
     boolean isEmpty() {
-        return pending.isEmpty() && pendingLoop.get() == null;
+        return pending.isEmpty() && pendingLoops.isEmpty();
     }
 
     /** 並走して戻る輪を覚える。次の{@link #tryRepair}で、繋ぎ目より先に解き直す。 */
     void queueLoop(Loop loop) {
-        pendingLoop.set(loop);
+        pendingLoops.add(loop);
+        while (pendingLoops.size() > LOOP_QUEUE_LIMIT) {
+            pendingLoops.poll();
+        }
     }
 
     /** 解き直し待ちの繋ぎ目を覚える。溢れたら古い方から捨てる。 */
@@ -182,14 +189,14 @@ final class SeamRepair {
     /** 目的地の変更で、解き直し待ちの列と直近の見送り理由を捨てる。 */
     void clear() {
         pending.clear();
-        pendingLoop.set(null);
+        pendingLoops.clear();
         refusalGate.reset();
     }
 
     /** 全部引き直すとき、手前の経路ごと消える繋ぎ目だけを捨てる。見送り理由はまだ有効なので残す。 */
     void dropPending() {
         pending.clear();
-        pendingLoop.set(null);
+        pendingLoops.clear();
     }
 
     /** 直近に報告した見送りの理由（診断用）。 */
@@ -213,7 +220,7 @@ final class SeamRepair {
     }
 
     private boolean tryRepairNow(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius) {
-        Loop loop = pendingLoop.getAndSet(null);
+        Loop loop = pendingLoops.poll();
         if (loop != null) {
             return tryCutLoop(level, player, shown, renderRadius, loop);
         }
@@ -258,8 +265,8 @@ final class SeamRepair {
     /**
      * 輪の入口から戻ってきた所までを解き直す。入口より手前は変えない。
      *
-     * <p>輪の中に設置・掘削があれば解き直さない。輪の先のステップが、輪の中で置いたブロックや掘った穴を
-     * 前提に繋がっていることがあり、輪ごと消すと足場ごと消える（{@link PathLoops}と同じ理由）。
+     * <p>輪の先のステップが、輪の中で置いたブロックや掘った穴を前提に繋がっていれば解き直さない。輪ごと消すと足場ごと消える
+     * （{@link PathLoops#laterStepsDependOn}）。前提にしていなければ、輪の中に設置・掘削があっても結び直す。
      */
     private boolean tryCutLoop(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius,
             Loop loop) {
@@ -272,11 +279,9 @@ final class SeamRepair {
             noteSeamRepairRefused("輪が経路上に無い");
             return false;
         }
-        for (int i = entry + 1; i <= rejoin; i++) {
-            if (steps.get(i).bridging() || steps.get(i).digging()) {
-                noteSeamRepairRefused("輪の中に設置・掘削がある");
-                return false;
-            }
+        if (PathLoops.laterStepsDependOn(steps, entry + 1, rejoin)) {
+            noteSeamRepairRefused("輪の先が輪の中の設置・掘削を前提にしている");
+            return false;
         }
         solve(level, player, shown, renderRadius, entry + 1, rejoin, walkedTo + 1,
                 "輪=" + loop.entry().toShortString() + "→" + loop.rejoin().toShortString());
