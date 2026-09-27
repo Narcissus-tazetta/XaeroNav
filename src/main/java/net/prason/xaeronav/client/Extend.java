@@ -445,6 +445,9 @@ final class Extend {
                 if (loop != null) {
                     seamRepair.queueLoop(loop);
                 }
+                RouteExplain.log("継ぎ足し", level, from, target, currentGoal, result, prepared,
+                        goalGuide == null ? null : goalGuide.costToGo(), view,
+                        tuning.movementOptions(), renderRadius);
                 long appendLap = TickLaps.start();
                 host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal));
                 TickLaps.add("継ぎ足しの連結", appendLap);

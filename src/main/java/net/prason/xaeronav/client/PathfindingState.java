@@ -1,10 +1,8 @@
 package net.prason.xaeronav.client;
 
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -31,7 +29,6 @@ import net.prason.xaeronav.util.ChangeGate;
 import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
-import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.NavigationTuning;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
@@ -295,36 +292,11 @@ public final class PathfindingState {
     private static final ChangeGate<Boolean> slowMapReadGate = new ChangeGate<>();
 
     /**
-     * 経路が始点→目標の直線からこれだけ外れていたら、内訳をログに出す（{@link #noteSuspiciousShape}）。
-     * 大きく迂回すること自体は正常なので、閾値は「普段は黙っている」程度に高く取る。
-     */
-    private static final double SUSPICIOUS_DEVIATION_BLOCKS = 24.0;
-
-    /**
      * 引き直した経路の末端が、表示中の経路の末端よりこれだけ目的地から遠ければログに出す
      * （{@link #noteRouteRegression}）。末端は中間目標や探索の打ち切り位置で数ブロックは普通に揺れるので、
      * 揺れでは鳴らず、線が目に見えて縮んだときだけ鳴る幅にする。
      */
     private static final double ROUTE_REGRESSION_LOG_BLOCKS = 16.0;
-
-    /**
-     * 経路のステップのうち掘削・設置がこの割合を超えたら、迂回していなくても内訳を出す
-     * （{@link #noteSuspiciousShape}）。
-     *
-     * <p>ずれだけを引き金にしていると、<b>まっすぐ進みながら道中ずっと地形を壊している経路が
-     * 1行も残らない</b>。ユーザー報告「無駄な掘削・設置が多い」はそちらの形で出るので、
-     * 診断もそちらを直接見る必要がある。
-     */
-    private static final double SUSPICIOUS_TERRAIN_EDIT_FRACTION = 0.1;
-
-    /**
-     * 上の割合と<b>あわせて</b>要求する掘削・設置の実数。
-     *
-     * <p>割合だけだと短い経路で必ず鳴る——5ステップ先の段差を1つ掘る経路は2割で、これは普通の
-     * 案内。しかも経路は数十tickごとに引き直されるので、同じ1行がその間ずっと出続ける。
-     * 見たいのは「道中ずっと壊している」方なので、実数の下限で普段の1〜2手を落とす。
-     */
-    private static final int SUSPICIOUS_TERRAIN_EDIT_STEPS = 8;
 
     /**
      * 地上優先ナビ（{@link #shouldClimbToSurface}）に入る深さの下限（ブロック）。
@@ -2147,7 +2119,9 @@ public final class PathfindingState {
                 // 新しい経路に対する合流可否は測り直しになる。前の経路で失敗した記録は持ち越さない
                 splice.clearBlock();
                 long shapeLap = TickLaps.start();
-                noteSuspiciousShape(start, finalTarget, result);
+                RouteExplain.log("再計算:" + trigger, level, start, finalTarget, currentGoal, result, prepared,
+                        goalGuide == null ? null : goalGuide.costToGo(), view,
+                        tuning.movementOptions(), renderRadius);
                 TickLaps.add("形の点検", shapeLap);
                 long regressionLap = TickLaps.start();
                 noteRouteRegression(trigger, forced, start, currentGoal, result);
@@ -2728,81 +2702,6 @@ public final class PathfindingState {
         CoarseRoute cached = coarseRoute;
         RefinedRoute refined = refinedRoute;
         return cached != null && refined != null && refined.source() == cached;
-    }
-
-    /**
-     * 経路が始点→目標の直線から大きく外れていたら、その内訳を残す（診断）。
-     *
-     * <p>ユーザー報告「地図の線が長方形にジグザグする」（2026-08-30、実機スクショ）の切り分け用。
-     * 見た目だけでは<b>どの手が並んでいるのか</b>が分からず、原因の候補が絞れなかった:
-     * 急斜面を降りるための折り返し（{@code DESCEND}が多い）なのか、橋（{@code BRIDGE}）なのか、
-     * 中間目標が飛んでいるのか。1行あれば区別が付く。
-     *
-     * <p>普段は黙っている——{@link #SUSPICIOUS_DEVIATION_BLOCKS}を超えて外れたときと、
-     * 掘削・設置が{@link #SUSPICIOUS_TERRAIN_EDIT_STEPS}手を超えつつ
-     * {@link #SUSPICIOUS_TERRAIN_EDIT_FRACTION}も超えたときだけ出す。
-     */
-    private void noteSuspiciousShape(BlockPos start, BlockPos target, PathResult result) {
-        if (!LOGGER.isDebugEnabled()) {
-            return;
-        }
-        List<PathStep> steps = result.steps();
-        if (steps.isEmpty()) {
-            return;
-        }
-        double gx = target.getX() - start.getX();
-        double gz = target.getZ() - start.getZ();
-        double length = Math.sqrt(gx * gx + gz * gz);
-        if (length < 1.0) {
-            return;
-        }
-        double deviation = 0.0;
-        int turns = 0;
-        int previousDx = 0;
-        int previousDz = 0;
-        int cursorX = start.getX();
-        int cursorZ = start.getZ();
-        Map<MovementType, Integer> kinds = new EnumMap<>(MovementType.class);
-        int bridges = 0;
-        int digs = 0;
-        for (PathStep step : steps) {
-            kinds.merge(step.movement(), 1, Integer::sum);
-            if (step.bridging()) {
-                bridges++;
-            }
-            if (step.digging()) {
-                digs++;
-            }
-            int dx = Integer.signum(step.pos().getX() - cursorX);
-            int dz = Integer.signum(step.pos().getZ() - cursorZ);
-            cursorX = step.pos().getX();
-            cursorZ = step.pos().getZ();
-            if ((dx != previousDx || dz != previousDz) && (dx != 0 || dz != 0)) {
-                turns++;
-            }
-            previousDx = dx;
-            previousDz = dz;
-            deviation = Math.max(deviation, Math.abs((step.pos().getX() - start.getX()) * gz
-                    - (step.pos().getZ() - start.getZ()) * gx) / length);
-        }
-        boolean manyEdits = bridges + digs >= SUSPICIOUS_TERRAIN_EDIT_STEPS
-                && bridges + digs > steps.size() * SUSPICIOUS_TERRAIN_EDIT_FRACTION;
-        if (deviation < SUSPICIOUS_DEVIATION_BLOCKS && !manyEdits) {
-            return;
-        }
-        BlockPos currentGoal = goal;
-        WindowField field = currentGoal == null ? null : navGraphGuide.latest(currentGoal);
-        BlockPos end = steps.get(steps.size() - 1).pos();
-        double finalDeviation = deviation;
-        int finalTurns = turns;
-        int finalBridges = bridges;
-        int finalDigs = digs;
-        NavGraphGuide.logOffThread(() -> LOGGER.debug("XaeroNav: 経路が直線から大きく外れています "
-                        + "(ずれ={}ブロック, 目標まで{}ブロック, {}ステップ, 曲がり{}, 橋{}, 掘削{}, 内訳={}, "
-                        + "始点の値の出どころ={}, 末端{}の値の出どころ={})",
-                Math.round(finalDeviation), Math.round(length), steps.size(), finalTurns, finalBridges, finalDigs, kinds,
-                field == null ? "航法グラフ無し" : NavGraphGuide.origin(field, start), end.toShortString(),
-                field == null ? "航法グラフ無し" : NavGraphGuide.origin(field, end)));
     }
 
     /**
