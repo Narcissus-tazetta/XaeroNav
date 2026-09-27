@@ -137,10 +137,10 @@ final class WaterMoves {
 
     /**
      * 水面をボートで進む。1マスあたりは泳ぎの半分以下。乗っている状態からしか出ないので、
-     * 乗り降りの手間（{@link ActionCosts#BOAT_OVERHEAD_TICKS}）は{@link #addBoatEnter}で必ず先に払う。
+     * 乗る手間（{@link ActionCosts#BOAT_LAUNCH_TICKS}）は{@link #addBoatEnter}で必ず先に払う。
      *
-     * <p>水面から降りる移動は既存のTraverse/Ascendがそのまま担う——降りる手間は入口の
-     * オーバーヘッドに畳み込んである。
+     * <p>水面から降りる移動は既存のTraverse/Ascendがそのまま担い、壊して拾う手間
+     * （{@link ActionCosts#BOAT_STOW_TICKS}）は{@code AStarPathfinder#relax}が降りる手に足す。
      */
     void addBoatPaddle(PathNode from, int dx, int dz, boolean diagonal) {
         if (!from.boating) {
@@ -160,8 +160,8 @@ final class WaterMoves {
     }
 
     /**
-     * ボートを出して乗り込む。乗り降りの手間をここで1度だけ払うので、短い水路では泳いで渡る方が
-     * 安いままになる（損益分岐は{@link ActionCosts#BOAT_OVERHEAD_TICKS}参照）。
+     * ボートを出して乗り込む。乗る手間をここで、壊して拾う手間を降りるときに払うので、短い水路では
+     * 泳いで渡る方が安いままになる（損益分岐は{@link ActionCosts#BOAT_STOW_TICKS}参照）。
      *
      * <p>岸から漕ぎ出す場合と、泳いでいる途中で出す場合の両方がある。水面は岸より1マス低いのが
      * 普通なので、同じ高さと1つ下の両方を試す。
@@ -181,7 +181,7 @@ final class WaterMoves {
         for (int y = from.y; y >= from.y - 1; y--) {
             if (owner.isBoatSurface(x, y, z)) {
                 owner.relaxBoating(from, x, y, z,
-                        ActionCosts.PADDLE_ONE_BLOCK + ActionCosts.BOAT_OVERHEAD_TICKS, MoveKind.BOAT_ENTER);
+                        ActionCosts.PADDLE_ONE_BLOCK + ActionCosts.BOAT_LAUNCH_TICKS, MoveKind.BOAT_ENTER);
                 return;
             }
         }

@@ -340,8 +340,8 @@ public final class ActionCosts {
      * <p><b>「走行を中断すること」の割増（{@link #TERRAIN_EDIT_INTERRUPTION_TICKS}）を含まない</b>
      * のがここの要点。それを含まない値が要る場所が3つある——奈落・溶岩の上の橋
      * （{@code AStarPathfinder#addBridge}）、既に落下している最中に置く水バケツMLG
-     * （{@link #MLG_WATER_OVERHEAD_TICKS}）、区間の入口で1度だけ払うボート
-     * （{@link #BOAT_OVERHEAD_TICKS}）。
+     * （{@link #MLG_WATER_OVERHEAD_TICKS}）、ボートの乗り降り
+     * （{@link #BOAT_LAUNCH_TICKS}・{@link #BOAT_STOW_TICKS}）。
      */
     public static final double PLACE_BLOCK_AIM_TICKS = 16.0;
 
@@ -398,21 +398,37 @@ public final class ActionCosts {
     public static final double MLG_WATER_OVERHEAD_TICKS = PLACE_BLOCK_AIM_TICKS;
 
     /**
-     * ボートを出して乗り、渡り終えて降りて回収するまでの手間。区間の入口で1度だけ払う。
+     * ボートを出して乗り、漕ぎ出して速度に乗るまでの手間。岸（または水面）からボートを出す1手で払う。
      *
-     * <p>{@link #PLACE_BLOCK_AIM_TICKS}（狙って置く1動作）の2回分——出す・乗るで1往復、
-     * 降りる・回収するで1往復。降りる側を別の移動として作らず入口にまとめるのは、A*のノードが
-     * 座標だけをキーにしていて「いま乗っているか」を状態として持てないため。
+     * <p>内訳: 水面を狙って出す（{@link #PLACE_BLOCK_AIM_TICKS}）＋乗る（出したボートは照準の先にあるので
+     * 狙い直さず、右クリックの間隔{@code Minecraft#rightClickDelay}の4tick）＋静止からの加速の遅れ。
+     * 速度は{@link #PADDLE_ONE_BLOCK}の漸化式 v' = 0.9v + 0.04 で0から立ち上がるので、定常速度に比べて
+     * Σ 0.4·0.9^n = 4ブロックぶん遅れる＝10tick。
      *
      * <p><b>{@link #TERRAIN_EDIT_INTERRUPTION_TICKS}を含めてはいけない。</b>区間の入口で1度だけ
-     * 払うここに「1マスごとの中断」を2回分掛けると中断を二重に数えることになり、下の損益分岐
-     * （水面10マス強）が意図せず倍以上に動く。
-     *
-     * <p>この値が損益分岐を決める: 泳ぎ({@link #SWIM_ONE_BLOCK})とボート({@link #PADDLE_ONE_BLOCK})の
-     * 差は1マスあたり約3tickなので、10マスちょっと以上の水面を渡るときだけボートが選ばれる。
-     * 小川を渡るのにいちいちボートを出せとは言わない、という線引きになる。
+     * 払うここに「1マスごとの中断」を掛けると中断を二重に数えることになる。
      */
-    public static final double BOAT_OVERHEAD_TICKS = 2.0 * PLACE_BLOCK_AIM_TICKS;
+    public static final double BOAT_LAUNCH_TICKS = PLACE_BLOCK_AIM_TICKS + 4.0 + 10.0;
+
+    /**
+     * 降りたボートを壊して拾うまでの手間。ボートに乗った状態から降りる手（{@code AStarPathfinder#relax}）で払う。
+     * 乗った状態で探索を始めた場合も降りるときには払うので、入口の{@link #BOAT_LAUNCH_TICKS}とは分けて持つ。
+     *
+     * <p>内訳: ボートへ向き直る（{@link #PLACE_BLOCK_AIM_TICKS}）＋素手で壊す28tick＋拾えるまでの10tick。
+     * <ul>
+     *   <li>壊す: {@code VehicleEntity#hurtServer}が1発ごとに攻撃力×10を足し、40を超えたら壊れる。
+     *       溜まった値は{@code AbstractBoat#tick}で毎tick1ずつ減る。ボートを出した直後の手は空なので素手
+     *       （攻撃力1・攻撃速度4＝満充填5tick、充填率fで威力×(0.2+0.8f²)）で叩くとして、
+     *       4tickおき（5回/秒）で8発・28tick。剣なら1発だが、持ち替えまでは仮定しない</li>
+     *   <li>拾う: 壊れたときの落とし物は{@code Entity#spawnAtLocation}が{@code setDefaultPickUpDelay}で
+     *       10tick拾えなくする</li>
+     * </ul>
+     *
+     * <p>{@link #BOAT_LAUNCH_TICKS}と合わせて84tickが損益分岐を決める: 泳ぎ({@link #SWIM_ONE_BLOCK})と
+     * ボート({@link #PADDLE_ONE_BLOCK})の差は1マスあたり約3tickなので、水面が28マスほどを超えるときだけ
+     * ボートが選ばれる。池や川幅程度なら出して壊す手間の方が高くつく。
+     */
+    public static final double BOAT_STOW_TICKS = PLACE_BLOCK_AIM_TICKS + 28.0 + 10.0;
 
     /**
      * 溶岩の上に足場を置いて渡る1ブロックあたりの追加ペナルティ。設置を1回でも外せば死ぬので

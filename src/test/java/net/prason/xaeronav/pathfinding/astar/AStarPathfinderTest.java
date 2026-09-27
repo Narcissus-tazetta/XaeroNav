@@ -487,23 +487,23 @@ class AStarPathfinderTest {
         assertTrue(result.steps().stream().anyMatch(PathStep::boating),
                 "40マスの水面はボートで渡る: " + movements(result));
         assertEquals(1, result.steps().stream().filter(step -> step.movement() == MovementType.BOAT
-                        && step.cost() > ActionCosts.BOAT_OVERHEAD_TICKS).count(),
+                        && step.cost() > ActionCosts.BOAT_LAUNCH_TICKS).count(),
                 "出す・乗る手間を払うのは漕ぎ出す1回だけ: " + movements(result));
     }
 
     /**
-     * 同じ形の細い水路ならボートは出さない。乗り降りの手間（{@code BOAT_OVERHEAD_TICKS}）が
-     * 泳ぎとの差を上回るため——「小川を渡るのにいちいちボートを出せ」とは言わない。
+     * 同じ形でも20マスの水路ならボートは出さない。出して乗る手間と、降りて壊して拾う手間
+     * （{@code BOAT_LAUNCH_TICKS}・{@code BOAT_STOW_TICKS}）が泳ぎとの差を上回るため。
      */
     @Test
     void swimsAcrossANarrowChannelInsteadOfLaunchingABoat() {
-        CellSource cells = strait(3).boatAvailable(true);
+        CellSource cells = strait(20).boatAvailable(true);
 
-        PathResult result = search(cells, new BlockPos(0, 63, 0), new BlockPos(4, 63, 0));
+        PathResult result = search(cells, new BlockPos(0, 63, 0), new BlockPos(21, 63, 0));
 
         assertTrue(result.complete());
         assertTrue(result.steps().stream().noneMatch(PathStep::boating),
-                "3マスの水路はそのまま泳いで渡る: " + movements(result));
+                "20マスの水路はそのまま泳いで渡る: " + movements(result));
     }
 
     /**
@@ -519,7 +519,7 @@ class AStarPathfinderTest {
 
         assertTrue(result.complete());
         assertTrue(result.steps().stream().allMatch(step -> !step.boating()
-                        || step.cost() < ActionCosts.BOAT_OVERHEAD_TICKS),
+                        || step.cost() < ActionCosts.BOAT_LAUNCH_TICKS),
                 "乗り込む手間を払う区間が残っている: "
                         + result.steps().stream().filter(PathStep::boating)
                                 .map(PathStep::cost).toList());
