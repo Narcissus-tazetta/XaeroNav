@@ -52,11 +52,43 @@ public final class NavGraph {
         this.goal = goal.immutable();
         this.minSectionY = Math.floorDiv(minY, SectionMoves.SIZE);
         this.maxSectionY = Math.floorDiv(maxY, SectionMoves.SIZE);
+        this.lowSectionY = minSectionY;
         this.naturals = new NaturalColumns(minY, maxY);
     }
 
     public BlockPos goal() {
         return goal;
+    }
+
+    /**
+     * プレイヤーと目的地の低い方から、この深さより下はグラフに入れない（{@link #floorBelow}）。
+     * 地上を行く経路が下る谷・峡谷・水底はこの幅に収まる（実機の海沿い・地上の広域で、切らないときと経路の値段が全ルート一致）。
+     */
+    public static final int FLOOR_DEPTH_BLOCKS = 24;
+
+    /** グラフに入れる最も低いセクション。{@link #floorBelow}で上げ下げする。 */
+    private volatile int lowSectionY;
+
+    /**
+     * プレイヤーの高さ{@code playerY}と目的地の低い方から{@link #FLOOR_DEPTH_BLOCKS}より下のセクションを組まない。
+     *
+     * <p>現世は地下に洞窟が何層も続き、窓224のノードの約4分の3が地表より下の洞窟とその周りの掘れる岩になる（実機の海沿いで
+     * ノード1480万・グラフ約900MB、ガイド1回4〜5秒）。地上の2点を結ぶ経路がはるか下の洞窟を通ることはまず無い。
+     * プレイヤーが洞窟に降りれば、下端もそこまで下がる。
+     */
+    public void floorBelow(int playerY) {
+        int low = Math.max(minSectionY,
+                Math.floorDiv(Math.min(playerY, goal.getY()) - FLOOR_DEPTH_BLOCKS, SectionMoves.SIZE));
+        if (low == lowSectionY) {
+            return;
+        }
+        lowSectionY = low;
+        sections.keySet().removeIf(key -> BlockPos.getY(key) < low);
+        provisional.keySet().removeIf(key -> BlockPos.getY(key) < low);
+    }
+
+    int lowSectionY() {
+        return lowSectionY;
     }
 
     /**
@@ -282,7 +314,7 @@ public final class NavGraph {
         int maxZ = Math.floorDiv(centerZ + radius, SectionMoves.SIZE);
         for (int sx = minX; sx <= maxX; sx++) {
             for (int sz = minZ; sz <= maxZ; sz++) {
-                for (int sy = minSectionY; sy <= maxSectionY; sy++) {
+                for (int sy = lowSectionY; sy <= maxSectionY; sy++) {
                     visitor.visit(sx, sy, sz);
                 }
             }

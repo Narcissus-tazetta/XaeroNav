@@ -182,8 +182,9 @@ final class NavGraphGuide {
      * どの条件に対するグラフか。ここが変われば捨てて組み直す——辺は掘れるか・置けるかで変わり
      * （{@link ChunkView}が移動生成に渡す）、奈落の上の橋は目的地へ向かう向きにしか張られない。
      */
+    /** @param floored 航法グラフの下端をプレイヤーと目的地の高さで切るか（{@link NavGraph#floorBelow}） */
     private record Key(ResourceKey<Level> dimension, BlockPos goal, MovementOptions options, boolean canPlaceBlocks,
-                       int window, int minY, int maxY) {
+                       int window, int minY, int maxY, boolean floored) {
 
         /** 辺が同じになるか。目的地の高さは辺に効かない（{@link NavGraph#retarget}）。 */
         boolean sameEdges(@Nullable Key other) {
@@ -254,7 +255,10 @@ final class NavGraphGuide {
             // 天井の上の平らな岩盤一面がノードになる（実機: 7,056セクション・初回構築7.2秒）
             maxY = logicalTop;
         }
-        Key key = new Key(level.dimension(), goal, options, canPlaceBlocks(player, options), window, minY, maxY);
+        // ネザーは通路が縦に積まれていて下の層を通る経路が普通にある。エンドはもともと島だけでノードが少ない
+        boolean floored = !level.dimensionType().hasCeiling() && level.dimension() != Level.END;
+        Key key = new Key(level.dimension(), goal, options, canPlaceBlocks(player, options), window, minY, maxY,
+                floored);
         Built current = built;
         boolean usable = current != null && current.key().equals(key);
         boolean moved = !usable || Math.max(Math.abs(at.getX() - current.center().getX()),
@@ -478,6 +482,9 @@ final class NavGraphGuide {
             farSource = source;
         }
         int window = key.window();
+        if (key.floored()) {
+            current.floorBelow(at.getY());
+        }
         FarField seeds = farMap != null && farMap.forwardOnly() ? FarField.forwardOf(far, at.getX(), at.getY(), at.getZ())
                 : far;
         return current.refresh(view::forGraphBuild, at.getX(), at.getZ(), window,

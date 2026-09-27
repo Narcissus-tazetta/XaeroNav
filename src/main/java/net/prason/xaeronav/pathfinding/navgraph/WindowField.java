@@ -185,13 +185,20 @@ public final class WindowField implements CostToGo {
         final int[] offsets;
         /** セクション{@code s}の隣（各軸-1〜1）のセクションの番号。無ければ-1。 */
         final int[] neighbor;
+        /**
+         * これより下のセクションはグラフに入れていない（{@link NavGraph#floorBelow}）。窓の外（{@link #OUTSIDE}）として扱うと、
+         * 窓の真ん中で下へ抜けて外の推定を読む偽の近道になるので、ノードでない所として扱う。
+         */
+        final int lowSectionY;
 
-        Index(long[] keys, SectionEdges[] sections, Long2IntOpenHashMap slotOf, int[] offsets, int[] neighbor) {
+        Index(long[] keys, SectionEdges[] sections, Long2IntOpenHashMap slotOf, int[] offsets, int[] neighbor,
+              int lowSectionY) {
             this.keys = keys;
             this.sections = sections;
             this.slotOf = slotOf;
             this.offsets = offsets;
             this.neighbor = neighbor;
+            this.lowSectionY = lowSectionY;
         }
 
         /** セクション{@code slot}の原点から({@code x},{@code y},{@code z})の点のノード番号。 */
@@ -213,7 +220,7 @@ public final class WindowField implements CostToGo {
                         BlockPos.getZ(key) + sdz));
             }
             if (target < 0) {
-                return OUTSIDE;
+                return BlockPos.getY(keys[slot]) + sdy < lowSectionY ? NOT_A_NODE : OUTSIDE;
             }
             int node = sections[target].nodeOf(x & 15 | (z & 15) << 4 | (y & 15) << 8);
             return node < 0 ? NOT_A_NODE : offsets[target] + node;
@@ -227,7 +234,7 @@ public final class WindowField implements CostToGo {
             int slot = slotOf.get(NavGraph.key(Math.floorDiv(x, SectionMoves.SIZE), Math.floorDiv(y, SectionMoves.SIZE),
                     Math.floorDiv(z, SectionMoves.SIZE)));
             if (slot < 0) {
-                return OUTSIDE;
+                return Math.floorDiv(y, SectionMoves.SIZE) < lowSectionY ? NOT_A_NODE : OUTSIDE;
             }
             int node = sections[slot].nodeOf(SectionEdges.local(x, y, z));
             return node < 0 ? NOT_A_NODE : offsets[slot] + node;
@@ -278,7 +285,7 @@ public final class WindowField implements CostToGo {
                 neighbor[s * 27 + k] = slotOf.get(NavGraph.key(sx + k / 9 - 1, sy + k / 3 % 3 - 1, sz + k % 3 - 1));
             }
         }
-        Index index = new Index(keys, sections, slotOf, offsets, neighbor);
+        Index index = new Index(keys, sections, slotOf, offsets, neighbor, graph.lowSectionY());
 
         int n = offsets[slots];
         int[] position = buffers.position(n);

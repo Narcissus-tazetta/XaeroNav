@@ -51,6 +51,9 @@ class NavGraphWalkBenchTest {
             "-12, 64, 349→-53, 68, 716", 3944.0,
             "72, 69, 439→-53, 68, 716", 3008.0);
 
+    /** 本番（{@code NavGraphGuide}）と同じく、地上系の次元では航法グラフの下端を{@link NavGraph#floorBelow}で切る。 */
+    private static boolean OVERWORLD_FLOOR;
+
     private record Stats(long[] buildMillis, long[] fieldMillis, int[] maxEdges, long[] maxBytes) {
     }
 
@@ -80,6 +83,9 @@ class NavGraphWalkBenchTest {
             if (last[0] == null || (!player.equals(last[0]) && Math.max(Math.abs(player.getX() - last[0].getX()),
                     Math.abs(player.getZ() - last[0].getZ())) >= lag)) {
                 CellSource window = new WindowedCells(cells, player, WINDOW);
+                if (OVERWORLD_FLOOR) {
+                    graph.floorBelow(player.getY());
+                }
                 FarField far = farAt.apply(player);
                 if (forwardOnly) {
                     far = FarField.forwardOf(far, player.getX(), player.getY(), player.getZ());
@@ -287,6 +293,7 @@ class NavGraphWalkBenchTest {
 
     @Test
     void wideLong() throws IOException {
+        OVERWORLD_FLOOR = true;
         FakeCells cells = overworld("/overworld_wide.txt.gz");
         measure("地上/広域(長)", cells, surfaceRoutes(cells, 4, 200, 450), ProgressiveWalk.Mode.EXTEND,
                 ProgressiveWalk.Aim.HORIZON, false, route -> FarField.of(CoarseRouter.costToGo(LiveCoarseSampler.sample(
@@ -300,6 +307,7 @@ class NavGraphWalkBenchTest {
      */
     @Test
     void wideLongUnderground() throws IOException {
+        OVERWORLD_FLOOR = true;
         FakeCells cells = overworld("/overworld_wide.txt.gz");
         List<BlockPos[]> routes = new ArrayList<>();
         for (BlockPos[] route : TerrainFixture.randomRoutes(cells, cells.bounds(), SEED, 400, 200, 450)) {
@@ -375,5 +383,22 @@ class NavGraphWalkBenchTest {
                 .map(start -> new BlockPos[] {start, NetherTrapBenchTest.GOAL}).toList();
         measureFollowing("ネザー罠", cells, routes, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, false,
                 route -> voxelFar(cells, route[0], route[1], scale));
+    }
+
+    /** 地下まで書き出した実機の海沿い（{@code tools/dump_terrain_columns.py ... --depth 0}）。洞窟が何層もある。 */
+    @Test
+    void overworldOceanFull() throws IOException {
+        OVERWORLD_FLOOR = true;
+        FakeCells cells = overworld("/overworld_ocean_full.txt.gz");
+        List<BlockPos[]> routes = new ArrayList<>(surfaceRoutes(cells, 4, 150, 300));
+        for (BlockPos[] route : TerrainFixture.randomRoutes(cells, cells.bounds(), SEED, 400, 150, 300)) {
+            BlockPos cave = caveBelow(cells, route[0]);
+            if (routes.size() < 7 && cave != null) {
+                routes.add(new BlockPos[] {cave, route[1]});
+            }
+        }
+        measure("地上/海沿い(地下込み)", cells, routes, ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON,
+                false, route -> FarField.of(CoarseRouter.costToGo(LiveCoarseSampler.sample(cells, cells.bounds(),
+                        route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE)));
     }
 }
