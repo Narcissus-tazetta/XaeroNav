@@ -13,6 +13,9 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `1.21.11-fabric` | 1.21.11 | Fabric Loader 0.17.3+ / Fabric API 0.141.6+ |
 | `1.21.11-forge` | 1.21.11 | Forge 61.2.1+ |
 | `1.21.11-neoforge` | 1.21.11 | NeoForge 21.11.45+ |
+| `1.21.5-fabric` | 1.21.5 | Fabric Loader 0.16.10+ / Fabric API 0.128.2+ |
+| `1.21.5-forge` | 1.21.5 | Forge 55+ |
+| `1.21.5-neoforge` | 1.21.5 | NeoForge 21.5+ |
 | `1.21.1-neoforge` | 1.21.1 | NeoForge 21.1.228+ |
 | `1.21.1-fabric` | 1.21.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |

@@ -8,6 +8,8 @@ where to go next.
 
 - Minecraft 1.21.11, on NeoForge 21.11.45+, Forge 61.2.1+, or Fabric (Fabric Loader 0.17.3+ and
   Fabric API 0.141.6+)
+- Minecraft 1.21.5, on NeoForge 21.5+, Forge 55+, or Fabric (Fabric Loader 0.16.10+ and
+  Fabric API 0.128.2+)
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
   Fabric API)
 - Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
@@ -41,6 +43,10 @@ problem here.
      [Forge](https://files.minecraftforge.net/) 61.2.1 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.17.3 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 or newer.
+   - Minecraft 1.21.5: [NeoForge](https://neoforged.net/) 21.5 or newer,
+     [Forge](https://files.minecraftforge.net/) 55 or newer, or [Fabric](https://fabricmc.net/)
+     with Fabric Loader 0.16.10 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.128.2 or newer.
    - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 or newer,
      [Forge](https://files.minecraftforge.net/) 52.1.16 or newer, or [Fabric](https://fabricmc.net/)
      with Fabric Loader 0.15.11 or newer plus [Fabric API](https://modrinth.com/mod/fabric-api).
@@ -55,8 +61,8 @@ problem here.
    `mods` folder. Jars are named `xaeronav-<version>-<loader>-<minecraft version>.jar`, for example
    `xaeronav-0.3.0-fabric-1.20.1.jar`.
 3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
-   optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, World Map 1.46.0 /
-   Minimap 26.5.0 on 1.21.11, 1.20.1 and 1.16.5.
+   optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1 and 1.21.5,
+   World Map 1.46.0 / Minimap 26.5.0 on 1.21.11, 1.20.1 and 1.16.5.
 
 ## What it does
 

@@ -1,9 +1,9 @@
 package net.prason.xaeronav.platform.neoforge;
 
 //? neoforge {
-//? if >=1.21.11 {
-/*import net.minecraft.client.Minecraft;
-*///?}
+/*//? if >=1.21.11 {
+/^import net.minecraft.client.Minecraft;
+^///?}
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -16,16 +16,16 @@ import net.prason.xaeronav.client.NavCommandSink;
 import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;
 
-/** NeoForgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 */
+/^* NeoForgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 ^/
 public final class NeoForgeEvents {
 
     //? if >=1.21.11 {
-    /*// 段階ごとに別のイベントになった。PoseStackは単位行列で、視点の回転はmodelViewに積まれている
+    /^// 段階ごとに別のイベントになった。PoseStackは単位行列で、視点の回転はmodelViewに積まれている
     @SubscribeEvent
     public void onRenderLevelStage(RenderLevelStageEvent.AfterTranslucentBlocks event) {
         XaeroNavClient.PATH_RENDERER.render(event.getPoseStack(), Minecraft.getInstance().gameRenderer.getMainCamera());
     }
-    *///?} else {
+    ^///?} else {
     @SubscribeEvent
     public void onRenderLevelStage(RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
@@ -75,4 +75,4 @@ public final class NeoForgeEvents {
         };
     }
 }
-//?}
+*///?}

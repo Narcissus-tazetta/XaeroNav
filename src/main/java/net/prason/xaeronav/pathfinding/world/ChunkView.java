@@ -221,15 +221,15 @@ public final class ChunkView implements CellSource {
         // 1.20.1はエンチャントがレジストリ経由のHolderではなく、Enchantments直下の静的フィールドを
         // そのままEnchantmentHelperへ渡す旧モデル（フィールド名もBLOCK_EFFICIENCYで別物）。
         // vanilla APIの形そのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
-        //? if >=1.21.11 {
-        /*Holder<Enchantment> efficiency = level.registryAccess()
+        //? if >=1.21.5 {
+        Holder<Enchantment> efficiency = level.registryAccess()
                 .lookupOrThrow(Registries.ENCHANTMENT)
                 .getOrThrow(Enchantments.EFFICIENCY);
-        *///?} else if >=1.21 {
-        Holder<Enchantment> efficiency = level.registryAccess()
+        //?} else if >=1.21 {
+        /*Holder<Enchantment> efficiency = level.registryAccess()
                 .registryOrThrow(Registries.ENCHANTMENT)
                 .getHolderOrThrow(Enchantments.EFFICIENCY);
-        //?} else {
+        *///?} else {
         /*Enchantment efficiency = Enchantments.BLOCK_EFFICIENCY;
         *///?}
         ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
@@ -245,14 +245,14 @@ public final class ChunkView implements CellSource {
             // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
             // その2つはgetItemEnchantmentLevelのままでよい
             //? if (forge && <1.21) || neoforge {
-            //? if >=1.17 {
+            /*//? if >=1.17 {
             hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
             //?} else {
-            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
-            *///?}
-            //?} else {
-            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
-            *///?}
+            /^hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            ^///?}
+            *///?} else {
+            hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            //?}
         }
         // 置ける枚数は持ち物<b>全体</b>で数える。ホットバーだけを見ていた頃は、インベントリに
         // 1スタック持っていても橋の案内が出ず、逆にホットバーの1個だけで64マスの橋が出ていた。

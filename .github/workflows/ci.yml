@@ -180,7 +180,7 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      # build matrixが同じGradle依存をキャッシュする。runtime matrixからも5組の
+      # build matrixが同じGradle依存をキャッシュする。runtime matrixからも各ノード分の
       # 類似キャッシュを書き出すと容量を圧迫するため、ここでは復元だけを行う。
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:

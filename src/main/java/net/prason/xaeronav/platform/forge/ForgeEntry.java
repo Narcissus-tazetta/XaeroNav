@@ -2,23 +2,23 @@ package net.prason.xaeronav.platform.forge;
 
 // 1.21.11（Forge 61）はForgeMod・ForgeClientSetupが受け持つ
 //? if forge && <1.21.11 {
-/*//? if >=1.21 {
+//? if >=1.21 {
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
 //?} else {
-/^//? if >=1.17 {
+/*//? if >=1.17 {
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
 //?}
-^///?}
+*///?}
 import net.minecraftforge.api.distmarker.Dist;
 //? if >=1.17 {
 import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 //?} else {
-/^import net.minecraftforge.fml.ModLoadingContext;
+/*import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.ExtensionPoint;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
-^///?}
+*///?}
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -45,16 +45,16 @@ public final class ForgeEntry {
     //? if >=1.17 {
     public ForgeEntry(FMLJavaModLoadingContext context) {
     //?} else {
-    /^public ForgeEntry() {
+    /*public ForgeEntry() {
         FMLJavaModLoadingContext context = FMLJavaModLoadingContext.get();
-    ^///?}
+    *///?}
         XaeroNav.LOGGER.info("XaeroNav initialized");
         ForgeEntry.context = context;
         //? if >=1.17 {
         context.registerConfig(ModConfig.Type.CLIENT, forgeConfigSpec());
         //?} else {
-        /^ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, forgeConfigSpec());
-        ^///?}
+        /*ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, forgeConfigSpec());
+        *///?}
         context.getModEventBus().addListener(ForgeEntry::onConfigReloaded);
     }
 
@@ -66,8 +66,8 @@ public final class ForgeEntry {
             //? if >=1.17 {
             ModConfigEvent.Reloading event
             //?} else {
-            /^ModConfig.Reloading event
-            ^///?}
+            /*ModConfig.Reloading event
+            *///?}
     ) {
         if (event.getConfig().getSpec() == forgeConfigSpec()) {
             XaeroNavClient.reloadBlockLists();
@@ -94,10 +94,10 @@ public final class ForgeEntry {
                     () -> new ConfigScreenHandler.ConfigScreenFactory(
                             parent -> new XaeroNavConfigScreen(parent)));
             //?} else {
-            /^XaeroNavKeys.register(ClientRegistry::registerKeyBinding);
+            /*XaeroNavKeys.register(ClientRegistry::registerKeyBinding);
             ModLoadingContext.get().registerExtensionPoint(ExtensionPoint.CONFIGGUIFACTORY,
                     () -> (minecraft, parent) -> new XaeroNavConfigScreen(parent));
-            ^///?}
+            *///?}
         }
 
         //? if >=1.17 {
@@ -118,12 +118,12 @@ public final class ForgeEntry {
                     (graphics, partialTick) -> XaeroNavClient.HUD.render(graphics));
         }
         //?} else {
-        /^public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
+        /*public static void onRegisterGuiOverlays(RegisterGuiOverlaysEvent event) {
             event.registerAboveAll("hud",
                     (gui, graphics, partialTick, screenWidth, screenHeight) -> XaeroNavClient.HUD.render(graphics));
         }
-        ^///?}
+        *///?}
         //?}
     }
 }
-*///?}
+//?}

@@ -48,6 +48,42 @@ deps.xaero_minimap = "26.5.0"
 deps.xaero_worldmap_min = "1.46.0"
 deps.xaero_minimap_min = "26.5.0"
 
+[fabric."1.21.5"]
+deps.minecraft = "1.21.5"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.16.10"
+deps.fabric_api = "0.128.2+1.21.5"
+deps.modmenu = "14.0.2"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.44.2"
+deps.xaero_minimap_min = "26.4.2"
+
+[forge."1.21.5"]
+deps.minecraft = "1.21.5"
+deps.forge = "55.1.14"
+deps.forge_loader_range = "[55,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.44.2"
+deps.xaero_minimap_min = "26.4.2"
+
+[neoforge."1.21.5"]
+deps.minecraft = "1.21.5"
+deps.neoforge = "21.5.98"
+deps.neoforge_range = "[21.5,)"
+deps.neoforge_loader_range = "[4,)"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.44.2"
+deps.xaero_minimap_min = "26.4.2"
+
 [neoforge."1.21.1"]
 deps.minecraft = "1.21.1"
 deps.neoforge = "21.1.228"

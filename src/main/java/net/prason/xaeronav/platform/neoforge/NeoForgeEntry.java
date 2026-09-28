@@ -1,7 +1,7 @@
 package net.prason.xaeronav.platform.neoforge;
 
 //? neoforge {
-import net.neoforged.api.distmarker.Dist;
+/*import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
@@ -25,7 +25,7 @@ import net.prason.xaeronav.config.XaeroNavConfig;
 @Mod(value = XaeroNav.MOD_ID, dist = Dist.CLIENT)
 public final class NeoForgeEntry {
 
-    /** 設定画面の登録はクライアント側で行うので、そこまでコンテナを持ち越す。 */
+    /^* 設定画面の登録はクライアント側で行うので、そこまでコンテナを持ち越す。 ^/
     private static ModContainer container;
 
     public NeoForgeEntry(IEventBus modEventBus, ModContainer modContainer) {
@@ -63,10 +63,10 @@ public final class NeoForgeEntry {
         @SubscribeEvent
         public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
             //? if >=1.21.11 {
-            /*event.registerCategory(XaeroNavKeys.CATEGORY);
-            *///?}
+            /^event.registerCategory(XaeroNavKeys.CATEGORY);
+            ^///?}
             XaeroNavKeys.register(event::register);
         }
     }
 }
-//?}
+*///?}

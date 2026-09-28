@@ -2,29 +2,34 @@ package net.prason.xaeronav.platform.forge;
 
 // 1.21.11（Forge 61）はForgeMod・ForgeClientSetupが受け持つ
 //? if forge && <1.21.11 {
-/*import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 //? if >=1.17 {
 import net.minecraftforge.client.event.RegisterClientCommandsEvent;
-import net.minecraftforge.client.event.RenderLevelStageEvent;
+//? if <1.21.5 {
+/*import net.minecraftforge.client.event.RenderLevelStageEvent;
+*///?}
 //?} else {
-/^import net.minecraftforge.client.event.RenderWorldLastEvent;
+/*import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraft.client.Minecraft;
-^///?}
+*///?}
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.prason.xaeronav.client.NavCommandSink;
 import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;
 
-/^* Forgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 ^/
+/** Forgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 */
 public final class ForgeEvents {
 
-    @SubscribeEvent
+    // Forge 55 (1.21.5) removed RenderLevelStageEvent while its frame-graph renderer was in transition.
+    // ForgeLevelRendererMixin supplies the equivalent callback for that one release line.
+    //? if <1.21.5 {
+    /*@SubscribeEvent
     public void onRenderLevelStage(
             //? if >=1.17 {
             RenderLevelStageEvent event
@@ -62,6 +67,7 @@ public final class ForgeEvents {
                 ^///?}
         );
     }
+    *///?}
 
     // 1.20.1のTickEvent.ClientTickEventはPost/Preのネストクラスに分かれておらず、
     // phaseフィールド（START/END）で前後を区別する旧い形
@@ -70,14 +76,14 @@ public final class ForgeEvents {
             //? if >=1.21 {
             TickEvent.ClientTickEvent.Post event
             //?} else {
-            /^TickEvent.ClientTickEvent event
-            ^///?}
+            /*TickEvent.ClientTickEvent event
+            *///?}
     ) {
         //? if <1.21 {
-        /^if (event.phase != TickEvent.Phase.END) {
+        /*if (event.phase != TickEvent.Phase.END) {
             return;
         }
-        ^///?}
+        *///?}
         XaeroNavClient.TICK_HANDLER.onClientTick();
     }
 
@@ -86,8 +92,8 @@ public final class ForgeEvents {
             //? if >=1.17 {
             ClientPlayerNetworkEvent.LoggingIn event
             //?} else {
-            /^ClientPlayerNetworkEvent.LoggedInEvent event
-            ^///?}
+            /*ClientPlayerNetworkEvent.LoggedInEvent event
+            *///?}
     ) {
         XaeroNavClient.TICK_HANDLER.onLoggingIn(event.getPlayer());
     }
@@ -97,8 +103,8 @@ public final class ForgeEvents {
             //? if >=1.17 {
             ClientPlayerNetworkEvent.LoggingOut event
             //?} else {
-            /^ClientPlayerNetworkEvent.LoggedOutEvent event
-            ^///?}
+            /*ClientPlayerNetworkEvent.LoggedOutEvent event
+            *///?}
     ) {
         XaeroNavClient.TICK_HANDLER.onLoggingOut();
     }
@@ -110,13 +116,13 @@ public final class ForgeEvents {
                 ctx -> sink(ctx.getSource()), BlockPosArgument::getBlockPos));
     }
     //?} else {
-    /^@SubscribeEvent
+    /*@SubscribeEvent
     public void onOverlay(RenderGameOverlayEvent.Post event) {
         if (event.getType() == RenderGameOverlayEvent.ElementType.ALL) {
             XaeroNavClient.HUD.render(event.getMatrixStack());
         }
     }
-    ^///?}
+    *///?}
 
     private static NavCommandSink sink(CommandSourceStack source) {
         return new NavCommandSink() {
@@ -125,8 +131,8 @@ public final class ForgeEvents {
                 //? if >=1.17 {
                 source.sendSuccess(() -> message, false);
                 //?} else {
-                /^source.sendSuccess(message, false);
-                ^///?}
+                /*source.sendSuccess(message, false);
+                *///?}
             }
 
             @Override
@@ -136,4 +142,4 @@ public final class ForgeEvents {
         };
     }
 }
-*///?}
+//?}

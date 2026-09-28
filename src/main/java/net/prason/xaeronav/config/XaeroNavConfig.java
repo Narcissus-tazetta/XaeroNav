@@ -27,10 +27,10 @@ public final class XaeroNavConfig {
 
     private static NavConfigStore createStore() {
         //? neoforge {
-        return new ModConfigSpecStore();
-        //?} forge {
-        /*return new ForgeConfigSpecStore();
-        *///?} fabric {
+        /*return new ModConfigSpecStore();
+        *///?} forge {
+        return new ForgeConfigSpecStore();
+        //?} fabric {
         /*return new NightConfigStore(net.fabricmc.loader.api.FabricLoader.getInstance()
                 .getConfigDir().resolve("xaeronav-client.toml"));
         *///?}

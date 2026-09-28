@@ -48,7 +48,7 @@ if (publishTarget != null || publishNode != null) {
 
     publishMods {
         file.set(releaseFile)
-        // 同じプロジェクトに5ファイルを投稿するため、サイト上のversion番号はノードごとに一意にする。
+        // 同じプロジェクトに複数ファイルを投稿するため、サイト上のversion番号はノードごとに一意にする。
         version.set("$releaseVersion-$loader-${node.version}")
         displayName.set("XaeroNav $releaseVersion - $loader ${node.version}")
         changelog.set(providers.fileContents(
@@ -102,7 +102,7 @@ tasks.register<Sync>("collectJars") {
     into(layout.buildDirectory.dir("libs"))
 }
 
-// Release前に集約した成果物の契約を見る。ファイルが5個あるだけでなく、各ローダーのmetadataと
+// Release前に集約した成果物の契約を見る。全ノード分のファイルがあるだけでなく、各ローダーのmetadataと
 // Xaero mixin configが正しいjarへ入っていることまで、公開前に機械的に検査する。
 tasks.register("verifyDistribution") {
     group = "verification"

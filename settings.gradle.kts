@@ -25,6 +25,7 @@ stonecutter {
         }
 
         match("1.21.11", "neoforge", "fabric", "forge")
+        match("1.21.5", "neoforge", "fabric", "forge")
         match("1.21.1", "neoforge", "fabric", "forge")
         match("1.20.1", "fabric")
         // 1.16.5のForgeはForgeGradleもModDevGradleも公式マッピングで扱えないので、Architectury Loomの専用スクリプトを充てる
