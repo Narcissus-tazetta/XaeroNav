@@ -6,7 +6,7 @@ import com.llamalad7.mixinextras.sugar.Local;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
-//? if >=1.19 {
+//? if >=1.19.3 {
 import org.joml.Matrix4f;
 //?} else {
 /*import com.mojang.math.Matrix4f;
@@ -30,11 +30,11 @@ import xaero.hud.render.util.RenderBufferUtil;
  * ミニマップ側のフック。{@code useWorldMap} true/false どちらの分岐で地形が
  * 描かれても、この直後の{@code endBatch()}に両分岐が収束するため、フックは1箇所で足りる。
  *
- * <p>{@code endBatch()}呼び出しのordinalはバージョンで違う。1.17+は対象の{@code renderTypeBuffers}
- * への1回目のflushがordinal 0。1.16.5の{@code renderChunksToFBO}はその手前に
+ * <p>{@code endBatch()}呼び出しのordinalはバージョンで違う。1.20+は対象の{@code renderTypeBuffers}
+ * への1回目のflushがordinal 0。1.16.5〜1.19.2の{@code renderChunksToFBO}はその手前に
  * {@code this.mc.renderBuffers().bufferSource().endBatch()}（メインゲーム側の別バッファ）が
  * 先に1回あり、狙うべき{@code renderTypeBuffers}自身のflushはordinal 1になる
- * （Xaero 26.5.0のデコンパイルで確認）。ordinal 0のままだと例外にはならないが
+ * （Xaero 26.5.0のバイトコードで、1.18.2・1.19.2・1.20.1を比べて確認）。ordinal 0のままだと例外にはならないが
  * 別バッファへ描いてしまい、経路がミニマップに出ない。
  *
  * <p>何をどの色で描くかは{@link MapPathOverlay}が決める（世界地図側と共有）。ここが持つのは
@@ -66,7 +66,7 @@ public abstract class MinimapFBORendererMixin implements XaeroHookMarker {
             method = "renderChunksToFBO",
             //? if >=1.21.11 {
             /*at = @At(value = "INVOKE", target = "Lxaero/lib/client/graphics/XaeroBufferProvider;endBatch()V", ordinal = 0)
-            *///?} else if <1.17 {
+            *///?} else if <1.20 {
             /*at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 1)
             *///?} else {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 0)

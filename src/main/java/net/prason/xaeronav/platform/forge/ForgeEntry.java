@@ -6,15 +6,18 @@ package net.prason.xaeronav.platform.forge;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
 //?} else {
-/^//? if >=1.17 {
+/^//? if >=1.19 {
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
 //?}
 ^///?}
 import net.minecraftforge.api.distmarker.Dist;
-//? if >=1.17 {
+//? if >=1.19 {
 import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
-//?} else {
+//?} else if >=1.17 {
+/^import net.minecraftforge.client.ClientRegistry;
+import net.minecraftforge.client.ConfigGuiHandler;
+^///?} else {
 /^import net.minecraftforge.fml.ExtensionPoint;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
 ^///?}
@@ -99,10 +102,16 @@ public final class ForgeEntry {
             context.registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
                     () -> new ConfigScreenHandler.ConfigScreenFactory(
                             parent -> new XaeroNavConfigScreen(parent)));
-            //?} else if >=1.17 {
+            //?} else if >=1.19 {
             /^ModLoadingContext.get().registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
                     () -> new ConfigScreenHandler.ConfigScreenFactory(
                             parent -> new XaeroNavConfigScreen(parent)));
+            ^///?} else if >=1.17 {
+            /^// Forge 40（1.18.2）にはRegisterKeyMappingsEventもConfigScreenHandlerも無い
+            XaeroNavKeys.register(ClientRegistry::registerKeyBinding);
+            ModLoadingContext.get().registerExtensionPoint(ConfigGuiHandler.ConfigGuiFactory.class,
+                    () -> new ConfigGuiHandler.ConfigGuiFactory(
+                            (minecraft, parent) -> new XaeroNavConfigScreen(parent)));
             ^///?} else {
             /^XaeroNavKeys.register(ClientRegistry::registerKeyBinding);
             ModLoadingContext.get().registerExtensionPoint(ExtensionPoint.CONFIGGUIFACTORY,
@@ -110,7 +119,7 @@ public final class ForgeEntry {
             ^///?}
         }
 
-        //? if >=1.17 {
+        //? if >=1.19 {
         @SubscribeEvent
         public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
             XaeroNavKeys.register(event::register);
@@ -119,8 +128,9 @@ public final class ForgeEntry {
 
         // ForgeにはNeoForgeのRenderGuiEvent.Postが無い。HUD描画をオーバーレイとして登録する形で
         // 差し込む（ForgeとNeoForge/Fabricの構造差はここだけ）。登録イベント自体が1.21.1と1.20.1で
-        // 別クラス（AddGuiOverlayLayersEvent / RegisterGuiOverlaysEvent）かつシグネチャも違う
-        //? if >=1.17 {
+        // 別クラス（AddGuiOverlayLayersEvent / RegisterGuiOverlaysEvent）かつシグネチャも違う。
+        // 1.18.2以前にはオーバーレイの登録イベントが無く、ForgeEventsがRenderGameOverlayEventで描く
+        //? if >=1.19 {
         @SubscribeEvent
         //? if >=1.21 {
         public static void onAddGuiOverlayLayers(AddGuiOverlayLayersEvent event) {

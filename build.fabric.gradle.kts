@@ -50,11 +50,26 @@ val emptyAccessWidener: File = layout.buildDirectory.file("generated/emptyAccess
     }
 }
 
+// RenderType.createが公開されたのは1.20から。1.18・1.19では7引数版がprivateなので、その版だけアクセスを開放する。
+// 全ノード共通のファイルへ足すと、メソッドの形が違う1.16.5・1.21.xでAWの適用が失敗する
+val opensRenderTypeCreate = minecraftVersion.startsWith("1.18.") || minecraftVersion.startsWith("1.19.")
+val generatedAccessWidenerDir = layout.buildDirectory.dir("generated/accessWidener")
+val nodeAccessWidener: File = generatedAccessWidenerDir.get().file("xaeronav.accesswidener").asFile.also {
+    if (opensRenderTypeCreate) {
+        it.parentFile.mkdirs()
+        it.writeText(rootProject.file("src/main/resources/xaeronav.accesswidener").readText().trimEnd() + "\n" +
+            "accessible method net/minecraft/client/renderer/RenderType create " +
+            "(Ljava/lang/String;Lcom/mojang/blaze3d/vertex/VertexFormat;Lcom/mojang/blaze3d/vertex/VertexFormat\$Mode;" +
+            "IZZLnet/minecraft/client/renderer/RenderType\$CompositeState;)" +
+            "Lnet/minecraft/client/renderer/RenderType\$CompositeRenderType;\n")
+    }
+}
+
 loom {
-    accessWidenerPath = if (usesAccessWidener) {
-        rootProject.file("src/main/resources/xaeronav.accesswidener")
-    } else {
-        emptyAccessWidener
+    accessWidenerPath = when {
+        !usesAccessWidener -> emptyAccessWidener
+        opensRenderTypeCreate -> nodeAccessWidener
+        else -> rootProject.file("src/main/resources/xaeronav.accesswidener")
     }
 
     // 実行ディレクトリはノード配下（versions/<ノード>/run）のloom既定のまま。
@@ -156,6 +171,12 @@ tasks.named<ProcessResources>("processResources").configure {
     exclude("META-INF/neoforge.mods.toml")
     exclude("META-INF/mods.toml")
     exclude("META-INF/accesstransformer.cfg")
+    if (opensRenderTypeCreate) {
+        // jarへ入るAWも、開放を足した方にする。excludeで外して足し直すと、excludeが足した側にも効いてしまう
+        doLast {
+            nodeAccessWidener.copyTo(destinationDir.resolve("xaeronav.accesswidener"), overwrite = true)
+        }
+    }
     if (!usesAccessWidener) {
         // 開放する行を落として見出しだけにする（emptyAccessWidenerと同じ中身）
         filesMatching("xaeronav.accesswidener") {

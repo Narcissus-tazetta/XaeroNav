@@ -6,7 +6,7 @@ import com.llamalad7.mixinextras.sugar.Local;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
-//? if >=1.19 {
+//? if >=1.19.3 {
 import org.joml.Matrix4f;
 //?} else {
 /*import com.mojang.math.Matrix4f;
@@ -31,10 +31,10 @@ import xaero.map.gui.GuiMap;
  * {@code flooredCameraX}/{@code flooredCameraZ}への引き算だけで地図座標に変換できるのは、
  * 地形描画自体が全く同じ変換を使っているため。
  *
- * <p>{@code endBatch()}呼び出しのordinalはバージョンで違う。1.17+は地形描画のflushが1回目
- * （ordinal 0）だが、1.16.5の{@code GuiMap#render}は最初に前フレームの取り残しをflushする
+ * <p>{@code endBatch()}呼び出しのordinalはバージョンで違う。1.20+は地形描画のflushが1回目
+ * （ordinal 0）だが、1.16.5〜1.19.2の{@code GuiMap#render}は最初に前フレームの取り残しをflushする
  * 呼び出しが先頭付近にもう1回あり、地形＋オーバーレイのflushは2回目（ordinal 1）になる
- * （Xaero 1.46.0のデコンパイルで確認）。
+ * （Xaero 1.46.0のバイトコードで、1.18.2・1.19.2・1.20.1を比べて確認）。
  *
  * <p>何をどの色で描くかは{@link MapPathOverlay}が決める（ミニマップ側と共有）。ここが持つのは
  * Xaero固有の描画先と座標変換だけに留める。
@@ -51,7 +51,7 @@ public abstract class GuiMapMixin implements XaeroHookMarker {
             method = "render",
             //? if >=1.21.11 {
             /*at = @At(value = "INVOKE", target = "Lxaero/lib/client/graphics/XaeroBufferProvider;endBatch()V", ordinal = 0)
-            *///?} else if <1.17 {
+            *///?} else if <1.20 {
             /*at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 1)
             *///?} else {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 0)

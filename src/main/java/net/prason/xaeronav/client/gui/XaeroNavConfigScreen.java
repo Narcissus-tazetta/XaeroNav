@@ -1,6 +1,6 @@
 package net.prason.xaeronav.client.gui;
 
-//? if >=1.17 {
+//? if >=1.19.3 {
 import java.util.function.Consumer;
 
 import net.minecraft.client.Minecraft;
@@ -25,7 +25,7 @@ import java.util.function.Consumer;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.TranslatableComponent;
+import net.prason.xaeronav.client.TextCompat;
 import net.prason.xaeronav.config.XaeroNavConfig;
 *///?}
 
@@ -44,7 +44,7 @@ import net.prason.xaeronav.config.XaeroNavConfig;
  * 自前の{@code init()}で行う必要がある（{@code SimpleOptionsSubScreen}は2列(addSmall)固定の
  * レイアウトを強制するため使わない——日本語ラベルは長く1列(addBig)が必須）。
  */
-//? if >=1.17 {
+//? if >=1.19.3 {
 public final class XaeroNavConfigScreen extends OptionsSubScreen {
 
     //? if <1.21 {
@@ -141,7 +141,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     private int page;
 
     public XaeroNavConfigScreen(Screen parent) {
-        super(new TranslatableComponent("gui.xaeronav.config.title"));
+        super(TextCompat.translatable("gui.xaeronav.config.title"));
         this.parent = parent;
         XaeroNavConfig cfg = XaeroNavConfig.INSTANCE;
         add("gui.xaeronav.config.digging_enabled", cfg::diggingEnabled, cfg::setDiggingEnabled);
@@ -169,19 +169,28 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         for (int i = page * PAGE_SIZE; i < Math.min(toggles.size(), (page + 1) * PAGE_SIZE); i++) {
             Toggle toggle = toggles.get(i);
             int y = 38 + (i % PAGE_SIZE) * 25;
-            addButton(new Button(left, y, 300, 20, toggle.label(), button -> {
+            addToggleWidget(new Button(left, y, 300, 20, toggle.label(), button -> {
                 toggle.setter.accept(!toggle.getter.getAsBoolean());
                 button.setMessage(toggle.label());
             }));
         }
         if (page > 0) {
-            addButton(new Button(left, height - 52, 95, 20, new TranslatableComponent("gui.back"), button -> changePage(-1)));
+            addToggleWidget(new Button(left, height - 52, 95, 20, TextCompat.translatable("gui.back"), button -> changePage(-1)));
         }
         if ((page + 1) * PAGE_SIZE < toggles.size()) {
-            addButton(new Button(left + 205, height - 52, 95, 20, new TranslatableComponent("gui.next"), button -> changePage(1)));
+            addToggleWidget(new Button(left + 205, height - 52, 95, 20, TextCompat.translatable("gui.next"), button -> changePage(1)));
         }
-        addButton(new Button(width / 2 - 100, height - 27, 200, 20,
-                new TranslatableComponent("gui.done"), button -> onClose()));
+        addToggleWidget(new Button(width / 2 - 100, height - 27, 200, 20,
+                TextCompat.translatable("gui.done"), button -> onClose()));
+    }
+
+    // 1.17でaddButtonがaddRenderableWidgetへ改名された
+    private void addToggleWidget(Button button) {
+        //? if >=1.17 {
+        addRenderableWidget(button);
+        //?} else {
+        /^addButton(button);
+        ^///?}
     }
 
     private void changePage(int delta) {
@@ -214,7 +223,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         }
 
         Component label() {
-            return new TranslatableComponent(key).append(": " + (getter.getAsBoolean() ? "ON" : "OFF"));
+            return TextCompat.translatable(key).append(": " + (getter.getAsBoolean() ? "ON" : "OFF"));
         }
     }
 }

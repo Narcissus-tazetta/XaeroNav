@@ -85,7 +85,7 @@ public final class GameCompat {
     }
 
     public static BlockPos containing(Vec3 pos) {
-        //? if >=1.17 {
+        //? if >=1.19.4 {
         return BlockPos.containing(pos);
         //?} else {
         /*return new BlockPos(pos);

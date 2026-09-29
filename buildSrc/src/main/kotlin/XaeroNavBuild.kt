@@ -15,7 +15,7 @@ fun Project.modProperty(key: String): String =
 /** 各Minecraft版で利用者に必要となるJavaの最低バージョン。 */
 fun javaVersionFor(minecraftVersion: String): Int = when {
     minecraftVersion.startsWith("1.16.") -> 8
-    minecraftVersion.startsWith("1.20.") -> 17
+    minecraftVersion.startsWith("1.18.") || minecraftVersion.startsWith("1.19.") || minecraftVersion.startsWith("1.20.") -> 17
     else -> 21
 }
 
@@ -53,6 +53,8 @@ fun fabricApiModIdFor(minecraftVersion: String): String =
 /** リソースパックのpack_format。クライアントjarのversion.jsonの`pack_version.resource_major`。 */
 fun packFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
     "1.16.5" -> 6
+    "1.18.2" -> 8
+    "1.19.2" -> 9
     "1.20.1" -> 15
     "1.21.1" -> 34
     "1.21.5" -> 55

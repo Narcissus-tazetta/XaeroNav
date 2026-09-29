@@ -28,6 +28,8 @@ stonecutter {
         match("1.21.5", "neoforge", "fabric", "forge")
         match("1.21.1", "neoforge", "fabric", "forge")
         match("1.20.1", "fabric")
+        match("1.19.2", "fabric")
+        match("1.18.2", "fabric")
         // 1.16.5のForgeはForgeGradleもModDevGradleも公式マッピングで扱えないので、Architectury Loomの専用スクリプトを充てる
         match("1.16.5", "fabric")
         version("1.16.5-forge", "1.16.5").buildscript("build.forge-116.gradle.kts")
@@ -37,6 +39,9 @@ stonecutter {
         // （NeoForge自身も1.20.1ではForgeの使用を推奨）、Xaero側も"neoforge"向けの
         // 1.20.1ビルドを配っていない（1.20.4からしか無い）
         version("1.20.1-forge", "1.20.1").buildscript("build.forge-legacy.gradle.kts")
+        // 1.18.2・1.19.2のForgeも同じlegacyforgeプラグイン（1.17〜1.20.1向け）で作る
+        version("1.19.2-forge", "1.19.2").buildscript("build.forge-legacy.gradle.kts")
+        version("1.18.2-forge", "1.18.2").buildscript("build.forge-legacy.gradle.kts")
 
         // gitへコミットする状態。Stonecutterはsrc/を書き換えるので、
         // ここと違うノードを有効にしたまま差分を取ると全ファイルが動いて見える。

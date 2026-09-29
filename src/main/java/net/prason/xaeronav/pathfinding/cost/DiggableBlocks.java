@@ -47,7 +47,7 @@ public final class DiggableBlocks {
      * 乗ってくるぶん堅牢になる（modの世界生成用ブロックは、洞窟が生成されるように
      * {@code #*_carver_replaceables}へ入れるのが通例）。
      */
-    //? if >=1.17 {
+    //? if >=1.19 {
     private static final List<TagKey<Block>> TERRAIN_TAGS = List.of(
             // 洞窟の掘削が置き換えてよいブロック＝そのまま「掘って通ってよい地形」。石・土・砂・
             // テラコッタ・鉄/銅鉱石・砂利・砂岩・方解石・雪・氷塊、ネザー側はナイリウムとソウルサンド類
@@ -62,10 +62,27 @@ public final class DiggableBlocks {
             BlockTags.COAL_ORES, BlockTags.IRON_ORES, BlockTags.COPPER_ORES, BlockTags.GOLD_ORES,
             BlockTags.REDSTONE_ORES, BlockTags.LAPIS_ORES, BlockTags.DIAMOND_ORES, BlockTags.EMERALD_ORES
     );
-    //?}
+    //?} else if >=1.17 {
+    /*// 洞窟の置換タグ（*_carver_replaceables）と#sculk_replaceableは1.19から。それより前は同じ範囲を
+    // 石・土・砂・テラコッタ・ナイリウム等のタグで近似する
+    private static final List<TagKey<Block>> TERRAIN_TAGS = List.of(
+            BlockTags.BASE_STONE_OVERWORLD,
+            BlockTags.BASE_STONE_NETHER,
+            BlockTags.DIRT,
+            BlockTags.SAND,
+            BlockTags.TERRACOTTA,
+            BlockTags.NYLIUM,
+            BlockTags.LEAVES,
+            BlockTags.WART_BLOCKS,
+            BlockTags.SNOW,
+            BlockTags.ICE,
+            BlockTags.COAL_ORES, BlockTags.IRON_ORES, BlockTags.COPPER_ORES, BlockTags.GOLD_ORES,
+            BlockTags.REDSTONE_ORES, BlockTags.LAPIS_ORES, BlockTags.DIAMOND_ORES, BlockTags.EMERALD_ORES
+    );
+    *///?}
 
     /** タグに入っていない自然地形。 */
-    //? if >=1.17 {
+    //? if >=1.19 {
     private static final Set<Block> TERRAIN_BLOCKS = Set.of(
             Blocks.NETHER_QUARTZ_ORE, Blocks.ANCIENT_DEBRIS, Blocks.GILDED_BLACKSTONE,
             Blocks.GLOWSTONE, Blocks.SHROOMLIGHT, Blocks.MAGMA_BLOCK,
@@ -80,7 +97,22 @@ public final class DiggableBlocks {
             Blocks.CHORUS_PLANT, Blocks.CHORUS_FLOWER,
             Blocks.MANGROVE_ROOTS, Blocks.DIRT_PATH, Blocks.FARMLAND
     );
-    //?} else {
+    //?} else if >=1.17 {
+    /*private static final Set<Block> TERRAIN_BLOCKS = Set.of(
+            Blocks.NETHER_QUARTZ_ORE, Blocks.NETHER_GOLD_ORE, Blocks.ANCIENT_DEBRIS, Blocks.GILDED_BLACKSTONE,
+            Blocks.GLOWSTONE, Blocks.SHROOMLIGHT, Blocks.MAGMA_BLOCK,
+            Blocks.OBSIDIAN, Blocks.CRYING_OBSIDIAN,
+            Blocks.POINTED_DRIPSTONE, Blocks.DRIPSTONE_BLOCK, Blocks.AMETHYST_BLOCK, Blocks.CALCITE,
+            // 1.19以降は#*_carver_replaceablesが拾う分を、1.18.2では明示して揃える
+            Blocks.GRAVEL, Blocks.CLAY, Blocks.SANDSTONE, Blocks.RED_SANDSTONE,
+            Blocks.SOUL_SAND, Blocks.SOUL_SOIL, Blocks.END_STONE, Blocks.SMOOTH_BASALT,
+            Blocks.MUSHROOM_STEM, Blocks.BROWN_MUSHROOM_BLOCK, Blocks.RED_MUSHROOM_BLOCK,
+            Blocks.MELON, Blocks.PUMPKIN,
+            Blocks.BAMBOO, Blocks.BAMBOO_SAPLING, Blocks.AZALEA, Blocks.FLOWERING_AZALEA,
+            Blocks.CHORUS_PLANT, Blocks.CHORUS_FLOWER,
+            Blocks.DIRT_PATH, Blocks.FARMLAND
+    );
+    *///?} else {
     /*private static final Set<Block> TERRAIN_BLOCKS = Set.of(
             Blocks.STONE, Blocks.GRANITE, Blocks.DIORITE, Blocks.ANDESITE,
             Blocks.DIRT, Blocks.COARSE_DIRT, Blocks.GRASS_BLOCK, Blocks.PODZOL,

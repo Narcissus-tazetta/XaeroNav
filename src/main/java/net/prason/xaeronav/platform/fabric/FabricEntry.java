@@ -4,10 +4,13 @@ package net.prason.xaeronav.platform.fabric;
 /*import com.mojang.brigadier.context.CommandContext;
 
 import net.fabricmc.api.ClientModInitializer;
-//? if >=1.17 {
+//? if >=1.19 {
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-//?}
+//?} else if >=1.17 {
+/^import net.fabricmc.fabric.api.client.command.v1.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v1.FabricClientCommandSource;
+^///?}
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -22,9 +25,9 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 //?}
 import net.minecraft.commands.arguments.coordinates.Coordinates;
 //? if >=1.21.5 {
-import net.minecraft.commands.CommandSource;
+/^import net.minecraft.commands.CommandSource;
 import net.minecraft.commands.CommandSourceStack;
-//?}
+^///?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.XaeroNav;
@@ -62,11 +65,15 @@ public final class FabricEntry implements ClientModInitializer {
         HudRenderCallback.EVENT.register((graphics, tickCounter) -> XaeroNavClient.HUD.render(graphics));
         //?}
 
-        //? if >=1.17 {
+        //? if >=1.19 {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
                 dispatcher.register(XaeroNavCommands.<FabricClientCommandSource>tree(
                         ctx -> sink(ctx.getSource()), FabricEntry::blockPos)));
-        //?}
+        //?} else if >=1.17 {
+        /^// client command API v2は1.19から。それより前はv1の静的なdispatcherへ登録する
+        ClientCommandManager.DISPATCHER.register(XaeroNavCommands.<FabricClientCommandSource>tree(
+                ctx -> sink(ctx.getSource()), FabricEntry::blockPos));
+        ^///?}
     }
 
     /^*
@@ -77,7 +84,7 @@ public final class FabricEntry implements ClientModInitializer {
     //? if >=1.17 {
     private static BlockPos blockPos(CommandContext<FabricClientCommandSource> ctx, String name) {
         //? if >=1.21.5 {
-        // プレイヤーからCommandSourceStackを作る口がサーバー側（ServerLevelを要る）にしか無くなった。
+        /^// プレイヤーからCommandSourceStackを作る口がサーバー側（ServerLevelを要る）にしか無くなった。
         // 座標の解決が読むのは位置・向き・エンティティだけなので、それだけを持たせて組み立てる
         FabricClientCommandSource source = ctx.getSource();
         try {
@@ -93,10 +100,10 @@ public final class FabricEntry implements ClientModInitializer {
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Cannot construct a client command source", exception);
         }
-        //?} else {
-        /^return ctx.getArgument(name, Coordinates.class)
+        ^///?} else {
+        return ctx.getArgument(name, Coordinates.class)
                 .getBlockPos(ctx.getSource().getPlayer().createCommandSourceStack());
-        ^///?}
+        //?}
     }
 
     private static NavCommandSink sink(FabricClientCommandSource source) {
