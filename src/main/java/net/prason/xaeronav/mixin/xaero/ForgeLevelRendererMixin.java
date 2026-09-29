@@ -1,7 +1,7 @@
 package net.prason.xaeronav.mixin.xaero;
 
 //? if forge && >=1.21.5 && <1.21.11 {
-import com.mojang.blaze3d.resource.ResourceHandle;
+/*import com.mojang.blaze3d.resource.ResourceHandle;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Camera;
@@ -30,4 +30,4 @@ public abstract class ForgeLevelRendererMixin {
         XaeroNavClient.PATH_RENDERER.render(poseStack, camera);
     }
 }
-//?}
+*///?}
