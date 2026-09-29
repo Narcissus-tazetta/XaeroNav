@@ -1,11 +1,9 @@
 package net.prason.xaeronav.platform.neoforge;
 
 //? neoforge {
-/*import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
-import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
@@ -25,7 +23,7 @@ import net.prason.xaeronav.config.XaeroNavConfig;
 @Mod(value = XaeroNav.MOD_ID, dist = Dist.CLIENT)
 public final class NeoForgeEntry {
 
-    /^* 設定画面の登録はクライアント側で行うので、そこまでコンテナを持ち越す。 ^/
+    /** 設定画面の登録はクライアント側で行うので、そこまでコンテナを持ち越す。 */
     private static ModContainer container;
 
     public NeoForgeEntry(IEventBus modEventBus, ModContainer modContainer) {
@@ -33,6 +31,8 @@ public final class NeoForgeEntry {
         container = modContainer;
         modContainer.registerConfig(ModConfig.Type.CLIENT, modConfigSpec());
         modEventBus.addListener(NeoForgeEntry::onConfigReloaded);
+        modEventBus.addListener(ClientSetup::onClientSetup);
+        modEventBus.addListener(ClientSetup::onRegisterKeyMappings);
     }
 
     private static net.neoforged.neoforge.common.ModConfigSpec modConfigSpec() {
@@ -46,11 +46,11 @@ public final class NeoForgeEntry {
     }
 
     // クライアント専用クラス（Minecraft/RenderLevelStageEvent等）への参照はFMLClientSetupEvent内に
-    // 閉じ込める。dist=CLIENTでガードすることで、専用サーバー上でもこのクラス自体がロードされない。
-    @EventBusSubscriber(modid = XaeroNav.MOD_ID, value = Dist.CLIENT)
+    // 閉じ込める。@Mod(dist=CLIENT)でガードすることで、専用サーバー上でもこのクラス自体がロードされない。
+    // 注釈での購読（@EventBusSubscriber）にしないのは、NeoForge 21.0.xが購読先のバスを自動で選ばず
+    // MODバスのイベントを拒否するため。addListenerならバージョンによらずバスを明示できる
     public static final class ClientSetup {
 
-        @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
             XaeroNavClient.reloadBlockLists();
             NeoForge.EVENT_BUS.register(new NeoForgeEvents());
@@ -60,13 +60,12 @@ public final class NeoForgeEntry {
                     (modContainer, parent) -> new XaeroNavConfigScreen(parent));
         }
 
-        @SubscribeEvent
         public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
             //? if >=1.21.11 {
-            /^event.registerCategory(XaeroNavKeys.CATEGORY);
-            ^///?}
+            /*event.registerCategory(XaeroNavKeys.CATEGORY);
+            *///?}
             XaeroNavKeys.register(event::register);
         }
     }
 }
-*///?}
+//?}

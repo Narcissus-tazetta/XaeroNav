@@ -38,26 +38,26 @@ public final class GameCompat {
     //? if >=1.17 {
     public static int minBuildHeight(LevelHeightAccessor level) {
         //? if >=1.21.5 {
-        return level.getMinY();
-        //?} else {
-        /*return level.getMinBuildHeight();
-        *///?}
+        /*return level.getMinY();
+        *///?} else {
+        return level.getMinBuildHeight();
+        //?}
     }
 
     public static int maxBuildHeight(LevelHeightAccessor level) {
         //? if >=1.21.5 {
-        return level.getMaxY() + 1;
-        //?} else {
-        /*return level.getMaxBuildHeight();
-        *///?}
+        /*return level.getMaxY() + 1;
+        *///?} else {
+        return level.getMaxBuildHeight();
+        //?}
     }
 
     public static int minSection(LevelHeightAccessor level) {
         //? if >=1.21.5 {
-        return level.getMinSectionY();
-        //?} else {
-        /*return level.getMinSection();
-        *///?}
+        /*return level.getMinSectionY();
+        *///?} else {
+        return level.getMinSection();
+        //?}
     }
     //?} else {
     /*public static int minBuildHeight(Level level) {

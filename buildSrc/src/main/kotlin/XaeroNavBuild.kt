@@ -159,6 +159,28 @@ fun Project.modResourceProperties(): Map<String, String> = mapOf(
 )
 
 /**
+ * 同じjarを、そのMinecraftバージョンの直前のバージョンでも動かすノードの対応表（値は下側のバージョン）。
+ * 1.21と1.21.1・1.20と1.20.1はマッピングもプロトコルも実質同じ修正版。
+ * ただし現行のXaeroのjarが直前の版で動くローダーだけに限る: Fabric版Minimapは1.21.1ちょうどを、
+ * Forge版はForge 52以上（1.21.1）を要求するので、fabric/forgeの1.21には付けられない。
+ */
+fun minecraftCompatFor(node: String): String? = when (node) {
+    "1.21.1-neoforge" -> "1.21"
+    "1.20.1-fabric", "1.20.1-forge" -> "1.20"
+    else -> null
+}
+
+/** MOD定義へ書くMinecraftの版範囲。ローダーごとに範囲の書式が違う（Fabricは空白区切りのAND、Forge系はMaven区間）。 */
+fun minecraftRangeProperties(minecraftVersion: String, node: String): Map<String, String> {
+    val compat = minecraftCompatFor(node)
+    return mapOf(
+        "minecraft_version" to minecraftVersion,
+        "minecraft_range_fabric" to if (compat == null) minecraftVersion else ">=$compat <=$minecraftVersion",
+        "minecraft_range_maven" to if (compat == null) "[$minecraftVersion]" else "[$compat,$minecraftVersion]",
+    )
+}
+
+/**
  * 4ノード共通のresource置換値（{@link #modResourceProperties}に加え、Xaeroの動く下限と
  * pack_format/mixin互換レベル）。loader固有のキー（loaderのバージョン範囲など）は
  * 各build.<loader>.gradle.ktsが呼び出し側で足す。
@@ -169,8 +191,7 @@ fun Project.commonNodeResourceProperties(
     minimapMinVersion: String,
     mixinCompatibilityLevel: String,
     packFormat: Int,
-): Map<String, String> = modResourceProperties() + mapOf(
-    "minecraft_version" to minecraftVersion,
+): Map<String, String> = modResourceProperties() + minecraftRangeProperties(minecraftVersion, name) + mapOf(
     "xaero_worldmap_min_version" to worldmapMinVersion,
     "xaero_minimap_min_version" to minimapMinVersion,
     "mixin_compatibility_level" to mixinCompatibilityLevel,

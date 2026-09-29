@@ -10,8 +10,9 @@
 - Minecraft 1.21.5 / NeoForge 21.5 以降、Forge 55 以降、または Fabric（Fabric Loader 0.16.10 以降 +
   Fabric API 0.128.2 以降）
 - Minecraft 1.21.1 / NeoForge 21.1.228 以降、Forge 52.1.16 以降、または Fabric（Fabric Loader
-  0.15.11 以降 + Fabric API）
-- Minecraft 1.20.1 / Forge 47.4.23 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）
+  0.15.11 以降 + Fabric API）。NeoForge 版の jar は Minecraft 1.21（NeoForge 21.0 以降）でも動きます
+- Minecraft 1.20.1 / Forge 47.4.23 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）。
+  この jar は Minecraft 1.20（Forge 46 以降、Fabric API 0.83.0 以降）でも動きます
 - Minecraft 1.16.5 / Forge 36.2.39 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.42.0 以降）。
   Java 8 で動きます
 - Java のヒープは 2GB 以上（公式ランチャーの既定値）。2.5GB 未満では航法グラフの範囲が狭くなります

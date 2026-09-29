@@ -14,17 +14,17 @@ import net.minecraft.resources.ResourceLocation;
 import net.prason.xaeronav.XaeroNav;
 *///?} else {
 //? if >=1.21.5 {
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+/*import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
 
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.ResourceLocation;
 import net.prason.xaeronav.XaeroNav;
-//?} else {
-/*import com.mojang.blaze3d.systems.RenderSystem;
+*///?} else {
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
-*///?}
+//?}
 
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderStateShard;
@@ -68,7 +68,7 @@ final class NavRenderTypes {
         bufferSource.endBatch(type);
     }
     *///?} else if >=1.21.5 {
-    static final RenderType DEBUG_QUADS = RenderType.debugQuads();
+    /*static final RenderType DEBUG_QUADS = RenderType.debugQuads();
     static final RenderType LINES = RenderType.lines();
 
     private static final RenderPipeline OCCLUDED_QUADS_PIPELINE = withoutDepthTest(RenderPipelines.DEBUG_QUADS);
@@ -136,13 +136,13 @@ final class NavRenderTypes {
     static void endOccludedBatch(MultiBufferSource.BufferSource bufferSource, RenderType type) {
         bufferSource.endBatch(type);
     }
-    //?} else {
-    /*static final RenderType DEBUG_QUADS =
+    *///?} else {
+    static final RenderType DEBUG_QUADS =
             //? if >=1.17 {
             RenderType.debugQuads();
             //?} else {
-            /^RenderType.lightning();
-            ^///?}
+            /*RenderType.lightning();
+            *///?}
     static final RenderType LINES = RenderType.lines();
 
     //? if >=1.17 {
@@ -156,21 +156,21 @@ final class NavRenderTypes {
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
     //?} else {
-    /^static final RenderType OCCLUDED_QUADS = RenderType.lightning();
-    ^///?}
+    /*static final RenderType OCCLUDED_QUADS = RenderType.lightning();
+    *///?}
 
-    /^*
+    /**
      * 深度テストを切ってから描く。{@code NO_DEPTH_TEST}（関数"always"）は、バニラの実装では
      * 深度テストの状態に<b>触らない</b>という意味で、切ってはくれない。NeoForge/Forgeの
      * {@code AFTER_TRANSLUCENT_BLOCKS}は半透明の地形を描いた後片付けの<b>前</b>に呼ばれるので、
      * 深度テストが有効なまま残っている。切らないと水の中の線がそのまま隠れる。
      * 後始末は要らない——次に描くレイヤーが自分の深度テストを設定する。
-     ^/
+     */
     static void endOccludedBatch(MultiBufferSource.BufferSource bufferSource, RenderType type) {
         RenderSystem.disableDepthTest();
         bufferSource.endBatch(type);
     }
-    *///?}
+    //?}
 
     private NavRenderTypes() {
     }

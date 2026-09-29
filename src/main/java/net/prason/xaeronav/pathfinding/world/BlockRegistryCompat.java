@@ -38,9 +38,9 @@ public final class BlockRegistryCompat {
         *///?} else if <1.19 {
         /*return Registry.BLOCK.containsKey(id) ? Registry.BLOCK.get(id) : null;
         *///?} else if >=1.21.5 {
-        return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.getValue(id) : null;
-        //?} else {
-        /*return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.get(id) : null;
-        *///?}
+        /*return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.getValue(id) : null;
+        *///?} else {
+        return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.get(id) : null;
+        //?}
     }
 }
