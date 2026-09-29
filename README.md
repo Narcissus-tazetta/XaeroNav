@@ -14,6 +14,8 @@ where to go next.
   Fabric API). The NeoForge jar also runs on Minecraft 1.21 with NeoForge 21.0+
 - Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API). The jars also
   run on Minecraft 1.20, with Forge 46+ or Fabric API 0.83.0+
+- Minecraft 1.19.2, on Forge 43+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.77.0+)
+- Minecraft 1.18.2, on Forge 40+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.77.0+)
 - Minecraft 1.16.5, on Forge 36.2.39+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.42.0+).
   Runs on Java 8
 - A Java heap of at least 2 GB, the official launcher's default. Below 2.5 GB the navigation graph
@@ -54,6 +56,12 @@ problem here.
    - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api).
+   - Minecraft 1.19.2: [Forge](https://files.minecraftforge.net/) 43 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.77.0 or newer.
+   - Minecraft 1.18.2: [Forge](https://files.minecraftforge.net/) 40 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.77.0 or newer.
    - Minecraft 1.16.5: [Forge](https://files.minecraftforge.net/) 36.2.39 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api) 0.42.0 or newer.
@@ -63,7 +71,7 @@ problem here.
    `xaeronav-0.3.0-fabric-1.20.1.jar`.
 3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
    optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1 and 1.21.5,
-   World Map 1.46.0 / Minimap 26.5.0 on 1.21.11, 1.20.1 and 1.16.5.
+   World Map 1.46.0 / Minimap 26.5.0 on 1.21.11, 1.20.1, 1.19.2, 1.18.2 and 1.16.5.
 
 ## What it does
 

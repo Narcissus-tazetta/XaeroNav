@@ -13,6 +13,8 @@
   0.15.11 以降 + Fabric API）。NeoForge 版の jar は Minecraft 1.21（NeoForge 21.0 以降）でも動きます
 - Minecraft 1.20.1 / Forge 47.4.23 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）。
   この jar は Minecraft 1.20（Forge 46 以降、Fabric API 0.83.0 以降）でも動きます
+- Minecraft 1.19.2 / Forge 43 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.77.0 以降）
+- Minecraft 1.18.2 / Forge 40 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.77.0 以降）
 - Minecraft 1.16.5 / Forge 36.2.39 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.42.0 以降）。
   Java 8 で動きます
 - Java のヒープは 2GB 以上（公式ランチャーの既定値）。2.5GB 未満では航法グラフの範囲が狭くなります
@@ -47,13 +49,17 @@
      （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
    - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
+   - Minecraft 1.19.2: [Forge](https://files.minecraftforge.net/) 43 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.77.0 以降）。
+   - Minecraft 1.18.2: [Forge](https://files.minecraftforge.net/) 40 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.77.0 以降）。
    - Minecraft 1.16.5: [Forge](https://files.minecraftforge.net/) 36.2.39 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.42.0 以降）。
 2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から、使うローダーと
    Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
    `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
-   1.21.1・1.21.5 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.21.11・1.20.1・1.16.5 なら World Map 1.46.0 以降・
+   1.21.1・1.21.5 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.21.11・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
    Minimap 26.5.0 以降。
 
 ## 何ができるか
