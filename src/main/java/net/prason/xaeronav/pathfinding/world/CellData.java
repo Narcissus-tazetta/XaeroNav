@@ -190,7 +190,7 @@ public final class CellData {
             flags |= SNEAK_REQUIRED;
         }
         if (
-                //? if >=1.17 {
+                //? if >=1.20 {
                 state.canBeReplaced()
                 //?} else {
                 /*state.getMaterial().isReplaceable()
@@ -304,7 +304,7 @@ public final class CellData {
     private static boolean openableByHand(BlockState state) {
         Block block = state.getBlock();
         if (block instanceof DoorBlock door) {
-            //? if >=1.17 {
+            //? if >=1.20 {
             return door.type().canOpenByHand();
             //?} else {
             /*return !state.is(Blocks.IRON_DOOR);

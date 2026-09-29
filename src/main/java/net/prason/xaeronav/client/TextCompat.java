@@ -2,7 +2,7 @@ package net.prason.xaeronav.client;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-//? if <1.17 {
+//? if <1.19 {
 /*import net.minecraft.network.chat.TextComponent;
 import net.minecraft.network.chat.TranslatableComponent;
 *///?}
@@ -13,7 +13,7 @@ public final class TextCompat {
     }
 
     public static MutableComponent translatable(String key, Object... args) {
-        //? if >=1.17 {
+        //? if >=1.19 {
         return Component.translatable(key, args);
         //?} else {
         /*return new TranslatableComponent(key, args);
@@ -21,7 +21,7 @@ public final class TextCompat {
     }
 
     public static MutableComponent literal(String value) {
-        //? if >=1.17 {
+        //? if >=1.19 {
         return Component.literal(value);
         //?} else {
         /*return new TextComponent(value);

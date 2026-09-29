@@ -21,6 +21,10 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
 | `1.20.1-fabric` | 1.20.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.20.1-forge` | 1.20.1 | Forge 47.4.23+ |
+| `1.19.2-fabric` | 1.19.2 | Fabric Loader 0.15.11+ / Fabric API 0.77.0+ |
+| `1.19.2-forge` | 1.19.2 | Forge 43+ |
+| `1.18.2-fabric` | 1.18.2 | Fabric Loader 0.15.11+ / Fabric API 0.77.0+ |
+| `1.18.2-forge` | 1.18.2 | Forge 40+ |
 | `1.16.5-fabric` | 1.16.5 | Fabric Loader 0.15.11+ / Fabric API 0.42.0+（Java 8） |
 | `1.16.5-forge` | 1.16.5 | Forge 36.2.39+（Java 8） |
 
@@ -42,7 +46,7 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `buildSrc/src/main/kotlin/xaeronav.common.gradle.kts` | 全ノード共通のビルド設定（Java toolchain・テスト・jar 名・Fletching Tableによるmixin登録）。Java版はMCバージョンで分岐（1.20.5未満は17・以降は21） |
 | `src/main/java/net/prason/xaeronav/platform/` | ローダーごとの起動処理とイベント配線 |
 | `src/main/resources/xaeronav.accesswidener` | Fabric専用。Mojang公式マッピングの一部ネストクラス（`RenderType.CompositeState`等）は自クラスの宣言とInnerClasses属性の宣言が食い違っており、外部から参照するには開放が要る（NeoForge/Forgeの`accesstransformer.cfg`のFabric版） |
-| `build.forge-legacy.gradle.kts` | 1.20.1のForgeノード専用。1.21.1-forgeとは違うツールチェーン（`net.neoforged.moddev.legacyforge`、ForgeGradleではない） |
+| `build.forge-legacy.gradle.kts` | 1.18.2・1.19.2・1.20.1のForgeノード。1.21.1-forgeとは違うツールチェーン（`net.neoforged.moddev.legacyforge`、ForgeGradleではない） |
 | `build.forge-116.gradle.kts` | 1.16.5のForgeノード専用。Architectury Loom（公式マッピングで1.16.5のForgeを扱えるのはこれだけ） |
 | `buildSrc/src/main/kotlin/ForgeCoremodNames.kt` | 1.16.5-forgeの開発実行用。XaeroのcoremodにあるSRG名を開発環境の名前へ書き換える |
 
@@ -127,6 +131,31 @@ CI は `printNodes` からノード一覧を作るので、ワークフローの
 標準ライブラリAPIは、`//?`で分岐せず**自前の実装に置き換えて両バージョンで同じコードを使う**
 （`util/MathSupport`、テストコードの`list.get(list.size() - 1)`など）。バージョンゲートは
 Minecraft自体のAPI差にだけ使う。
+
+## 1.18.2・1.19.2
+
+`>=1.17`のゲートは、実際には「1.16.5より後」ではなく個々のAPIの導入版で分かれる。1.18.2・1.19.2を足すときに
+境界を実際の版へ振り直した（1.16.5と1.20.1の側の真偽は変えていない）。
+
+| 境界 | ゲートしているもの |
+|---|---|
+| 1.19 | `Component.translatable/literal`（`TextCompat`）、Forge 41+の`RegisterKeyMappingsEvent`・`ConfigScreenHandler`・`RegisterGuiOverlaysEvent`・`ClientPlayerNetworkEvent.LoggingIn/Out`・`EnchantmentHelper.getTagEnchantmentLevel`、Fabric APIのクライアントコマンドv2 |
+| 1.19.3 | `OptionInstance`（設定画面はそれ以前は1.16.5と同じ独自の`Screen`）、`BuiltInRegistries`、`org.joml`、`SoundEvents`のHolder化 |
+| 1.19.4 | `BlockPos.containing` |
+| 1.20 | `GuiGraphics`、`RenderType.debugQuads`・`RenderType.create`の公開、`BlockState.canBeReplaced()`、`DoorBlock.type()`、`CommandSourceStack.sendSuccess(Supplier, boolean)`、`BlockPosArgument.getBlockPos`、Xaeroの`endBatch()`のordinal |
+
+- **Xaeroの`endBatch()`のordinalは1.18.2・1.19.2で1**（1.20+は0）。`GuiMap#render`と`renderChunksToFBO`の先頭に前フレームの取り残しを
+  flushする呼び出しがもう1回ある（1.16.5と同じ）。Xaeroのjarのバイトコードを1.18.2・1.19.2・1.20.1で並べて確かめた。
+  ordinal 0のままだと例外にならず別のバッファへ描いてしまい、経路が地図に出ない。
+- **`RenderType.create`（7引数）は1.20より前ではprivate**。全ノード共通の`xaeronav.accesswidener`へ足すと、メソッドの形が違う
+  1.16.5・1.21.xでAWの適用が失敗するので、1.18・1.19のFabricノードだけ`build.fabric.gradle.kts`が開放を足したAWを生成して
+  jarへ入れる（ForgeはATが`RenderType *`を開放済み）。`RenderStateShard`の定数も、1.20より前のFabric APIは開放していないので
+  `NavRenderTypes`の内部クラス（`RenderStateShard`のサブクラス）から読む。
+- 1.18.2にはFabric APIのクライアントコマンドv2が無く（v1の`ClientCommandManager.DISPATCHER`）、Forge 40には
+  `RegisterKeyMappingsEvent`・`ConfigScreenHandler`・`RegisterGuiOverlaysEvent`・`ClientPlayerNetworkEvent.LoggingIn`が無い
+  （`ClientRegistry`・`ConfigGuiHandler`・`RenderGameOverlayEvent.Post`・`LoggedInEvent`を使う）。
+- `DiggableBlocks`は、1.19で入った洞窟の置換タグ（`*_carver_replaceables`）・`#sculk_replaceable`・`SCULK`・`MANGROVE_ROOTS`が
+  1.18.2に無いので、石・土・砂・テラコッタ・ナイリウム等のタグと明示したブロックで同じ範囲を近似している。
 
 ## 1つのjarを複数のMinecraftバージョンで使う
 

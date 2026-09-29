@@ -1,6 +1,6 @@
 package net.prason.xaeronav.pathfinding.world;
 
-//? if >=1.19 {
+//? if >=1.19.3 {
 import net.minecraft.core.registries.BuiltInRegistries;
 //?} else {
 /*import net.minecraft.core.Registry;
@@ -24,7 +24,7 @@ public final class BlockRegistryCompat {
     public static ResourceLocation keyOf(Block block) {
         //? if forge && <1.21 {
         /*return ForgeRegistries.BLOCKS.getKey(block);
-        *///?} else if <1.19 {
+        *///?} else if <1.19.3 {
         /*return Registry.BLOCK.getKey(block);
         *///?} else {
         return BuiltInRegistries.BLOCK.getKey(block);
@@ -35,7 +35,7 @@ public final class BlockRegistryCompat {
     public static Block byId(ResourceLocation id) {
         //? if forge && <1.21 {
         /*return ForgeRegistries.BLOCKS.containsKey(id) ? ForgeRegistries.BLOCKS.getValue(id) : null;
-        *///?} else if <1.19 {
+        *///?} else if <1.19.3 {
         /*return Registry.BLOCK.containsKey(id) ? Registry.BLOCK.get(id) : null;
         *///?} else if >=1.21.5 {
         /*return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.getValue(id) : null;

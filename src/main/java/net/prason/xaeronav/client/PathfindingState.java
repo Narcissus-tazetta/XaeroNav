@@ -1509,7 +1509,7 @@ public final class PathfindingState {
         Player player = Minecraft.getInstance().player;
         if (player != null) {
             player.playSound(
-                    //? if >=1.17 {
+                    //? if >=1.19.3 {
                     SoundEvents.NOTE_BLOCK_BELL.value(),
                     //?} else {
                     /*SoundEvents.NOTE_BLOCK_BELL,

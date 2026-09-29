@@ -5,7 +5,7 @@ import java.util.List;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-//? if >=1.17 {
+//? if >=1.20 {
 import net.minecraft.client.gui.GuiGraphics;
 //?} else {
 /*import com.mojang.blaze3d.vertex.PoseStack;
@@ -52,7 +52,7 @@ public final class NavHud {
     private final GoalEta eta = new GoalEta();
 
     public void render(
-            //? if >=1.17 {
+            //? if >=1.20 {
             GuiGraphics graphics
             //?} else {
             /*PoseStack graphics
@@ -335,7 +335,7 @@ public final class NavHud {
     }
 
     private void draw(
-            //? if >=1.17 {
+            //? if >=1.20 {
             GuiGraphics graphics,
             //?} else {
             /*PoseStack graphics,
@@ -345,14 +345,14 @@ public final class NavHud {
         for (Component line : lines) {
             width = Math.max(width, font.width(line));
         }
-        //? if >=1.17 {
+        //? if >=1.20 {
         int centerX = graphics.guiWidth() / 2;
         //?} else {
         /*int centerX = Minecraft.getInstance().getWindow().getGuiScaledWidth() / 2;
         *///?}
         int boxWidth = width + PADDING_X * 2;
         int boxHeight = (lines.size() - 1) * LINE_HEIGHT + font.lineHeight + PADDING_Y * 2;
-        //? if >=1.17 {
+        //? if >=1.20 {
         graphics.fill(centerX - boxWidth / 2, MARGIN_TOP, centerX + boxWidth / 2, MARGIN_TOP + boxHeight,
                 BACKGROUND_COLOR);
         //?} else {
@@ -362,7 +362,7 @@ public final class NavHud {
 
         int y = MARGIN_TOP + PADDING_Y;
         for (int i = 0; i < lines.size(); i++) {
-            //? if >=1.17 {
+            //? if >=1.20 {
             graphics.drawCenteredString(font, lines.get(i), centerX, y, colors.get(i));
             //?} else {
             /*GuiComponent.drawCenteredString(graphics, font, lines.get(i), centerX, y, colors.get(i));

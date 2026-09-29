@@ -5,8 +5,15 @@ package net.prason.xaeronav.platform.forge;
 /*import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.commands.CommandSourceStack;
+//? if >=1.20 {
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
+//?} else {
+/^import net.minecraft.commands.arguments.coordinates.Coordinates;
+^///?}
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
+//? if <1.19 {
+/^import net.minecraftforge.client.event.RenderGameOverlayEvent;
+^///?}
 //? if >=1.17 {
 import net.minecraftforge.client.event.RegisterClientCommandsEvent;
 //? if <1.21.5 {
@@ -14,7 +21,6 @@ import net.minecraftforge.client.event.RenderLevelStageEvent;
 //?}
 //?} else {
 /^import net.minecraftforge.client.event.RenderWorldLastEvent;
-import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraft.client.Minecraft;
 ^///?}
 import net.minecraftforge.event.TickEvent;
@@ -87,9 +93,10 @@ public final class ForgeEvents {
         XaeroNavClient.TICK_HANDLER.onClientTick();
     }
 
+    // ClientPlayerNetworkEvent.LoggingIn/LoggingOutはForge 41（1.19）から。それより前はLoggedInEvent/LoggedOutEvent
     @SubscribeEvent
     public void onLoggingIn(
-            //? if >=1.17 {
+            //? if >=1.19 {
             ClientPlayerNetworkEvent.LoggingIn event
             //?} else {
             /^ClientPlayerNetworkEvent.LoggedInEvent event
@@ -100,7 +107,7 @@ public final class ForgeEvents {
 
     @SubscribeEvent
     public void onLoggingOut(
-            //? if >=1.17 {
+            //? if >=1.19 {
             ClientPlayerNetworkEvent.LoggingOut event
             //?} else {
             /^ClientPlayerNetworkEvent.LoggedOutEvent event
@@ -113,9 +120,18 @@ public final class ForgeEvents {
     @SubscribeEvent
     public void onRegisterCommands(RegisterClientCommandsEvent event) {
         event.getDispatcher().register(XaeroNavCommands.<CommandSourceStack>tree(
+                //? if >=1.20 {
                 ctx -> sink(ctx.getSource()), BlockPosArgument::getBlockPos));
+                //?} else {
+                /^ctx -> sink(ctx.getSource()),
+                // 1.20より前のBlockPosArgumentにはgetBlockPos(CommandContext, String)が無い（getLoadedBlockPosはサーバー用）
+                (context, name) -> context.getArgument(name, Coordinates.class).getBlockPos(context.getSource())));
+                ^///?}
     }
-    //?} else {
+    //?}
+
+    // Forgeのオーバーレイ登録イベント（RegisterGuiOverlaysEvent）は1.19から。1.18.2以前はここで描く
+    //? if <1.19 {
     /^@SubscribeEvent
     public void onOverlay(RenderGameOverlayEvent.Post event) {
         if (event.getType() == RenderGameOverlayEvent.ElementType.ALL) {
@@ -128,7 +144,7 @@ public final class ForgeEvents {
         return new NavCommandSink() {
             @Override
             public void success(net.minecraft.network.chat.Component message) {
-                //? if >=1.17 {
+                //? if >=1.20 {
                 source.sendSuccess(() -> message, false);
                 //?} else {
                 /^source.sendSuccess(message, false);

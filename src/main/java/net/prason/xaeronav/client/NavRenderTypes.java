@@ -138,14 +138,14 @@ final class NavRenderTypes {
     }
     *///?} else {
     static final RenderType DEBUG_QUADS =
-            //? if >=1.17 {
+            //? if >=1.20 {
             RenderType.debugQuads();
             //?} else {
             /*RenderType.lightning();
             *///?}
     static final RenderType LINES = RenderType.lines();
 
-    //? if >=1.17 {
+    //? if >=1.20 {
     static final RenderType OCCLUDED_QUADS = RenderType.create(
             "xaeronav_occluded_quads", DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 1536, false, true,
             RenderType.CompositeState.builder()
@@ -155,7 +155,31 @@ final class NavRenderTypes {
                     .setDepthTestState(RenderStateShard.NO_DEPTH_TEST)
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
-    //?} else {
+    //?} else if >=1.17 {
+    /*// 1.20より前のFabric APIはRenderStateShardの定数を開放しておらず、protectedのままではここから読めない。
+    // サブクラスの中からなら継承したprotected定数を読めるので、それだけの内部クラスを挟む
+    private static final class Shards extends RenderStateShard {
+        static final ShaderStateShard POSITION_COLOR = POSITION_COLOR_SHADER;
+        static final TransparencyStateShard TRANSLUCENT = TRANSLUCENT_TRANSPARENCY;
+        static final CullStateShard NO_CULLING = NO_CULL;
+        static final DepthTestStateShard NO_DEPTH = NO_DEPTH_TEST;
+        static final WriteMaskStateShard COLOR_ONLY = COLOR_WRITE;
+
+        private Shards() {
+            super("xaeronav_shards", () -> { }, () -> { });
+        }
+    }
+
+    static final RenderType OCCLUDED_QUADS = RenderType.create(
+            "xaeronav_occluded_quads", DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, 1536, false, true,
+            RenderType.CompositeState.builder()
+                    .setShaderState(Shards.POSITION_COLOR)
+                    .setTransparencyState(Shards.TRANSLUCENT)
+                    .setCullState(Shards.NO_CULLING)
+                    .setDepthTestState(Shards.NO_DEPTH)
+                    .setWriteMaskState(Shards.COLOR_ONLY)
+                    .createCompositeState(false));
+    *///?} else {
     /*static final RenderType OCCLUDED_QUADS = RenderType.lightning();
     *///?}
 

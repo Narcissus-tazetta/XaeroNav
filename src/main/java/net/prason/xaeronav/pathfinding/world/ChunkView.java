@@ -245,7 +245,7 @@ public final class ChunkView implements CellSource {
             // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
             // その2つはgetItemEnchantmentLevelのままでよい
             //? if (forge && <1.21) || neoforge {
-            //? if >=1.17 {
+            //? if >=1.19 {
             hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
             //?} else {
             /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
