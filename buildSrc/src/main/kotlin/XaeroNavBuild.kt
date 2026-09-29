@@ -56,6 +56,7 @@ fun packFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
     "1.18.2" -> 8
     "1.19.2" -> 9
     "1.20.1" -> 15
+    "1.20.4" -> 22
     "1.21.1" -> 34
     "1.21.5" -> 55
     "1.21.11" -> 75

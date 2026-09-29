@@ -1,6 +1,7 @@
 plugins {
     id("xaeronav.common")
     id("net.minecraftforge.gradle") version "7.0.36"
+    id("net.minecraftforge.renamer") version "1.1.5"
     // FG7ではjar-in-jarが別プラグインに分離された（FG6までは組み込み）
     id("net.minecraftforge.jarjar") version "0.2.3"
 }
@@ -10,6 +11,7 @@ stonecutter.properties.tags(stonecutter.current.version, "forge")
 fun dep(key: String) = stonecutter.properties.get<String>("deps.$key")
 
 val minecraftVersion = dep("minecraft")
+val needsRuntimeReobfuscation = stonecutter.eval(minecraftVersion, "<1.20.5")
 
 // xaeronav.common.gradle.ktsのtoolchain分岐と同じ境界線（このノードは今のところ常に1.21.1系なのでJAVA_21固定）
 val mixinCompatibilityLevel = mixinCompatibilityLevelFor(minecraftVersion)
@@ -39,8 +41,9 @@ repositories {
     minecraft.mavenizer(this) // FG7が作るローカルrepo
 }
 
-// annotation processorはmixinアノテーションの検証に使う。公式マッピングランタイムなのでrefmapは
-// 生成されない（NeoForgeと同じ理由）が、コンパイル時チェックそのものは要る
+// annotation processorはmixinアノテーションの検証に使う。1.20.5以降は公式マッピングランタイムなので
+// refmapは生成されない（NeoForgeと同じ理由）が、コンパイル時チェックそのものは要る。
+// 1.20.4以前はSRGランタイムなので、下のenableMixinRefmapsが渡すマッピングでrefmapも作る
 dependencies {
     annotationProcessor("org.spongepowered:mixin:0.8.7:processor")
 }
@@ -73,8 +76,39 @@ minecraft {
             // NeoForgeノードと同じ口（CIのruntime hook probeを手元で走らせるときなど）
             providers.gradleProperty("xaeronav.clientJvmArgs").orNull?.split(" ")?.filter { it.isNotBlank() }
                 ?.forEach { jvmArgs(it) }
-            // 開発実行はMODをクラスディレクトリから読むのでMANIFESTのMixinConfigsが存在しない
-            args("--mixin.config", "${modProperty("mod_id")}-xaero.mixins.json")
+            if (!needsRuntimeReobfuscation) {
+                // 開発実行はMODをクラスディレクトリから読むのでMANIFESTのMixinConfigsが存在しない
+                // （Renamerを使うノードは、下のenableMixinRefmapsが同じ引数を足す）
+                args("--mixin.config", "${modProperty("mod_id")}-xaero.mixins.json")
+            }
+        }
+    }
+}
+
+// 本番がSRG名の版は、注入先の文字列をSRGへ引くrefmapが要る。開発環境でもXaero同梱refmapのSRG名を
+// namedへ読み替える必要がある。RenamerのMixin連携はrunClientへrefMapRemappingFileを設定し、
+// XaeroNav自身のrefmap生成・開発実行へのconfig登録も担う。
+if (needsRuntimeReobfuscation) {
+    renamer.enableMixinRefmaps {
+        config("${modProperty("mod_id")}-xaero.mixins.json")
+        // mixins.jsonの"refmap"が指す名前に揃える。既定の`main.refmap.json`だと配布jarでrefmapが見つからず、
+        // SRGへ引く注入先が1本も当たらない
+        refMap.set("${modProperty("mod_id")}.refmap.json")
+        // dependency変換はRenamer側がreverse=trueにする一方、Mixin実行時に必要なのは
+        // SRG（Xaeroのrefmap）→named（開発Minecraft）なので、出力mappingも反転する。
+        generatedMappings {
+            reverse.set(true)
+        }
+    }
+
+    // Mixin 0.8.5のrefMapRemappingFileはSRG形式（MD:/FD:行）しか読めず、Renamerが渡すtsrgは行ごと
+    // 黙って無視される。すると開発実行でXaero自身のmixinが落ちる。同じ内容をSRG形式へ変換し、
+    // Renamerの設定が済んだ後にsystem propertyを差し替える。
+    val mixinRefmapRemapSrg = renamer.convert("mixinRefmapRemapSrg", renamer.mixin.generatedMappings, "srg")
+    tasks.matching { it.name == "runClient" }.configureEach { dependsOn(mixinRefmapRemapSrg) }
+    afterEvaluate {
+        minecraft.runs.named("client") {
+            systemProperty("mixin.env.refMapRemappingFile", mixinRefmapRemapSrg.get().output.get().asFile.absolutePath)
         }
     }
 }
@@ -86,7 +120,23 @@ dependencies {
 // jarJarタスクの出力（classifier無し）をそのまま配布物にする。元のjarタスクは"slim"（mixinextrasを
 // 含まない）へ回し、collectJars（ルートのbuildAll成果物集約）が誤って拾わないようにする
 jarJar.register {
-    archiveClassifier = null
+    // 1.20.4以前は本番がSRG名なので、統合後のjarをさらにrenameしてから配布する。
+    archiveClassifier = if (needsRuntimeReobfuscation) "mapped" else null
+}
+
+val distributionJar = if (needsRuntimeReobfuscation) {
+    renamer.classes("renameJarJar", tasks.named<Jar>("jarJar")) {
+        // mapは下のrenamer.mappings(...)が既定値として入る。ここで足すと2ファイルになりRenamerが拒否する
+        archiveClassifier = null
+    }
+} else {
+    tasks.named<AbstractArchiveTask>("jarJar")
+}
+
+if (needsRuntimeReobfuscation) {
+    tasks.named("assemble") {
+        dependsOn(distributionJar)
+    }
 }
 
 // ForgeのFMLはmods.tomlの[[mixins]]を読まない（NeoForgeとの違い）。configを拾うのはMixin本体で、
@@ -106,12 +156,23 @@ val withXaero = withXaeroProperty()
 // （他の2ノードと同じ理由。NeoForgeEntry.javaのコメント参照）。
 val xaeroRuntimeMods: Configuration = createXaeroRuntimeModsConfiguration()
 
-dependencies {
+// Forge 1.20.4以前の公開Xaero jarはMinecraft参照がSRG名（f_... / m_...）のままなので、
+// named開発環境へそのまま載せるとXaero自身のMixin @Shadowが解決できない。
+// Renamerのdependency経路はFGのmappingを逆向きに適用し、開発実行・コンパイル用だけnamedへ直す。
+// 配布時のruntime smoke testには下のxaeroRuntimeModsから未変換jarを渡す。
+val xaeroDevelopmentModules = if (needsRuntimeReobfuscation) {
+    renamer.mappings(minecraft.dependency.toSrg)
+    xaeroModules.map { renamer.dependency(it) }
+} else {
     // FG7はMinecraft依存と同じ解決構成上の外部modをmavenizerでnamedへ変換する。
     // 公開jarをrun/modsへ直接コピーすると変換を迂回し、Xaero自身の@Shadow f_... が落ちる。
-    xaeroModules.forEach { compileOnly(it) }
+    xaeroModules
+}
+
+dependencies {
+    xaeroDevelopmentModules.forEach { compileOnly(it) }
     if (withXaero) {
-        xaeroModules.forEach { runtimeOnly(it) }
+        xaeroDevelopmentModules.forEach { runtimeOnly(it) }
         // stageRuntimeTestModsには配布時と同じ未変換jarを渡す。
         xaeroModules.forEach { xaeroRuntimeMods(it) }
     }
@@ -124,6 +185,11 @@ dependencies {
     // ランタイム(1.21.1)では常に「マッピング無し」を検知してビルドを止める。annotationProcessorは
     // Mixin本体（0.8.7）だけで足り、@ModifyReturnValue/@WrapOperationの展開自体はそちらで進む
     compileOnly("io.github.llamalad7:mixinextras-common:${dep("mixinextras")}")
+    if (needsRuntimeReobfuscation) {
+        // @WrapOperation・@ModifyReturnValueはMixin本体のAPが知らない注入なので、SRGのrefmapを作る
+        // 1.20.4以前ではAPにも載せる。無いとrefmapが空になる（forge-legacyと同じ）
+        annotationProcessor("io.github.llamalad7:mixinextras-common:${dep("mixinextras")}")
+    }
     implementation("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
     "jarJar"("io.github.llamalad7:mixinextras-forge:${dep("mixinextras")}")
 }
@@ -133,14 +199,14 @@ dependencies {
 // mixinextrasを含まないため、それだけを配布・実行すると起動時にMixinExtrasが見つからず落ちる
 val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
-    from(tasks.named("jarJar"))
+    from(distributionJar)
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
 // 専用サーバーのproduction smoke testにはXaeroを入れず、利用者へ配る統合jarだけを渡す。
 // client runtimeと同じstage先を共有すると、任意依存のXaeroがサーバーへ混ざって検査にならない。
 tasks.register<Sync>("stageServerTestMod") {
-    from(tasks.named("jarJar"))
+    from(distributionJar)
     into(rootProject.layout.buildDirectory.dir("server-test/${stonecutter.current.project}/mods"))
 }
 

@@ -63,7 +63,12 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     //?} else {
     /*@Override
     protected void init() {
-        this.list = new OptionsList(this.minecraft, this.width, this.height, 32, this.height - 32, 25);
+        // 1.20.2でitemHeight引数がなくなった。
+        //? if >=1.20.2 {
+        this.list = new OptionsList(this.minecraft, this.width, this.height, 32, this.height - 32);
+        //?} else {
+        /^this.list = new OptionsList(this.minecraft, this.width, this.height, 32, this.height - 32, 25);
+        ^///?}
         addAllOptions(XaeroNavConfig.INSTANCE, this.list::addBig);
         this.addWidget(this.list);
         this.addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> this.onClose())

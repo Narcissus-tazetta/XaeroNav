@@ -8,7 +8,11 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+//? if >=1.21 {
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+//?} else {
+/*import net.neoforged.neoforge.event.TickEvent;
+*///?}
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -41,7 +45,18 @@ public final class NeoForgeEvents {
     }
 
     @SubscribeEvent
-    public void onClientTick(ClientTickEvent.Post event) {
+    public void onClientTick(
+            //? if >=1.21 {
+            ClientTickEvent.Post event
+            //?} else {
+            /*TickEvent.ClientTickEvent event
+            *///?}
+    ) {
+        //? if <1.21 {
+        /*if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        *///?}
         XaeroNavClient.TICK_HANDLER.onClientTick();
     }
 

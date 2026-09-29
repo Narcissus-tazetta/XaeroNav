@@ -124,9 +124,13 @@ dependencies {
     // 読み込まないので除外して問題ない。
     modCompileOnly("com.terraformersmc:modmenu:${dep("modmenu")}") {
         exclude(group = "net.fabricmc", module = "fabric-loader")
+        // ModMenu 9.xの任意連携先。XaeroNavは設定画面APIしか使わないので、
+        // ModMenu側のPlaceholder APIをコンパイルクラスパスへ引き込む必要はない。
+        exclude(group = "eu.pb4", module = "placeholder-api")
     }
     modLocalRuntime("com.terraformersmc:modmenu:${dep("modmenu")}") {
         exclude(group = "net.fabricmc", module = "fabric-loader")
+        exclude(group = "eu.pb4", module = "placeholder-api")
     }
 
     // Xaeroはfabric.mod.json上optionalな連携先。コンパイルにだけ必要。

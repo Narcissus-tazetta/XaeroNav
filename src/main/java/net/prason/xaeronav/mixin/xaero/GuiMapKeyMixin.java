@@ -1,5 +1,8 @@
 package net.prason.xaeronav.mixin.xaero;
 
+//? if forge && >=1.20.2 && <1.21 {
+/*import org.spongepowered.asm.mixin.Dynamic;
+*///?}
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -52,8 +55,8 @@ public abstract class GuiMapKeyMixin {
         throw new UnsupportedOperationException();
     }
 
-    // 本番がSRG名で動く1.20.1-forgeだけはrefmapでm_7933_へ引く必要がある。公式マッピングの
-    // ノードでremapさせるとAPが「マッピング無し」でビルドを止める（Fabricはloomが別途引く）
+    // Forge 1.20.4は配布先のXaeroがSRG名、Renamerを通す開発環境ではnamed名になる。
+    // 外部クラスのoverrideはMixin APがrefmapへ引けないため、両方を候補にして実環境で片方を選ぶ。
     //? if >=1.21.11 {
     /*// 1.21.9以降はキー入力が1つのKeyEventにまとまった
     @Inject(method = "keyPressed(Lnet/minecraft/client/input/KeyEvent;)Z", at = @At("HEAD"), cancellable = true, remap = false)
@@ -61,7 +64,11 @@ public abstract class GuiMapKeyMixin {
         XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_KEY);
         if (this.isUsingTextField() || !XaeroNavKeys.GOTO_MAP_CURSOR.matches(event)) {
     *///?} else {
-    //? if forge && <1.21 {
+    //? if forge && >=1.20.2 && <1.21 {
+    /*@SuppressWarnings("target")
+    @Dynamic("Xaero's keyPressed override has named and SRG forms across Forge environments")
+    @Inject(method = { "keyPressed(III)Z", "m_7933_(III)Z" }, at = @At("HEAD"), cancellable = true, remap = false)
+    *///?} else if forge && <1.21 {
     /*@Inject(method = "keyPressed(III)Z", at = @At("HEAD"), cancellable = true)
     *///?} else {
     @Inject(method = "keyPressed(III)Z", at = @At("HEAD"), cancellable = true, remap = false)

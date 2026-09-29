@@ -119,6 +119,10 @@ tasks.register("verifyDistribution") {
             val loader = node.project.substringAfterLast('-')
             "${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar" to javaVersionFor(node.version)
         }
+        val isBefore1205 = stonecutter.versions.associate { node ->
+            val loader = node.project.substringAfterLast('-')
+            "${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar" to stonecutter.eval(node.version, "<1.20.5")
+        }
         val directory = layout.buildDirectory.dir("libs").get().asFile
         val actual = directory.listFiles { file -> file.extension == "jar" }
             ?.associateBy { it.name } ?: emptyMap()
@@ -162,6 +166,15 @@ tasks.register("verifyDistribution") {
                         check(jar.getEntry("META-INF/mods.toml") != null) { "$name: mods.tomlがありません" }
                         check(jar.manifest.mainAttributes.getValue("MixinConfigs")
                                 == "xaeronav-xaero.mixins.json") { "$name: MixinConfigs manifestが不正です" }
+                        // 本番がSRG名のForge（1.20.4以前）は、refmapが無い・空だとGuiMap等への注入が1本も当たらない
+                        // （config自体がrequired=falseなのでログにしか出ない）
+                        if (isBefore1205.getValue(name)) {
+                            val refmap = jar.getEntry("xaeronav.refmap.json")
+                            check(refmap != null) { "$name: xaeronav.refmap.jsonがありません" }
+                            check(jar.getInputStream(refmap).use { String(it.readBytes()) }.contains("GuiMapMixin")) {
+                                "$name: xaeronav.refmap.jsonにGuiMapMixinの注入先がありません"
+                            }
+                        }
                         // ForgeはFG7のjarJar（またはlegacyforgeの同名機構）でMETA-INF/jarjar/へ
                         // ネストしたjarのまま同梱する（Forge本体はmixinextrasを同梱していない）。
                         // jar-in-jarの無い1.16.5は自分のパッケージへ移して直接入れる
@@ -172,8 +185,12 @@ tasks.register("verifyDistribution") {
                             "$name: mixinextrasが同梱されていません"
                         }
                     }
-                    "neoforge" -> check(jar.getEntry("META-INF/neoforge.mods.toml") != null) {
-                        "$name: neoforge.mods.tomlがありません"
+                    "neoforge" -> {
+                        // NeoForge 20.4のFMLはMETA-INF/mods.tomlしか読まない。名前を間違えるとMODごと読み込まれない
+                        val metadata = if (isBefore1205.getValue(name)) "META-INF/mods.toml" else "META-INF/neoforge.mods.toml"
+                        check(jar.getEntry(metadata) != null) { "$name: ${metadata.substringAfterLast('/')}がありません" }
+                        val metadataText = jar.getInputStream(jar.getEntry(metadata)).use { String(it.readBytes()) }
+                        check(metadataText.contains("[[mixins]]")) { "$name: ${metadata.substringAfterLast('/')}にmixin configの登録がありません" }
                     }
                     // NeoForge本体はmixinextrasを同梱済みなので、ここでの同梱検査は不要
                 }

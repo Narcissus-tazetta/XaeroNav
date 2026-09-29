@@ -14,11 +14,11 @@ Xaero連携Mixinは`required=false`とし、外部modの変更で注入に失敗
 
 ## Invariants
 
-- Fabric jarには`fabric.mod.json`、NeoForge jarには`neoforge.mods.toml`、Forge jarには`mods.toml`だけを
-  ローダーmetadataとして含める。
+- Fabric jarには`fabric.mod.json`、NeoForge jarには`neoforge.mods.toml`（NeoForge 20.4は`mods.toml`）、
+  Forge jarには`mods.toml`だけをローダーmetadataとして含める。
 - Forgeは版にかかわらず、配布jarのmanifestに`MixinConfigs`を含める。`mods.toml`の`[[mixins]]`
   だけを根拠にしてはいけない。
-- SRG名前空間で動くForge 1.20.1 jarにはrefmapを含める。公式mappingで動くForge 1.21.1へ同じ前提を
+- SRG名前空間で動くForge（1.20.4以前）のjarにはrefmapを含める。公式mappingで動くForge 1.21.1へ同じ前提を
   持ち込まない。
 - Forgeへ同梱するMixinExtrasを含む統合jarを配布し、slim jarを配布対象にしない。
 - Xaeroの最低対応版は、各Mixinの実際の注入先を確認した版に合わせる。推測で下限を広げない。

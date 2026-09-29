@@ -134,6 +134,13 @@ tasks.named<ProcessResources>("processResources").configure {
     filesMatching("META-INF/neoforge.mods.toml") {
         expand(replaceProperties)
     }
+    // NeoForge 20.4のFMLはMOD定義をMETA-INF/mods.tomlからしか読まない（neoforge.mods.tomlは20.5から）。
+    // 名前が違うとXaeroNavが丸ごと読み込まれない。
+    // renameはGradleの入力に数えられないので、明示しないとUP-TO-DATE扱いで古い出力が残る
+    if (stonecutter.eval(minecraftVersion, "<1.20.5")) {
+        rename("neoforge.mods.toml", "mods.toml")
+        inputs.property("modsTomlName", "mods.toml")
+    }
     filesMatching("xaeronav-xaero.mixins.json") {
         expand(replaceProperties)
     }
