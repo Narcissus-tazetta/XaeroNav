@@ -24,5 +24,5 @@ dependencies {
     implementation("dev.kikugie.fletching-table:fletching-table:0.2.0-alpha.9")
 
     // 1.16.5-forgeの開発実行で、Xaeroのクラスファイルに文字列で書かれたクラス名を書き換えるため（ForgeCoremodNames.kt）
-    implementation("org.ow2.asm:asm:9.9.1")
+    implementation("org.ow2.asm:asm:9.10.1")
 }
