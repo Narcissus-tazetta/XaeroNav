@@ -46,6 +46,8 @@ if (publishTarget != null || publishNode != null) {
     val releaseFile = layout.buildDirectory.file(
         "libs/${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar")
 
+    val publishedMinecraftVersions = listOfNotNull(minecraftCompatFor(node.project), node.version)
+
     publishMods {
         file.set(releaseFile)
         // 同じプロジェクトに複数ファイルを投稿するため、サイト上のversion番号はノードごとに一意にする。
@@ -61,14 +63,14 @@ if (publishTarget != null || publishNode != null) {
             "modrinth" -> modrinth {
                 projectId.set(providers.environmentVariable("MODRINTH_PROJECT_ID"))
                 accessToken.set(providers.environmentVariable("MODRINTH_TOKEN"))
-                minecraftVersions.add(node.version)
+                minecraftVersions.addAll(publishedMinecraftVersions)
                 environment.set(CLIENT_ONLY)
                 if (loader == "fabric") requires("fabric-api")
             }
             "curseforge" -> curseforge {
                 projectId.set(providers.environmentVariable("CURSEFORGE_PROJECT_ID"))
                 accessToken.set(providers.environmentVariable("CURSEFORGE_TOKEN"))
-                minecraftVersions.add(node.version)
+                minecraftVersions.addAll(publishedMinecraftVersions)
                 client.set(true)
                 server.set(false)
                 if (loader == "fabric") requires("fabric-api")

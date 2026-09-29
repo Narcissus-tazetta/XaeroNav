@@ -128,6 +128,24 @@ CI は `printNodes` からノード一覧を作るので、ワークフローの
 （`util/MathSupport`、テストコードの`list.get(list.size() - 1)`など）。バージョンゲートは
 Minecraft自体のAPI差にだけ使う。
 
+## 1つのjarを複数のMinecraftバージョンで使う
+
+1.21.1のNeoForge版は1.21でも、1.20.1のFabric版・Forge版は1.20でも、同じjarで動く。
+対応表は`minecraftCompatFor`（`buildSrc/src/main/kotlin/XaeroNavBuild.kt`）で、値は下側のバージョン。
+これがMOD定義のMinecraft範囲（`minecraft_range_fabric` / `minecraft_range_maven`）と、
+Modrinth・CurseForgeへ付ける対応バージョンの両方を決める。
+
+- **付けられるのは、現行のXaeroのjarがその版で動くローダーだけ。** Fabric版のMinimapは1.21.1ちょうど、
+  Forge版は1.21.1のForge 52以上を要求するので、Fabric・Forgeの1.21には付けていない。
+- ローダー側の下限（`neoforge_range` / `forge_loader_range` / `fabric_api_range`）は、下側のバージョンで
+  実際に動いた版まで下げる。`fabric_api_range`は開発に使う`fabric_api`とは別のキー。
+- 下側のバージョンには古いローダーが乗る。**その版のAPIで足りるか**を実機で確かめること。
+  Forge 46（1.20.0）にはForge 47にある次の2つが無く、`<1.21`のノードは46に揃えてある。
+  - `@Mod`クラスのコンストラクタへの`FMLJavaModLoadingContext`の注入（引数なしで`get()`を使う）
+  - `ForgeConfigSpec.Builder#defineListAllowEmpty(String, List, Predicate)`（`List<String>`と`Supplier`を取る版を使う）
+- NeoForge 21.0.xは`@EventBusSubscriber`の購読先のバスを自動で選ばないので、MODバスのイベントは
+  `modEventBus.addListener`で登録する。
+
 ## 1.21.11
 
 1.21.1との差が大きいのは描画・Forge/NeoForgeのイベント・入力まわり。

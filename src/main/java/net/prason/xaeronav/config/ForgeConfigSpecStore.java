@@ -1,16 +1,16 @@
 package net.prason.xaeronav.config;
 
 //? forge {
-import java.util.List;
+/*import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import net.minecraftforge.common.ForgeConfigSpec;
 
-/**
+/^*
  * Forge側の保存先。読み書き・ファイル監視・不正値の補正はすべてFMLが持つ
  * {@code ForgeConfigSpec}に任せる。
- */
+ ^/
 public final class ForgeConfigSpecStore implements NavConfigStore, NavConfigSpec {
 
     private final ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -31,7 +31,7 @@ public final class ForgeConfigSpecStore implements NavConfigStore, NavConfigSpec
         built.save();
     }
 
-    /** {@code ModLoadingContext#registerConfig}へ渡すためのもの。 */
+    /^* {@code ModLoadingContext#registerConfig}へ渡すためのもの。 ^/
     public ForgeConfigSpec forgeConfigSpec() {
         return built;
     }
@@ -93,17 +93,18 @@ public final class ForgeConfigSpecStore implements NavConfigStore, NavConfigSpec
     }
 
     // Forgeの`defineListAllowEmpty`にはNeoForgeが持つ4引数版（新規要素のSupplierを取る）が無い。
-    // GUIの「要素を追加」ボタンが作る初期値をForgeだけ持てないだけで、既定値・保存形式は変わらない
+    // GUIの「要素を追加」ボタンが作る初期値をForgeだけ持てないだけで、既定値・保存形式は変わらない。
+    // 1.21未満はList<String>とSupplierを取る版に揃える（Forge 46には(String, List, Predicate)版が無い）
     @Override
     public StringListValue defineStringList(String path, List<String> defaultValue,
             Supplier<String> newElement, Predicate<Object> elementValidator) {
         ForgeConfigSpec.ConfigValue<List<? extends String>> value =
-                //? if >=1.17 {
+                //? if >=1.21 {
                 builder.defineListAllowEmpty(path, defaultValue, elementValidator);
                 //?} else {
-                /*builder.defineListAllowEmpty(List.of(path), () -> defaultValue, elementValidator);
-                *///?}
+                /^builder.defineListAllowEmpty(List.of(path), () -> defaultValue, elementValidator);
+                ^///?}
         return value::get;
     }
 }
-//?}
+*///?}

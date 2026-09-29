@@ -11,8 +11,9 @@ where to go next.
 - Minecraft 1.21.5, on NeoForge 21.5+, Forge 55+, or Fabric (Fabric Loader 0.16.10+ and
   Fabric API 0.128.2+)
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
-  Fabric API)
-- Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API)
+  Fabric API). The NeoForge jar also runs on Minecraft 1.21 with NeoForge 21.0+
+- Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API). The jars also
+  run on Minecraft 1.20, with Forge 46+ or Fabric API 0.83.0+
 - Minecraft 1.16.5, on Forge 36.2.39+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.42.0+).
   Runs on Java 8
 - A Java heap of at least 2 GB, the official launcher's default. Below 2.5 GB the navigation graph
