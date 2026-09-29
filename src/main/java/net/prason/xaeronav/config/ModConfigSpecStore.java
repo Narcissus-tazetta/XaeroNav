@@ -96,7 +96,11 @@ public final class ModConfigSpecStore implements NavConfigStore, NavConfigSpec {
     public StringListValue defineStringList(String path, List<String> defaultValue,
             Supplier<String> newElement, Predicate<Object> elementValidator) {
         ModConfigSpec.ConfigValue<List<? extends String>> value =
+                //? if >=1.21 {
                 builder.defineListAllowEmpty(path, defaultValue, newElement, elementValidator);
+                //?} else {
+                /*builder.defineListAllowEmpty(path, defaultValue, elementValidator);
+                *///?}
         return value::get;
     }
 }

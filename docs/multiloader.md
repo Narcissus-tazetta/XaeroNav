@@ -19,6 +19,9 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `1.21.1-neoforge` | 1.21.1 | NeoForge 21.1.228+ |
 | `1.21.1-fabric` | 1.21.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
+| `1.20.4-neoforge` | 1.20.4 | NeoForge 20.4+ |
+| `1.20.4-fabric` | 1.20.4 | Fabric Loader 0.15.11+ / Fabric API 0.97.3+ |
+| `1.20.4-forge` | 1.20.4 | Forge 49+ |
 | `1.20.1-fabric` | 1.20.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.20.1-forge` | 1.20.1 | Forge 47.4.23+ |
 | `1.19.2-fabric` | 1.19.2 | Fabric Loader 0.15.11+ / Fabric API 0.77.0+ |
@@ -156,6 +159,25 @@ Minecraft自体のAPI差にだけ使う。
   （`ClientRegistry`・`ConfigGuiHandler`・`RenderGameOverlayEvent.Post`・`LoggedInEvent`を使う）。
 - `DiggableBlocks`は、1.19で入った洞窟の置換タグ（`*_carver_replaceables`）・`#sculk_replaceable`・`SCULK`・`MANGROVE_ROOTS`が
   1.18.2に無いので、石・土・砂・テラコッタ・ナイリウム等のタグと明示したブロックで同じ範囲を近似している。
+
+## 1.20.4
+
+Fabric・Forge・NeoForgeの3ローダーを持つ。1.20.1とゲーム側のAPIは近いが、ビルドとローダーAPIには次の差がある。
+
+- `OptionsList`のコンストラクタは1.20.2から行高の引数を取らない。設定画面はこの境界で分岐する
+- Forge 49のclient tickは`ClientTickEvent.Post`。1.20.1以前の`phase == END`判定は不要
+- Forge 1.20.4はFG7でビルドするが、本番はまだSRG名で動く。MixinExtrasをjar-in-jarした後のjarを
+  Renamer GradleでSRGへ変換し、その出力だけを配布する。Xaeroの`GuiMap#keyPressed`もSRG実名を注入先にする
+  - 変換タスク（`renameJarJar`）のmapはRenamerの既定（`renamer.mappings`）に任せる。手で足すと2ファイルになって拒否される
+  - 注入先の文字列をSRGへ引くrefmapは、annotation processorにmixinextras-commonも載せないと`@WrapOperation`分が空になる。
+    名前もmixin configの`"refmap"`に揃える（`xaeronav.refmap.json`）。`verifyDistribution`が中身まで見る
+  - 開発実行では、Xaero同梱refmapのSRG名をnamedへ読み替えるファイルをMixin 0.8.5が読める`srg`形式で渡す
+    （Renamerが渡す`tsrg`は黙って無視される）
+- NeoForge 20.4は21.xより古いAPIを使う。config登録は`ModLoadingContext`、設定画面は
+  `ConfigScreenHandler.ConfigScreenFactory`、client tickは旧`TickEvent`、`ModConfigSpec#defineListAllowEmpty`は3引数
+- NeoForge 20.4のFMLはMOD定義を`META-INF/mods.toml`からしか読まない（`neoforge.mods.toml`は20.5から）。
+  jarには`mods.toml`の名前で入れる。名前を間違えるとMODごと読み込まれない（mixinの`[[mixins]]`は20.4でも効く）
+- `pack.mcmeta`のresource pack formatは22
 
 ## 1つのjarを複数のMinecraftバージョンで使う
 

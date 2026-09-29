@@ -79,13 +79,13 @@ public final class ForgeEvents {
     // phaseフィールド（START/END）で前後を区別する旧い形
     @SubscribeEvent
     public void onClientTick(
-            //? if >=1.21 {
+            //? if >=1.20.2 {
             TickEvent.ClientTickEvent.Post event
             //?} else {
             /^TickEvent.ClientTickEvent event
             ^///?}
     ) {
-        //? if <1.21 {
+        //? if <1.20.2 {
         /^if (event.phase != TickEvent.Phase.END) {
             return;
         }
