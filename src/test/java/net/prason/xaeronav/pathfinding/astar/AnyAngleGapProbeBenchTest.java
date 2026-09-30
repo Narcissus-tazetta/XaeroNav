@@ -17,6 +17,9 @@ import net.prason.xaeronav.pathfinding.world.TerrainFixture;
 /**
  * 8方向の格子の最適経路を、同じ高さの平地の疾走区間だけ直線に引き直したら何割縮むか（any-angleとの差）。
  * 模型の最適と比べるbenchには原理的に映らない損を測る。判定なし。
+ *
+ * <p>あわせて、最適経路の値段のうち段差の手間（{@link ActionCosts#STEP_TRANSITION_TICKS}）が占める割合も出す。
+ * ダッシュジャンプで進む人には段差の手間がほぼ掛からないので、この割合が模型と跳ぶ人のずれの上限になる。
  */
 @Tag("bench")
 class AnyAngleGapProbeBenchTest {
@@ -117,6 +120,7 @@ class AnyAngleGapProbeBenchTest {
             double worst = 1;
             double sumGrid = 0;
             double sumPulled = 0;
+            double sumStep = 0;
             int n = 0;
             for (BlockPos[] route : TerrainFixture.randomRoutes(cells, bounds, 20260904L, routesPer, 40, 90)) {
                 PathResult best = new AStarPathfinder(cells, new SearchLimits(3_000_000, 120_000, 1.0), null)
@@ -131,10 +135,12 @@ class AnyAngleGapProbeBenchTest {
                 worst = Math.max(worst, ratio);
                 sumGrid += grid;
                 sumPulled += any;
+                sumStep += best.steps().stream().filter(step -> step.movement() == MovementType.ASCEND
+                        || step.movement() == MovementType.DESCEND).count() * ActionCosts.STEP_TRANSITION_TICKS;
                 n++;
             }
-            System.out.printf(Locale.ROOT, "%-10s %2d本 格子/直線化 平均%.4f 最悪%.4f 合計%.4f%n",
-                    terrain.name(), n, sumRatio / n, worst, sumGrid / sumPulled);
+            System.out.printf(Locale.ROOT, "%-10s %2d本 格子/直線化 平均%.4f 最悪%.4f 合計%.4f 段差の手間%.1f%%%n",
+                    terrain.name(), n, sumRatio / n, worst, sumGrid / sumPulled, 100 * sumStep / sumGrid);
         }
     }
 }
