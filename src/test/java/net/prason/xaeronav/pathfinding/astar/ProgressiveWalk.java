@@ -230,7 +230,6 @@ final class ProgressiveWalk {
 
     /** 組み直したガイドで引いてある経路を見直す閾値（{@code PathfindingState#REVIEW_MIN_EXTRA_TICKS}）。負なら見直さない。 */
     private static final double REVIEW_MIN_EXTRA_TICKS = Double.parseDouble(System.getProperty("xaeronav.reviewTicks", "40"));
-    private static final double REVIEW_MIN_EXTRA_RATIO = Double.parseDouble(System.getProperty("xaeronav.reviewRatio", "0.05"));
 
     /** {@code PathfindingState#REVIEW_RETRY_MOVE_BLOCKS}。 */
     private static final double REVIEW_RETRY_MOVE = 32.0;
@@ -481,7 +480,7 @@ final class ProgressiveWalk {
                                 player.toShortString(), detour.extraTicks(), detour.walkedTicks(),
                                 field.exact(player.getX(), player.getY(), player.getZ()), planned.size(), cost(planned));
                     }
-                    if (detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS, REVIEW_MIN_EXTRA_RATIO)) {
+                    if (detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS)) {
                         REVIEWS.incrementAndGet();
                         reviewReplannedAt = player;
                         planned = new ArrayList<>();

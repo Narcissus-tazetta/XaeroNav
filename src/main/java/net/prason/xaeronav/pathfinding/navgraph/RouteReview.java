@@ -70,8 +70,8 @@ public final class RouteReview {
          * 引き直す価値があるか。小さな差で引き直すと、ガイドと探索の細かな食い違い（水中の割増の見積もりなど）で
          * 歩くたびに線が描き変わる。
          */
-        public boolean worthReplanning(double minExtraTicks, double minExtraRatio) {
-            return extraTicks > minExtraTicks && extraTicks > minExtraRatio * walkedTicks;
+        public boolean worthReplanning(double minExtraTicks) {
+            return extraTicks > minExtraTicks;
         }
     }
 }

@@ -340,7 +340,7 @@ sequenceDiagram
   exist, only the span across the join is re-solved, and swapped in if it is cheaper.
 - **Review** (`RouteReview`): as the window moves, places that were only estimated become exact, and it
   can turn out that heading north would have been shorter. Each time the graph is rebuilt, the cost of
-  the path ahead is compared with the guide; a detour of 40 ticks and 5% or more triggers a replan.
+  the path ahead is compared with the guide; a detour of 40 ticks or more triggers a replan.
 - **Validation** (`PathValidator`): at intervals, only the cells along the path are re-read to check
   nothing has blocked it or flowed into it (such as lava). It uses the same checks as the search, so
   the validator never rejects a path the search considered valid.

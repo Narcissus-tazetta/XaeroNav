@@ -171,11 +171,12 @@ public final class PathfindingState {
     private static final long NAV_GRAPH_WAIT_MILLIS = 10_000L;
 
     /**
-     * 組み直したガイドで見直して、引き直す遠回りの量（tick）と、見直した区間の値段に対する割合。両方を超えたら引き直す。
-     * {@link RouteReview}参照。
+     * 組み直したガイドで見直して、これより遠回りなら引き直す量（tick）。{@link RouteReview}参照。
+     *
+     * <p>見直した区間の値段に対する割合は条件にしない。長い区間ほど割合の閾値が大きくなり、目的地が窓に入った直後の
+     * 45tickの遠回りを4.6%として見逃して最後まで抱えていた（地中始点の模型で最適の1.03倍）。
      */
     private static final double REVIEW_MIN_EXTRA_TICKS = 40.0;
-    private static final double REVIEW_MIN_EXTRA_RATIO = 0.05;
 
     /**
      * 見直しで引き直したあと、次に見直すまでに歩く距離（ブロック）。ガイドと探索が食い違って引き直しても遠回りが消えない場所で、
@@ -2443,7 +2444,7 @@ public final class PathfindingState {
         List<PathStep> steps = shown.result().steps();
         int index = PathProgress.INSTANCE.indexFor(shown.result());
         RouteReview.Detour detour = RouteReview.detour(field, steps.get(index).pos(), steps, index + 1);
-        if (!detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS, REVIEW_MIN_EXTRA_RATIO)) {
+        if (!detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS)) {
             return false;
         }
         LOGGER.debug("XaeroNav: 組み直したガイドで見ると遠回りなので引き直します (余計に{}tick, 見直した区間{}tick, 現在地={})",
