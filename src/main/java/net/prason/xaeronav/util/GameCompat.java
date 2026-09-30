@@ -37,7 +37,7 @@ public final class GameCompat {
     // 高さはどれも「下端を含み、上端を含まない」旧来の意味で返す（1.21.2以降のgetMaxY()は上端を含む）
     //? if >=1.17 {
     public static int minBuildHeight(LevelHeightAccessor level) {
-        //? if >=1.21.5 {
+        //? if >=1.21.2 {
         /*return level.getMinY();
         *///?} else {
         return level.getMinBuildHeight();
@@ -45,7 +45,7 @@ public final class GameCompat {
     }
 
     public static int maxBuildHeight(LevelHeightAccessor level) {
-        //? if >=1.21.5 {
+        //? if >=1.21.2 {
         /*return level.getMaxY() + 1;
         *///?} else {
         return level.getMaxBuildHeight();
@@ -53,7 +53,7 @@ public final class GameCompat {
     }
 
     public static int minSection(LevelHeightAccessor level) {
-        //? if >=1.21.5 {
+        //? if >=1.21.2 {
         /*return level.getMinSectionY();
         *///?} else {
         return level.getMinSection();

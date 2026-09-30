@@ -58,6 +58,7 @@ fun packFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
     "1.20.1" -> 15
     "1.20.4" -> 22
     "1.21.1" -> 34
+    "1.21.4" -> 46
     "1.21.5" -> 55
     "1.21.11" -> 75
     else -> error("pack_formatが未登録のMinecraft $minecraftVersion。クライアントjarのversion.jsonから足すこと")

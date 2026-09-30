@@ -16,7 +16,7 @@ import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 ^///?}
 //? if >=1.17 {
 import net.minecraftforge.client.event.RegisterClientCommandsEvent;
-//? if <1.21.5 {
+//? if <1.21.2 {
 import net.minecraftforge.client.event.RenderLevelStageEvent;
 //?}
 //?} else {
@@ -32,9 +32,9 @@ import net.prason.xaeronav.client.XaeroNavCommands;
 /^* Forgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 ^/
 public final class ForgeEvents {
 
-    // Forge 55 (1.21.5) removed RenderLevelStageEvent while its frame-graph renderer was in transition.
-    // ForgeLevelRendererMixin supplies the equivalent callback for that one release line.
-    //? if <1.21.5 {
+    // Forge 54 (1.21.4) and 55 (1.21.5) have no RenderLevelStageEvent while the frame-graph renderer
+    // was in transition. ForgeLevelRendererMixin supplies the equivalent callback for those release lines.
+    //? if <1.21.2 {
     @SubscribeEvent
     public void onRenderLevelStage(
             //? if >=1.17 {

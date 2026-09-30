@@ -9,6 +9,8 @@
   Fabric API 0.141.6 以降）
 - Minecraft 1.21.5 / NeoForge 21.5 以降、Forge 55 以降、または Fabric（Fabric Loader 0.16.10 以降 +
   Fabric API 0.128.2 以降）
+- Minecraft 1.21.4 / NeoForge 21.4 以降、Forge 54 以降、または Fabric（Fabric Loader 0.16.9 以降 +
+  Fabric API 0.119.4 以降）
 - Minecraft 1.21.1 / NeoForge 21.1.228 以降、Forge 52.1.16 以降、または Fabric（Fabric Loader
   0.15.11 以降 + Fabric API）。NeoForge 版の jar は Minecraft 1.21（NeoForge 21.0 以降）でも動きます
 - Minecraft 1.20.4 / NeoForge 20.4 以降、Forge 49 以降、または Fabric（Fabric Loader 0.15.11 以降 +
@@ -46,6 +48,9 @@
    - Minecraft 1.21.5: [NeoForge](https://neoforged.net/) 21.5 以降、
      [Forge](https://files.minecraftforge.net/) 55 以降、または [Fabric](https://fabricmc.net/)
      （Fabric Loader 0.16.10 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.128.2 以降）。
+   - Minecraft 1.21.4: [NeoForge](https://neoforged.net/) 21.4 以降、
+     [Forge](https://files.minecraftforge.net/) 54 以降、または [Fabric](https://fabricmc.net/)
+     （Fabric Loader 0.16.9 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.119.4 以降）。
    - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 以降、
      [Forge](https://files.minecraftforge.net/) 52.1.16 以降、または [Fabric](https://fabricmc.net/)
      （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
@@ -64,7 +69,7 @@
    Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
    `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
-   1.21.1・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.21.11・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
+   1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.21.11・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
    Minimap 26.5.0 以降。
 
 ## 何ができるか
