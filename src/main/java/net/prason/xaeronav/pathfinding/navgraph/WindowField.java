@@ -267,12 +267,14 @@ public final class WindowField implements CostToGo {
         Long2IntOpenHashMap slotOf = new Long2IntOpenHashMap(slots);
         slotOf.defaultReturnValue(-1);
         int[] offsets = new int[slots + 1];
+        int insideEdges = 0;
         for (int s = 0; s < slots; s++) {
             SectionEdges edges = graph.section(keys[s]);
             // 組み立ての途中で捨てられた（チャンクの更新）なら、まだ組んでいないのと同じに扱う
             sections[s] = edges == null ? SectionEdges.EMPTY : edges;
             slotOf.put(keys[s], s);
             offsets[s + 1] = offsets[s] + sections[s].nodes;
+            insideEdges += sections[s].inSize();
         }
         // 辺の移動の番号は、セクションを覚える前に表へ載っている。セクションを集め終えてから表を取れば全部引ける
         MoveTable.View moves = graph.moves().view();
@@ -300,7 +302,8 @@ public final class WindowField implements CostToGo {
         }
         AtomicBoolean goalEntered = new AtomicBoolean();
 
-        // 1周目: 窓の中へ入る辺を行き先ごとに数え（start[行き先+2]）、窓から出る辺は種にする。
+        // 1周目: 窓の中でセクションをまたいで入る辺を行き先ごとに数え（start[行き先+2]）、窓から出る辺は種にする。
+        // セクションの中で閉じる入る辺はセクションが覚えている（SectionEdges#inFirst）。
         // 種はセクションの自分のノードにしか書かないので、数える所だけ並べたときに原子的に足す
         int[] start = buffers.start(n + 2);
         boolean concurrent = parallel.workers() > 1;
@@ -334,6 +337,9 @@ public final class WindowField implements CostToGo {
                             distance[from] = Math.min(distance[from], moves.cost[m]);
                             goalEntered.set(true);
                         }
+                        if (((tx | ty | tz) & ~15) == 0) {
+                            continue;
+                        }
                         int target = index.resolve(s, tx, ty, tz);
                         if (target >= 0) {
                             if (concurrent) {
@@ -360,7 +366,7 @@ public final class WindowField implements CostToGo {
         }
         int m = start[n + 1];
         char[] inMove = buffers.inMove(m);
-        // 2周目: 行き先ごとに、入ってくる辺の移動を埋める。出発点は行き先から移動を引き戻せば分かる。
+        // 2周目: 行き先ごとに、セクションをまたいで入ってくる辺の移動を埋める。出発点は行き先から移動を引き戻せば分かる。
         // 並べると入る辺の並び順は変わるが、距離は変わらない
         boolean filled = parallel.forEach(slots, SLOTS_PER_TASK, cancelled, (fromSlot, toSlot) -> {
             for (int s = fromSlot; s < toSlot; s++) {
@@ -369,8 +375,13 @@ public final class WindowField implements CostToGo {
                     int local = position[offsets[s] + i];
                     for (int e = section.first(i), end = section.end(i); e < end; e++) {
                         int move = section.move[e];
-                        int target = index.resolve(s, (local & 15) + moves.dx[move],
-                                (local >> 8 & 15) + moves.dy[move], (local >> 4 & 15) + moves.dz[move]);
+                        int tx = (local & 15) + moves.dx[move];
+                        int ty = (local >> 8 & 15) + moves.dy[move];
+                        int tz = (local >> 4 & 15) + moves.dz[move];
+                        if (((tx | ty | tz) & ~15) == 0) {
+                            continue;
+                        }
+                        int target = index.resolve(s, tx, ty, tz);
                         if (target >= 0) {
                             int slot = concurrent ? (int) INTS.getAndAdd(start, target + 1, 1) : start[target + 1]++;
                             inMove[slot] = (char) move;
@@ -414,7 +425,7 @@ public final class WindowField implements CostToGo {
                 return null;
             }
         }
-        return new WindowField(goal, far, index, moves, distance, m, MonotonicTime.millis() - began,
+        return new WindowField(goal, far, index, moves, distance, m + insideEdges, MonotonicTime.millis() - began,
                 goalInWindow && !goalEntered.get(), centerX, centerZ, radius);
     }
 
@@ -446,7 +457,10 @@ public final class WindowField implements CostToGo {
                     frontier = Arrays.copyOf(frontier, size * 2);
                 }
                 frontier[size++] = node;
-                edges += start[node + 1] - start[node];
+                int slot = position[node] >>> 12;
+                int own = node - index.offsets[slot];
+                edges += start[node + 1] - start[node] + index.sections[slot].inEnd(own)
+                        - index.sections[slot].inFirst(own);
             }
             if (size == 0) {
                 cursor = queue.nextNonEmpty(cursor + 1);
@@ -465,13 +479,27 @@ public final class WindowField implements CostToGo {
                     int lx = packed & 15;
                     int ly = packed >> 8 & 15;
                     int lz = packed >> 4 & 15;
+                    SectionEdges section = index.sections[slot];
+                    int offset = index.offsets[slot];
+                    int own = node - offset;
+                    for (int k = section.inFirst(own), end = section.inEnd(own); k < end; k++) {
+                        int move = section.inMove[k];
+                        int p = offset + section.nodeOf(lx - moves.dx[move] | lz - moves.dz[move] << 4
+                                | ly - moves.dy[move] << 8);
+                        double candidate = d + moves.cost[move];
+                        if (candidate < distance[p]) {
+                            distance[p] = candidate;
+                            // 丸めで同じバケットへ戻ってきた改善は、確定を取り消して解き直す
+                            settled.clear(p);
+                            queue.push(Math.max(bucket, (int) ((candidate - base) / width)), p);
+                        }
+                    }
                     for (int k = start[node]; k < start[node + 1]; k++) {
                         int move = inMove[k];
                         int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
                         double candidate = d + moves.cost[move];
                         if (candidate < distance[p]) {
                             distance[p] = candidate;
-                            // 丸めで同じバケットへ戻ってきた改善は、確定を取り消して解き直す
                             settled.clear(p);
                             queue.push(Math.max(bucket, (int) ((candidate - base) / width)), p);
                         }
@@ -491,6 +519,17 @@ public final class WindowField implements CostToGo {
                     int lx = packed & 15;
                     int ly = packed >> 8 & 15;
                     int lz = packed >> 4 & 15;
+                    SectionEdges section = index.sections[slot];
+                    int offset = index.offsets[slot];
+                    int own = node - offset;
+                    for (int k = section.inFirst(own), end = section.inEnd(own); k < end; k++) {
+                        int move = section.inMove[k];
+                        int p = offset + section.nodeOf(lx - moves.dx[move] | lz - moves.dz[move] << 4
+                                | ly - moves.dy[move] << 8);
+                        if (lower(distance, p, d + moves.cost[move])) {
+                            lowered.add(p);
+                        }
+                    }
                     for (int k = start[node]; k < start[node + 1]; k++) {
                         int move = inMove[k];
                         int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);

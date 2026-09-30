@@ -19,13 +19,18 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
  * <p>ノードの辺の並び（移動の番号の列）はセクションの中で同じものが多い（実測: 異なる並びはノードの6〜30%）ので、
  * 異なる並びだけを覚え、ノードは並びの番号を持つ。同じ出発点・行き先の辺は種類違いで何本も生成されるので、
  * いちばん安いものだけ残す。
+ *
+ * <p>ガイドは行き先から逆にたどるので入る辺も要る。入る辺の約9割は同じセクションの中で閉じ、それはこのセクションの辺だけで
+ * 決まるので、組むときに一度だけ作って覚える（ガイドのたびに組むと、ガイドの組み立て用の配列でいちばん大きくなる）。
+ * セクションをまたぐ入る辺はガイドのたびに組む。
  */
 final class SectionEdges {
 
     /** セクション内の位置 {@code lx | lz << 4 | ly << 8} のビット（4096）を収める語数。 */
     private static final int WORDS = SectionMoves.SIZE * SectionMoves.SIZE * SectionMoves.SIZE / 64;
 
-    static final SectionEdges EMPTY = new SectionEdges(new long[WORDS], new char[0], new int[1], new char[0], 0);
+    static final SectionEdges EMPTY = new SectionEdges(new long[WORDS], new char[0], new int[1], new char[0], 0,
+            new char[0], new int[1], new char[0], 0);
 
     private final long[] nodeBits;
     /** 語ごとの、それより前の語にあるノードの数。 */
@@ -38,13 +43,23 @@ final class SectionEdges {
     final int nodes;
     /** 並びを共有する前の辺の数。 */
     private final int edges;
+    /** セクションの中から入る辺。持ち方は出る辺と同じ。 */
+    private final char[] inPattern;
+    private final int[] inPatternStart;
+    final char[] inMove;
+    private final int inEdges;
 
-    private SectionEdges(long[] nodeBits, char[] pattern, int[] patternStart, char[] move, int edges) {
+    private SectionEdges(long[] nodeBits, char[] pattern, int[] patternStart, char[] move, int edges,
+                         char[] inPattern, int[] inPatternStart, char[] inMove, int inEdges) {
         this.nodeBits = nodeBits;
         this.pattern = pattern;
         this.patternStart = patternStart;
         this.move = move;
         this.edges = edges;
+        this.inPattern = inPattern;
+        this.inPatternStart = inPatternStart;
+        this.inMove = inMove;
+        this.inEdges = inEdges;
         this.rank = new char[WORDS];
         int count = 0;
         for (int w = 0; w < WORDS; w++) {
@@ -65,6 +80,20 @@ final class SectionEdges {
 
     int end(int node) {
         return patternStart[pattern[node] + 1];
+    }
+
+    /** 並びを共有する前の、セクションの中から入る辺の数。 */
+    int inSize() {
+        return inEdges;
+    }
+
+    /** ノード{@code node}へセクションの中から入る辺は {@code inMove[inFirst(node)..inEnd(node))}。 */
+    int inFirst(int node) {
+        return inPatternStart[inPattern[node]];
+    }
+
+    int inEnd(int node) {
+        return inPatternStart[inPattern[node] + 1];
     }
 
     static int local(int x, int y, int z) {
@@ -93,7 +122,8 @@ final class SectionEdges {
 
     /** 覚えている配列のおおよそのバイト数。 */
     long bytes() {
-        return 8L * WORDS + 2L * WORDS + 2L * pattern.length + 4L * patternStart.length + 2L * move.length + 64;
+        return 8L * WORDS + 2L * WORDS + 2L * pattern.length + 4L * patternStart.length + 2L * move.length
+                + 2L * inPattern.length + 4L * inPatternStart.length + 2L * inMove.length + 64;
     }
 
     /** @return 打ち切られたら{@code null} */
@@ -202,23 +232,96 @@ final class SectionEdges {
         for (int i = 0; i < n; i++) {
             all[i] = ids[edgeDistinct[i]];
         }
+        int[] nodeEnd = w.nodeEnd;
+        int node = 0;
+        for (int l = 0; l < LOCALS; l++) {
+            if ((nodeBits[l >> 6] & 1L << l) != 0) {
+                nodeEnd[node++] = groupEnd[l];
+            }
+        }
         char[] pattern = new char[nodeCount];
         int[] patternStart = w.patternStart(nodeCount + 1);
-        int[] table = w.table;
-        // 表は半分以上空くように取る。セクションごとに埋め直すので、ノードが少ないセクションで表全体を埋めない
-        int mask = (Integer.highestOneBit(nodeCount) << 2) - 1;
-        Arrays.fill(table, 0, mask + 1, -1);
-        int patterns = 0;
-        int stored = 0;
-        int node = 0;
+        int patterns = share(all, nodeEnd, nodeCount, pattern, patternStart, w.table);
+        int[] sharedStart = Arrays.copyOf(patternStart, patterns + 1);
+        char[] sharedMove = Arrays.copyOf(all, patternStart[patterns]);
+
+        // セクションの中で閉じる辺を行き先ごとに並べる。出発点の昇順に積むと、行き先の中では相対座標の降順になる
+        // （両端ともセクション内なら、位置の差が相対座標そのもの）ので、同じ移動の組はいつも同じ並びになる
+        int[] inCount = count;
+        Arrays.fill(inCount, 0);
         int previous = 0;
         for (int l = 0; l < LOCALS; l++) {
             if ((nodeBits[l >> 6] & 1L << l) == 0) {
                 continue;
             }
-            int from = previous;
-            int to = groupEnd[l];
-            previous = to;
+            for (int i = previous; i < groupEnd[l]; i++) {
+                int target = insideTarget(nodeBits, l, offset[i]);
+                if (target >= 0) {
+                    inCount[target + 1]++;
+                }
+            }
+            previous = groupEnd[l];
+        }
+        for (int l = 1; l <= LOCALS; l++) {
+            inCount[l] += inCount[l - 1];
+        }
+        int inside = inCount[LOCALS];
+        char[] inAll = w.all(inside);
+        System.arraycopy(inCount, 0, cursor, 0, LOCALS + 1);
+        previous = 0;
+        for (int l = 0; l < LOCALS; l++) {
+            if ((nodeBits[l >> 6] & 1L << l) == 0) {
+                continue;
+            }
+            for (int i = previous; i < groupEnd[l]; i++) {
+                int target = insideTarget(nodeBits, l, offset[i]);
+                if (target >= 0) {
+                    inAll[cursor[target]++] = ids[edgeDistinct[i]];
+                }
+            }
+            previous = groupEnd[l];
+        }
+        node = 0;
+        for (int l = 0; l < LOCALS; l++) {
+            if ((nodeBits[l >> 6] & 1L << l) != 0) {
+                nodeEnd[node++] = inCount[l + 1];
+            }
+        }
+        char[] inPattern = new char[nodeCount];
+        int inPatterns = share(inAll, nodeEnd, nodeCount, inPattern, patternStart, w.table);
+        return new SectionEdges(nodeBits, pattern, sharedStart, sharedMove, n, inPattern,
+                Arrays.copyOf(patternStart, inPatterns + 1), Arrays.copyOf(inAll, patternStart[inPatterns]), inside);
+    }
+
+    /** 位置{@code from}から相対座標{@code offsetKey}へ動いた先が同じセクションのノードなら、その位置。でなければ-1。 */
+    private static int insideTarget(long[] nodeBits, int from, int offsetKey) {
+        int x = (from & 15) + (byte) (offsetKey >> 24);
+        int z = (from >> 4 & 15) + (byte) (offsetKey >> 16);
+        int y = (from >> 8) + (short) offsetKey;
+        if (((x | y | z) & ~15) != 0) {
+            return -1;
+        }
+        int target = x | z << 4 | y << 8;
+        return (nodeBits[target >> 6] & 1L << target) == 0 ? -1 : target;
+    }
+
+    /**
+     * ノード{@code k}の並び {@code all[nodeEnd[k-1]..nodeEnd[k])}（{@code k=0}は0から）のうち同じものを共有する。
+     * {@code pattern}へ並びの番号を書き、異なる並びは{@code all}の前へ詰めて{@code patternStart}に区切りを書く。
+     *
+     * @return 異なる並びの数
+     */
+    private static int share(char[] all, int[] nodeEnd, int nodeCount, char[] pattern, int[] patternStart,
+                             int[] table) {
+        // 表は半分以上空くように取る。セクションごとに埋め直すので、ノードが少ないセクションで表全体を埋めない
+        int mask = (Integer.highestOneBit(nodeCount) << 2) - 1;
+        Arrays.fill(table, 0, mask + 1, -1);
+        int patterns = 0;
+        int stored = 0;
+        int from = 0;
+        patternStart[0] = 0;
+        for (int node = 0; node < nodeCount; node++) {
+            int to = nodeEnd[node];
             int hash = 1;
             for (int i = from; i < to; i++) {
                 hash = 31 * hash + all[i];
@@ -240,10 +343,10 @@ final class SectionEdges {
                 table[at] = patterns;
                 found = patterns++;
             }
-            pattern[node++] = (char) found;
+            pattern[node] = (char) found;
+            from = to;
         }
-        return new SectionEdges(nodeBits, pattern, Arrays.copyOf(patternStart, patterns + 1),
-                Arrays.copyOf(all, stored), n);
+        return patterns;
     }
 
     /** セクション内の位置の数。 */
@@ -260,6 +363,7 @@ final class SectionEdges {
         final int[] count = new int[LOCALS + 1];
         final int[] cursor = new int[LOCALS + 1];
         final int[] groupEnd = new int[LOCALS];
+        final int[] nodeEnd = new int[LOCALS];
         int[] sortedOffset = new int[0];
         float[] sortedCost = new float[0];
         private int[] edgeDistinct = new int[0];
