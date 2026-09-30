@@ -403,10 +403,12 @@ public final class WindowField implements CostToGo {
 
         double base = Double.POSITIVE_INFINITY;
         double top = Double.NEGATIVE_INFINITY;
+        int seeds = 0;
         for (int i = 0; i < n; i++) {
             if (Double.isFinite(distance[i])) {
                 base = Math.min(base, distance[i]);
                 top = Math.max(top, distance[i]);
+                seeds++;
             }
         }
         BitSet settled = new BitSet(n);
@@ -414,7 +416,7 @@ public final class WindowField implements CostToGo {
             // 振った移動の値段はどれもこの幅以上なので、バケットを前から空にするだけで確定順になる。
             // 窓の外のセクションの移動も含む最小値だが、幅が狭いぶんには正しさは変わらない
             double width = moves.minCost;
-            BucketQueue queue = buffers.queue((int) ((top - base) / width) + 1, n + n / 4);
+            BucketQueue queue = buffers.queue((int) ((top - base) / width) + 1, seeds);
             for (int i = 0; i < n; i++) {
                 if (Double.isFinite(distance[i])) {
                     queue.push((int) ((distance[i] - base) / width), i);

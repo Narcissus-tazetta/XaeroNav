@@ -14,13 +14,18 @@ final class BucketQueue {
     private int[] head = new int[0];
     private int[] value = new int[1 << 12];
     private int[] next = new int[1 << 12];
+    /** 一度でも使った枠の数。 */
     private int size;
+    /**
+     * 出し終えた枠をつないだ先頭。空なら-1。窓の逆Dijkstraは積む回数がノードの1.0〜1.5倍あるが、同時に積まれているのは
+     * その一部なので、出した枠を使い回せば配列は小さくて済む。
+     */
+    private int free = -1;
     /** {@link #head}のうち使っている範囲。 */
     private int buckets;
 
     /**
-     * @param items 積む見込みの数。窓の逆Dijkstraはノード数の1.0〜1.5倍積む（実測）。倍々に伸ばすと最悪で半分が空き、
-     *              伸ばす瞬間は古い配列と合わせて3倍を持つので、見込みで先に取っておく
+     * @param items 同時に積まれている数の見込み。足りなければ1.25倍ずつ伸ばす
      */
     void clear(int bucketCount, int items) {
         if (value.length < items) {
@@ -33,6 +38,7 @@ final class BucketQueue {
         Arrays.fill(head, 0, Math.max(buckets, bucketCount), -1);
         buckets = bucketCount;
         size = 0;
+        free = -1;
     }
 
     void push(int bucket, int item) {
@@ -43,13 +49,19 @@ final class BucketQueue {
             Arrays.fill(head, buckets, bucket + 1, -1);
             buckets = bucket + 1;
         }
-        if (size == value.length) {
-            value = Arrays.copyOf(value, size + size / 4);
-            next = Arrays.copyOf(next, size + size / 4);
+        int entry = free;
+        if (entry >= 0) {
+            free = next[entry];
+        } else {
+            if (size == value.length) {
+                value = Arrays.copyOf(value, size + size / 4);
+                next = Arrays.copyOf(next, size + size / 4);
+            }
+            entry = size++;
         }
-        value[size] = item;
-        next[size] = head[bucket];
-        head[bucket] = size++;
+        value[entry] = item;
+        next[entry] = head[bucket];
+        head[bucket] = entry;
     }
 
     /** @return バケットが空なら-1 */
@@ -59,6 +71,8 @@ final class BucketQueue {
             return -1;
         }
         head[bucket] = next[entry];
+        next[entry] = free;
+        free = entry;
         return value[entry];
     }
 
