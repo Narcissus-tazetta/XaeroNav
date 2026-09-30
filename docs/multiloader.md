@@ -16,6 +16,9 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `1.21.5-fabric` | 1.21.5 | Fabric Loader 0.16.10+ / Fabric API 0.128.2+ |
 | `1.21.5-forge` | 1.21.5 | Forge 55+ |
 | `1.21.5-neoforge` | 1.21.5 | NeoForge 21.5+ |
+| `1.21.4-fabric` | 1.21.4 | Fabric Loader 0.16.9+ / Fabric API 0.119.4+ |
+| `1.21.4-forge` | 1.21.4 | Forge 54+ |
+| `1.21.4-neoforge` | 1.21.4 | NeoForge 21.4+ |
 | `1.21.1-neoforge` | 1.21.1 | NeoForge 21.1.228+ |
 | `1.21.1-fabric` | 1.21.1 | Fabric Loader 0.19.5+ / Fabric API |
 | `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
@@ -178,6 +181,26 @@ Fabric・Forge・NeoForgeの3ローダーを持つ。1.20.1とゲーム側のAPI
 - NeoForge 20.4のFMLはMOD定義を`META-INF/mods.toml`からしか読まない（`neoforge.mods.toml`は20.5から）。
   jarには`mods.toml`の名前で入れる。名前を間違えるとMODごと読み込まれない（mixinの`[[mixins]]`は20.4でも効く）
 - `pack.mcmeta`のresource pack formatは22
+
+## 1.21.4
+
+Fabric・Forge・NeoForgeの3ローダーを持つ。1.21.1と1.21.5の間にあたり、`>=1.21.5`でゲートしていたAPIの一部は実際には
+1.21.2で変わっていたので、境界を1.21.2へ振り直した（1.21.1・1.21.5・1.21.11の真偽は変えていない）。
+
+| 境界 | ゲートしているもの |
+|---|---|
+| 1.21.2 | `LevelHeightAccessor`の高さ（`getMinY`・`getMaxY`・`getMinSectionY`）、`RegistryAccess#lookupOrThrow`とHolderの取り方（エンチャントの効率）、`Registry#getValue`（`Registry#get`はOptionalを返す）、Fabricの`CommandSourceStack`の組み立て（`LocalPlayer#createCommandSourceStack`が無くなった）、Forgeのワールド描画の入口 |
+| 1.21.5 | 描画の`RenderPipeline`、Forgeの`LevelRenderer`のラムダの引数 |
+
+- **Forge 54には`RenderLevelStageEvent`が無い**。1.21.2で描画がフレームグラフになったため。1.21.5と同じく`ForgeLevelRendererMixin`が
+  `LevelRenderer`のメインパスのラムダの末尾へ注入する。ラムダ（`lambda$addMainPass$1`）の引数は1.21.4と1.21.5で違うので、
+  シグネチャを版で分けている。1.21.4ではmodelViewをRenderSystem側が描画時に掛けるので、渡す`PoseStack`は単位行列のまま
+  （1.21.5はmodelViewを積んで渡す）。積むと二重に回って線が画面外へ出る。NeoForge 21.4には`RenderLevelStageEvent`がある。
+- 描画は1.21.1と同じ`RenderSystem`の経路（`RenderPipeline`は1.21.5から）。
+- NeoForge 21.4のFMLは`META-INF/neoforge.mods.toml`を読む（`mods.toml`限定なのは20.4だけ）。
+- `pack.mcmeta`のresource pack formatは46。
+- Xaero（World Map・Minimap）は3ローダーとも1.21.4専用のjarがある。`GuiMap#render`・`MinimapFBORenderer#renderChunksToFBO`の
+  `endBatch()`のordinalと`@Local`の変数名は1.21.1と同じ（バイトコードで確認）。
 
 ## 1つのjarを複数のMinecraftバージョンで使う
 

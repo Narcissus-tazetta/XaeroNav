@@ -221,7 +221,7 @@ public final class ChunkView implements CellSource {
         // 1.20.1はエンチャントがレジストリ経由のHolderではなく、Enchantments直下の静的フィールドを
         // そのままEnchantmentHelperへ渡す旧モデル（フィールド名もBLOCK_EFFICIENCYで別物）。
         // vanilla APIの形そのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
-        //? if >=1.21.5 {
+        //? if >=1.21.2 {
         /*Holder<Enchantment> efficiency = level.registryAccess()
                 .lookupOrThrow(Registries.ENCHANTMENT)
                 .getOrThrow(Enchantments.EFFICIENCY);

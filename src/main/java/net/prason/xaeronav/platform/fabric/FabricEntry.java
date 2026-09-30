@@ -24,10 +24,10 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 //?}
 import net.minecraft.commands.arguments.coordinates.Coordinates;
-//? if >=1.21.5 {
-/^import net.minecraft.commands.CommandSource;
+//? if >=1.21.2 {
+import net.minecraft.commands.CommandSource;
 import net.minecraft.commands.CommandSourceStack;
-^///?}
+//?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.XaeroNav;
@@ -83,8 +83,8 @@ public final class FabricEntry implements ClientModInitializer {
      ^/
     //? if >=1.17 {
     private static BlockPos blockPos(CommandContext<FabricClientCommandSource> ctx, String name) {
-        //? if >=1.21.5 {
-        /^// プレイヤーからCommandSourceStackを作る口がサーバー側（ServerLevelを要る）にしか無くなった。
+        //? if >=1.21.2 {
+        // プレイヤーからCommandSourceStackを作る口がサーバー側（ServerLevelを要る）にしか無くなった。
         // 座標の解決が読むのは位置・向き・エンティティだけなので、それだけを持たせて組み立てる
         FabricClientCommandSource source = ctx.getSource();
         try {
@@ -100,10 +100,10 @@ public final class FabricEntry implements ClientModInitializer {
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Cannot construct a client command source", exception);
         }
-        ^///?} else {
-        return ctx.getArgument(name, Coordinates.class)
+        //?} else {
+        /^return ctx.getArgument(name, Coordinates.class)
                 .getBlockPos(ctx.getSource().getPlayer().createCommandSourceStack());
-        //?}
+        ^///?}
     }
 
     private static NavCommandSink sink(FabricClientCommandSource source) {
