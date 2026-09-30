@@ -17,6 +17,9 @@ import net.prason.xaeronav.pathfinding.world.TerrainFixture;
 /**
  * 8方向の格子の最適経路を、同じ高さの平地の疾走区間だけ直線に引き直したら何割縮むか（any-angleとの差）。
  * 模型の最適と比べるbenchには原理的に映らない損を測る。判定なし。
+ *
+ * <p>あわせて、最適経路の値段のうち段差の手間（{@link ActionCosts#STEP_TRANSITION_TICKS}）が占める割合も出す。
+ * ダッシュジャンプで進む人には段差の手間がほぼ掛からないので、この割合が模型と跳ぶ人のずれの上限になる。
  */
 @Tag("bench")
 class AnyAngleGapProbeBenchTest {
@@ -92,6 +95,49 @@ class AnyAngleGapProbeBenchTest {
         return total;
     }
 
+    /**
+     * ダッシュジャンプで進む人の所要時間。跳び続けていれば段差の上下に手間は掛からず、登りでも疾走を保てるので、
+     * 素の1段の昇降（掘る・置く・減速床の無い手）だけを疾走の水平移動と跳ぶ時間の大きい方へ置き換える。
+     */
+    private static double jumpingTicks(List<PathStep> steps) {
+        double total = 0;
+        for (PathStep step : steps) {
+            double cost = step.cost();
+            boolean plain = !step.digging() && !step.bridging();
+            if (plain && step.movement() == MovementType.ASCEND && near(cost, ActionCosts.ASCEND_ONE_BLOCK)) {
+                cost = Math.max(ActionCosts.JUMP_ONE_BLOCK, ActionCosts.SPRINT_ONE_BLOCK);
+            } else if (plain && step.movement() == MovementType.ASCEND
+                    && near(cost, ActionCosts.DIAGONAL_ASCEND_ONE_BLOCK)) {
+                cost = Math.max(ActionCosts.JUMP_ONE_BLOCK, ActionCosts.SPRINT_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE);
+            } else if (plain && step.movement() == MovementType.DESCEND && near(cost, ActionCosts.DESCEND_ONE_BLOCK)) {
+                cost = ActionCosts.SPRINT_ONE_BLOCK;
+            } else if (plain && step.movement() == MovementType.DESCEND
+                    && near(cost, ActionCosts.DIAGONAL_DESCEND_ONE_BLOCK)) {
+                cost = ActionCosts.SPRINT_ONE_BLOCK * ActionCosts.DIAGONAL_DISTANCE;
+            }
+            total += cost;
+        }
+        return total;
+    }
+
+    private static boolean near(double a, double b) {
+        return Math.abs(a - b) < 1e-6;
+    }
+
+    /** 正味の高低差を引いた上り＋下り（{@code PathOptimalityTest}と同じ）。 */
+    private static int wobble(BlockPos start, List<PathStep> steps) {
+        int up = 0;
+        int down = 0;
+        BlockPos previous = start;
+        for (PathStep step : steps) {
+            int dy = step.pos().getY() - previous.getY();
+            up += Math.max(0, dy);
+            down += Math.max(0, -dy);
+            previous = step.pos();
+        }
+        return up + down - Math.abs(up - down);
+    }
+
     @Test
     void gap() throws IOException {
         List<Terrain> terrains = List.of(
@@ -117,6 +163,9 @@ class AnyAngleGapProbeBenchTest {
             double worst = 1;
             double sumGrid = 0;
             double sumPulled = 0;
+            double sumStep = 0;
+            double sumJumping = 0;
+            int sumWobble = 0;
             int n = 0;
             for (BlockPos[] route : TerrainFixture.randomRoutes(cells, bounds, 20260904L, routesPer, 40, 90)) {
                 PathResult best = new AStarPathfinder(cells, new SearchLimits(3_000_000, 120_000, 1.0), null)
@@ -131,10 +180,14 @@ class AnyAngleGapProbeBenchTest {
                 worst = Math.max(worst, ratio);
                 sumGrid += grid;
                 sumPulled += any;
+                sumStep += best.steps().stream().filter(step -> step.movement() == MovementType.ASCEND
+                        || step.movement() == MovementType.DESCEND).count() * ActionCosts.STEP_TRANSITION_TICKS;
+                sumJumping += jumpingTicks(best.steps());
+                sumWobble += wobble(route[0], best.steps());
                 n++;
             }
-            System.out.printf(Locale.ROOT, "%-10s %2d本 格子/直線化 平均%.4f 最悪%.4f 合計%.4f%n",
-                    terrain.name(), n, sumRatio / n, worst, sumGrid / sumPulled);
+            System.out.printf(Locale.ROOT, "%-10s %2d本 格子/直線化 平均%.4f 最悪%.4f 合計%.4f 段差の手間%.1f%% 跳ぶ人の所要%.0f 無駄な上下%d%n",
+                    terrain.name(), n, sumRatio / n, worst, sumGrid / sumPulled, 100 * sumStep / sumGrid, sumJumping, sumWobble);
         }
     }
 }
