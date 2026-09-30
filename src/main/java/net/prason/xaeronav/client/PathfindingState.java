@@ -2503,7 +2503,7 @@ public final class PathfindingState {
             } else {
                 far = map == null ? null
                         : new NavGraphGuide.Far("層1", map, () -> FarField.of(
-                                CoarseRouter.costToGo(map, currentGoal, false, CoarseRouter.BridgePolicy.BRIDGE)), false);
+                                CoarseRouter.farEstimate(map, currentGoal, false, CoarseRouter.BridgePolicy.BRIDGE)), false);
             }
         }
         long navGraphLap = TickLaps.start();

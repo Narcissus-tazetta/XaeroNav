@@ -413,6 +413,24 @@ public final class CoarseRouter {
      * </pre>
      */
     public static CostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy) {
+        return costToGo(map, goal, boatAvailable, bridgePolicy, false);
+    }
+
+    /**
+     * 航法グラフの窓の外の推定。{@link #costToGo}と同じ表を引くが、床より下にいる座標では床までの登りを
+     * <b>引かずに足す</b>。
+     *
+     * <p>{@link #costToGo}の差し引きは下限を守るためのもので、窓の縁の値としては地中深くの縁ほど安く見せる。
+     * 窓の中の登りは正確に数えるので、差し引くと「登らずに深いまま縁へ出て、窓の外で登ったことにする」出口が勝つ
+     * （海沿いの地形で深さ-23からの経路が最適の1.19倍、窓の中にある水の縦穴を使わず東へ深いまま進んだ）。
+     * 窓の外の推定は下限である必要が無い（ネザーの3D粗層も1.3倍して使う）。
+     */
+    public static CostToGo farEstimate(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy) {
+        return costToGo(map, goal, boatAvailable, bridgePolicy, true);
+    }
+
+    private static CostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy,
+                                     boolean chargeClimbFromBelow) {
         int goalX = goal.getX() >> 4;
         int goalZ = goal.getZ() >> 4;
         int states = map.chunksX() * map.chunksZ() * CoarseMap.MAX_FLOORS;
@@ -420,7 +438,7 @@ public final class CoarseRouter {
         Arrays.fill(cost, Double.POSITIVE_INFINITY);
         if (!map.containsChunk(goalX, goalZ)) {
             return new CoarseCostToGo(map, cost,
-                    centerOffsetCost(goal.getX(), goal.getZ(), goalX, goalZ));
+                    centerOffsetCost(goal.getX(), goal.getZ(), goalX, goalZ), chargeClimbFromBelow);
         }
         double waterMultiplier = boatAvailable ? BOAT_MULTIPLIER : WATER_MULTIPLIER;
         int goalFloor = resolveFloor(map, goalX, goalZ, goal.getY());
@@ -455,7 +473,7 @@ public final class CoarseRouter {
             }
             relaxBackwardVertical(map, cost, closed, open, x, z, floor);
         }
-        return new CoarseCostToGo(map, cost, goalOffset);
+        return new CoarseCostToGo(map, cost, goalOffset, chargeClimbFromBelow);
     }
 
     /**
@@ -517,7 +535,8 @@ public final class CoarseRouter {
      * @param goalOffset 目的地がその所属セルの中心からずれているぶん（{@link #centerOffsetCost}）。
      *                   座標ごとのずれと違って探索中は変わらないので、表を作るときに1度だけ求める
      */
-    private record CoarseCostToGo(CoarseMap map, double[] cost, double goalOffset) implements CostToGo {
+    private record CoarseCostToGo(CoarseMap map, double[] cost, double goalOffset, boolean chargeClimbFromBelow)
+            implements CostToGo {
         @Override
         public double estimate(int x, int y, int z) {
             int chunkX = x >> 4;
@@ -533,8 +552,11 @@ public final class CoarseRouter {
             if (Double.isInfinite(value)) {
                 return 0.0;
             }
-            return Math.max(0.0, value - centerOffsetCost(x, z, chunkX, chunkZ)
-                    - floorOffsetCost(map, chunkX, chunkZ, floor, y) - goalOffset);
+            short height = stateHeight(map, chunkX, chunkZ, floor);
+            double floorOffset = chargeClimbFromBelow && height != CoarseMap.UNKNOWN_HEIGHT && y < height
+                    ? -(height - y) * GUIDE_ASCEND_COST_PER_BLOCK
+                    : floorOffsetCost(map, chunkX, chunkZ, floor, y);
+            return Math.max(0.0, value - centerOffsetCost(x, z, chunkX, chunkZ) - floorOffset - goalOffset);
         }
     }
 
