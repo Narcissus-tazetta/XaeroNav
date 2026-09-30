@@ -19,8 +19,9 @@ import net.prason.xaeronav.util.MathSupport;
  * <p>同色かつ一直線に続く区間は1本の区間へまとめる。平坦な地形では数十〜数百の区間が
  * 1本になり、描画する頂点数がそのまま桁で減る。まとめても両端は元のままなので見た目は変わらない。
  *
- * <p>水中とボートの区間だけは、一直線でなくても<b>通せる限り</b>まとめる（{@link #fluidShortcut}）。
- * 陸と違って1手ごとの位置に意味が無く、格子の目に沿った階段がそのままジグザグに見えるため。
+ * <p>水中・ボートの区間と、同じ高さの平地を歩くだけの区間は、一直線でなくても<b>通せる限り</b>まとめる
+ * （{@link #fluidShortcut}・{@link #landShortcut}）。1手ごとの位置に意味が無く、格子の目に沿った階段が
+ * そのままジグザグに見えるため。
  */
 final class PathGeometry {
 
@@ -60,6 +61,18 @@ final class PathGeometry {
      * 見た目はほとんど変わらない（{@code FlightSmoother#LOOKAHEAD_POINTS}と同じ考え方）。
      */
     private static final int MAX_FLUID_SHORTCUT_BLOCKS = 32;
+
+    /** 平地の区間を1本の直線へ畳んでよい最大の長さ（ブロック）。理由は{@link #MAX_FLUID_SHORTCUT_BLOCKS}と同じ。 */
+    private static final int MAX_LAND_SHORTCUT_BLOCKS = 32;
+
+    /**
+     * 平地の近道で体の通り道を確かめる刻み（ブロック）。体の幅0.6より細かいので、弦が横切る列は取りこぼさない
+     * （角を刻みより浅く掠めるだけの列は見落としうるが、体が角に触れる程度）。
+     */
+    private static final double LAND_SHORTCUT_SAMPLE_BLOCKS = 0.25;
+
+    /** プレイヤーの当たり判定の半幅（バニラ0.6）。 */
+    private static final double PLAYER_HALF_WIDTH = 0.3;
 
     /** 区間の端点。要素数は「区間数 + 1」。 */
     final double[] pointX;
@@ -272,7 +285,8 @@ final class PathGeometry {
                     && (continuesStraight(outX[points - 2], outY[points - 2], outZ[points - 2],
                     outX[points - 1], outY[points - 1], outZ[points - 1],
                     rawX[i], rawY[i], rawZ[i])
-                    || fluidShortcut(level, cursor, color, rawBlock[segmentStart], rawBlock[i]))) {
+                    || fluidShortcut(level, cursor, color, rawBlock[segmentStart], rawBlock[i])
+                    || landShortcut(level, cursor, color, rawBlock[segmentStart], rawBlock[i]))) {
                 outX[points - 1] = rawX[i];
                 outY[points - 1] = rawY[i];
                 outZ[points - 1] = rawZ[i];
@@ -365,7 +379,7 @@ final class PathGeometry {
     /**
      * 水中・ボートの区間を、格子の目に沿った折れ線ではなく<b>通せる限りの直線</b>にしてよいか。
      *
-     * <p>陸の経路では1手ごとの位置に意味がある（このブロックの上に立つ、という指示そのもの）。
+     * <p>陸の経路では段差・掘削・設置のある手の位置に意味がある（このブロックの上に立つ、という指示そのもの）。
      * 水の中とボートの上には足場が無く、A*が返す階段状の並びは<b>探索格子の都合でしかない</b>——
      * 地形が無いぶんその階段がそのまま線に出るので、開けた海では意味の無いジグザグに見える。
      * 追うべきなのは向きだけ、という点で滑空中の線と同じ性質なので、扱いも揃える
@@ -394,6 +408,57 @@ final class PathGeometry {
             cursor.set(x, y + 1, z);
             return CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(cursor)));
         });
+    }
+
+    /**
+     * 同じ高さの平地を歩くだけの区間を、格子の目に沿った階段ではなく<b>通せる限りの直線</b>にしてよいか。
+     *
+     * <p>探索は8方向の格子で解くので、斜め45度以外へ向かう平地の経路は斜めと直進の混ざった階段になる。
+     * 階段をそのまま歩くと直線より最大約8%長い（実地形の最適経路を直線へ引き直すと、ネザー・エンドで平均約3%）。
+     * 平地の歩きには掘る・置く・跳ぶが無く、1手ごとの位置に意味が無いので、水中と同じく向きだけを示す。
+     *
+     * <p>幅0.6の体が弦に沿って動く間に触れる列すべてで、足元が立てる床・体と頭が掘らずに通れる空気であることを求める。
+     * 列の中心を結ぶ弦だけを見ると、角の欠けた床や壁の角を擦る線になる。
+     */
+    private static boolean landShortcut(Level level, BlockPos.MutableBlockPos cursor, float[] color,
+                                        BlockPos from, BlockPos to) {
+        if (color != PathColors.WALK || from.getY() != to.getY()
+                || from.distSqr(to) > (double) MAX_LAND_SHORTCUT_BLOCKS * MAX_LAND_SHORTCUT_BLOCKS) {
+            return false;
+        }
+        double ax = from.getX() + 0.5;
+        double az = from.getZ() + 0.5;
+        double dx = to.getX() - from.getX();
+        double dz = to.getZ() - from.getZ();
+        int samples = Math.max(1, (int) Math.ceil(Math.hypot(dx, dz) / LAND_SHORTCUT_SAMPLE_BLOCKS));
+        int y = from.getY();
+        for (int s = 0; s <= samples; s++) {
+            double t = (double) s / samples;
+            double px = ax + dx * t;
+            double pz = az + dz * t;
+            for (int x = (int) Math.floor(px - PLAYER_HALF_WIDTH); x <= (int) Math.floor(px + PLAYER_HALF_WIDTH); x++) {
+                for (int z = (int) Math.floor(pz - PLAYER_HALF_WIDTH); z <= (int) Math.floor(pz + PLAYER_HALF_WIDTH); z++) {
+                    if (!walkableColumn(level, cursor, x, y, z)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean walkableColumn(Level level, BlockPos.MutableBlockPos cursor, int x, int y, int z) {
+        long floor = CellData.flagsOf(level.getBlockState(cursor.set(x, y - 1, z)));
+        if (!CellData.standable(floor) || CellData.hazard(floor)) {
+            return false;
+        }
+        for (int dy = 0; dy <= 1; dy++) {
+            long body = CellData.flagsOf(level.getBlockState(cursor.set(x, y + dy, z)));
+            if (!CellData.passableEmpty(body) || CellData.water(body) || CellData.hazard(body)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** {@code b}が{@code a}から{@code c}への一直線上にあり、かつ折り返していないか。 */
