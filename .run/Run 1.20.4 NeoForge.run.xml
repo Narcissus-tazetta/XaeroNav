@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="1.21.4 NeoForge" type="ShConfigurationType" folderName="Minecraft Client/1.21.4">
+  <configuration default="false" name="1.20.4 NeoForge" type="ShConfigurationType" folderName="Minecraft Client/1.20.4">
     <option name="SCRIPT_PATH" value="$PROJECT_DIR$/tools/run-client.sh" />
-    <option name="SCRIPT_OPTIONS" value="1.21.4-neoforge" />
+    <option name="SCRIPT_OPTIONS" value="1.20.4-neoforge" />
     <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <option name="INTERPRETER_PATH" value="/bin/bash" />
     <option name="EXECUTE_SCRIPT_FILE" value="true" />

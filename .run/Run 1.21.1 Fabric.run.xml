@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="1.21.1 Fabric" type="ShConfigurationType" folderName="Minecraft Client">
+  <configuration default="false" name="1.21.1 Fabric" type="ShConfigurationType" folderName="Minecraft Client/1.21.1">
     <option name="SCRIPT_PATH" value="$PROJECT_DIR$/tools/run-client.sh" />
     <option name="SCRIPT_OPTIONS" value="1.21.1-fabric" />
     <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
