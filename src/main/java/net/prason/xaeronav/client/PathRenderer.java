@@ -8,7 +8,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
-import net.prason.xaeronav.client.NavBuffers;
+import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
@@ -163,7 +163,7 @@ public final class PathRenderer {
         poseStack.pushPose();
         poseStack.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
 
-        NavBuffers bufferSource = NavBuffers.begin();
+        MultiBufferSource.BufferSource bufferSource = mc.renderBuffers().bufferSource();
         PoseStack.Pose pose = poseStack.last();
         // 描画距離の外は地形自体が描かれないので、そこまで伸びた経路を積む意味がない
         double cullRadius = ClientCompat.renderDistance(mc.options) * 16.0;
@@ -193,8 +193,8 @@ public final class PathRenderer {
             renderStraightLine(bufferSource, pose, current, hasFlight ? flight.tail() : null, goal, cullRadius);
         }
         //? if >=26.2 {
-        bufferSource.endFrame();
-        //?}
+        /*bufferSource.endFrame();
+        *///?}
 
         poseStack.popPose();
     }
@@ -207,7 +207,7 @@ public final class PathRenderer {
      * <p>始点は経路の末端（無ければプレイヤー自身）。壁越しにも薄く出す — この線は地形を
      * 辿るものではなく方角と距離を示すものなので、遮蔽で消えると意味がなくなる。
      */
-    private void renderStraightLine(NavBuffers bufferSource, PoseStack.Pose pose,
+    private void renderStraightLine(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
                                      PathGeometry geometry, Vec3 flightTail, BlockPos goal, double cullRadius) {
         double fromX = playerX;
         double fromY = playerY;
@@ -253,7 +253,7 @@ public final class PathRenderer {
      * <p>先頭の点は計算した時点のプレイヤー位置で、届く頃には最大で再計算間隔ぶん古い。今の位置から
      * 引き直さないと、線が自分の少し後ろから生えているように見える。
      */
-    private void renderFlightRoute(NavBuffers bufferSource, PoseStack.Pose pose,
+    private void renderFlightRoute(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
                                     FlightRoute route, double cullRadius, Vec3 camera) {
         List<Vec3> points = route.points();
         // 通り過ぎた区間は描かない。空中経路は引き直しの合間に数十ブロック進むので、
@@ -357,7 +357,7 @@ public final class PathRenderer {
      * 地形に隠れている側を先に描き、その上から通常の深度テスト付きで描く。隠れている側を描くのは
      * 近くの水の中の区間だけ（{@link #OCCLUDED_NEAR_RADIUS_SQ}）。
      */
-    private void renderGroundPath(NavBuffers bufferSource, PoseStack.Pose pose,
+    private void renderGroundPath(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
                                    PathGeometry geometry, PathResult result, Vec3 camera, double cullRadiusSq,
                                    boolean cameraInWater) {
         int segments = geometry.segmentCount();
@@ -772,14 +772,14 @@ public final class PathRenderer {
                       float x0, float y0, float z0, float x1, float y1, float z1,
                       float red, float green, float blue) {
         //? if >=1.21.11 {
-        // 線幅は頂点ごとに持つ。バニラのブロックの枠と同じ幅にする
+        /*// 線幅は頂点ごとに持つ。バニラのブロックの枠と同じ幅にする
         float width = Minecraft.getInstance().getWindow().getAppropriateLineWidth();
         buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f).setLineWidth(width);
         buffer.addVertex(pose, x1, y1, z1).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f).setLineWidth(width);
-        //?} else if >=1.21 {
-        /*buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
+        *///?} else if >=1.21 {
+        buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
         buffer.addVertex(pose, x1, y1, z1).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
-        *///?} else {
+        //?} else {
         /*buffer.vertex(pose.pose(), x0, y0, z0)
                 .color(red, green, blue, 1.0f)
                 .normal(pose.normal(), 0f, 1f, 0f)

@@ -3,8 +3,8 @@ package net.prason.xaeronav.client;
 import java.util.function.Consumer;
 
 //? if <26.3 {
-/*import org.lwjgl.glfw.GLFW;
-*///?}
+import org.lwjgl.glfw.GLFW;
+//?}
 
 import com.mojang.blaze3d.platform.InputConstants;
 
@@ -12,8 +12,8 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 //? if >=1.21.9 {
-import net.minecraft.resources.Identifier;
-//?}
+/*import net.minecraft.resources.ResourceLocation;
+*///?}
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.prason.xaeronav.XaeroNav;
@@ -31,18 +31,18 @@ import net.prason.xaeronav.util.GameCompat;
 public final class XaeroNavKeys {
 
     //? if >=1.21.9 {
-    // カテゴリの表示名は`key.category.<名前空間>.<パス>`の翻訳キーから引かれる
+    /*// カテゴリの表示名は`key.category.<名前空間>.<パス>`の翻訳キーから引かれる
     //? if neoforge {
-    /*// NeoForgeはバニラのCategory.registerを非推奨にしていて、RegisterKeyMappingsEvent#registerCategoryで登録する
+    // NeoForgeはバニラのCategory.registerを非推奨にしていて、RegisterKeyMappingsEvent#registerCategoryで登録する
     public static final KeyMapping.Category CATEGORY =
-            new KeyMapping.Category(Identifier.fromNamespaceAndPath(XaeroNav.MOD_ID, "main"));
-    *///?} else {
-    private static final KeyMapping.Category CATEGORY =
-            KeyMapping.Category.register(Identifier.fromNamespaceAndPath(XaeroNav.MOD_ID, "main"));
-    //?}
+            new KeyMapping.Category(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "main"));
     //?} else {
-    /*private static final String CATEGORY = "key.categories.xaeronav";
-    *///?}
+    /^private static final KeyMapping.Category CATEGORY =
+            KeyMapping.Category.register(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "main"));
+    ^///?}
+    *///?} else {
+    private static final String CATEGORY = "key.categories.xaeronav";
+    //?}
 
     public static final KeyMapping GOTO_LOOKING_AT = unbound("key.xaeronav.goto_looking_at");
     public static final KeyMapping CLEAR = unbound("key.xaeronav.clear");
@@ -62,7 +62,7 @@ public final class XaeroNavKeys {
     }
 
     private static KeyMapping unbound(String name) {
-        return new KeyMapping(name, InputConstants.Type.KEYBOARD, InputConstants.UNKNOWN.getValue(), CATEGORY);
+        return new KeyMapping(name, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, CATEGORY);
     }
 
     /** ローダーごとの登録口（NeoForgeは{@code RegisterKeyMappingsEvent}、Fabricは{@code KeyBindingHelper}）へ流す。 */

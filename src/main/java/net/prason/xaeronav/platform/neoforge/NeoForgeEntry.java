@@ -1,12 +1,12 @@
 package net.prason.xaeronav.platform.neoforge;
 
 //? neoforge {
-/*import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 //? if <1.21 {
-/^import net.neoforged.fml.ModLoadingContext;
-^///?}
+/*import net.neoforged.fml.ModLoadingContext;
+*///?}
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
@@ -15,8 +15,8 @@ import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 //? if >=1.21 {
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 //?} else {
-/^import net.neoforged.neoforge.client.ConfigScreenHandler;
-^///?}
+/*import net.neoforged.neoforge.client.ConfigScreenHandler;
+*///?}
 import net.neoforged.neoforge.common.NeoForge;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.client.XaeroNavClient;
@@ -30,11 +30,11 @@ import net.prason.xaeronav.config.XaeroNavConfig;
 //? if >=1.21 {
 @Mod(value = XaeroNav.MOD_ID, dist = Dist.CLIENT)
 //?} else {
-/^@Mod(XaeroNav.MOD_ID)
-^///?}
+/*@Mod(XaeroNav.MOD_ID)
+*///?}
 public final class NeoForgeEntry {
 
-    /^* 設定画面の登録はクライアント側で行うので、そこまでコンテナを持ち越す。 ^/
+    /** 設定画面の登録はクライアント側で行うので、そこまでコンテナを持ち越す。 */
     private static ModContainer container;
 
     public NeoForgeEntry(IEventBus modEventBus, ModContainer modContainer) {
@@ -43,8 +43,8 @@ public final class NeoForgeEntry {
         //? if >=1.21 {
         modContainer.registerConfig(ModConfig.Type.CLIENT, modConfigSpec());
         //?} else {
-        /^ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, modConfigSpec());
-        ^///?}
+        /*ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, modConfigSpec());
+        *///?}
         modEventBus.addListener(NeoForgeEntry::onConfigReloaded);
         modEventBus.addListener(ClientSetup::onClientSetup);
         modEventBus.addListener(ClientSetup::onRegisterKeyMappings);
@@ -75,18 +75,18 @@ public final class NeoForgeEntry {
             container.registerExtensionPoint(IConfigScreenFactory.class,
                     (modContainer, parent) -> new XaeroNavConfigScreen(parent));
             //?} else {
-            /^container.registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
+            /*container.registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
                     () -> new ConfigScreenHandler.ConfigScreenFactory(
                             (minecraft, parent) -> new XaeroNavConfigScreen(parent)));
-            ^///?}
+            *///?}
         }
 
         public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
             //? if >=1.21.9 {
-            event.registerCategory(XaeroNavKeys.CATEGORY);
-            //?}
+            /*event.registerCategory(XaeroNavKeys.CATEGORY);
+            *///?}
             XaeroNavKeys.register(event::register);
         }
     }
 }
-*///?}
+//?}

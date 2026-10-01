@@ -11,8 +11,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelHeightAccessor;
 //?}
 //? if >=1.21.11 {
-import net.minecraft.world.attribute.EnvironmentAttributes;
-//?}
+/*import net.minecraft.world.attribute.EnvironmentAttributes;
+*///?}
 import net.minecraft.world.phys.Vec3;
 
 /** Minecraft 1.16と新しい版とで呼び方だけが違うvanilla API。クライアント専用のものは{@code client.ClientCompat}にある。 */
@@ -31,22 +31,22 @@ public final class GameCompat {
     /** {@code overlay}ならアクションバー、そうでなければチャット欄へ出す。 */
     public static void tell(Player player, Component message, boolean overlay) {
         //? if >=26.1 {
-        if (overlay) {
+        /*if (overlay) {
             player.sendOverlayMessage(message);
         } else {
             player.sendSystemMessage(message);
         }
-        //?} else {
-        /*player.displayClientMessage(message, overlay);
-        *///?}
+        *///?} else {
+        player.displayClientMessage(message, overlay);
+        //?}
     }
 
     public static long chunkKey(int chunkX, int chunkZ) {
         //? if >=26.1 {
-        return ChunkPos.pack(chunkX, chunkZ);
-        //?} else {
-        /*return ChunkPos.asLong(chunkX, chunkZ);
-        *///?}
+        /*return ChunkPos.pack(chunkX, chunkZ);
+        *///?} else {
+        return ChunkPos.asLong(chunkX, chunkZ);
+        //?}
     }
 
     public static Abilities abilities(Player player) {
@@ -61,26 +61,26 @@ public final class GameCompat {
     //? if >=1.17 {
     public static int minBuildHeight(LevelHeightAccessor level) {
         //? if >=1.21.2 {
-        return level.getMinY();
-        //?} else {
-        /*return level.getMinBuildHeight();
-        *///?}
+        /*return level.getMinY();
+        *///?} else {
+        return level.getMinBuildHeight();
+        //?}
     }
 
     public static int maxBuildHeight(LevelHeightAccessor level) {
         //? if >=1.21.2 {
-        return level.getMaxY() + 1;
-        //?} else {
-        /*return level.getMaxBuildHeight();
-        *///?}
+        /*return level.getMaxY() + 1;
+        *///?} else {
+        return level.getMaxBuildHeight();
+        //?}
     }
 
     public static int minSection(LevelHeightAccessor level) {
         //? if >=1.21.2 {
-        return level.getMinSectionY();
-        //?} else {
-        /*return level.getMinSection();
-        *///?}
+        /*return level.getMinSectionY();
+        *///?} else {
+        return level.getMinSection();
+        //?}
     }
     //?} else {
     /*public static int minBuildHeight(Level level) {
@@ -99,12 +99,12 @@ public final class GameCompat {
     /** 水を置いても蒸発する場所か（ネザー）。 */
     public static boolean waterEvaporates(Level level, BlockPos pos) {
         //? if >=1.21.11 {
-        // バイオームごとに変えられる属性なので位置を渡して読む。getDimensionValueは開発環境
+        /*// バイオームごとに変えられる属性なので位置を渡して読む。getDimensionValueは開発環境
         // （NeoForgeの開発実行など）でだけ例外を投げ、本番では黙ってバイオームの上書きを無視する
         return level.environmentAttributes().getValue(EnvironmentAttributes.WATER_EVAPORATES, pos);
-        //?} else {
-        /*return level.dimensionType().ultraWarm();
-        *///?}
+        *///?} else {
+        return level.dimensionType().ultraWarm();
+        //?}
     }
 
     public static BlockPos containing(Vec3 pos) {

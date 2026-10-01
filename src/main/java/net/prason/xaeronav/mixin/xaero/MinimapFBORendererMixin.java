@@ -15,10 +15,10 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 //? if >=1.21.11 {
-import xaero.lib.client.graphics.XaeroBufferProvider;
-//?} else {
-/*import net.prason.xaeronav.client.NavBuffers;
-*///?}
+/*import xaero.lib.client.graphics.XaeroBufferProvider;
+*///?} else {
+import net.minecraft.client.renderer.MultiBufferSource;
+//?}
 import net.prason.xaeronav.client.MapPathOverlay;
 import net.prason.xaeronav.xaero.XaeroHookMarker;
 import net.prason.xaeronav.xaero.XaeroHookProbe;
@@ -32,7 +32,7 @@ import xaero.hud.render.util.RenderBufferUtil;
  *
  * <p>{@code endBatch()}呼び出しのordinalはバージョンで違う。1.20+は対象の{@code renderTypeBuffers}
  * への1回目のflushがordinal 0。1.16.5〜1.19.2の{@code renderChunksToFBO}はその手前に
- * {@code this.NavBuffers.begin().endBatch()}（メインゲーム側の別バッファ）が
+ * {@code this.mc.renderBuffers().bufferSource().endBatch()}（メインゲーム側の別バッファ）が
  * 先に1回あり、狙うべき{@code renderTypeBuffers}自身のflushはordinal 1になる
  * （Xaero 26.5.0のバイトコードで、1.18.2・1.19.2・1.20.1を比べて確認）。ordinal 0のままだと例外にはならないが
  * 別バッファへ描いてしまい、経路がミニマップに出ない。
@@ -65,19 +65,19 @@ public abstract class MinimapFBORendererMixin implements XaeroHookMarker {
     @WrapOperation(
             method = "renderChunksToFBO",
             //? if >=1.21.11 {
-            at = @At(value = "INVOKE", target = "Lxaero/lib/client/graphics/XaeroBufferProvider;endBatch()V", ordinal = 0)
-            //?} else if <1.20 {
+            /*at = @At(value = "INVOKE", target = "Lxaero/lib/client/graphics/XaeroBufferProvider;endBatch()V", ordinal = 0)
+            *///?} else if <1.20 {
             /*at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 1)
             *///?} else {
-            /*at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 0)
-            *///?}
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 0)
+            //?}
     )
     private void xaeronav$drawPath(
             //? if >=1.21.11 {
-            XaeroBufferProvider renderTypeBuffers,
-            //?} else {
-            /*MultiBufferSource.BufferSource renderTypeBuffers,
-            *///?}
+            /*XaeroBufferProvider renderTypeBuffers,
+            *///?} else {
+            MultiBufferSource.BufferSource renderTypeBuffers,
+            //?}
             Operation<Void> original,
             @Local(name = "matrixStack") PoseStack matrixStack,
             @Local(name = "xFloored") int xFloored,

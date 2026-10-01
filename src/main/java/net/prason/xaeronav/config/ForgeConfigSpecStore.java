@@ -1,16 +1,16 @@
 package net.prason.xaeronav.config;
 
 //? forge {
-import java.util.List;
+/*import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import net.minecraftforge.common.ForgeConfigSpec;
 
-/**
+/^*
  * Forge側の保存先。読み書き・ファイル監視・不正値の補正はすべてFMLが持つ
  * {@code ForgeConfigSpec}に任せる。
- */
+ ^/
 public final class ForgeConfigSpecStore implements NavConfigStore, NavConfigSpec {
 
     private final ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -31,7 +31,7 @@ public final class ForgeConfigSpecStore implements NavConfigStore, NavConfigSpec
         built.save();
     }
 
-    /** {@code ModLoadingContext#registerConfig}へ渡すためのもの。 */
+    /^* {@code ModLoadingContext#registerConfig}へ渡すためのもの。 ^/
     public ForgeConfigSpec forgeConfigSpec() {
         return built;
     }
@@ -102,9 +102,9 @@ public final class ForgeConfigSpecStore implements NavConfigStore, NavConfigSpec
                 //? if >=1.21 {
                 builder.defineListAllowEmpty(path, defaultValue, elementValidator);
                 //?} else {
-                /*builder.defineListAllowEmpty(List.of(path), () -> defaultValue, elementValidator);
-                *///?}
+                /^builder.defineListAllowEmpty(List.of(path), () -> defaultValue, elementValidator);
+                ^///?}
         return value::get;
     }
 }
-//?}
+*///?}

@@ -13,29 +13,29 @@ import net.fabricmc.fabric.api.client.command.v1.FabricClientCommandSource;
 ^///?}
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 //? if >=26.1 {
-import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
-//?} else {
-/^import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-^///?}
+/^import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+^///?} else {
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+//?}
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 //? if >=1.21.9 {
-import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+/^import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 //? if >=26.1 {
-import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
-//?} else {
-/^import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
-^///?}
+/^¹import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+¹^///?} else {
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
+//?}
 import net.minecraft.client.Minecraft;
-import net.minecraft.resources.Identifier;
-//?} else {
-/^import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.minecraft.resources.ResourceLocation;
+^///?} else {
+import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
-^///?}
+//?}
 import net.minecraft.commands.arguments.coordinates.Coordinates;
 //? if >=1.21.2 {
-import net.minecraft.commands.CommandSource;
+/^import net.minecraft.commands.CommandSource;
 import net.minecraft.commands.CommandSourceStack;
-//?}
+^///?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.XaeroNav;
@@ -55,10 +55,10 @@ public final class FabricEntry implements ClientModInitializer {
         XaeroNavClient.reloadBlockLists();
 
         //? if >=26.1 {
-        XaeroNavKeys.register(KeyMappingHelper::registerKeyMapping);
-        //?} else {
-        /^XaeroNavKeys.register(KeyBindingHelper::registerKeyBinding);
-        ^///?}
+        /^XaeroNavKeys.register(KeyMappingHelper::registerKeyMapping);
+        ^///?} else {
+        XaeroNavKeys.register(KeyBindingHelper::registerKeyBinding);
+        //?}
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> XaeroNavClient.TICK_HANDLER.onClientTick());
         ClientPlayConnectionEvents.JOIN.register(
@@ -67,21 +67,21 @@ public final class FabricEntry implements ClientModInitializer {
                 (handler, client) -> XaeroNavClient.TICK_HANDLER.onLoggingOut());
 
         //? if >=1.21.9 {
-        // 半透明の地形まで描き終えた後。以前のAFTER_TRANSLUCENTに当たる
+        /^// 半透明の地形まで描き終えた後。以前のAFTER_TRANSLUCENTに当たる
         //? if >=26.1 {
-        LevelRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
+        /^¹LevelRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
                 context.poseStack(), ClientCompat.mainCamera(Minecraft.getInstance())));
-        //?} else {
-        /^WorldRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
+        ¹^///?} else {
+        WorldRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
                 context.matrices(), ClientCompat.mainCamera(Minecraft.getInstance())));
-        ^///?}
-        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
+        //?}
+        HudElementRegistry.addLast(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                 (graphics, tickCounter) -> XaeroNavClient.HUD.render(graphics));
-        //?} else {
-        /^WorldRenderEvents.AFTER_TRANSLUCENT.register(
+        ^///?} else {
+        WorldRenderEvents.AFTER_TRANSLUCENT.register(
                 context -> XaeroNavClient.PATH_RENDERER.render(context.matrixStack(), context.camera()));
         HudRenderCallback.EVENT.register((graphics, tickCounter) -> XaeroNavClient.HUD.render(graphics));
-        ^///?}
+        //?}
 
         //? if >=1.19 {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
@@ -102,7 +102,7 @@ public final class FabricEntry implements ClientModInitializer {
     //? if >=1.17 {
     private static BlockPos blockPos(CommandContext<FabricClientCommandSource> ctx, String name) {
         //? if >=1.21.2 {
-        // プレイヤーからCommandSourceStackを作る口がサーバー側（ServerLevelを要る）にしか無くなった。
+        /^// プレイヤーからCommandSourceStackを作る口がサーバー側（ServerLevelを要る）にしか無くなった。
         // 座標の解決が読むのは位置・向き・エンティティだけなので、それだけを持たせて組み立てる
         FabricClientCommandSource source = ctx.getSource();
         try {
@@ -118,10 +118,10 @@ public final class FabricEntry implements ClientModInitializer {
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Cannot construct a client command source", exception);
         }
-        //?} else {
-        /^return ctx.getArgument(name, Coordinates.class)
+        ^///?} else {
+        return ctx.getArgument(name, Coordinates.class)
                 .getBlockPos(ctx.getSource().getPlayer().createCommandSourceStack());
-        ^///?}
+        //?}
     }
 
     private static NavCommandSink sink(FabricClientCommandSource source) {

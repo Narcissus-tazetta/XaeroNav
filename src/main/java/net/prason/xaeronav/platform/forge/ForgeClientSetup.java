@@ -1,19 +1,19 @@
 package net.prason.xaeronav.platform.forge;
 
 //? if forge && >=1.21.6 {
-import com.mojang.blaze3d.framegraph.FramePass;
+/*import com.mojang.blaze3d.framegraph.FramePass;
 import com.mojang.blaze3d.vertex.PoseStack;
 
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelTargetBundle;
 //? if >=1.21.9 {
-import net.minecraft.client.renderer.state.level.LevelRenderState;
-//?}
+/^import net.minecraft.client.renderer.state.LevelRenderState;
+^///?}
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.FramePassManager;
 import net.minecraftforge.client.event.AddFramePassEvent;
@@ -32,7 +32,7 @@ import net.prason.xaeronav.client.XaeroNavCommands;
 import net.prason.xaeronav.client.XaeroNavKeys;
 import net.prason.xaeronav.client.gui.XaeroNavConfigScreen;
 
-/** Forge 56以降のイベントを、ローダー非依存の処理へ繋ぐだけの層。クライアントでだけ読み込まれる。 */
+/^* Forge 56以降のイベントを、ローダー非依存の処理へ繋ぐだけの層。クライアントでだけ読み込まれる。 ^/
 final class ForgeClientSetup {
 
     private ForgeClientSetup() {
@@ -46,17 +46,17 @@ final class ForgeClientSetup {
                     () -> new ConfigScreenHandler.ConfigScreenFactory(XaeroNavConfigScreen::new));
         });
         //? if >=1.21.9 {
-        RegisterKeyMappingsEvent.BUS.addListener(event -> XaeroNavKeys.register(event::register));
+        /^RegisterKeyMappingsEvent.BUS.addListener(event -> XaeroNavKeys.register(event::register));
         AddGuiOverlayLayersEvent.BUS.addListener(event -> event.getLayeredDraw().add(
-        //?} else {
-        /*RegisterKeyMappingsEvent.getBus(context.getModBusGroup()).addListener(event -> XaeroNavKeys.register(event::register));
+        ^///?} else {
+        RegisterKeyMappingsEvent.getBus(context.getModBusGroup()).addListener(event -> XaeroNavKeys.register(event::register));
         AddGuiOverlayLayersEvent.getBus(context.getModBusGroup()).addListener(event -> event.getLayeredDraw().add(
-        *///?}
-                Identifier.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
+        //?}
+                ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                 (graphics, deltaTracker) -> XaeroNavClient.HUD.render(graphics)));
         // LevelRendererの生成時に1回だけ発火し、FMLClientSetupEventより早い。だからここで登録しておく
         AddFramePassEvent.BUS.addListener(event -> event.addPass(
-                Identifier.fromNamespaceAndPath(XaeroNav.MOD_ID, "path"), new PathPass()));
+                ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "path"), new PathPass()));
 
         TickEvent.ClientTickEvent.Post.BUS.addListener(event -> XaeroNavClient.TICK_HANDLER.onClientTick());
         ClientPlayerNetworkEvent.LoggingIn.BUS.addListener(
@@ -66,28 +66,28 @@ final class ForgeClientSetup {
                 XaeroNavCommands.<CommandSourceStack>tree(ctx -> sink(ctx.getSource()), BlockPosArgument::getBlockPos)));
     }
 
-    /**
+    /^*
      * ワールドの経路を描くパス。Forgeは追加のパスをバニラの全パスの後に置き、その間もmodelViewには
      * 視点の回転が積まれたままなので、渡す行列は単位行列でよい（Fabricの{@code END_MAIN}と同じ）。
-     */
+     ^/
     private static final class PathPass implements FramePassManager.PassDefinition {
 
         @Override
         //? if >=26.3 {
-        public void extracts(LevelTargetBundle bundle, FramePass pass, LevelRenderState state) {
-        //?} else {
-        /*public void extracts(LevelTargetBundle bundle, FramePass pass, DeltaTracker deltaTracker) {
-        *///?}
+        /^public void extracts(LevelTargetBundle bundle, FramePass pass, LevelRenderState state) {
+        ^///?} else {
+        public void extracts(LevelTargetBundle bundle, FramePass pass, DeltaTracker deltaTracker) {
+        //?}
             // Fabulous!以外ではmainしか無い。描く先もmainだけ（NavRenderTypes）
             bundle.main = pass.readsAndWrites(bundle.main);
         }
 
         @Override
         //? if >=1.21.9 {
-        public void executes(LevelRenderState state) {
-        //?} else {
-        /*public void executes() {
-        *///?}
+        /^public void executes(LevelRenderState state) {
+        ^///?} else {
+        public void executes() {
+        //?}
             XaeroNavClient.PATH_RENDERER.render(new PoseStack(), ClientCompat.mainCamera(Minecraft.getInstance()));
         }
     }
@@ -106,4 +106,4 @@ final class ForgeClientSetup {
         };
     }
 }
-//?}
+*///?}

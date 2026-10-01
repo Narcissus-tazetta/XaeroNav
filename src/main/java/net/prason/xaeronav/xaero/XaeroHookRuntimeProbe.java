@@ -4,15 +4,15 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 
 //? if <26.3 {
-/*import org.lwjgl.glfw.GLFW;
-*///?}
+import org.lwjgl.glfw.GLFW;
+//?}
 
 import com.mojang.blaze3d.platform.InputConstants;
 
 import net.minecraft.client.KeyMapping;
 //? if >=1.21.9 {
-import net.minecraft.client.input.KeyEvent;
-//?}
+/*import net.minecraft.client.input.KeyEvent;
+*///?}
 import net.minecraft.client.Minecraft;
 //? if >=1.19 {
 import net.minecraft.network.chat.contents.TranslatableContents;
@@ -135,14 +135,14 @@ public final class XaeroHookRuntimeProbe {
 
     private static void verifyWorldMapKey(GuiMap map) {
         KeyMapping mapping = XaeroNavKeys.GOTO_MAP_CURSOR;
-        InputConstants.Key probeKey = InputConstants.Type.KEYBOARD.getOrCreate(InputConstants.KEY_G);
+        InputConstants.Key probeKey = InputConstants.Type.KEYSYM.getOrCreate(GLFW.GLFW_KEY_G);
         try {
             mapping.setKey(probeKey);
             //? if >=1.21.9 {
-            boolean consumed = map.keyPressed(new KeyEvent(InputConstants.KEY_G, 0, 0));
-            //?} else {
-            /*boolean consumed = map.keyPressed(InputConstants.KEY_G, 0, 0);
-            *///?}
+            /*boolean consumed = map.keyPressed(new KeyEvent(GLFW.GLFW_KEY_G, 0, 0));
+            *///?} else {
+            boolean consumed = map.keyPressed(GLFW.GLFW_KEY_G, 0, 0);
+            //?}
             if (!consumed) {
                 throw new IllegalStateException("world-map key hook did not consume its key");
             }
@@ -152,7 +152,7 @@ public final class XaeroHookRuntimeProbe {
         } finally {
             // このdriverが動くのはCIだけで、GOTO_MAP_CURSORの既定値は未割り当て。
             // FabricではKeyMapping#getKeyが公開されていないため、既定値を明示して戻す。
-            mapping.setKey(InputConstants.Type.KEYBOARD.getOrCreate(InputConstants.UNKNOWN.getValue()));
+            mapping.setKey(InputConstants.Type.KEYSYM.getOrCreate(GLFW.GLFW_KEY_UNKNOWN));
             KeyMapping.resetMapping();
         }
     }
