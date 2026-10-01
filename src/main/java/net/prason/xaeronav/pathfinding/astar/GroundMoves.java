@@ -40,7 +40,7 @@ final class GroundMoves {
             return;
         }
         boolean inWater = CellData.water(owner.view.cell(x, y, z));
-        owner.relax(from, x, y, z, owner.stepCost(x, y, z) + owner.submerged(from, bodyCost, x, y + 1, z),
+        owner.relax(from, x, y, z, owner.stepCost(x, y, z) + owner.submerged(from, bodyCost),
                 inWater ? MoveKind.SWIM : MoveKind.TRAVERSE);
     }
 
@@ -67,7 +67,7 @@ final class GroundMoves {
         }
         boolean inWater = CellData.water(owner.view.cell(x, y, z));
         owner.relax(from, x, y, z,
-                owner.stepCost(x, y, z) * ActionCosts.DIAGONAL_DISTANCE + owner.submerged(from, bodyCost, x, y + 1, z),
+                owner.stepCost(x, y, z) * ActionCosts.DIAGONAL_DISTANCE + owner.submerged(from, bodyCost),
                 inWater ? MoveKind.SWIM : MoveKind.DIAGONAL);
     }
 
@@ -96,7 +96,7 @@ final class GroundMoves {
         }
         owner.relax(from, x, y, z,
                 ActionCosts.ascendOneBlock(owner.takeoffSpeedFactor(from.x, from.y, from.z))
-                        + owner.submerged(from, clearanceCost + bodyCost, x, y + 1, z),
+                        + owner.submerged(from, clearanceCost + bodyCost),
                 MoveKind.ASCEND);
     }
 
@@ -117,7 +117,7 @@ final class GroundMoves {
         }
         double baseCost = intoWater ? ActionCosts.SWIM_ONE_BLOCK
                 : ActionCosts.descendOneBlock(owner.takeoffSpeedFactor(from.x, from.y, from.z));
-        owner.relax(from, x, y, z, baseCost + owner.submerged(from, bodyCost, x, y + 1, z),
+        owner.relax(from, x, y, z, baseCost + owner.submerged(from, bodyCost),
                 intoWater ? MoveKind.SWIM_DESCEND : MoveKind.DESCEND);
     }
 

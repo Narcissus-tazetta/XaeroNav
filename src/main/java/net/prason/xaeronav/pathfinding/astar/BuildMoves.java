@@ -184,7 +184,7 @@ final class BuildMoves {
                 // 遥か下が溶岩なら落差は測らない。外したときの結末は既に溶岩の割増が表しているので、
                 // 深さで二重に取ると測っていないネザーの橋の値段まで動く
                 + (lavaFarBelow ? 0.0 : ActionCosts.dropRiskPenalty(dropBelow, owner.view.fatalFallBlocks()))
-                + owner.submerged(from, bodyCost, x, y + 1, z);
+                + owner.submerged(from, bodyCost);
         owner.relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
     }
 
@@ -254,7 +254,7 @@ final class BuildMoves {
         // 地面の上から1マス上がる話には当てはまらない
         double cost = ActionCosts.ascendOneBlock(owner.takeoffSpeedFactor(from.x, from.y, from.z))
                 + owner.placementCostTicks + ActionCosts.TERRAIN_EDIT_INTERRUPTION_TICKS
-                + owner.submerged(from, clearanceCost, from.x, from.y + 2, from.z);
+                + owner.submerged(from, clearanceCost);
         // 積んだブロックの上は自分が置いた足場であって地形ではないので、橋の連続を断たない。
         // 0に戻していた頃は「橋を上限まで架ける→1マス積む→また上限まで架ける」が合法だった。
         // 実際に発動するかは展開順しだいで（bridgeRunはノードの同一性に入らないので、柱の上の

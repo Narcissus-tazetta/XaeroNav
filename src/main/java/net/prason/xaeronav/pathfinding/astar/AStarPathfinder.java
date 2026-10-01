@@ -1205,17 +1205,18 @@ public final class AStarPathfinder {
      * 水中の採掘は水中採掘のエンチャントが無ければ5倍遅い。掘るセルごとではなく「掘っている間プレイヤーの頭が
      * 水にあるか」で決まるので、セル単体のコストではなく移動ごとの掘削コスト合計に掛ける。
      *
-     * <p>水中かどうかの判定に{@link #headSubmerged}を使うのが要点。頭のセルが水かだけを見ると、
-     * <b>これから掘る固体セル</b>は「水ではない」ので割増が乗らない——水中を掘り進む区間が丸ごと
-     * 陸と同じ値段になっていた。息の勘定と同じ判定に揃えてある。
+     * <p>水中か・足が着いているかは<b>掘っている間に立っている{@code from}</b>で測る。到着先の頭は
+     * これから掘る固体なので、そこで測ると泳いだまま土を掘る手が陸と同じ値段になり、到着先の床を
+     * 見ると泳いで掘る25倍が5倍になる。{@code from}の頭のセルが地形上は固体でも、水中で掘って来た
+     * なら水が流れ込んでいるので、到着時の判定（{@code submergedTicks}）も見る。
      */
-    double submerged(PathNode from, double digCost, int x, int headY, int z) {
-        if (digCost <= 0.0 || !headSubmerged(from, x, headY, z)) {
+    double submerged(PathNode from, double digCost) {
+        boolean eyeInWater = CellData.water(view.cell(from.x, from.y + 1, from.z)) || from.submergedTicks > 0.0;
+        if (digCost <= 0.0 || !eyeInWater) {
             return digCost;
         }
-        // 足が着いているかで5倍違う（Player#getDigSpeedの !onGround() の分岐）。足元は頭の1つ下、
-        // その床はさらに1つ下。掘る対象そのものが床のこともあるが、掘る前に立っている高さで測るのが正しい
-        boolean onGround = CellData.standable(view.cell(x, headY - 2, z));
+        // Player#getDigSpeedの !onGround() の分岐
+        boolean onGround = CellData.standable(view.cell(from.x, from.y - 1, from.z));
         return digCost * (onGround ? ActionCosts.SUBMERGED_DIG_PENALTY : ActionCosts.SWIMMING_DIG_PENALTY);
     }
 

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
+import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -578,6 +579,35 @@ class AStarPathfinderTest {
         assertTrue(unlimited.complete(), "上限が無ければ掘り抜ける");
         assertTrue(unlimited.steps().stream().anyMatch(PathStep::digging),
                 "掘って抜ける経路になる: " + movements(unlimited));
+    }
+
+    /**
+     * 水中で掘る手は、到着先の頭がこれから掘る固体でも、掘っている間の頭は水なので割増が乗る。
+     * 始点が壁の隣だと到着先だけを見る判定では陸と同じ値段になっていた（実機の水路の出口で発生）。
+     */
+    @Test
+    void chargesTheUnderwaterDigPenaltyWhenDiggingFromTheStart() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(-8, 52, -8, 12, 76, 8));
+        for (int x = -1; x <= 3; x++) {
+            cells.set(x, 60, 0, FakeCells.BEDROCK);
+            cells.set(x, 65, 0, FakeCells.BEDROCK);
+            for (int y = 61; y <= 64; y++) {
+                cells.set(x, y, 0, x == 1 ? FakeCells.STONE : FakeCells.WATER);
+            }
+        }
+
+        PathResult result = search(cells.maxSubmergedTicks(0), new BlockPos(0, 61, 0), new BlockPos(2, 61, 0));
+
+        assertTrue(result.complete(), "到達できない: " + movements(result));
+        List<PathStep> digs = result.steps().stream().filter(PathStep::digging).toList();
+        assertFalse(digs.isEmpty(), "掘らない経路になった: " + movements(result));
+        for (PathStep step : digs) {
+            double raw = step.digCells().stream()
+                    .mapToDouble(pos -> CellData.digTicks(cells.cell(pos.getX(), pos.getY(), pos.getZ())))
+                    .sum();
+            assertTrue(step.cost() >= raw * ActionCosts.SUBMERGED_DIG_PENALTY,
+                    "水中の採掘が割増なし: 素の掘削=" + raw + ", 移動込み=" + step.cost());
+        }
     }
 
     /** 水底(y=54)から水面(y=70)まで開けた深い海。x方向に長く、途中に遮るものは無い。 */
