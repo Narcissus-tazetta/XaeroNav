@@ -8,6 +8,10 @@ where to go next.
 
 - Minecraft 1.21.11, on NeoForge 21.11.45+, Forge 61.2.1+, or Fabric (Fabric Loader 0.17.3+ and
   Fabric API 0.141.6+)
+- Minecraft 1.21.10, on NeoForge 21.10.64+, Forge 60.1.15+, or Fabric (Fabric Loader 0.17.0+ and
+  Fabric API 0.138.4+)
+- Minecraft 1.21.8, on NeoForge 21.8.54+, Forge 58.1.22+, or Fabric (Fabric Loader 0.16.13+ and
+  Fabric API 0.136.1+)
 - Minecraft 1.21.5, on NeoForge 21.5+, Forge 55+, or Fabric (Fabric Loader 0.16.10+ and
   Fabric API 0.128.2+)
 - Minecraft 1.21.4, on NeoForge 21.4+, Forge 54+, or Fabric (Fabric Loader 0.16.9+ and
@@ -50,6 +54,14 @@ problem here.
      [Forge](https://files.minecraftforge.net/) 61.2.1 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.17.3 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 or newer.
+   - Minecraft 1.21.10: [NeoForge](https://neoforged.net/) 21.10.64 or newer,
+     [Forge](https://files.minecraftforge.net/) 60.1.15 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.17.0 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.138.4 or newer.
+   - Minecraft 1.21.8: [NeoForge](https://neoforged.net/) 21.8.54 or newer,
+     [Forge](https://files.minecraftforge.net/) 58.1.22 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.16.13 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.136.1 or newer.
    - Minecraft 1.21.5: [NeoForge](https://neoforged.net/) 21.5 or newer,
      [Forge](https://files.minecraftforge.net/) 55 or newer, or [Fabric](https://fabricmc.net/)
      with Fabric Loader 0.16.10 or newer plus
@@ -83,7 +95,7 @@ problem here.
    `xaeronav-0.3.0-fabric-1.20.1.jar`.
 3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
    optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, 1.21.4, 1.21.5 and 1.20.4,
-   World Map 1.46.0 / Minimap 26.5.0 on 1.21.11, 1.20.1, 1.19.2, 1.18.2 and 1.16.5.
+   World Map 1.46.0 / Minimap 26.5.0 on 1.21.11, 1.21.10, 1.21.8, 1.20.1, 1.19.2, 1.18.2 and 1.16.5.
 
 ## What it does
 
@@ -278,6 +290,10 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 - Map integration hooks into Xaero's internals. If a newer Xaero changes them, only that part
   switches off; XaeroNav says which part in chat once per session, and in-world rendering and the
   HUD keep working.
+- Map data that [Xaero's Maps: Multiplayer+](https://github.com/alinco8/XaerosMaps-MultiplayerPlus)
+  downloads from a server is read like any other Xaero map data, so long-distance routing uses it
+  (checked on NeoForge 1.21.1). With Xaero's cave mode on, the surface map isn't written, so there
+  is nothing to share or route over.
 - Surface-first routing doesn't work in dimensions without a sky (Nether, the End).
 - The navigation graph covers up to 224 blocks around you, or 160 when the Java heap limit is below
   2.5 GB, and never more than your render distance. It ignores block changes it hasn't rebuilt yet;

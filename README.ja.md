@@ -7,6 +7,10 @@
 
 - Minecraft 1.21.11 / NeoForge 21.11.45 以降、Forge 61.2.1 以降、または Fabric（Fabric Loader 0.17.3 以降 +
   Fabric API 0.141.6 以降）
+- Minecraft 1.21.10 / NeoForge 21.10.64 以降、Forge 60.1.15 以降、または Fabric（Fabric Loader 0.17.0 以降 +
+  Fabric API 0.138.4 以降）
+- Minecraft 1.21.8 / NeoForge 21.8.54 以降、Forge 58.1.22 以降、または Fabric（Fabric Loader 0.16.13 以降 +
+  Fabric API 0.136.1 以降）
 - Minecraft 1.21.5 / NeoForge 21.5 以降、Forge 55 以降、または Fabric（Fabric Loader 0.16.10 以降 +
   Fabric API 0.128.2 以降）
 - Minecraft 1.21.4 / NeoForge 21.4 以降、Forge 54 以降、または Fabric（Fabric Loader 0.16.9 以降 +
@@ -45,6 +49,12 @@
    - Minecraft 1.21.11: [NeoForge](https://neoforged.net/) 21.11.45 以降、
      [Forge](https://files.minecraftforge.net/) 61.2.1 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.17.3 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 以降）。
+   - Minecraft 1.21.10: [NeoForge](https://neoforged.net/) 21.10.64 以降、
+     [Forge](https://files.minecraftforge.net/) 60.1.15 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.17.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.138.4 以降）。
+   - Minecraft 1.21.8: [NeoForge](https://neoforged.net/) 21.8.54 以降、
+     [Forge](https://files.minecraftforge.net/) 58.1.22 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.16.13 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.136.1 以降）。
    - Minecraft 1.21.5: [NeoForge](https://neoforged.net/) 21.5 以降、
      [Forge](https://files.minecraftforge.net/) 55 以降、または [Fabric](https://fabricmc.net/)
      （Fabric Loader 0.16.10 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.128.2 以降）。
@@ -69,7 +79,7 @@
    Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
    `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
-   1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.21.11・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
+   1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.21.11・1.21.10・1.21.8・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
    Minimap 26.5.0 以降。
 
 ## 何ができるか
@@ -261,6 +271,10 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 - 地図連携は Xaero の内部へ差し込んで実現しています。新しい Xaero でその形が変わった場合は
   その部分だけが無効になり、何が無効になったかをワールド参加時に 1 度だけチャットで知らせます。
   ワールド内描画と HUD はそのまま動きます。
+- [Xaero's Maps: Multiplayer+](https://github.com/alinco8/XaerosMaps-MultiplayerPlus) がサーバーから
+  受け取った地図データは、ふつうの Xaero の地図データと同じように読まれ、長距離ルートに使われます
+  （NeoForge 1.21.1 で確認）。Xaero の洞窟モードがオンだと地上の地図が書かれないため、共有も経路探索も
+  できません。
 - 地上優先ナビは空の無い次元（ネザー・ジ・エンド）では働きません。
 - 航法グラフが見るのは自分の周り 224 ブロックまで（Java のヒープ上限が 2.5GB 未満なら 160 ブロック、
   どちらも描画距離が上限）で、組み直す前のブロックの変化は反映されません。歩くたびと、探索が前進しなく
