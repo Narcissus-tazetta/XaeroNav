@@ -122,6 +122,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
+      # xaeronav.onlyNodesで、このジョブが使うノード（と正典ノード）だけを構成する（settings.gradle.kts参照）。
       # 経路探索テストは全ノードで同じなので正典ノードだけでコンパイル・実行する。
       # 他ノードでbuildを呼ぶと、Test自体はonlyIfで止まってもcompileTestJavaまでは
       # 同じソースを再コンパイルするため、配布jarの検証に必要なassembleだけを使う。
@@ -131,9 +132,9 @@ jobs:
           CANONICAL_NODE: ${{ needs.discover.outputs.canonical_node }}
         run: |
           if [ "$NODE" = "$CANONICAL_NODE" ]; then
-            ./gradlew spotlessCheck ":$NODE:build" --console=plain
+            ./gradlew spotlessCheck ":$NODE:build" "-Pxaeronav.onlyNodes=$NODE" --console=plain
           else
-            ./gradlew ":$NODE:assemble" --console=plain
+            ./gradlew ":$NODE:assemble" "-Pxaeronav.onlyNodes=$NODE" --console=plain
           fi
 
       # 失敗したときに、どのテストがなぜ落ちたかをログを掘らずに見られるようにする
@@ -190,7 +191,7 @@ jobs:
           cache-read-only: true
 
       - name: Build and stage mods
-        run: ./gradlew :${{ matrix.node.node }}:stageRuntimeTestMods --console=plain
+        run: ./gradlew :${{ matrix.node.node }}:stageRuntimeTestMods -Pxaeronav.onlyNodes=${{ matrix.node.node }} --console=plain
 
       - name: Put mods into the test client
         run: |
@@ -273,6 +274,28 @@ jobs:
           # まとめると後半がjava.awt.headlessの値に入り、probe propertyにならない。
           headlessmc-command: '--jvm "-Dxaeronav-ci.runtimeHookProbe=true"'
 
+      # Minecraft・ローダー・mc-runtime-testの取得は外部の配布元の一時的な不調で落ちる。ゲームが起動する前
+      # （ログが無い）に落ちたときだけ1回やり直す。起動後の失敗はやり直しても同じなので下の検査へ回す。
+      # 取得の途中で落ちると版のjsonだけが残り、actionが「導入済み」と見て取得を飛ばすので、版の一覧を消してから
+      - name: Reset the partial Minecraft install
+        if: steps.client.outcome == 'failure' && hashFiles('run/logs/latest.log') == ''
+        run: rm -rf ~/.minecraft/versions
+
+      - name: Run the client (retry)
+        id: client_retry
+        if: steps.client.outcome == 'failure' && hashFiles('run/logs/latest.log') == ''
+        timeout-minutes: 20
+        continue-on-error: true
+        uses: headlesshq/mc-runtime-test@fbafe02f89f4f13682e7b16dbcee6b6a43f4faca # 4.5.1
+        with:
+          mc: ${{ matrix.node.minecraft }}
+          modloader: ${{ matrix.node.loader }}
+          regex: .*${{ matrix.node.loader }}.*
+          java: ${{ matrix.node.java }}
+          mc-runtime-test: ${{ matrix.node.loader == 'forge' && 'lexforge' || matrix.node.loader }}
+          fabric-api: none
+          headlessmc-command: '--jvm "-Dxaeronav-ci.runtimeHookProbe=true"'
+
       # 起動に失敗・ハングしたときは、まずここを読めば分かるようにする
       # （artifactを落とさなくてもジョブのログで完結させる）
       - name: Show the client log
@@ -298,7 +321,7 @@ jobs:
       - name: Validate the runtime result
         if: always()
         env:
-          CLIENT_OUTCOME: ${{ steps.client.outcome }}
+          CLIENT_OUTCOME: ${{ steps.client_retry.outcome == 'skipped' && steps.client.outcome || steps.client_retry.outcome }}
         run: |
           if [ "$CLIENT_OUTCOME" = success ]; then
             exit 0
@@ -402,7 +425,7 @@ jobs:
           cache-read-only: true
 
       - name: Build and stage the production mod jar
-        run: ./gradlew :${{ matrix.node.node }}:stageServerTestMod --console=plain
+        run: ./gradlew :${{ matrix.node.node }}:stageServerTestMod -Pxaeronav.onlyNodes=${{ matrix.node.node }} --console=plain
 
       - name: Put XaeroNav into the test server
         run: |
@@ -418,11 +441,36 @@ jobs:
       # mc-server-testはworldのload完了をpositiveに待ち、到達後にstopを送る。
       # 可変tagではなく、内容を確認したv1.1.1の署名済みcommitへ固定する。
       - name: Run the Forge dedicated server
+        id: server
+        continue-on-error: true
         uses: headlesshq/mc-server-test@42de00da95e997b046a43eb9beb516494e542ba9 # v1.1.1
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: forge
           java: ${{ matrix.node.java }}
+
+      # Forgeのインストーラーの取得は配布元の一時的な不調で落ちる（タイムアウト後、HeadlessMCが別形式のURLへ
+      # 切り替えて404になる）。サーバーが起動する前（ログが無い）に落ちたときだけ1回やり直す。
+      # 取得の途中で落ちたサーバーのディレクトリが残ると、やり直しでそれを0番として起動してしまうので消す
+      - name: Reset the partial server install
+        if: steps.server.outcome == 'failure' && hashFiles('run/logs/latest.log') == ''
+        run: rm -rf HeadlessMC/servers ~/.minecraft/servers
+
+      - name: Run the Forge dedicated server (retry)
+        id: server_retry
+        if: steps.server.outcome == 'failure' && hashFiles('run/logs/latest.log') == ''
+        uses: headlesshq/mc-server-test@42de00da95e997b046a43eb9beb516494e542ba9 # v1.1.1
+        with:
+          mc: ${{ matrix.node.minecraft }}
+          modloader: forge
+          java: ${{ matrix.node.java }}
+
+      # 起動した後に落ちたもの（やり直さなかったもの）はここで落とす
+      - name: Fail if the server did not start cleanly
+        if: steps.server.outcome == 'failure' && steps.server_retry.outcome == 'skipped'
+        run: |
+          echo "::error::Forgeの専用サーバーの起動テストが失敗した"
+          exit 1
 
       - name: Upload server logs
         if: failure()
