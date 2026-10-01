@@ -5,6 +5,11 @@
 目的地までの実際に歩ける経路を計算して、ワールド内・Xaero's World Map・Xaero's Minimap の
 3 箇所に描くクライアント MOD です。画面上部には次にどちらへ進むかが出ます。
 
+- Minecraft 26.3 / Forge 66.0.9 以降、または Fabric（Fabric Loader 0.19.0 以降 + Fabric API 0.161.0 以降）
+- Minecraft 26.2 / NeoForge 26.2.0.88 以降、Forge 65.1.3 以降、または Fabric（Fabric Loader 0.19.0 以降 +
+  Fabric API 0.161.0 以降）
+- Minecraft 26.1.2 / NeoForge 26.1.2.112 以降、Forge 64.1.3 以降、または Fabric（Fabric Loader 0.19.0 以降 +
+  Fabric API 0.155.3 以降）
 - Minecraft 1.21.11 / NeoForge 21.11.45 以降、Forge 61.2.1 以降、または Fabric（Fabric Loader 0.17.3 以降 +
   Fabric API 0.141.6 以降）
 - Minecraft 1.21.10 / NeoForge 21.10.64 以降、Forge 60.1.15 以降、または Fabric（Fabric Loader 0.17.0 以降 +
@@ -46,6 +51,14 @@
 ## インストール
 
 1. ローダーを導入する。
+   - Minecraft 26.3: [Forge](https://files.minecraftforge.net/) 66.0.9 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 以降）。
+   - Minecraft 26.2: [NeoForge](https://neoforged.net/) 26.2.0.88 以降、
+     [Forge](https://files.minecraftforge.net/) 65.1.3 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 以降）。
+   - Minecraft 26.1.2: [NeoForge](https://neoforged.net/) 26.1.2.112 以降、
+     [Forge](https://files.minecraftforge.net/) 64.1.3 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.155.3 以降）。
    - Minecraft 1.21.11: [NeoForge](https://neoforged.net/) 21.11.45 以降、
      [Forge](https://files.minecraftforge.net/) 61.2.1 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.17.3 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 以降）。
@@ -79,8 +92,8 @@
    Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
    `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
-   1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、1.21.11・1.21.10・1.21.8・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
-   Minimap 26.5.0 以降。
+   1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、26.1.2・1.21.11・1.21.10・1.21.8・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
+   Minimap 26.5.0 以降、26.2 なら World Map 1.46.1 以降・Minimap 26.5.1 以降、26.3 なら World Map 1.46.4 以降・Minimap 26.5.3 以降。
 
 ## 何ができるか
 

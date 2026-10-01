@@ -6,6 +6,11 @@ A client-side Minecraft mod that finds a route you can actually walk to a destin
 it in the world, on Xaero's World Map, and on Xaero's Minimap. The top of the screen tells you
 where to go next.
 
+- Minecraft 26.3, on Forge 66.0.9+ or Fabric (Fabric Loader 0.19.0+ and Fabric API 0.161.0+)
+- Minecraft 26.2, on NeoForge 26.2.0.88+, Forge 65.1.3+, or Fabric (Fabric Loader 0.19.0+ and
+  Fabric API 0.161.0+)
+- Minecraft 26.1.2, on NeoForge 26.1.2.112+, Forge 64.1.3+, or Fabric (Fabric Loader 0.19.0+ and
+  Fabric API 0.155.3+)
 - Minecraft 1.21.11, on NeoForge 21.11.45+, Forge 61.2.1+, or Fabric (Fabric Loader 0.17.3+ and
   Fabric API 0.141.6+)
 - Minecraft 1.21.10, on NeoForge 21.10.64+, Forge 60.1.15+, or Fabric (Fabric Loader 0.17.0+ and
@@ -50,6 +55,17 @@ problem here.
 ## Installation
 
 1. Install a loader:
+   - Minecraft 26.3: [Forge](https://files.minecraftforge.net/) 66.0.9 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.19.0 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 or newer.
+   - Minecraft 26.2: [NeoForge](https://neoforged.net/) 26.2.0.88 or newer,
+     [Forge](https://files.minecraftforge.net/) 65.1.3 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.19.0 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 or newer.
+   - Minecraft 26.1.2: [NeoForge](https://neoforged.net/) 26.1.2.112 or newer,
+     [Forge](https://files.minecraftforge.net/) 64.1.3 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.19.0 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.155.3 or newer.
    - Minecraft 1.21.11: [NeoForge](https://neoforged.net/) 21.11.45 or newer,
      [Forge](https://files.minecraftforge.net/) 61.2.1 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.17.3 or newer plus
@@ -95,7 +111,8 @@ problem here.
    `xaeronav-0.3.0-fabric-1.20.1.jar`.
 3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
    optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, 1.21.4, 1.21.5 and 1.20.4,
-   World Map 1.46.0 / Minimap 26.5.0 on 1.21.11, 1.21.10, 1.21.8, 1.20.1, 1.19.2, 1.18.2 and 1.16.5.
+   World Map 1.46.0 / Minimap 26.5.0 on 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.20.1, 1.19.2, 1.18.2 and 1.16.5,
+   World Map 1.46.1 / Minimap 26.5.1 on 26.2, World Map 1.46.4 / Minimap 26.5.3 on 26.3.
 
 ## What it does
 
