@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
@@ -78,6 +79,11 @@ public final class FakeCells implements CellSource {
     private static final int NO_OVERRIDE = Integer.MIN_VALUE;
 
     private final Long2LongOpenHashMap cells = new Long2LongOpenHashMap();
+    /**
+     * 列ごとの区間（{@code [下, 上, 記号]}を並べたもの、下から昇順）。{@link #setColumn}で書いた列だけが持つ。
+     * 1000ブロック四方を超える書き出しを1セルずつ{@link #cells}に持つと数十GBになるので、広い地形はこちらで持つ。
+     */
+    private final Long2ObjectOpenHashMap<short[]> columns = new Long2ObjectOpenHashMap<>();
     private SearchBounds bounds;
     private boolean canPlaceBlocks;
     /** 設定の既定値に合わせてtrue。跳躍を禁じたいテストだけが明示的に切る。 */
@@ -144,6 +150,12 @@ public final class FakeCells implements CellSource {
             }
         }
         return fake;
+    }
+
+    /** {@code x,z}の列を区間で書く（{@code runs}は{@code [下, 上, 記号]}の繰り返し、下から昇順）。{@link #set}が優先する。 */
+    public FakeCells setColumn(int x, int z, short[] runs) {
+        columns.put(BlockPos.asLong(x, 0, z), runs);
+        return this;
     }
 
     public FakeCells set(int x, int y, int z, char symbol) {
@@ -250,6 +262,15 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    private static final long[] FLAGS = new long[128];
+
+    static {
+        for (char c : new char[] {AIR, STONE, SOFT, BEDROCK, WATER, LAVA, SOUL_SAND, MAGMA, VINE, NETHER_VINE, LADDER,
+                COBWEB, ABSENT}) {
+            FLAGS[c] = flagsFor(c);
+        }
+    }
+
     private static long flagsFor(char symbol) {
         return switch (symbol) {
             case AIR -> air();
@@ -290,7 +311,18 @@ public final class FakeCells implements CellSource {
             return CellData.ABSENT;
         }
         long value = cells.get(BlockPos.asLong(x, y, z));
-        return value == Long.MIN_VALUE ? fill : value;
+        if (value != Long.MIN_VALUE) {
+            return value;
+        }
+        short[] runs = columns.get(BlockPos.asLong(x, 0, z));
+        if (runs != null) {
+            for (int i = 0; i < runs.length && runs[i] <= y; i += 3) {
+                if (y <= runs[i + 1]) {
+                    return FLAGS[runs[i + 2]];
+                }
+            }
+        }
+        return fill;
     }
 
     @Override

@@ -188,6 +188,12 @@ final class ProgressiveWalk {
     }
 
     /**
+     * 実機のジ・エンドと同じく、目的地が窓の外にある間は窓のガイドを下った最後の床の上の点（{@code PathfindingState#landing}）を狙う。
+     * 計測する側がジ・エンドのときだけ立てる。
+     */
+    static volatile boolean END_LANDING;
+
+    /**
      * <b>最終目的地を狙う区間。</b>実機と同じく{@link PathfindingExecutor#submit}へ通す——
      * 最初の探索は予算の{@code FIRST_PASS_PERCENT}しか使わず、届かなければ重みを上げて
      * 引き直す（その部分経路は捨てられる）という梯子まで含めて再現するため。
@@ -195,6 +201,50 @@ final class ProgressiveWalk {
     private static PathResult legToGoal(PathfindingExecutor executor, CellSource all, BlockPos player,
                                         int radius, BlockPos from, BlockPos goal, List<PathStep> planned,
                                         CostToGo wide, double weight) {
+        if (END_LANDING && wide instanceof WindowField field) {
+            BlockPos[] landed = {null};
+            BlockPos[] last = {null};
+            WindowField.Descent descent = field.descend(from.getX(), from.getY(), from.getZ(), (x, y, z) -> {
+                last[0] = new BlockPos(x, y, z);
+                if (!net.prason.xaeronav.pathfinding.world.CellData.passableEmpty(all.cell(x, y - 1, z))) {
+                    landed[0] = new BlockPos(x, y, z);
+                }
+            });
+            BlockPos target = landed[0] != null && !landed[0].equals(from) ? landed[0] : last[0];
+            if (descent != null && !descent.reachedGoal() && target != null && !target.equals(from)) {
+                double base = field.exact(target.getX(), target.getY(), target.getZ());
+                CostToGo shifted = new CostToGo() {
+                    @Override
+                    public double estimate(int x, int y, int z) {
+                        return Math.max(0.0, field.estimate(x, y, z) - base);
+                    }
+
+                    @Override
+                    public double searchEstimate(int x, int y, int z) {
+                        double value = field.searchEstimate(x, y, z);
+                        return Double.isNaN(value) ? value : Math.max(0.0, value - base);
+                    }
+                };
+                // 実機の{@code navGraphBounds(wholeWindow=true)}は窓全体を見る
+                SearchBounds lbox = new SearchBounds(player.getX() - radius, all.bounds().minY(), player.getZ() - radius,
+                        player.getX() + radius, all.bounds().maxY(), player.getZ() + radius);
+                CellSource lview = new PlannedCellSource(new WindowedCells(all, player, radius, lbox), planned, 0);
+                try {
+                    PathResult result = executor.submit(lview, from, target, withWeight(LIVE_LIMITS, weight), true, 0,
+                            Carryover.after(planned), shifted).get();
+                    if (!result.steps().isEmpty()) {
+                        return result;
+                    }
+                    return executor.submit(lview, from, target, withWeight(DEEP_LIVE_LIMITS, weight), true, 0,
+                            Carryover.after(planned), shifted).get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                } catch (ExecutionException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+        }
         // 実機のPathfindingState#navGraphBoundsと同じく、ガイドを下った道筋を箱に含める
         SearchBounds box = searchBox(all, from, goal, radius);
         int[] trail = wide instanceof WindowField field ? field.descentBox(from.getX(), from.getY(), from.getZ(),
