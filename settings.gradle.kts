@@ -25,6 +25,8 @@ stonecutter {
         }
 
         match("1.21.11", "neoforge", "fabric", "forge")
+        match("1.21.10", "neoforge", "fabric", "forge")
+        match("1.21.8", "neoforge", "fabric", "forge")
         match("1.21.5", "neoforge", "fabric", "forge")
         match("1.21.4", "neoforge", "fabric", "forge")
         match("1.21.1", "neoforge", "fabric", "forge")

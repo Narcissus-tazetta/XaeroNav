@@ -1,6 +1,6 @@
 package net.prason.xaeronav.platform.forge;
 
-//? if forge && >=1.21.11 {
+//? if forge && >=1.21.6 {
 /*import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.fml.common.Mod;
@@ -14,7 +14,7 @@ import net.prason.xaeronav.config.ForgeConfigSpecStore;
 import net.prason.xaeronav.config.XaeroNavConfig;
 
 /^*
- * Forge 61（Minecraft 1.21.11）の入口。EventBus 7でイベントがそれぞれ自分のバスを持つ形に変わったので、
+ * Forge 56以降（Minecraft 1.21.6以降）の入口。EventBus 7でイベントがそれぞれ自分のバスを持つ形に変わったので、
  * 注釈で購読する{@code ForgeEntry}とは別に、各バスへ明示的に登録する。
  ^/
 @Mod(XaeroNav.MOD_ID)

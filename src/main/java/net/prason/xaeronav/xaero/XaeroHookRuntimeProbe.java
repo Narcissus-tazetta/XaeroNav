@@ -8,7 +8,7 @@ import org.lwjgl.glfw.GLFW;
 import com.mojang.blaze3d.platform.InputConstants;
 
 import net.minecraft.client.KeyMapping;
-//? if >=1.21.11 {
+//? if >=1.21.9 {
 /*import net.minecraft.client.input.KeyEvent;
 *///?}
 import net.minecraft.client.Minecraft;
@@ -135,7 +135,7 @@ public final class XaeroHookRuntimeProbe {
         InputConstants.Key probeKey = InputConstants.Type.KEYSYM.getOrCreate(GLFW.GLFW_KEY_G);
         try {
             mapping.setKey(probeKey);
-            //? if >=1.21.11 {
+            //? if >=1.21.9 {
             /*boolean consumed = map.keyPressed(new KeyEvent(GLFW.GLFW_KEY_G, 0, 0));
             *///?} else {
             boolean consumed = map.keyPressed(GLFW.GLFW_KEY_G, 0, 0);

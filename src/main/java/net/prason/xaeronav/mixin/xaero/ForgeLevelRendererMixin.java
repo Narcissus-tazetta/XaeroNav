@@ -1,6 +1,6 @@
 package net.prason.xaeronav.mixin.xaero;
 
-//? if forge && >=1.21.2 && <1.21.11 {
+//? if forge && >=1.21.2 && <1.21.6 {
 /*import com.mojang.blaze3d.resource.ResourceHandle;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;

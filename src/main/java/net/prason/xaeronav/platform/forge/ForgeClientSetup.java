@@ -1,13 +1,15 @@
 package net.prason.xaeronav.platform.forge;
 
-//? if forge && >=1.21.11 {
+//? if forge && >=1.21.6 {
 /*import com.mojang.blaze3d.framegraph.FramePass;
 import com.mojang.blaze3d.vertex.PoseStack;
 
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelTargetBundle;
+//? if >=1.21.9 {
 import net.minecraft.client.renderer.state.LevelRenderState;
+//?}
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.network.chat.Component;
@@ -29,7 +31,7 @@ import net.prason.xaeronav.client.XaeroNavCommands;
 import net.prason.xaeronav.client.XaeroNavKeys;
 import net.prason.xaeronav.client.gui.XaeroNavConfigScreen;
 
-/^* Forge 61のイベントを、ローダー非依存の処理へ繋ぐだけの層。クライアントでだけ読み込まれる。 ^/
+/^* Forge 56以降のイベントを、ローダー非依存の処理へ繋ぐだけの層。クライアントでだけ読み込まれる。 ^/
 final class ForgeClientSetup {
 
     private ForgeClientSetup() {
@@ -42,8 +44,13 @@ final class ForgeClientSetup {
             context.registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
                     () -> new ConfigScreenHandler.ConfigScreenFactory(XaeroNavConfigScreen::new));
         });
+        //? if >=1.21.9 {
         RegisterKeyMappingsEvent.BUS.addListener(event -> XaeroNavKeys.register(event::register));
         AddGuiOverlayLayersEvent.BUS.addListener(event -> event.getLayeredDraw().add(
+        //?} else {
+        /^RegisterKeyMappingsEvent.getBus(context.getModBusGroup()).addListener(event -> XaeroNavKeys.register(event::register));
+        AddGuiOverlayLayersEvent.getBus(context.getModBusGroup()).addListener(event -> event.getLayeredDraw().add(
+        ^///?}
                 ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                 (graphics, deltaTracker) -> XaeroNavClient.HUD.render(graphics)));
         // LevelRendererの生成時に1回だけ発火し、FMLClientSetupEventより早い。だからここで登録しておく
@@ -71,7 +78,11 @@ final class ForgeClientSetup {
         }
 
         @Override
+        //? if >=1.21.9 {
         public void executes(LevelRenderState state) {
+        //?} else {
+        /^public void executes() {
+        ^///?}
             XaeroNavClient.PATH_RENDERER.render(new PoseStack(), Minecraft.getInstance().gameRenderer.getMainCamera());
         }
     }

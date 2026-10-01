@@ -69,7 +69,24 @@ final class NavRenderTypes {
     }
     *///?} else if >=1.21.5 {
     /*static final RenderType DEBUG_QUADS = RenderType.debugQuads();
+    //? if >=1.21.6 {
+    /^// Forgeの追加パスはFabulous!の合成後なので、線もitem_entityではなくmainへ描く。
+    static final RenderType LINES = createRenderType("xaeronav_lines", RenderPipelines.LINES,
+            RenderType.CompositeState.builder()
+                    .setLineState(new RenderStateShard.LineStateShard(java.util.OptionalDouble.empty()))
+                    .setLayeringState(Shards.VIEW_OFFSET)
+                    .createCompositeState(false));
+
+    private static final class Shards extends RenderStateShard {
+        static final LayeringStateShard VIEW_OFFSET = VIEW_OFFSET_Z_LAYERING;
+
+        private Shards() {
+            super("xaeronav_shards", () -> { }, () -> { });
+        }
+    }
+    ^///?} else {
     static final RenderType LINES = RenderType.lines();
+    //?}
 
     private static final RenderPipeline OCCLUDED_QUADS_PIPELINE = withoutDepthTest(RenderPipelines.DEBUG_QUADS);
     static final RenderType OCCLUDED_QUADS = createOccludedQuads();
@@ -90,14 +107,17 @@ final class NavRenderTypes {
         if (state == null) {
             throw new ExceptionInInitializerError("RenderType composite state not found");
         }
+        return createRenderType("xaeronav_occluded_quads", OCCLUDED_QUADS_PIPELINE, state);
+    }
+
+    private static RenderType createRenderType(String name, RenderPipeline pipeline, RenderType.CompositeState state) {
         for (java.lang.reflect.Method method : RenderType.class.getDeclaredMethods()) {
             Class<?>[] parameters = method.getParameterTypes();
             if (parameters.length == 4 && parameters[0] == String.class && parameters[1] == int.class
                     && parameters[2] == RenderPipeline.class && parameters[3] == RenderType.CompositeState.class) {
                 try {
                     method.setAccessible(true);
-                    return (RenderType) method.invoke(null, "xaeronav_occluded_quads", 1536,
-                            OCCLUDED_QUADS_PIPELINE, state);
+                    return (RenderType) method.invoke(null, name, 1536, pipeline, state);
                 } catch (ReflectiveOperationException exception) {
                     throw new ExceptionInInitializerError(exception);
                 }
@@ -116,7 +136,9 @@ final class NavRenderTypes {
                 .withCull(source.isCull())
                 .withColorWrite(source.isWriteColor(), source.isWriteAlpha())
                 .withDepthWrite(false)
+                //? if <1.21.6 {
                 .withColorLogic(source.getColorLogic())
+                //?}
                 .withVertexFormat(source.getVertexFormat(), source.getVertexFormatMode())
                 .withDepthBias(source.getDepthBiasScaleFactor(), source.getDepthBiasConstant());
         source.getBlendFunction().ifPresent(builder::withBlend);

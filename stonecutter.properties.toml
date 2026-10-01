@@ -12,6 +12,80 @@
 # 全ノードで回すとCIの時間が丸ごと倍になるだけで、見つかるものは増えない。
 canonical_test_node = "1.21.1-neoforge"
 
+[fabric."1.21.10"]
+deps.minecraft = "1.21.10"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.17.0"
+deps.fabric_api = "0.138.4+1.21.10"
+deps.fabric_api_range = "0.138.4+1.21.10"
+deps.modmenu = "16.0.1"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
+
+[forge."1.21.10"]
+deps.minecraft = "1.21.10"
+deps.forge = "60.1.15"
+deps.forge_loader_range = "[60.1.15,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
+
+[neoforge."1.21.10"]
+deps.minecraft = "1.21.10"
+deps.neoforge = "21.10.64"
+deps.neoforge_range = "[21.10.64,)"
+deps.neoforge_loader_range = "[4,)"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
+
+[fabric."1.21.8"]
+deps.minecraft = "1.21.8"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.16.13"
+deps.fabric_api = "0.136.1+1.21.8"
+deps.fabric_api_range = "0.136.1+1.21.8"
+deps.modmenu = "15.0.2"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
+
+[forge."1.21.8"]
+deps.minecraft = "1.21.8"
+deps.forge = "58.1.22"
+deps.forge_loader_range = "[58.1.22,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
+
+[neoforge."1.21.8"]
+deps.minecraft = "1.21.8"
+deps.neoforge = "21.8.54"
+deps.neoforge_range = "[21.8.54,)"
+deps.neoforge_loader_range = "[4,)"
+deps.xaerolib = "1.7.3"
+deps.xaero_worldmap = "1.46.0"
+deps.xaero_minimap = "26.5.0"
+deps.xaero_worldmap_min = "1.46.0"
+deps.xaero_minimap_min = "26.5.0"
+
 [fabric."1.21.11"]
 deps.minecraft = "1.21.11"
 deps.fabric_loader = "0.19.5"

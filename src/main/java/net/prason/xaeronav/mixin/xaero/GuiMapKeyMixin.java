@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import net.minecraft.client.Minecraft;
-//? if >=1.21.11 {
+//? if >=1.21.9 {
 /*import net.minecraft.client.input.KeyEvent;
 *///?}
 import net.minecraft.core.BlockPos;
@@ -57,7 +57,7 @@ public abstract class GuiMapKeyMixin {
 
     // Forge 1.20.4は配布先のXaeroがSRG名、Renamerを通す開発環境ではnamed名になる。
     // 外部クラスのoverrideはMixin APがrefmapへ引けないため、両方を候補にして実環境で片方を選ぶ。
-    //? if >=1.21.11 {
+    //? if >=1.21.9 {
     /*// 1.21.9以降はキー入力が1つのKeyEventにまとまった
     @Inject(method = "keyPressed(Lnet/minecraft/client/input/KeyEvent;)Z", at = @At("HEAD"), cancellable = true, remap = false)
     private void xaeronav$onKeyPressed(KeyEvent event, CallbackInfoReturnable<Boolean> cir) {

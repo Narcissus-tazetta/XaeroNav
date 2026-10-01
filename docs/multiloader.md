@@ -13,6 +13,12 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `1.21.11-fabric` | 1.21.11 | Fabric Loader 0.17.3+ / Fabric API 0.141.6+ |
 | `1.21.11-forge` | 1.21.11 | Forge 61.2.1+ |
 | `1.21.11-neoforge` | 1.21.11 | NeoForge 21.11.45+ |
+| `1.21.10-fabric` | 1.21.10 | Fabric Loader 0.17.0+ / Fabric API 0.138.4+ |
+| `1.21.10-forge` | 1.21.10 | Forge 60.1.15+ |
+| `1.21.10-neoforge` | 1.21.10 | NeoForge 21.10.64+ |
+| `1.21.8-fabric` | 1.21.8 | Fabric Loader 0.16.13+ / Fabric API 0.136.1+ |
+| `1.21.8-forge` | 1.21.8 | Forge 58.1.22+ |
+| `1.21.8-neoforge` | 1.21.8 | NeoForge 21.8.54+ |
 | `1.21.5-fabric` | 1.21.5 | Fabric Loader 0.16.10+ / Fabric API 0.128.2+ |
 | `1.21.5-forge` | 1.21.5 | Forge 55+ |
 | `1.21.5-neoforge` | 1.21.5 | NeoForge 21.5+ |
@@ -219,6 +225,25 @@ Modrinth・CurseForgeへ付ける対応バージョンの両方を決める。
   - `ForgeConfigSpec.Builder#defineListAllowEmpty(String, List, Predicate)`（`List<String>`と`Supplier`を取る版を使う）
 - NeoForge 21.0.xは`@EventBusSubscriber`の購読先のバスを自動で選ばないので、MODバスのイベントは
   `modEventBus.addListener`で登録する。
+
+## 1.21.8・1.21.10
+
+- 3ローダーとも専用ノードを持ち、Java 21で動く。パック形式は公式クライアントの`version.json`で確認した
+  1.21.8のresource 64、1.21.10のresource 69 / data 88を使う。Forge・NeoForgeの1.21.10はdata 88で宣言する。
+- ForgeのEventBus 7は1.21.6から。`ForgeMod`・`ForgeClientSetup`を使い、`AddFramePassEvent`で経路の描画を登録する。
+  1.21.8のキー・HUD登録はmod bus、1.21.10は各イベントの`BUS`へ登録する。
+  `PassDefinition#executes`は1.21.8では引数なし、1.21.10では`LevelRenderState`を取る。
+  `ForgeLevelRendererMixin`は公式の描画パスAPIが無い1.21.4・1.21.5にだけ残す。
+- NeoForgeの`RenderLevelStageEvent`が段階別のサブクラスになるのは1.21.6から。
+  1.21.10ではイベントからcameraを取れないため、Minecraftのmain cameraを使う。
+- 1.21.9からキー入力は`KeyEvent`、キーバインドのカテゴリは`KeyMapping.Category`。
+  Xaeroの世界地図のキー注入とruntime probeも同じ境界で分岐する。
+- Fabricの1.21.10では`rendering.v1.world.WorldRenderEvents.END_MAIN`と`HudElementRegistry`を使う。
+  1.21.8は従来の`WorldRenderEvents.AFTER_TRANSLUCENT`を使う。
+- 1.21.8・1.21.10の線はmain targetへ描く。Forgeの追加パスはFabulous!の合成後なので、
+  バニラの`RenderType.lines()`が使うitem_entity targetへ描くと画面に合成されない。
+- Xaeroの下限は実際にビルドで使うWorld Map 1.46.0 / Minimap 26.5.0に合わせる。
+  中間のMinecraft版へjarの対応範囲を広げる場合は、別途起動とフックの実行を確認する。
 
 ## 1.21.11
 

@@ -9,7 +9,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-//? if >=1.21.11 {
+//? if >=1.21.9 {
 /*import net.minecraft.resources.ResourceLocation;
 *///?}
 import net.minecraft.world.phys.BlockHitResult;
@@ -27,7 +27,7 @@ import net.prason.xaeronav.config.XaeroNavConfig;
  */
 public final class XaeroNavKeys {
 
-    //? if >=1.21.11 {
+    //? if >=1.21.9 {
     /*// カテゴリの表示名は`key.category.<名前空間>.<パス>`の翻訳キーから引かれる
     //? if neoforge {
     // NeoForgeはバニラのCategory.registerを非推奨にしていて、RegisterKeyMappingsEvent#registerCategoryで登録する

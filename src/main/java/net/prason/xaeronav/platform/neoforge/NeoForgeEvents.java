@@ -1,7 +1,7 @@
 package net.prason.xaeronav.platform.neoforge;
 
 //? neoforge {
-//? if >=1.21.11 {
+//? if >=1.21.9 {
 /*import net.minecraft.client.Minecraft;
 *///?}
 import net.minecraft.commands.CommandSourceStack;
@@ -23,11 +23,17 @@ import net.prason.xaeronav.client.XaeroNavCommands;
 /** NeoForgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 */
 public final class NeoForgeEvents {
 
-    //? if >=1.21.11 {
+    //? if >=1.21.6 {
     /*// 段階ごとに別のイベントになった。PoseStackは単位行列で、視点の回転はmodelViewに積まれている
     @SubscribeEvent
     public void onRenderLevelStage(RenderLevelStageEvent.AfterTranslucentBlocks event) {
-        XaeroNavClient.PATH_RENDERER.render(event.getPoseStack(), Minecraft.getInstance().gameRenderer.getMainCamera());
+        XaeroNavClient.PATH_RENDERER.render(event.getPoseStack(),
+                //? if >=1.21.9 {
+                /^Minecraft.getInstance().gameRenderer.getMainCamera()
+                ^///?} else {
+                event.getCamera()
+                //?}
+        );
     }
     *///?} else {
     @SubscribeEvent

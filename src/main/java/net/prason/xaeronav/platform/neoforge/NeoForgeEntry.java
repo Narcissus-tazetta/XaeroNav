@@ -82,7 +82,7 @@ public final class NeoForgeEntry {
         }
 
         public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
-            //? if >=1.21.11 {
+            //? if >=1.21.9 {
             /*event.registerCategory(XaeroNavKeys.CATEGORY);
             *///?}
             XaeroNavKeys.register(event::register);
