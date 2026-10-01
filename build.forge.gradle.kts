@@ -239,7 +239,12 @@ dependencies {
 // mixinextrasを同梱した統合jar（jarJarタスクの出力）を使う——素のjarタスクは"slim"で
 // mixinextrasを含まないため、それだけを配布・実行すると起動時にMixinExtrasが見つからず落ちる
 val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
-    from(xaeroRuntimeMods)
+    if (stripsXaeroJarJar) {
+        // 26.1以降はMaven版をそのまま置くとjar-in-jar解決で落ちるので、開発実行と同じmetadataを外したjarを置く
+        from(stripXaeroJarJar)
+    } else {
+        from(xaeroRuntimeMods)
+    }
     from(distributionJar)
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }

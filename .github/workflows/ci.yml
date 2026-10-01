@@ -96,6 +96,8 @@ jobs:
           # ジョブ側のifでは弾けない——job levelのifからはmatrixコンテキストを参照できず、
           # ワークフローファイルが丸ごと不正になる
           RUNTIME=$(echo "$RUNTIME" | jq -c '[.[] | select(.node != "1.20.1-forge" and .node != "1.19.2-forge" and .node != "1.18.2-forge")]')
+          # mc-runtime-testは26.3向けの配布物をまだ出していない（4.5.1は26.2まで）。出たら外す
+          RUNTIME=$(echo "$RUNTIME" | jq -c '[.[] | select(.minecraft != "26.3")]')
           echo "runtime_nodes=$RUNTIME" >> "$GITHUB_OUTPUT"
           SERVER=$(echo "$NODES" | jq -c '[.[] | select(.loader == "forge")]')
           echo "server_nodes=$SERVER" >> "$GITHUB_OUTPUT"

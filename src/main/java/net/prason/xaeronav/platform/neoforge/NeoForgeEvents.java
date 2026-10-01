@@ -3,6 +3,7 @@ package net.prason.xaeronav.platform.neoforge;
 //? neoforge {
 //? if >=1.21.9 {
 /*import net.minecraft.client.Minecraft;
+import net.prason.xaeronav.client.ClientCompat;
 *///?}
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
@@ -16,7 +17,6 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
-import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.NavCommandSink;
 import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;

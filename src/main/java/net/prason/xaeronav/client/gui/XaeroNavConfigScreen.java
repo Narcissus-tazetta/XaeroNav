@@ -15,7 +15,6 @@ import net.minecraft.client.gui.screens.OptionsSubScreen;
 import net.minecraft.network.chat.CommonComponents;
 *///?}
 import net.minecraft.network.chat.Component;
-import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.config.XaeroNavConfig;
 //?} else {
 /*import com.mojang.blaze3d.vertex.PoseStack;
