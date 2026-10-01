@@ -425,22 +425,9 @@ public final class CoarseRouter {
      * （海沿いの地形で深さ-23からの経路が最適の1.19倍、窓の中にある水の縦穴を使わず東へ深いまま進んだ）。
      * 窓の外の推定は下限である必要が無い（ネザーの3D粗層も1.3倍して使う）。
      */
-    public static FarEstimate farEstimate(CoarseMap map, BlockPos goal, boolean boatAvailable,
-                                          BridgePolicy bridgePolicy) {
-        CoarseCostToGo knownOnly = costToGo(map, goal, boatAvailable, bridgePolicy, true);
-        return new FarEstimate(new CoarseCostToGo(knownOnly.map(), knownOnly.cost(), knownOnly.goalOffset(), true, true),
-                knownOnly);
-    }
-
-    /**
-     * {@link #farEstimate}の2通りの引き方（表は共有）。
-     *
-     * @param anywhere  Xaeroの地図に無いセルでも未知セルの表の値を返す。目的地が窓の外のときに使う——地図に無い所
-     *                  （テレポート直後・未踏の洞窟）では、そうしないと窓の縁に種が1つも無く、ガイドが丸ごと空になる
-     * @param knownOnly 地図に無いセルは0（不明）。目的地が窓の中のときに使う——未知セルの値は直線距離並みに安いので、
-     *                  縁に置くと窓の中の本当の道より縁へ出る方が安く見え、窓が動くたびに向きが入れ替わって進まない
-     */
-    public record FarEstimate(CostToGo anywhere, CostToGo knownOnly) {
+    public static CostToGo farEstimate(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy) {
+        CoarseCostToGo table = costToGo(map, goal, boatAvailable, bridgePolicy, true);
+        return new CoarseCostToGo(table.map(), table.cost(), table.goalOffset(), true, true);
     }
 
     private static CoarseCostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable,
@@ -548,6 +535,11 @@ public final class CoarseRouter {
      *
      * @param goalOffset 目的地がその所属セルの中心からずれているぶん（{@link #centerOffsetCost}）。
      *                   座標ごとのずれと違って探索中は変わらないので、表を作るときに1度だけ求める
+     */
+    /**
+     * @param valueUnknownCells Xaeroの地図に無いセルでも未知セルの表の値を返す（窓の外の推定）。0を返すと窓の縁で
+     *                          「分からない」として種から外され、地図に無い所（テレポート直後・未踏の洞窟）では
+     *                          窓の縁に種が1つも無く、ガイドが丸ごと空になる
      */
     private record CoarseCostToGo(CoarseMap map, double[] cost, double goalOffset, boolean chargeClimbFromBelow,
                                   boolean valueUnknownCells) implements CostToGo {

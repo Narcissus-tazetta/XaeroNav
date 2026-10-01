@@ -2517,9 +2517,14 @@ public final class PathfindingState {
         return fallback == null ? null : new GoalGuide(fallback, false, null);
     }
 
+    /**
+     * 層1は目的地が窓の外にあるときだけ縁に置く。窓の中なら窓の中の値だけで足りるうえ、層1の値は縁で実費より安いことがあり、
+     * 「窓を出て戻る」方が窓の中の本当の道（地中のトンネルなど）より安く見えて、窓が動くたびに向きが入れ替わる
+     * （保存ワールドのランダムな100本で、未到達8本が到達・2%超の悪化2本・改善10本）。
+     */
     private static FarField layer1Far(CoarseMap map, BlockPos goal) {
-        CoarseRouter.FarEstimate estimate = CoarseRouter.farEstimate(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE);
-        return FarField.byGoal(FarField.of(estimate.anywhere()), FarField.of(estimate.knownOnly()));
+        return FarField.byGoal(FarField.of(CoarseRouter.farEstimate(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE)),
+                FarField.UNKNOWN);
     }
 
     /**

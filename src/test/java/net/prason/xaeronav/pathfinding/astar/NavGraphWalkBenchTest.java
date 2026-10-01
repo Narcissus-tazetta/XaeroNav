@@ -402,7 +402,7 @@ class NavGraphWalkBenchTest {
                         route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE)));
     }
 
-    private static FarField layer1Far(CoarseRouter.FarEstimate estimate) {
-        return FarField.byGoal(FarField.of(estimate.anywhere()), FarField.of(estimate.knownOnly()));
+    private static FarField layer1Far(CostToGo estimate) {
+        return FarField.byGoal(FarField.of(estimate), FarField.UNKNOWN);
     }
 }
