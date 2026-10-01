@@ -50,6 +50,31 @@ public interface FarField {
         return false;
     }
 
+    /** 目的地が窓の中にあるときに縁へ置く推定。 */
+    default FarField whenGoalInside() {
+        return onlyWhenGoalOutside() ? UNKNOWN : this;
+    }
+
+    /** 目的地が窓の外なら{@code outside}、中なら{@code inside}を縁へ置く。 */
+    static FarField byGoal(FarField outside, FarField inside) {
+        return new FarField() {
+            @Override
+            public double at(int x, int y, int z) {
+                return outside.at(x, y, z);
+            }
+
+            @Override
+            public boolean onlyWhenGoalOutside() {
+                return outside.onlyWhenGoalOutside();
+            }
+
+            @Override
+            public FarField whenGoalInside() {
+                return inside;
+            }
+        };
+    }
+
     double at(int x, int y, int z);
 
     /**
@@ -75,6 +100,11 @@ public interface FarField {
             @Override
             public boolean onlyWhenGoalOutside() {
                 return far.onlyWhenGoalOutside();
+            }
+
+            @Override
+            public FarField whenGoalInside() {
+                return forwardOf(far.whenGoalInside(), x, y, z);
             }
         };
     }

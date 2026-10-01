@@ -2503,8 +2503,7 @@ public final class PathfindingState {
                         map == null ? currentGoal : map, () -> FarField.straightLineTo(currentGoal, scale), true);
             } else {
                 far = map == null ? null
-                        : new NavGraphGuide.Far("層1", map, () -> FarField.of(
-                                CoarseRouter.farEstimate(map, currentGoal, false, CoarseRouter.BridgePolicy.BRIDGE)), false);
+                        : new NavGraphGuide.Far("層1", map, () -> layer1Far(map, currentGoal), false);
             }
         }
         long navGraphLap = TickLaps.start();
@@ -2518,6 +2517,11 @@ public final class PathfindingState {
         return fallback == null ? null : new GoalGuide(fallback, false, null);
     }
 
+    private static FarField layer1Far(CoarseMap map, BlockPos goal) {
+        CoarseRouter.FarEstimate estimate = CoarseRouter.farEstimate(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE);
+        return FarField.byGoal(FarField.of(estimate.anywhere()), FarField.of(estimate.knownOnly()));
+    }
+
     /**
      * 目的地が窓の外にあるとき、窓のガイドを{@code from}から下って最後に床の上に立つ点。そこを狙う探索のガイドも添える。
      *
@@ -2528,15 +2532,19 @@ public final class PathfindingState {
      */
     private static @Nullable Landing landing(Level level, WindowField field, BlockPos from) {
         BlockPos[] landed = {null};
+        BlockPos[] last = {null};
         WindowField.Descent descent = field.descend(from.getX(), from.getY(), from.getZ(), (x, y, z) -> {
+            last[0] = new BlockPos(x, y, z);
             if (!level.isEmptyBlock(new BlockPos(x, y - 1, z))) {
                 landed[0] = new BlockPos(x, y, z);
             }
         });
-        if (descent == null || descent.reachedGoal() || landed[0] == null || landed[0].equals(from)) {
+        // 島の縁から先が窓の縁まで奈落だと、床の上の点は始点しか無い。目的地をそのまま狙うと上の理由で橋に届かず、
+        // 予算切れの途中の点と縁の往復になる（エンドの保存地形で60区間を超えて止まった）。窓の中で下った最後の点を狙う
+        BlockPos target = landed[0] != null && !landed[0].equals(from) ? landed[0] : last[0];
+        if (descent == null || descent.reachedGoal() || target == null || target.equals(from)) {
             return null;
         }
-        BlockPos target = landed[0];
         double base = field.exact(target.getX(), target.getY(), target.getZ());
         return new Landing(target, new CostToGo() {
             @Override

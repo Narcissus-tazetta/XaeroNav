@@ -253,7 +253,7 @@ public final class WindowField implements CostToGo {
         // 窓の中なのに繋がらないと判定して従来の探索へ落ちる（実測: エンドで目的地が縁から5ブロックの区間が2回、1.022→1.050倍）
         boolean goalInWindow = Math.abs(goal.getX() - centerX) <= radius - NavGraph.READ_MARGIN
                 && Math.abs(goal.getZ() - centerZ) <= radius - NavGraph.READ_MARGIN;
-        FarField far = goalInWindow && givenFar.onlyWhenGoalOutside() ? FarField.UNKNOWN : givenFar;
+        FarField far = goalInWindow ? givenFar.whenGoalInside() : givenFar;
         LongArrayList keyList = new LongArrayList();
         graph.forEachWindowSection(centerX, centerZ, radius, (sx, sy, sz) -> {
             long key = NavGraph.key(sx, sy, sz);

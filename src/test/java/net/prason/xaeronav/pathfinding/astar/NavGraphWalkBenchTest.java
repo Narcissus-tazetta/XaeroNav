@@ -296,7 +296,7 @@ class NavGraphWalkBenchTest {
         OVERWORLD_FLOOR = true;
         FakeCells cells = overworld("/overworld_wide.txt.gz");
         measure("地上/広域(長)", cells, surfaceRoutes(cells, 4, 200, 450), ProgressiveWalk.Mode.EXTEND,
-                ProgressiveWalk.Aim.HORIZON, false, route -> FarField.of(CoarseRouter.farEstimate(LiveCoarseSampler.sample(
+                ProgressiveWalk.Aim.HORIZON, false, route -> layer1Far(CoarseRouter.farEstimate(LiveCoarseSampler.sample(
                         cells, cells.bounds(), route[0].getY(), () -> false), route[1], false,
                         CoarseRouter.BridgePolicy.BRIDGE)));
     }
@@ -317,7 +317,7 @@ class NavGraphWalkBenchTest {
             }
         }
         measure("地上/広域(長・地中始点)", cells, routes, ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON,
-                false, route -> FarField.of(CoarseRouter.farEstimate(LiveCoarseSampler.sample(cells, cells.bounds(),
+                false, route -> layer1Far(CoarseRouter.farEstimate(LiveCoarseSampler.sample(cells, cells.bounds(),
                         route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE)));
     }
 
@@ -398,7 +398,11 @@ class NavGraphWalkBenchTest {
             }
         }
         measure("地上/海沿い(地下込み)", cells, routes, ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON,
-                false, route -> FarField.of(CoarseRouter.farEstimate(LiveCoarseSampler.sample(cells, cells.bounds(),
+                false, route -> layer1Far(CoarseRouter.farEstimate(LiveCoarseSampler.sample(cells, cells.bounds(),
                         route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE)));
+    }
+
+    private static FarField layer1Far(CoarseRouter.FarEstimate estimate) {
+        return FarField.byGoal(FarField.of(estimate.anywhere()), FarField.of(estimate.knownOnly()));
     }
 }

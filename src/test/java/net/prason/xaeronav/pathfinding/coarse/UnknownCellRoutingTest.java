@@ -145,17 +145,19 @@ class UnknownCellRoutingTest {
     }
 
     /**
-     * 窓の外の推定は、Xaeroの地図に何も無い所でも値を持つ。0を返すと窓の縁で「分からない」として種から外れ、
-     * 地図に無い場所（テレポート直後・未踏の洞窟）では窓の縁に種が1つも無く、航法グラフのガイドが丸ごと空になる。
+     * 窓の外の推定は、目的地が窓の外のときだけXaeroの地図に何も無い所にも値を持つ（{@link CoarseRouter.FarEstimate}）。
      */
     @Test
     void farEstimateValuesCellsMissingFromTheMap() {
         CoarseMap map = new CoarseMapBuilder(-20, -20, 40, 40).build();
         BlockPos goal = new BlockPos(15 * 16, 63, 15 * 16);
 
-        double value = CoarseRouter.farEstimate(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE)
-                .estimate(-15 * 16, -30, -15 * 16);
+        CoarseRouter.FarEstimate estimate = CoarseRouter.farEstimate(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE);
 
-        assertTrue(value > 0, "地図に無いセルの推定が空: " + value);
+        double anywhere = estimate.anywhere().estimate(-15 * 16, -30, -15 * 16);
+        double knownOnly = estimate.knownOnly().estimate(-15 * 16, -30, -15 * 16);
+
+        assertTrue(anywhere > 0, "目的地が窓の外のときの推定が空: " + anywhere);
+        assertTrue(knownOnly == 0, "目的地が窓の中のときは地図に無いセルを不明のままにする: " + knownOnly);
     }
 }
