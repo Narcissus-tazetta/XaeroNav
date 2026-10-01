@@ -215,6 +215,15 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.node.java }}
 
+      # Forgeの起動画面（early display）はXvfbでウィンドウの用意がタイムアウトすることがあり、
+      # そのときstdinへy/nを問い続ける無限ループに入る。出力の洪水でランナーごと応答しなくなり、
+      # stepのtimeoutもstall監視も効かないまま打ち切られるので、起動画面をバニラに任せる
+      - name: Disable the Forge early display
+        if: matrix.node.loader == 'forge' && matrix.node.minecraft != '1.16.5'
+        run: |
+          mkdir -p run/config
+          echo "earlyWindowControl = false" > run/config/fml.toml
+
       # ワールドへ入ってテストが通ったあと、JVMが終了しないまま止まることがある
       # （両ローダーで発生。最後のログはサーバーの保存完了で、その先のXaeroの
       # セッション終了までは進まない）。打ち切られるとログには何も残らないので、
