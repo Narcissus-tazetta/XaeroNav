@@ -1,40 +1,40 @@
 package net.prason.xaeronav.client;
 
 //? if >=1.21.11 {
-/*import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 //? if >=26.1 {
-/^import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.platform.CompareOp;
-^///?} else {
-import com.mojang.blaze3d.platform.DepthTestFunction;
-//?}
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
+//?} else {
+/*import com.mojang.blaze3d.platform.DepthTestFunction;
+*///?}
 
-import net.minecraft.client.renderer.MultiBufferSource;
+import net.prason.xaeronav.client.NavBuffers;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.rendertype.LayeringTransform;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.prason.xaeronav.XaeroNav;
-*///?} else {
-//? if >=1.21.5 {
-/*import com.mojang.blaze3d.pipeline.RenderPipeline;
+//?} else {
+/*//? if >=1.21.5 {
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
 
 import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.prason.xaeronav.XaeroNav;
-*///?} else {
-import com.mojang.blaze3d.systems.RenderSystem;
+//?} else {
+/^import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
-//?}
+^///?}
 
-import net.minecraft.client.renderer.MultiBufferSource;
+import net.prason.xaeronav.client.NavBuffers;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
-//?}
+*///?}
 
 /**
  * 地形に遮られていても見える描画レイヤー。
@@ -49,18 +49,18 @@ import net.minecraft.client.renderer.RenderType;
 final class NavRenderTypes {
 
     //? if >=1.21.11 {
-    /*static final RenderType DEBUG_QUADS = RenderTypes.debugQuads();
+    static final RenderType DEBUG_QUADS = RenderTypes.debugQuads();
 
     // 深度テストはRenderPipelineが持つ。標準のパイプラインから深度テストだけを外したものを作る
     // （深度を書かないのは元のdebug_quadsも同じ）
     private static final RenderPipeline OCCLUDED_QUADS_PIPELINE = RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
-            .withLocation(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "pipeline/occluded_quads"))
+            .withLocation(Identifier.fromNamespaceAndPath(XaeroNav.MOD_ID, "pipeline/occluded_quads"))
             .withCull(false)
             //? if >=26.1 {
-            /^.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
-            ^///?} else {
-            .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
-            //?}
+            .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+            //?} else {
+            /*.withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+            *///?}
             .build();
 
     static final RenderType OCCLUDED_QUADS = RenderType.create("xaeronav_occluded_quads",
@@ -72,11 +72,11 @@ final class NavRenderTypes {
                     .setLayeringTransform(LayeringTransform.VIEW_OFFSET_Z_LAYERING)
                     .createRenderSetup());
 
-    /^* 深度テストはパイプラインが切るので、ここでは描くだけ。 ^/
-    static void endOccludedBatch(MultiBufferSource.BufferSource bufferSource, RenderType type) {
+    /** 深度テストはパイプラインが切るので、ここでは描くだけ。 */
+    static void endOccludedBatch(NavBuffers bufferSource, RenderType type) {
         bufferSource.endBatch(type);
     }
-    *///?} else if >=1.21.5 {
+    //?} else if >=1.21.5 {
     /*static final RenderType DEBUG_QUADS = RenderType.debugQuads();
     //? if >=1.21.6 {
     /^// Forgeの追加パスはFabulous!の合成後なので、線もitem_entityではなくmainへ描く。
@@ -137,7 +137,7 @@ final class NavRenderTypes {
 
     private static RenderPipeline withoutDepthTest(RenderPipeline source) {
         RenderPipeline.Builder builder = RenderPipeline.builder()
-                .withLocation(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "pipeline/occluded_quads"))
+                .withLocation(Identifier.fromNamespaceAndPath(XaeroNav.MOD_ID, "pipeline/occluded_quads"))
                 .withVertexShader(source.getVertexShader())
                 .withFragmentShader(source.getFragmentShader())
                 .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
@@ -164,16 +164,16 @@ final class NavRenderTypes {
         return builder.build();
     }
 
-    static void endOccludedBatch(MultiBufferSource.BufferSource bufferSource, RenderType type) {
+    static void endOccludedBatch(NavBuffers bufferSource, RenderType type) {
         bufferSource.endBatch(type);
     }
     *///?} else {
-    static final RenderType DEBUG_QUADS =
+    /*static final RenderType DEBUG_QUADS =
             //? if >=1.20 {
             RenderType.debugQuads();
             //?} else {
-            /*RenderType.lightning();
-            *///?}
+            /^RenderType.lightning();
+            ^///?}
     static final RenderType LINES = RenderType.lines();
 
     //? if >=1.20 {
@@ -187,7 +187,7 @@ final class NavRenderTypes {
                     .setWriteMaskState(RenderStateShard.COLOR_WRITE)
                     .createCompositeState(false));
     //?} else if >=1.17 {
-    /*// 1.20より前のFabric APIはRenderStateShardの定数を開放しておらず、protectedのままではここから読めない。
+    /^// 1.20より前のFabric APIはRenderStateShardの定数を開放しておらず、protectedのままではここから読めない。
     // サブクラスの中からなら継承したprotected定数を読めるので、それだけの内部クラスを挟む
     private static final class Shards extends RenderStateShard {
         static final ShaderStateShard POSITION_COLOR = POSITION_COLOR_SHADER;
@@ -210,22 +210,22 @@ final class NavRenderTypes {
                     .setDepthTestState(Shards.NO_DEPTH)
                     .setWriteMaskState(Shards.COLOR_ONLY)
                     .createCompositeState(false));
-    *///?} else {
-    /*static final RenderType OCCLUDED_QUADS = RenderType.lightning();
-    *///?}
+    ^///?} else {
+    /^static final RenderType OCCLUDED_QUADS = RenderType.lightning();
+    ^///?}
 
-    /**
+    /^*
      * 深度テストを切ってから描く。{@code NO_DEPTH_TEST}（関数"always"）は、バニラの実装では
      * 深度テストの状態に<b>触らない</b>という意味で、切ってはくれない。NeoForge/Forgeの
      * {@code AFTER_TRANSLUCENT_BLOCKS}は半透明の地形を描いた後片付けの<b>前</b>に呼ばれるので、
      * 深度テストが有効なまま残っている。切らないと水の中の線がそのまま隠れる。
      * 後始末は要らない——次に描くレイヤーが自分の深度テストを設定する。
-     */
-    static void endOccludedBatch(MultiBufferSource.BufferSource bufferSource, RenderType type) {
+     ^/
+    static void endOccludedBatch(NavBuffers bufferSource, RenderType type) {
         RenderSystem.disableDepthTest();
         bufferSource.endBatch(type);
     }
-    //?}
+    *///?}
 
     private NavRenderTypes() {
     }

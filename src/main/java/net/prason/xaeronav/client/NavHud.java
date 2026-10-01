@@ -6,7 +6,7 @@ import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 //? if >=1.20 {
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 //?} else {
 /*import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiComponent;
@@ -53,7 +53,7 @@ public final class NavHud {
 
     public void render(
             //? if >=1.20 {
-            GuiGraphics graphics
+            GuiGraphicsExtractor graphics
             //?} else {
             /*PoseStack graphics
             *///?}
@@ -336,7 +336,7 @@ public final class NavHud {
 
     private void draw(
             //? if >=1.20 {
-            GuiGraphics graphics,
+            GuiGraphicsExtractor graphics,
             //?} else {
             /*PoseStack graphics,
             *///?}
@@ -363,10 +363,10 @@ public final class NavHud {
         int y = MARGIN_TOP + PADDING_Y;
         for (int i = 0; i < lines.size(); i++) {
             //? if >=26.1 {
-            /*graphics.centeredText(font, lines.get(i), centerX, y, colors.get(i));
-            *///?} else if >=1.20 {
-            graphics.drawCenteredString(font, lines.get(i), centerX, y, colors.get(i));
-            //?} else {
+            graphics.centeredText(font, lines.get(i), centerX, y, colors.get(i));
+            //?} else if >=1.20 {
+            /*graphics.drawCenteredString(font, lines.get(i), centerX, y, colors.get(i));
+            *///?} else {
             /*GuiComponent.drawCenteredString(graphics, font, lines.get(i), centerX, y, colors.get(i));
             *///?}
             y += LINE_HEIGHT;

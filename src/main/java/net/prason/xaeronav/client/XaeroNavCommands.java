@@ -18,7 +18,7 @@ import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.commands.arguments.coordinates.Coordinates;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.FireworkRocketItem;
@@ -753,7 +753,7 @@ public final class XaeroNavCommands {
         return CellData.occupiableWithoutDigging(cell) || !Double.isInfinite(CellData.digTicks(cell));
     }
 
-    private static ResourceLocation blockId(Block block) {
+    private static Identifier blockId(Block block) {
         return BlockRegistryCompat.keyOf(block);
     }
 
@@ -763,7 +763,7 @@ public final class XaeroNavCommands {
      */
     private static Component describeGoalCell(Level level, BlockPos pos, long cell) {
         if (CellData.unresolvedShape(cell)) {
-            ResourceLocation id = blockId(level.getBlockState(pos).getBlock());
+            Identifier id = blockId(level.getBlockState(pos).getBlock());
             return TextCompat.translatable("commands.xaeronav.probe_goal_cell_unresolved_shape",
                     id == null ? "?" : id.toString());
         }

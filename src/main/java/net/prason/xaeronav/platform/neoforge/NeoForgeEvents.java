@@ -1,9 +1,9 @@
 package net.prason.xaeronav.platform.neoforge;
 
 //? neoforge {
-//? if >=1.21.9 {
-/*import net.minecraft.client.Minecraft;
-*///?}
+/*//? if >=1.21.9 {
+import net.minecraft.client.Minecraft;
+//?}
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -11,8 +11,8 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 //? if >=1.21 {
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 //?} else {
-/*import net.neoforged.neoforge.event.TickEvent;
-*///?}
+/^import net.neoforged.neoforge.event.TickEvent;
+^///?}
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -21,30 +21,30 @@ import net.prason.xaeronav.client.NavCommandSink;
 import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;
 
-/** NeoForgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 */
+/^* NeoForgeのゲームイベントを、ローダー非依存の処理へ繋ぐだけの層。 ^/
 public final class NeoForgeEvents {
 
     //? if >=1.21.6 {
-    /*// 段階ごとに別のイベントになった。PoseStackは単位行列で、視点の回転はmodelViewに積まれている
+    // 段階ごとに別のイベントになった。PoseStackは単位行列で、視点の回転はmodelViewに積まれている
     @SubscribeEvent
     public void onRenderLevelStage(RenderLevelStageEvent.AfterTranslucentBlocks event) {
         XaeroNavClient.PATH_RENDERER.render(event.getPoseStack(),
                 //? if >=1.21.9 {
-                /^ClientCompat.mainCamera(Minecraft.getInstance())
-                ^///?} else {
-                event.getCamera()
-                //?}
+                ClientCompat.mainCamera(Minecraft.getInstance())
+                //?} else {
+                /^event.getCamera()
+                ^///?}
         );
     }
-    *///?} else {
-    @SubscribeEvent
+    //?} else {
+    /^@SubscribeEvent
     public void onRenderLevelStage(RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
             return;
         }
         XaeroNavClient.PATH_RENDERER.render(event.getPoseStack(), event.getCamera());
     }
-    //?}
+    ^///?}
 
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
@@ -56,14 +56,14 @@ public final class NeoForgeEvents {
             //? if >=1.21 {
             ClientTickEvent.Post event
             //?} else {
-            /*TickEvent.ClientTickEvent event
-            *///?}
+            /^TickEvent.ClientTickEvent event
+            ^///?}
     ) {
         //? if <1.21 {
-        /*if (event.phase != TickEvent.Phase.END) {
+        /^if (event.phase != TickEvent.Phase.END) {
             return;
         }
-        *///?}
+        ^///?}
         XaeroNavClient.TICK_HANDLER.onClientTick();
     }
 
@@ -97,4 +97,4 @@ public final class NeoForgeEvents {
         };
     }
 }
-//?}
+*///?}

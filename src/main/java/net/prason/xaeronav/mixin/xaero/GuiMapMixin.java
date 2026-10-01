@@ -15,10 +15,10 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 //? if >=1.21.11 {
-/*import xaero.lib.client.graphics.XaeroBufferProvider;
-*///?} else {
-import net.minecraft.client.renderer.MultiBufferSource;
-//?}
+import xaero.lib.client.graphics.XaeroBufferProvider;
+//?} else {
+/*import net.prason.xaeronav.client.NavBuffers;
+*///?}
 import net.prason.xaeronav.client.MapPathOverlay;
 import net.prason.xaeronav.xaero.XaeroHookMarker;
 import net.prason.xaeronav.xaero.XaeroHookProbe;
@@ -50,24 +50,24 @@ public abstract class GuiMapMixin implements XaeroHookMarker {
     @WrapOperation(
             // 26.1でScreen#renderがextractRenderStateへ改名された
             //? if >=26.1 {
-            /*method = "extractRenderState",
-            *///?} else {
-            method = "render",
-            //?}
+            method = "extractRenderState",
+            //?} else {
+            /*method = "render",
+            *///?}
             //? if >=1.21.11 {
-            /*at = @At(value = "INVOKE", target = "Lxaero/lib/client/graphics/XaeroBufferProvider;endBatch()V", ordinal = 0)
-            *///?} else if <1.20 {
+            at = @At(value = "INVOKE", target = "Lxaero/lib/client/graphics/XaeroBufferProvider;endBatch()V", ordinal = 0)
+            //?} else if <1.20 {
             /*at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 1)
             *///?} else {
-            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 0)
-            //?}
+            /*at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;endBatch()V", ordinal = 0)
+            *///?}
     )
     private void xaeronav$drawPath(
             //? if >=1.21.11 {
-            /*XaeroBufferProvider renderTypeBuffers,
-            *///?} else {
-            MultiBufferSource.BufferSource renderTypeBuffers,
-            //?}
+            XaeroBufferProvider renderTypeBuffers,
+            //?} else {
+            /*MultiBufferSource.BufferSource renderTypeBuffers,
+            *///?}
             Operation<Void> original,
             @Local(name = "matrixStack") PoseStack matrixStack,
             @Local(name = "flooredCameraX") int flooredCameraX,

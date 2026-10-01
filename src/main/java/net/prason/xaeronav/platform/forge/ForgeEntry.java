@@ -3,7 +3,7 @@ package net.prason.xaeronav.platform.forge;
 // 1.21.6以降（Forge 56以降）はForgeMod・ForgeClientSetupが受け持つ
 //? if forge && <1.21.6 {
 /*//? if >=1.21 {
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
 //?} else {
 /^//? if >=1.19 {
@@ -134,7 +134,7 @@ public final class ForgeEntry {
         @SubscribeEvent
         //? if >=1.21 {
         public static void onAddGuiOverlayLayers(AddGuiOverlayLayersEvent event) {
-            event.getLayeredDraw().add(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
+            event.getLayeredDraw().add(Identifier.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                     (graphics, partialTick) -> XaeroNavClient.HUD.render(graphics));
         }
         //?} else {

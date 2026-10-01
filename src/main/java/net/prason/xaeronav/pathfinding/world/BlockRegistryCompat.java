@@ -8,7 +8,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 //? if forge && <1.21 {
 /*import net.minecraftforge.registries.ForgeRegistries;
 *///?}
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 
 /**
@@ -21,7 +21,7 @@ public final class BlockRegistryCompat {
     private BlockRegistryCompat() {
     }
 
-    public static ResourceLocation keyOf(Block block) {
+    public static Identifier keyOf(Block block) {
         //? if forge && <1.21 {
         /*return ForgeRegistries.BLOCKS.getKey(block);
         *///?} else if <1.19.3 {
@@ -32,15 +32,15 @@ public final class BlockRegistryCompat {
     }
 
     /** 未知のIDには{@code null}を返す。 */
-    public static Block byId(ResourceLocation id) {
+    public static Block byId(Identifier id) {
         //? if forge && <1.21 {
         /*return ForgeRegistries.BLOCKS.containsKey(id) ? ForgeRegistries.BLOCKS.getValue(id) : null;
         *///?} else if <1.19.3 {
         /*return Registry.BLOCK.containsKey(id) ? Registry.BLOCK.get(id) : null;
         *///?} else if >=1.21.2 {
-        /*return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.getValue(id) : null;
-        *///?} else {
-        return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.get(id) : null;
-        //?}
+        return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.getValue(id) : null;
+        //?} else {
+        /*return BuiltInRegistries.BLOCK.containsKey(id) ? BuiltInRegistries.BLOCK.get(id) : null;
+        *///?}
     }
 }

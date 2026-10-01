@@ -11,8 +11,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import net.minecraft.client.Minecraft;
 //? if >=1.21.9 {
-/*import net.minecraft.client.input.KeyEvent;
-*///?}
+import net.minecraft.client.input.KeyEvent;
+//?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -59,26 +59,26 @@ public abstract class GuiMapKeyMixin {
     // Forge 1.20.4は配布先のXaeroがSRG名、Renamerを通す開発環境ではnamed名になる。
     // 外部クラスのoverrideはMixin APがrefmapへ引けないため、両方を候補にして実環境で片方を選ぶ。
     //? if >=1.21.9 {
-    /*// 1.21.9以降はキー入力が1つのKeyEventにまとまった
+    // 1.21.9以降はキー入力が1つのKeyEventにまとまった
     @Inject(method = "keyPressed(Lnet/minecraft/client/input/KeyEvent;)Z", at = @At("HEAD"), cancellable = true, remap = false)
     private void xaeronav$onKeyPressed(KeyEvent event, CallbackInfoReturnable<Boolean> cir) {
         XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_KEY);
         if (this.isUsingTextField() || !XaeroNavKeys.GOTO_MAP_CURSOR.matches(event)) {
-    *///?} else {
-    //? if forge && >=1.20.2 && <1.21 {
-    /*@SuppressWarnings("target")
+    //?} else {
+    /*//? if forge && >=1.20.2 && <1.21 {
+    /^@SuppressWarnings("target")
     @Dynamic("Xaero's keyPressed override has named and SRG forms across Forge environments")
     @Inject(method = { "keyPressed(III)Z", "m_7933_(III)Z" }, at = @At("HEAD"), cancellable = true, remap = false)
-    *///?} else if forge && <1.21 {
-    /*@Inject(method = "keyPressed(III)Z", at = @At("HEAD"), cancellable = true)
-    *///?} else {
+    ^///?} else if forge && <1.21 {
+    /^@Inject(method = "keyPressed(III)Z", at = @At("HEAD"), cancellable = true)
+    ^///?} else {
     @Inject(method = "keyPressed(III)Z", at = @At("HEAD"), cancellable = true, remap = false)
     //?}
     private void xaeronav$onKeyPressed(int keyCode, int scanCode, int modifiers,
                                         CallbackInfoReturnable<Boolean> cir) {
         XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_KEY);
         if (this.isUsingTextField() || !XaeroNavKeys.GOTO_MAP_CURSOR.matches(keyCode, scanCode)) {
-    //?}
+    *///?}
             return;
         }
         Minecraft mc = Minecraft.getInstance();
