@@ -19,6 +19,7 @@ import net.minecraft.world.level.Level;
 import net.prason.xaeronav.client.TextCompat;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.client.XaeroNavKeys;
+import net.prason.xaeronav.util.GameCompat;
 import net.prason.xaeronav.xaero.XaeroMapCoords;
 import net.prason.xaeronav.xaero.XaeroHookProbe;
 import xaero.map.gui.GuiMap;
@@ -92,7 +93,7 @@ public abstract class GuiMapKeyMixin {
         BlockPos goal = new BlockPos(mouseBlockPosX, goalY, mouseBlockPosZ);
         BlockPos resolved = PathfindingState.INSTANCE.setGoal(goal);
         if (resolved != null) {
-            mc.player.displayClientMessage(TextCompat.translatable("commands.xaeronav.goal_walk",
+            GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.goal_walk",
                     resolved.toShortString()), true);
         }
         cir.setReturnValue(true);

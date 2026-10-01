@@ -12,11 +12,19 @@ import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.command.v1.FabricClientCommandSource;
 ^///?}
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+//? if >=26.1 {
+/^import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+^///?} else {
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+//?}
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 //? if >=1.21.9 {
 /^import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+//? if >=26.1 {
+/^¹import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+¹^///?} else {
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
+//?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 ^///?} else {
@@ -31,6 +39,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.XaeroNav;
+import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.NavCommandSink;
 import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;
@@ -45,7 +54,11 @@ public final class FabricEntry implements ClientModInitializer {
         XaeroNav.LOGGER.info("XaeroNav initialized");
         XaeroNavClient.reloadBlockLists();
 
+        //? if >=26.1 {
+        /^XaeroNavKeys.register(KeyMappingHelper::registerKeyMapping);
+        ^///?} else {
         XaeroNavKeys.register(KeyBindingHelper::registerKeyBinding);
+        //?}
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> XaeroNavClient.TICK_HANDLER.onClientTick());
         ClientPlayConnectionEvents.JOIN.register(
@@ -55,8 +68,13 @@ public final class FabricEntry implements ClientModInitializer {
 
         //? if >=1.21.9 {
         /^// 半透明の地形まで描き終えた後。以前のAFTER_TRANSLUCENTに当たる
+        //? if >=26.1 {
+        /^¹LevelRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
+                context.poseStack(), ClientCompat.mainCamera(Minecraft.getInstance())));
+        ¹^///?} else {
         WorldRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
-                context.matrices(), Minecraft.getInstance().gameRenderer.getMainCamera()));
+                context.matrices(), ClientCompat.mainCamera(Minecraft.getInstance())));
+        //?}
         HudElementRegistry.addLast(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                 (graphics, tickCounter) -> XaeroNavClient.HUD.render(graphics));
         ^///?} else {

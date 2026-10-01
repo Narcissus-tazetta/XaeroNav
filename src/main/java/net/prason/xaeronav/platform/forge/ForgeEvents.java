@@ -25,6 +25,7 @@ import net.minecraft.client.Minecraft;
 ^///?}
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.NavCommandSink;
 import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;
@@ -69,7 +70,7 @@ public final class ForgeEvents {
                 //? if >=1.17 {
                 event.getCamera()
                 //?} else {
-                /^Minecraft.getInstance().gameRenderer.getMainCamera()
+                /^ClientCompat.mainCamera(Minecraft.getInstance())
                 ^///?}
         );
     }

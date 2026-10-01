@@ -51,17 +51,41 @@ public final class DiggableBlocks {
     private static final List<TagKey<Block>> TERRAIN_TAGS = List.of(
             // 洞窟の掘削が置き換えてよいブロック＝そのまま「掘って通ってよい地形」。石・土・砂・
             // テラコッタ・鉄/銅鉱石・砂利・砂岩・方解石・雪・氷塊、ネザー側はナイリウムとソウルサンド類
+            //? if >=26.3 {
+            /*// 26.3の洞窟はbedrock以外の何でも掘る（#uncarvableだけ）ので、置換タグでは地形を数えられない。
+            // 同じ範囲を、石・土・草・泥・苔・砂・テラコッタ・ナイリウムのタグと、下のTERRAIN_BLOCKSの明示で近似する
+            BlockTags.BASE_STONE_OVERWORLD,
+            BlockTags.BASE_STONE_NETHER,
+            BlockTags.SUBSTRATE_OVERWORLD,
+            BlockTags.SAND,
+            BlockTags.TERRACOTTA,
+            BlockTags.NYLIUM,
+            *///?} else {
             BlockTags.OVERWORLD_CARVER_REPLACEABLES,
             BlockTags.NETHER_CARVER_REPLACEABLES,
+            //?}
             // 上の2つが拾わない粘土・鍾乳石・エンドストーン・滑らかな玄武岩を足す
             BlockTags.SCULK_REPLACEABLE,
             BlockTags.LEAVES,
             BlockTags.WART_BLOCKS,
             BlockTags.SNOW,
             BlockTags.ICE,
+            //? if >=26.2 {
+            /*// 26.2は鉄・銅・金の鉱石以外の定数を消したが、タグそのものは残っている
+            vanillaBlockTag("coal_ores"), BlockTags.IRON_ORES, BlockTags.COPPER_ORES, BlockTags.GOLD_ORES,
+            vanillaBlockTag("redstone_ores"), vanillaBlockTag("lapis_ores"),
+            vanillaBlockTag("diamond_ores"), vanillaBlockTag("emerald_ores")
+            *///?} else {
             BlockTags.COAL_ORES, BlockTags.IRON_ORES, BlockTags.COPPER_ORES, BlockTags.GOLD_ORES,
             BlockTags.REDSTONE_ORES, BlockTags.LAPIS_ORES, BlockTags.DIAMOND_ORES, BlockTags.EMERALD_ORES
+            //?}
     );
+
+    //? if >=26.2 {
+    /*private static TagKey<Block> vanillaBlockTag(String path) {
+        return TagKey.create(net.minecraft.core.registries.Registries.BLOCK, ResourceLocation.withDefaultNamespace(path));
+    }
+    *///?}
     //?} else if >=1.17 {
     /*// 洞窟の置換タグ（*_carver_replaceables）と#sculk_replaceableは1.19から。それより前は同じ範囲を
     // 石・土・砂・テラコッタ・ナイリウム等のタグで近似する
@@ -96,6 +120,13 @@ public final class DiggableBlocks {
             Blocks.BAMBOO, Blocks.BAMBOO_SAPLING, Blocks.AZALEA, Blocks.FLOWERING_AZALEA,
             Blocks.CHORUS_PLANT, Blocks.CHORUS_FLOWER,
             Blocks.MANGROVE_ROOTS, Blocks.DIRT_PATH, Blocks.FARMLAND
+            //? if >=26.3 {
+            /*,
+            // 置換タグが拾っていた分（#overworld_carver_replaceables・#nether_carver_replaceablesの残り）
+            Blocks.GRAVEL, Blocks.CLAY, Blocks.SANDSTONE, Blocks.RED_SANDSTONE,
+            Blocks.SOUL_SAND, Blocks.SOUL_SOIL, Blocks.END_STONE, Blocks.SMOOTH_BASALT,
+            Blocks.CALCITE, Blocks.DRIPSTONE_BLOCK, Blocks.PODZOL, Blocks.MYCELIUM
+            *///?}
     );
     //?} else if >=1.17 {
     /*private static final Set<Block> TERRAIN_BLOCKS = Set.of(

@@ -1,9 +1,11 @@
 package net.prason.xaeronav.util;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 //? if >=1.17 {
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -24,6 +26,27 @@ public final class GameCompat {
         //?} else {
         /*return player.inventory;
         *///?}
+    }
+
+    /** {@code overlay}ならアクションバー、そうでなければチャット欄へ出す。 */
+    public static void tell(Player player, Component message, boolean overlay) {
+        //? if >=26.1 {
+        /*if (overlay) {
+            player.sendOverlayMessage(message);
+        } else {
+            player.sendSystemMessage(message);
+        }
+        *///?} else {
+        player.displayClientMessage(message, overlay);
+        //?}
+    }
+
+    public static long chunkKey(int chunkX, int chunkZ) {
+        //? if >=26.1 {
+        /*return ChunkPos.pack(chunkX, chunkZ);
+        *///?} else {
+        return ChunkPos.asLong(chunkX, chunkZ);
+        //?}
     }
 
     public static Abilities abilities(Player player) {

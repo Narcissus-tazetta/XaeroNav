@@ -48,7 +48,12 @@ public abstract class GuiMapMixin implements XaeroHookMarker {
     private static final float DOT_ALPHA = 0.9f;
 
     @WrapOperation(
+            // 26.1でScreen#renderがextractRenderStateへ改名された
+            //? if >=26.1 {
+            /*method = "extractRenderState",
+            *///?} else {
             method = "render",
+            //?}
             //? if >=1.21.11 {
             /*at = @At(value = "INVOKE", target = "Lxaero/lib/client/graphics/XaeroBufferProvider;endBatch()V", ordinal = 0)
             *///?} else if <1.20 {

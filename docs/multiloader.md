@@ -10,6 +10,14 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 
 | ノード | Minecraft | ローダー |
 |---|---|---|
+| `26.3-fabric` | 26.3 | Fabric Loader 0.19.0+ / Fabric API 0.161.0+ |
+| `26.3-forge` | 26.3 | Forge 66.0.9+ |
+| `26.2-fabric` | 26.2 | Fabric Loader 0.19.0+ / Fabric API 0.161.0+ |
+| `26.2-forge` | 26.2 | Forge 65.1.3+ |
+| `26.2-neoforge` | 26.2 | NeoForge 26.2.0.88+ |
+| `26.1.2-fabric` | 26.1.2 | Fabric Loader 0.19.0+ / Fabric API 0.155.3+ |
+| `26.1.2-forge` | 26.1.2 | Forge 64.1.3+ |
+| `26.1.2-neoforge` | 26.1.2 | NeoForge 26.1.2.112+ |
 | `1.21.11-fabric` | 1.21.11 | Fabric Loader 0.17.3+ / Fabric API 0.141.6+ |
 | `1.21.11-forge` | 1.21.11 | Forge 61.2.1+ |
 | `1.21.11-neoforge` | 1.21.11 | NeoForge 21.11.45+ |
@@ -225,6 +233,32 @@ Modrinth・CurseForgeへ付ける対応バージョンの両方を決める。
   - `ForgeConfigSpec.Builder#defineListAllowEmpty(String, List, Predicate)`（`List<String>`と`Supplier`を取る版を使う）
 - NeoForge 21.0.xは`@EventBusSubscriber`の購読先のバスを自動で選ばないので、MODバスのイベントは
   `modEventBus.addListener`で登録する。
+
+## 26.1・26.2・26.3
+
+難読化されていない世代（Java 25）。ビルドの土台から変わる。NeoForge 26.3は安定版が出ていない（betaのみ）ので足していない。
+
+- Java 25で動く（`javaVersionFor`）。Mixinの`compatibilityLevel`はForgeが`JAVA_25`を知らないので21で頭打ちにする。
+  パック形式は公式クライアントの`version.json`の値（26.1.2はresource 84 / data 101、26.2は88 / 107、26.3は97 / 121）。
+- Fabricは`build.fabric-26.gradle.kts`（リマップしない`net.fabricmc.fabric-loom`）。マッピング・`mod*`依存・`remapJar`が無い。
+  キー登録は`KeyMappingHelper`、世界の描画は`LevelRenderEvents.END_MAIN`（`poseStack()`）。
+- ForgeはForgeGradle 7.0.40以降が要る（それ以前はATツールが26.xのクライアントjarで落ちる）。ATは26.xでは当てない
+  （開放していたRenderStateShard・RenderTypeの構造が無い）。XaeroのMaven上のjarは`META-INF/jarjar/metadata.json`だけを持ち
+  入れ子のxaerolibが無いので、開発実行へ載せるものは`stripXaeroJarJar`でmetadataを外す。
+  `ModList`はstatic（26.1）。`PassDefinition#extracts`の第3引数は`LevelRenderState`（26.3）。
+- NeoForgeはModDevGradle 2.0.148以降が要る（2.0.146では26.2のMinecraftの再コンパイルが落ちる）。
+- 26.1: `GuiGraphics`は`GuiGraphicsExtractor`、`drawCenteredString`は`centeredText`、`Screen#render`は`extractRenderState`
+  （XaeroのGuiMapへの注入先も）、深度の設定は`DepthStencilState`、`ChunkPos.asLong`は`pack`、`displayClientMessage`は
+  `sendOverlayMessage`・`sendSystemMessage`。`LevelRenderState`は`renderer.state.level`へ移った。
+- 26.2: `MultiBufferSource`が無くなり、`NavBuffers`が`StagedVertexBuffer`の上に`getBuffer`→`endBatch`の流れを作る。
+  `Minecraft#screen`・`#setScreen`は`gui`の下へ、`Options#hideGui`は`Hud#isHidden`、`GameRenderer#getMainCamera`は
+  `mainCamera`（`ClientCompat`）。石炭・ラピス・レッドストーン・ダイヤ・エメラルドの鉱石タグの定数が消えた（タグ自体は残る）。
+- 26.3: GPUの抽象が`com.mojang.renderpearl`へ移り、GLFWの代わりにSDLが入った（キー定数は`InputConstants`）。
+  `PreparedRenderType#drawFromBuffer`はレンダーパスを受け取るので、`NavBuffers`が自分で開く。
+  洞窟が置換タグではなく`#uncarvable`（bedrockだけ）を使うようになったので、`DiggableBlocks`の自然地形は
+  石・土・草・泥・苔・砂・テラコッタ・ナイリウムのタグと明示したブロックで近似している。
+- 手元の確認: `-Pxaeronav.quickPlay=<ワールド名>`でタイトル画面を飛ばして既存のワールドへ入れる
+  （`options.txt`が無いと最初のアクセシビリティ画面で止まる）。
 
 ## 1.21.8・1.21.10
 

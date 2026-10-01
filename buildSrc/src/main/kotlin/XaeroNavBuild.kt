@@ -16,6 +16,7 @@ fun Project.modProperty(key: String): String =
 fun javaVersionFor(minecraftVersion: String): Int = when {
     minecraftVersion.startsWith("1.16.") -> 8
     minecraftVersion.startsWith("1.18.") || minecraftVersion.startsWith("1.19.") || minecraftVersion.startsWith("1.20.") -> 17
+    minecraftVersion.startsWith("26.") -> 25
     else -> 21
 }
 
@@ -38,7 +39,12 @@ fun compileJavaVersionFor(minecraftVersion: String): Int =
 // 意図せず動作を変えてしまう。
 fun mixinCompatibilityLevelFor(minecraftVersion: String): String {
     val compileVersion = compileJavaVersionFor(minecraftVersion)
-    val level = if (minecraftVersion.startsWith("1.16.")) minOf(compileVersion, 18) else compileVersion
+    val level = when {
+        minecraftVersion.startsWith("1.16.") -> minOf(compileVersion, 18)
+        // ForgeのMixinはJAVA_25を知らず（"not recognised"で起動前に落ちる）、このMODのmixinが要る機能はJava 21までで足りる
+        minecraftVersion.startsWith("26.") -> minOf(compileVersion, 21)
+        else -> compileVersion
+    }
     return "JAVA_$level"
 }
 
@@ -63,6 +69,9 @@ fun packFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
     "1.21.8" -> 64
     "1.21.10" -> 69
     "1.21.11" -> 75
+    "26.1.2" -> 84
+    "26.2" -> 88
+    "26.3" -> 97
     else -> error("pack_formatが未登録のMinecraft $minecraftVersion。クライアントjarのversion.jsonから足すこと")
 }
 
@@ -221,6 +230,9 @@ fun packFormatFields(packFormat: Int, dataPackFormat: Int? = null): String = whe
 fun dataPackFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
     "1.21.10" -> 88
     "1.21.11" -> 94
+    "26.1.2" -> 101
+    "26.2" -> 107
+    "26.3" -> 121
     else -> error("データパックの形式が未登録のMinecraft $minecraftVersion。クライアントjarのversion.jsonから足すこと")
 }
 

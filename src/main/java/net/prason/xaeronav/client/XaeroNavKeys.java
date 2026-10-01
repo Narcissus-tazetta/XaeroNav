@@ -2,7 +2,9 @@ package net.prason.xaeronav.client;
 
 import java.util.function.Consumer;
 
+//? if <26.3 {
 import org.lwjgl.glfw.GLFW;
+//?}
 
 import com.mojang.blaze3d.platform.InputConstants;
 
@@ -17,6 +19,7 @@ import net.minecraft.world.phys.HitResult;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.client.gui.XaeroNavConfigScreen;
 import net.prason.xaeronav.config.XaeroNavConfig;
+import net.prason.xaeronav.util.GameCompat;
 
 /**
  * キーバインド。既定はすべて未割り当てにしてある — 他のMODと取り合いになる操作ではないので、
@@ -82,7 +85,7 @@ public final class XaeroNavKeys {
         // 消費する。ガードの後ろに置くと、タイトル画面など未ロード中に押した分がキューに残ったまま
         // ワールドへ入った瞬間に（何も押していないのに）画面が開く、という事故になる
         while (OPEN_CONFIG_SCREEN.consumeClick()) {
-            mc.setScreen(new XaeroNavConfigScreen(mc.screen));
+            ClientCompat.setScreen(mc, new XaeroNavConfigScreen(ClientCompat.screen(mc)));
         }
 
         if (mc.player == null || mc.level == null) {
@@ -94,13 +97,13 @@ public final class XaeroNavKeys {
         }
         while (CLEAR.consumeClick()) {
             PathfindingState.INSTANCE.clear();
-            mc.player.displayClientMessage(TextCompat.translatable("commands.xaeronav.cleared"), true);
+            GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.cleared"), true);
         }
         while (TOGGLE_HUD.consumeClick()) {
             boolean enabled = !XaeroNavConfig.INSTANCE.hudEnabled();
             XaeroNavConfig.INSTANCE.setHudEnabled(enabled);
             XaeroNavConfig.save();
-            mc.player.displayClientMessage(TextCompat.translatable(enabled
+            GameCompat.tell(mc.player, TextCompat.translatable(enabled
                     ? "hud.xaeronav.hud_on"
                     : "hud.xaeronav.hud_off"), true);
         }
@@ -112,14 +115,14 @@ public final class XaeroNavKeys {
     private static void gotoLookingAt(Minecraft mc) {
         HitResult hit = mc.player.pick(LOOK_PICK_DISTANCE, 1.0F, false);
         if (!(hit instanceof BlockHitResult blockHit) || hit.getType() != HitResult.Type.BLOCK) {
-            mc.player.displayClientMessage(TextCompat.translatable("hud.xaeronav.no_block_in_view"), true);
+            GameCompat.tell(mc.player, TextCompat.translatable("hud.xaeronav.no_block_in_view"), true);
             return;
         }
         // 狙ったブロックの中ではなく、その上に立ちたい。地面を見て指定するのが普通の使い方なので、
         // 1マス上を渡す（実際に立てるかどうかはStanceFinderが寄せ直す）
         BlockPos resolved = PathfindingState.INSTANCE.setGoal(blockHit.getBlockPos().above());
         if (resolved != null) {
-            mc.player.displayClientMessage(TextCompat.translatable("commands.xaeronav.goal_walk",
+            GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.goal_walk",
                     resolved.toShortString()), true);
         }
         XaeroNav.LOGGER.debug("XaeroNav: 見ているブロックへ経路探索 {}", blockHit.getBlockPos());

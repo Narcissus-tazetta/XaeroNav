@@ -24,6 +24,13 @@ stonecutter {
             version("$minecraft-$it", minecraft).buildscript("build.$it.gradle.kts")
         }
 
+        // NeoForge 26.3は安定版（betaでない版）が出るまで足さない
+        match("26.3", "forge")
+        version("26.3-fabric", "26.3").buildscript("build.fabric-26.gradle.kts")
+        match("26.2", "neoforge", "forge")
+        version("26.2-fabric", "26.2").buildscript("build.fabric-26.gradle.kts")
+        match("26.1.2", "neoforge", "forge")
+        version("26.1.2-fabric", "26.1.2").buildscript("build.fabric-26.gradle.kts")
         match("1.21.11", "neoforge", "fabric", "forge")
         match("1.21.10", "neoforge", "fabric", "forge")
         match("1.21.8", "neoforge", "fabric", "forge")

@@ -59,7 +59,7 @@ public final class NavHud {
             *///?}
     ) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.options.hideGui || !XaeroNavConfig.INSTANCE.hudEnabled()) {
+        if (mc.player == null || ClientCompat.hudHidden(mc) || !XaeroNavConfig.INSTANCE.hudEnabled()) {
             return;
         }
         // ここで1度だけ取得し、以降はこのインスタンスだけを読む。個々のgetterを描画中に何度も
@@ -362,7 +362,9 @@ public final class NavHud {
 
         int y = MARGIN_TOP + PADDING_Y;
         for (int i = 0; i < lines.size(); i++) {
-            //? if >=1.20 {
+            //? if >=26.1 {
+            /*graphics.centeredText(font, lines.get(i), centerX, y, colors.get(i));
+            *///?} else if >=1.20 {
             graphics.drawCenteredString(font, lines.get(i), centerX, y, colors.get(i));
             //?} else {
             /*GuiComponent.drawCenteredString(graphics, font, lines.get(i), centerX, y, colors.get(i));

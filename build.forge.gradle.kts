@@ -1,6 +1,11 @@
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+
 plugins {
     id("xaeronav.common")
-    id("net.minecraftforge.gradle") version "7.0.36"
+    id("net.minecraftforge.gradle") version "7.0.40"
     id("net.minecraftforge.renamer") version "1.1.5"
     // FG7ではjar-in-jarが別プラグインに分離された（FG6までは組み込み）
     id("net.minecraftforge.jarjar") version "0.2.3"
@@ -52,7 +57,11 @@ dependencies {
 minecraft {
     // NeoForge本体はRenderStateShardの定数群をワイルドカードATで開放しているが、Forge本体は
     // インナークラスしか開放していない（NavRenderTypes.javaのコメント参照）。同じ開放を足す
-    accessTransformer = rootProject.files("src/main/resources/META-INF/accesstransformer.cfg")
+    // 26.1以降はATが開放していたRenderStateShard・RenderTypeの構造がもう無く（NavRenderTypes）、
+    // ATの処理（Java 8で動くツール）が26.xのクライアントjarで落ちるので、開放を要るノードにだけ当てる
+    if (!stonecutter.eval(minecraftVersion, ">=26.1")) {
+        accessTransformer = rootProject.files("src/main/resources/META-INF/accesstransformer.cfg")
+    }
 
     runs {
         configureEach {
@@ -73,6 +82,8 @@ minecraft {
             if (System.getProperty("os.name").startsWith("Mac")) {
                 jvmArgs("-XstartOnFirstThread")
             }
+            // `-Pxaeronav.quickPlay=<ワールド名>`でタイトル画面を飛ばして既存のワールドへ入る（手元の確認用）
+            providers.gradleProperty("xaeronav.quickPlay").orNull?.let { args("--quickPlaySingleplayer", it) }
             // NeoForgeノードと同じ口（CIのruntime hook probeを手元で走らせるときなど）
             providers.gradleProperty("xaeronav.clientJvmArgs").orNull?.split(" ")?.filter { it.isNotBlank() }
                 ?.forEach { jvmArgs(it) }
@@ -169,9 +180,39 @@ val xaeroDevelopmentModules = if (needsRuntimeReobfuscation) {
     xaeroModules
 }
 
+// 26.1以降のXaero（Forge）のMaven上のjarは、META-INF/jarjar/metadata.jsonだけが残って入れ子のxaerolib本体が無い
+// （配布jarには入っている）。FMLのjar-in-jar解決が「入れ子のjarが見つからない」で起動前に落ちるので、
+// 開発実行へ載せるものだけmetadataを外す。xaerolibは別のjarとして同じく載せているので解決は足りる
+val stripsXaeroJarJar = stonecutter.eval(minecraftVersion, ">=26.1")
+val xaeroStrippedDir = layout.buildDirectory.dir("xaero-without-jarjar")
+val stripXaeroJarJar = tasks.register("stripXaeroJarJar") {
+    val source = configurations.detachedConfiguration(*xaeroModules.map { dependencies.create(it) }.toTypedArray())
+        .apply { isTransitive = false }
+    inputs.files(source)
+    outputs.dir(xaeroStrippedDir)
+    doLast {
+        val outDir = xaeroStrippedDir.get().asFile
+        outDir.deleteRecursively()
+        outDir.mkdirs()
+        source.files.forEach { jar ->
+            ZipFile(jar).use { zip ->
+                ZipOutputStream(File(outDir, jar.name).outputStream()).use { out ->
+                    zip.entries().asSequence().filterNot { it.name.startsWith("META-INF/jarjar/") }.forEach { entry ->
+                        out.putNextEntry(ZipEntry(entry.name))
+                        zip.getInputStream(entry).copyTo(out)
+                        out.closeEntry()
+                    }
+                }
+            }
+        }
+    }
+}
+
 dependencies {
     xaeroDevelopmentModules.forEach { compileOnly(it) }
-    if (withXaero) {
+    if (withXaero && stripsXaeroJarJar) {
+        runtimeOnly(fileTree(xaeroStrippedDir) { builtBy(stripXaeroJarJar) })
+    } else if (withXaero) {
         xaeroDevelopmentModules.forEach { runtimeOnly(it) }
         // stageRuntimeTestModsには配布時と同じ未変換jarを渡す。
         xaeroModules.forEach { xaeroRuntimeMods(it) }
@@ -222,6 +263,9 @@ tasks.named<ProcessResources>("processResources").configure {
 
     inputs.properties(replaceProperties)
 
+    if (stonecutter.eval(minecraftVersion, ">=26.1")) {
+        exclude("META-INF/accesstransformer.cfg")
+    }
     // 他の2ローダーのMOD定義はForgeのjarには要らない
     exclude("fabric.mod.json")
     exclude("xaeronav.accesswidener")

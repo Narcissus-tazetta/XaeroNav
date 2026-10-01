@@ -192,6 +192,9 @@ public final class PathRenderer {
         if (hasStraight) {
             renderStraightLine(bufferSource, pose, current, hasFlight ? flight.tail() : null, goal, cullRadius);
         }
+        //? if >=26.2 {
+        /*bufferSource.endFrame();
+        *///?}
 
         poseStack.popPose();
     }

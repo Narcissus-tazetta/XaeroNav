@@ -7,6 +7,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.platform.ModPresence;
 import net.prason.xaeronav.util.ChangeGate;
+import net.prason.xaeronav.util.GameCompat;
 import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
 import net.prason.xaeronav.xaero.XaeroHookProbe;
@@ -109,6 +110,6 @@ public final class ClientTickHandler {
             XaeroNav.LOGGER.warn("XaeroNav: Xaero連携のmixinが当たっていない ({} / {})。"
                     + "Xaeroの版が対応範囲の外にある可能性がある", hook.modId(), hook.className());
         }
-        player.displayClientMessage(TextCompat.translatable("hud.xaeronav.hook_missing", features), false);
+        GameCompat.tell(player, TextCompat.translatable("hud.xaeronav.hook_missing", features), false);
     }
 }

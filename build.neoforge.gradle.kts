@@ -1,6 +1,6 @@
 plugins {
     id("xaeronav.common")
-    id("net.neoforged.moddev") version "2.0.146"
+    id("net.neoforged.moddev") version "2.0.148"
 }
 
 stonecutter.properties.tags(stonecutter.current.version, "neoforge")
@@ -39,6 +39,8 @@ neoForge {
         create("client") {
             client()
             gameDirectory = runDir
+            // `-Pxaeronav.quickPlay=<ワールド名>`でタイトル画面を飛ばして既存のワールドへ入る（手元の確認用）
+            providers.gradleProperty("xaeronav.quickPlay").orNull?.let { programArguments.addAll("--quickPlaySingleplayer", it) }
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
             // XaeroNavのDEBUGが開発クライアントではどこにも出ない。latest.logはINFOのままなので配布版と同じ出方になる
             logLevel = org.slf4j.event.Level.DEBUG

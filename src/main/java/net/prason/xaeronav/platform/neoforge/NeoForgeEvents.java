@@ -16,6 +16,7 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.NavCommandSink;
 import net.prason.xaeronav.client.XaeroNavClient;
 import net.prason.xaeronav.client.XaeroNavCommands;
@@ -29,7 +30,7 @@ public final class NeoForgeEvents {
     public void onRenderLevelStage(RenderLevelStageEvent.AfterTranslucentBlocks event) {
         XaeroNavClient.PATH_RENDERER.render(event.getPoseStack(),
                 //? if >=1.21.9 {
-                /^Minecraft.getInstance().gameRenderer.getMainCamera()
+                /^ClientCompat.mainCamera(Minecraft.getInstance())
                 ^///?} else {
                 event.getCamera()
                 //?}

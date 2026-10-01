@@ -2,6 +2,7 @@ package net.prason.xaeronav.xaero;
 
 import net.minecraft.client.Minecraft;
 import net.prason.xaeronav.XaeroNav;
+import net.prason.xaeronav.client.ClientCompat;
 
 /**
  * 「mixinは当たっているのに、地図へ実際には描かれていない」を見つける。
@@ -39,7 +40,7 @@ public final class XaeroHookHealth {
 
     public static void onClientTick() {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.screen == null || !WORLD_MAP_SCREEN.equals(minecraft.screen.getClass().getName())) {
+        if (ClientCompat.screen(minecraft) == null || !WORLD_MAP_SCREEN.equals(ClientCompat.screen(minecraft).getClass().getName())) {
             ticksWithMapOpen = 0;
             return;
         }

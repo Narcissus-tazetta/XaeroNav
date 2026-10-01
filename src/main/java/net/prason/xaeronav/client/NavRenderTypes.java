@@ -2,7 +2,12 @@ package net.prason.xaeronav.client;
 
 //? if >=1.21.11 {
 /*import com.mojang.blaze3d.pipeline.RenderPipeline;
+//? if >=26.1 {
+/^import com.mojang.blaze3d.pipeline.DepthStencilState;
+import com.mojang.blaze3d.platform.CompareOp;
+^///?} else {
 import com.mojang.blaze3d.platform.DepthTestFunction;
+//?}
 
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -51,7 +56,11 @@ final class NavRenderTypes {
     private static final RenderPipeline OCCLUDED_QUADS_PIPELINE = RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
             .withLocation(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "pipeline/occluded_quads"))
             .withCull(false)
+            //? if >=26.1 {
+            /^.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+            ^///?} else {
             .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+            //?}
             .build();
 
     static final RenderType OCCLUDED_QUADS = RenderType.create("xaeronav_occluded_quads",

@@ -15,6 +15,7 @@ import net.minecraft.client.gui.screens.OptionsSubScreen;
 import net.minecraft.network.chat.CommonComponents;
 *///?}
 import net.minecraft.network.chat.Component;
+import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.config.XaeroNavConfig;
 //?} else {
 /*import com.mojang.blaze3d.vertex.PoseStack;
@@ -25,6 +26,7 @@ import java.util.function.Consumer;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.TextCompat;
 import net.prason.xaeronav.config.XaeroNavConfig;
 *///?}
@@ -213,7 +215,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     @Override
     public void onClose() {
         XaeroNavConfig.save();
-        minecraft.setScreen(parent);
+        ClientCompat.setScreen(minecraft, parent);
     }
 
     private static final class Toggle {

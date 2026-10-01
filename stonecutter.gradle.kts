@@ -25,6 +25,46 @@ stonecutter.parameters {
         string(eval(current.version, ">=1.21.11")) {
             replace("ResourceLocation", "Identifier")
         }
+        // 26.1でGuiGraphicsはGuiGraphicsExtractorへ改名された。"getGuiGraphics"（NeoForgeのイベントのメソッド名）は
+        // 変わらないので、型の名前を書く2か所の形だけを置き換える
+        // 26.3でGPU抽象がcom.mojang.renderpearlへ移り、GLFWの代わりにSDLが入った（キー定数はInputConstantsにある）
+        string(eval(current.version, ">=26.3")) {
+            replace("com.mojang.blaze3d.pipeline.RenderPipeline;", "com.mojang.renderpearl.api.pipeline.RenderPipeline;")
+        }
+        string(eval(current.version, ">=26.3")) {
+            replace("com.mojang.blaze3d.pipeline.DepthStencilState;", "com.mojang.renderpearl.api.pipeline.DepthStencilState;")
+        }
+        string(eval(current.version, ">=26.3")) {
+            replace("com.mojang.blaze3d.platform.CompareOp;", "com.mojang.renderpearl.api.pipeline.CompareOp;")
+        }
+        string(eval(current.version, ">=26.3")) {
+            replace("GLFW.GLFW_KEY_UNKNOWN", "InputConstants.UNKNOWN.getValue()")
+        }
+        string(eval(current.version, ">=26.3")) {
+            replace("GLFW.GLFW_KEY_", "InputConstants.KEY_")
+        }
+        string(eval(current.version, ">=26.3")) {
+            replace("InputConstants.Type.KEYSYM", "InputConstants.Type.KEYBOARD")
+        }
+        // 26.2でMultiBufferSourceが無くなり、同じ流れをNavBuffersが受け持つ
+        string(eval(current.version, ">=26.2")) {
+            replace("import net.minecraft.client.renderer.MultiBufferSource;", "import net.prason.xaeronav.client.NavBuffers;")
+        }
+        string(eval(current.version, ">=26.2")) {
+            replace("MultiBufferSource.BufferSource bufferSource", "NavBuffers bufferSource")
+        }
+        string(eval(current.version, ">=26.2")) {
+            replace("mc.renderBuffers().bufferSource()", "NavBuffers.begin()")
+        }
+        string(eval(current.version, ">=26.1")) {
+            replace("gui.GuiGraphics;", "gui.GuiGraphicsExtractor;")
+        }
+        string(eval(current.version, ">=26.1")) {
+            replace("GuiGraphics graphics", "GuiGraphicsExtractor graphics")
+        }
+        string(eval(current.version, ">=26.1")) {
+            replace("renderer.state.LevelRenderState;", "renderer.state.level.LevelRenderState;")
+        }
         string(eval(current.version, ">=1.21.11")) {
             replace("net.minecraft.world.entity.vehicle.Boat;", "net.minecraft.world.entity.vehicle.boat.Boat;")
         }

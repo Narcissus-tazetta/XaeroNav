@@ -213,7 +213,7 @@ public final class ChunkView implements CellSource {
                 // 読み込み済み範囲の縁で打ち切られる（進入不可のセルとして扱われるため）。
                 LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
                 if (chunk != null) {
-                    chunks.put(ChunkPos.asLong(chunkX, chunkZ), chunk);
+                    chunks.put(GameCompat.chunkKey(chunkX, chunkZ), chunk);
                 }
             }
         }
@@ -328,7 +328,7 @@ public final class ChunkView implements CellSource {
 
     /** このビューがチャンクを掴んでいるか（読み込み済みで、範囲の中）。 */
     public boolean chunkLoaded(int chunkX, int chunkZ) {
-        return chunks.containsKey(ChunkPos.asLong(chunkX, chunkZ));
+        return chunks.containsKey(GameCompat.chunkKey(chunkX, chunkZ));
     }
 
     public int loadedChunksInBounds() {
@@ -609,7 +609,7 @@ public final class ChunkView implements CellSource {
     }
 
     private LevelChunk chunkAt(int chunkX, int chunkZ) {
-        long key = ChunkPos.asLong(chunkX, chunkZ);
+        long key = GameCompat.chunkKey(chunkX, chunkZ);
         if (key == cachedChunkKey) {
             return cachedChunk;
         }

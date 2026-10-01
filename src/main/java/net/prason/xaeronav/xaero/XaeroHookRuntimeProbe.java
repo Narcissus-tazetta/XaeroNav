@@ -3,7 +3,9 @@ package net.prason.xaeronav.xaero;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 
+//? if <26.3 {
 import org.lwjgl.glfw.GLFW;
+//?}
 
 import com.mojang.blaze3d.platform.InputConstants;
 
@@ -18,6 +20,7 @@ import net.minecraft.network.chat.contents.TranslatableContents;
 /*import net.minecraft.network.chat.TranslatableComponent;
 *///?}
 import net.prason.xaeronav.XaeroNav;
+import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.client.XaeroNavKeys;
 import xaero.common.minimap.waypoints.Waypoint;
@@ -86,7 +89,7 @@ public final class XaeroHookRuntimeProbe {
     }
 
     private static void waitForWorldMap(Minecraft minecraft) throws ReflectiveOperationException {
-        if (!(minecraft.screen instanceof GuiMap map)
+        if (!(ClientCompat.screen(minecraft) instanceof GuiMap map)
                 || !XaeroHookProbe.ran(XaeroHookProbe.Point.WORLD_MAP_RENDER)) {
             return;
         }
@@ -107,7 +110,7 @@ public final class XaeroHookRuntimeProbe {
         XaeroNav.LOGGER.info("XAERONAV_RUNTIME_HOOK_PROBE_SUCCESS");
         finished = true;
         PathfindingState.INSTANCE.clear();
-        minecraft.setScreen(null);
+        ClientCompat.setScreen(minecraft, null);
     }
 
     private static void setCoordinateFields(GuiMap map, Minecraft minecraft) throws ReflectiveOperationException {
@@ -190,7 +193,7 @@ public final class XaeroHookRuntimeProbe {
         finished = true;
         XaeroNav.LOGGER.error("XAERONAV_RUNTIME_HOOK_PROBE_FAILED {}", reason);
         PathfindingState.INSTANCE.clear();
-        minecraft.setScreen(null);
+        ClientCompat.setScreen(minecraft, null);
     }
 
     private enum Phase {

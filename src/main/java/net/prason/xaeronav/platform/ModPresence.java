@@ -25,7 +25,11 @@ public final class ModPresence {
         //? neoforge {
         return ModList.get().isLoaded(modId);
         //?} forge {
-        /*return ModList.get().isLoaded(modId);
+        /*//? if >=26.1 {
+        /^return ModList.isLoaded(modId);
+        ^///?} else {
+        return ModList.get().isLoaded(modId);
+        //?}
         *///?} fabric {
         /*return FabricLoader.getInstance().isModLoaded(modId);
         *///?}
@@ -38,9 +42,15 @@ public final class ModPresence {
                 .map(container -> container.getModInfo().getVersion().toString())
                 .orElse("unknown");
         //?} forge {
-        /*return ModList.get().getModContainerById(modId)
+        /*//? if >=26.1 {
+        /^return ModList.getModContainerById(modId)
                 .map(container -> container.getModInfo().getVersion().toString())
                 .orElse("unknown");
+        ^///?} else {
+        return ModList.get().getModContainerById(modId)
+                .map(container -> container.getModInfo().getVersion().toString())
+                .orElse("unknown");
+        //?}
         *///?} fabric {
         /*return FabricLoader.getInstance().getModContainer(modId)
                 .map(container -> container.getMetadata().getVersion().getFriendlyString())

@@ -1111,7 +1111,7 @@ public final class PathfindingState {
             StuckReason notice = stuckTracker.takePendingNotice();
             if (notice != null) {
                 // 判断はワーカースレッドで行われる。チャットへの出力はメインスレッド専用なのでここで拾う
-                mc.player.displayClientMessage(TextCompat.translatable("hud.xaeronav.unreachable_notice",
+                GameCompat.tell(mc.player, TextCompat.translatable("hud.xaeronav.unreachable_notice",
                         TextCompat.translatable(stuckHintKey(notice))), false);
             }
             if (arrived) {
@@ -1138,7 +1138,7 @@ public final class PathfindingState {
             TickLaps.add("後退の監視", retreatLap);
             // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
             // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
-            if (mc.screen != null) {
+            if (ClientCompat.screen(mc) != null) {
                 // 一度きりの再挑戦だけは通す。地図で目的地を指定してそのまま地図で経路を眺めるのは
                 // 一番ありがちな操作で、ここで止めると「通常マージンでは届かなかった」遠い目的地の
                 // 経路が地図を閉じるまで出てこない（他の再計算トリガーはどれもプレイヤーが動くことを
