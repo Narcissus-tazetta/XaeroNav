@@ -544,7 +544,9 @@ public final class CoarseRouter {
             if (!map.containsChunk(chunkX, chunkZ)) {
                 return 0.0;
             }
-            int floor = map.nearestFloor(chunkX, chunkZ, y);
+            // 窓の外の推定では未知セルも表の値を返す。0は窓の縁で「分からない」として種から外されるので、
+            // Xaeroの地図に無い所（テレポート直後・未踏の洞窟）では窓の縁に種が1つも無く、ガイドが丸ごと空になる
+            int floor = chargeClimbFromBelow ? resolveFloor(map, chunkX, chunkZ, y) : map.nearestFloor(chunkX, chunkZ, y);
             if (floor < 0) {
                 return 0.0;
             }

@@ -143,4 +143,19 @@ class UnknownCellRoutingTest {
         BlockPos goal = new BlockPos(10 * 16 + 8, 64, 0 * 16 + 8);
         return CoarseRouter.findRoute(map, start, goal, false, CoarseRouter.BridgePolicy.ALLOW);
     }
+
+    /**
+     * 窓の外の推定は、Xaeroの地図に何も無い所でも値を持つ。0を返すと窓の縁で「分からない」として種から外れ、
+     * 地図に無い場所（テレポート直後・未踏の洞窟）では窓の縁に種が1つも無く、航法グラフのガイドが丸ごと空になる。
+     */
+    @Test
+    void farEstimateValuesCellsMissingFromTheMap() {
+        CoarseMap map = new CoarseMapBuilder(-20, -20, 40, 40).build();
+        BlockPos goal = new BlockPos(15 * 16, 63, 15 * 16);
+
+        double value = CoarseRouter.farEstimate(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE)
+                .estimate(-15 * 16, -30, -15 * 16);
+
+        assertTrue(value > 0, "地図に無いセルの推定が空: " + value);
+    }
 }
