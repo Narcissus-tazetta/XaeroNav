@@ -264,7 +264,9 @@ spotless {
 tasks.register("printNodes") {
     group = "help"
     description = "全ノードを JSON 配列で出す（CIのmatrix用）"
-    val nodes = stonecutter.versions.map { it.project to it.version }
+    @Suppress("UNCHECKED_CAST")
+    val nodes = (gradle.extensions.extraProperties["xaeronav.allNodes"] as List<String>)
+        .map { it.substringBefore('|') to it.substringAfter('|') }
     val fabricApi = fabricApiVersions(file("stonecutter.properties.toml").readText())
     doLast {
         println(nodes.joinToString(",", "[", "]") { (project, version) ->

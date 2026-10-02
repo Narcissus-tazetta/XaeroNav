@@ -82,9 +82,10 @@ jobs:
       # ノードの定義はsettings.gradle.ktsにしか無い状態を保つ
       - id: nodes
         run: |
-          # 設定フェーズでの依存の取得が止まったときに、どこで止まったかをログに残す
-          NODES=$(./gradlew printNodes --console=plain | tee /dev/stderr | grep '^\[{')
           CANON=$(grep '^canonical_test_node' stonecutter.properties.toml | cut -d'"' -f2)
+          # 全ノードを構成すると、借りたGradleのキャッシュに無いノードのMinecraftを1つずつ作り直して20分を超える。
+          # 一覧はsettings.gradle.ktsが構成しないノードも持っているので、正典ノードだけを構成すれば足りる
+          NODES=$(./gradlew printNodes "-Pxaeronav.onlyNodes=$CANON" --console=plain | tee /dev/stderr | grep '^\[{')
           echo "nodes=$NODES" >> "$GITHUB_OUTPUT"
           echo "canonical_node=$CANON" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.full.outputs.full }}" = "true" ]; then

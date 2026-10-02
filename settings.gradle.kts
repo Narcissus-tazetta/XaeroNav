@@ -25,12 +25,15 @@ val vcsNode = "1.21.1-neoforge"
 // 毎ジョブ踏み、どれか1つの一時的な不調でジョブが落ちる。正典ノードはStonecutterの有効ノードなので外せない
 val onlyNodes = providers.gradleProperty("xaeronav.onlyNodes").orNull
     ?.split(',')?.map(String::trim)?.filter(String::isNotEmpty)?.toSet()
+// onlyNodesで絞っても全ノードを`printNodes`で出せるように、構成しないノードも`<ノード>|<MCバージョン>`で残す
+val allNodes = mutableListOf<String>()
 
 // ノード名は `<MCバージョン>-<ローダー>`。ビルドスクリプトはローダーごとに1本で、
 // MCバージョンを増やしてもここへ1行足すだけで済む（依存バージョンはstonecutter.properties.tomlへ）。
 stonecutter {
     create(rootProject) {
         fun node(project: String, minecraft: String, buildscript: String) {
+            allNodes += "$project|$minecraft"
             if (onlyNodes == null || project in onlyNodes || project == vcsNode) {
                 version(project, minecraft).buildscript(buildscript)
             }
@@ -72,6 +75,8 @@ stonecutter {
         vcsVersion.set(vcsNode)
     }
 }
+
+gradle.extensions.extraProperties.set("xaeronav.allNodes", allNodes.toList())
 
 gradle.beforeProject {
     if (name == "1.16.5-forge") {
