@@ -112,6 +112,13 @@ if (needsRuntimeReobfuscation) {
         }
     }
 
+    // Renamerはrefmapとmappingをコンパイルの一時ディレクトリへ書かせるが、出力として宣言しない。宣言しないと
+    // ビルドキャッシュからクラスだけが戻ってrefmapが欠け、jarのGuiMap等への注入が本番で1本も当たらない（CIで実測）
+    tasks.named("compileJava") {
+        outputs.file(layout.buildDirectory.file("tmp/compileJava/compileJava-refmap.json")).withPropertyName("mixinRefmap")
+        outputs.file(layout.buildDirectory.file("tmp/compileJava/compileJava-mappings.tsrg")).withPropertyName("mixinMappings")
+    }
+
     // Mixin 0.8.5のrefMapRemappingFileはSRG形式（MD:/FD:行）しか読めず、Renamerが渡すtsrgは行ごと
     // 黙って無視される。すると開発実行でXaero自身のmixinが落ちる。同じ内容をSRG形式へ変換し、
     // Renamerの設定が済んだ後にsystem propertyを差し替える。
