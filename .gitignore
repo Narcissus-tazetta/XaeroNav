@@ -27,3 +27,6 @@ __pycache__/
 
 # Claude Code のローカルメモリ
 .claude/memory/
+
+# Syncthingの同期マーカー
+.stfolder/
