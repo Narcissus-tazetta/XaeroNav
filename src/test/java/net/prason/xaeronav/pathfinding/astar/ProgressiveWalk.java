@@ -499,6 +499,7 @@ final class ProgressiveWalk {
         BlockPos player = start;
         CostToGo reviewed = null;
         BlockPos reviewReplannedAt = null;
+        double reviewReplannedValue = Double.POSITIVE_INFINITY;
         int legs = 0;
         long deadline = System.currentTimeMillis() + TRACE_BUDGET_MILLIS;
         for (int tick = 0; tick < 400; tick++) {
@@ -522,7 +523,8 @@ final class ProgressiveWalk {
                 CostToGo latest = guideAt.apply(player);
                 if (REVIEW_MIN_EXTRA_TICKS >= 0 && latest != reviewed && latest instanceof WindowField field
                         && field.reachesGoal() && !planned.isEmpty()
-                        && (reviewReplannedAt == null || horizontal(player, reviewReplannedAt) >= REVIEW_RETRY_MOVE)) {
+                        && (reviewReplannedAt == null || horizontal(player, reviewReplannedAt) >= REVIEW_RETRY_MOVE
+                                && field.estimate(player.getX(), player.getY(), player.getZ()) < reviewReplannedValue)) {
                     reviewed = latest;
                     RouteReview.Detour detour = RouteReview.detour(field, player, planned, 0);
                     if (Boolean.getBoolean("xaeronav.navGraphVerbose") && detour.extraTicks() > 0) {
@@ -533,6 +535,7 @@ final class ProgressiveWalk {
                     if (detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS)) {
                         REVIEWS.incrementAndGet();
                         reviewReplannedAt = player;
+                        reviewReplannedValue = field.estimate(player.getX(), player.getY(), player.getZ());
                         planned = new ArrayList<>();
                         plannedJoints = new ArrayList<>();
                         plannedJoints.add(0);

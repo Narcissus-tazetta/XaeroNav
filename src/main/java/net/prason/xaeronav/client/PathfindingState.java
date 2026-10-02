@@ -398,9 +398,10 @@ public final class PathfindingState {
     // 航法グラフが初めて組み上がるのを待っている（NAV_GRAPH_WAIT_MILLIS）。クライアントスレッドだけが触る
     private boolean awaitingNavGraph;
     private long navGraphWaitStartedMillis;
-    // 最後に経路を見直したガイドと、見直しで引き直した位置（REVIEW_RETRY_MOVE_BLOCKS）。クライアントスレッドだけが触る
+    // 最後に経路を見直したガイドと、見直しで引き直した位置（REVIEW_RETRY_MOVE_BLOCKS）とそこでのガイドの値。クライアントスレッドだけが触る
     private @Nullable WindowField reviewedField;
     private @Nullable BlockPos reviewReplannedAt;
+    private double reviewReplannedValue;
     // 詳細探索が通常マージンでは届かなかった探索ゴール。次のrecalculateで範囲を広げて再挑戦する
     // 目印。本来の目的地と長距離ルートの中間目標を区別しないのは、どちらも「描画距離の内側にある
     // 詳細探索のゴール」で、壁や湖を迂回する経路が範囲の外に落ちる事情が同じだから。
@@ -2437,7 +2438,11 @@ public final class PathfindingState {
             return false;
         }
         BlockPos at = player.blockPosition();
-        if (reviewReplannedAt != null && horizontalDistance(at, reviewReplannedAt) < REVIEW_RETRY_MOVE_BLOCKS) {
+        double value = field.estimate(at.getX(), at.getY(), at.getZ());
+        // ガイドの値で前回引き直した所より目的地に近づくまでは見直さない。目的地まで経路が届かず途中で切れる場所では、
+        // 引き直したどちらの線もガイドの最短から外れて見え、2点の間で引き直しが交互に起きて往復し続けた（実測: ネザー）
+        if (reviewReplannedAt != null && (horizontalDistance(at, reviewReplannedAt) < REVIEW_RETRY_MOVE_BLOCKS
+                || !(value < reviewReplannedValue))) {
             return false;
         }
         reviewedField = field;
@@ -2450,6 +2455,7 @@ public final class PathfindingState {
         LOGGER.debug("XaeroNav: 組み直したガイドで見ると遠回りなので引き直します (余計に{}tick, 見直した区間{}tick, 現在地={})",
                 Math.round(detour.extraTicks()), Math.round(detour.walkedTicks()), at.toShortString());
         reviewReplannedAt = at;
+        reviewReplannedValue = value;
         recalculate("ガイドの見直しで遠回り");
         return true;
     }
