@@ -46,7 +46,8 @@ class RandomSweepBenchTest {
     private static final boolean UNKNOWN_MAP = Boolean.getBoolean("xaeronav.unknownMap");
     private static final int MIN_BLOCKS = Integer.getInteger("xaeronav.sweepMin", 100);
     private static final int MAX_BLOCKS = Integer.getInteger("xaeronav.sweepMax", 350);
-    private static final long SEED = Long.getLong("xaeronav.sweepSeed", 0L);
+    /** {@code random}なら実行ごとに変える。引いた値は出力の見出しに残すので、同じ組を後から再現できる。 */
+    private static final long SEED = seed(System.getProperty("xaeronav.sweepSeed", "0"));
     /** 始点・目的地を置く範囲（箱の中心からの半径）。窓が箱の外を見ないよう、既定は768四方の箱で±200。 */
     private static final int SPREAD = Integer.getInteger("xaeronav.sweepSpread", 200);
     private static final String TAG = System.getProperty("xaeronav.sweepTag", "");
@@ -111,6 +112,10 @@ class RandomSweepBenchTest {
         return new BlockPos(Integer.parseInt(v[0].trim()), Integer.parseInt(v[1].trim()), Integer.parseInt(v[2].trim()));
     }
 
+    private static long seed(String value) {
+        return value.equals("random") ? new Random().nextLong() : Long.parseLong(value);
+    }
+
     private static List<String> boxes(String defaults) {
         return List.of(System.getProperty("xaeronav.sweepBoxes", defaults).split(","));
     }
@@ -122,7 +127,7 @@ class RandomSweepBenchTest {
         for (String box : boxes) {
             FakeCells cells = load(DIR.resolve(box + ".txt.gz"), dim);
             List<BlockPos[]> routes = routes(cells, dim, box.hashCode() + SEED);
-            log(out, String.format(Locale.ROOT, "# 箱%s %s ルート%d本", box, cells.bounds(), routes.size()));
+            log(out, String.format(Locale.ROOT, "# 箱%s %s ルート%d本 種%d", box, cells.bounds(), routes.size(), SEED));
             CoarseMap sampled = dim == Dim.NETHER ? null : LiveCoarseSampler.sample(cells, cells.bounds());
             for (BlockPos[] route : routes) {
                 BlockPos start = StanceFinder.resolveStart(cells, route[0]);
