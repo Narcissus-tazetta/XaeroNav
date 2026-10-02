@@ -25,6 +25,7 @@ jobs:
   # （printNodesはGradleの設定フェーズだけで数秒、フルビルドを待つ必要が無い）。
   discover:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       nodes: ${{ steps.nodes.outputs.nodes }}
       runtime_nodes: ${{ steps.nodes.outputs.runtime_nodes }}
@@ -81,7 +82,8 @@ jobs:
       # ノードの定義はsettings.gradle.ktsにしか無い状態を保つ
       - id: nodes
         run: |
-          NODES=$(./gradlew printNodes -q --console=plain | tail -1)
+          # 設定フェーズでの依存の取得が止まったときに、どこで止まったかをログに残す
+          NODES=$(./gradlew printNodes --console=plain | tee /dev/stderr | grep '^\[{')
           CANON=$(grep '^canonical_test_node' stonecutter.properties.toml | cut -d'"' -f2)
           echo "nodes=$NODES" >> "$GITHUB_OUTPUT"
           echo "canonical_node=$CANON" >> "$GITHUB_OUTPUT"
