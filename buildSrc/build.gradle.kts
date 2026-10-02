@@ -16,6 +16,11 @@ repositories {
 }
 
 dependencies {
+    // ModDevGradleが使うidea-extをbuildSrcの親クラスローダーから一度だけ適用する。
+    // Stonecutterの各NeoForgeノードが個別にロードすると、IntelliJ同期時に同じ`settings`拡張を
+    // 重複登録してしまう。
+    implementation("gradle.plugin.org.jetbrains.gradle.plugin.idea-ext:gradle-idea-ext:1.2")
+
     // ノード名とノード別プロパティ（stonecutter.properties.toml）を規約プラグインから読むため
     implementation("dev.kikugie:stonecutter:0.9.7")
 

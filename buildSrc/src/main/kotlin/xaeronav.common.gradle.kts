@@ -6,6 +6,12 @@ plugins {
     id("dev.kikugie.fletching-table")
 }
 
+// ModDevGradleは各NeoForgeノードからルートプロジェクトへidea-extを適用する。先にbuildSrcの
+// クラスローダーの同一プラグインをルートへ適用して、ノードごとの二重登録を防ぐ。
+if (!rootProject.pluginManager.hasPlugin("org.jetbrains.gradle.plugin.idea-ext")) {
+    rootProject.pluginManager.apply("org.jetbrains.gradle.plugin.idea-ext")
+}
+
 // Stonecutterは各ノードへ自分のビルドプラグインを先に当てるので、ここで参照できる。
 val node = extensions.getByType<StonecutterBuildExtension>()
 val loader = node.current.project.substringAfterLast('-')
