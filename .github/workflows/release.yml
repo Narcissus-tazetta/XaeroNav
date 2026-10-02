@@ -94,7 +94,7 @@ jobs:
             for PLATFORM in modrinth curseforge; do
               OUTPUT=$(./gradlew publishMods --console=plain -Prelease \
                 "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" \
-                "-Ppublish_node=$NODE" -Ppublish_dry_run=true)
+                "-Ppublish_node=$NODE" "-Pxaeronav.onlyNodes=$NODE" -Ppublish_dry_run=true)
               grep -Fq "Main file: xaeronav-$RELEASE_VERSION-$LOADER-$MINECRAFT.jar" <<< "$OUTPUT"
               grep -Fq "Version: $RELEASE_VERSION-$LOADER-$MINECRAFT" <<< "$OUTPUT"
               echo "Verified $PLATFORM / $NODE"
@@ -156,7 +156,8 @@ jobs:
       actions: read
     strategy:
       fail-fast: false
-      max-parallel: 2
+      # 1件の投稿は数リクエストなので、Modrinth（毎分300）・CurseForgeの上限には10並列でも届かない
+      max-parallel: 10
       matrix:
         platform: [modrinth, curseforge]
         node: ${{ fromJson(needs.build.outputs.nodes) }}
@@ -202,7 +203,8 @@ jobs:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
           CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
-        run: ./gradlew publishMods -Prelease "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" "-Ppublish_node=$NODE"
+        # 投稿するノードだけを構成する。全ノードを構成すると、キャッシュに無いノードのMinecraftを作り直して1件に数分かかる
+        run: ./gradlew publishMods -Prelease "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" "-Ppublish_node=$NODE" "-Pxaeronav.onlyNodes=$NODE"
 
   github_release:
     needs: [build, publish]
