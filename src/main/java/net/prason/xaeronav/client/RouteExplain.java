@@ -19,6 +19,7 @@ import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
+import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.util.ChangeGate;
@@ -72,12 +73,46 @@ final class RouteExplain {
         }
         // 次元と高さはワールドから読むのでここで写す。数えるのは航法グラフのガイドを下るぶん重いので、ログ用のスレッドへ回す
         String repro = repro(level, start, target, goal, window, view, options, renderRadius);
+        List<String> digging = diggingDetails(level, view, start, result);
         NavGraphGuide.logOffThread(() -> {
             LOGGER.debug("XaeroNav: 経路の内訳 ({})", summary(kind, start, target, goal, result, guide, window));
+            digging.forEach(detail -> LOGGER.debug("XaeroNav: 掘削の判定 ({})", detail));
             if (reproGate.changed(repro)) {
                 LOGGER.debug("XaeroNav: 経路の再現用 ({})", repro);
             }
         });
+    }
+
+    /** 採用した経路だけ、最大8手。ワールドと探索用セルの読みは呼び出し側で写しておく。 */
+    private static List<String> diggingDetails(Level level, CellSource view, BlockPos start, PathResult result) {
+        List<String> details = new ArrayList<>();
+        BlockPos from = start;
+        for (PathStep step : result.steps()) {
+            if (step.digging()) {
+                StringJoiner blocks = new StringJoiner("; ");
+                double raw = 0;
+                for (BlockPos pos : step.digCells()) {
+                    double ticks = CellData.digTicks(
+                            view.cell(pos.getX(), pos.getY(), pos.getZ()));
+                    raw += ticks;
+                    blocks.add("%s=%s/%.3ftick".formatted(pos.toShortString(), level.getBlockState(pos), ticks));
+                }
+                boolean sourceWater = CellData.water(
+                        view.cell(from.getX(), from.getY() + 1, from.getZ()));
+                boolean sourceFloor = CellData.standable(
+                        view.cell(from.getX(), from.getY() - 1, from.getZ()));
+                boolean targetFloor = CellData.standable(
+                        view.cell(step.pos().getX(), step.pos().getY() - 1, step.pos().getZ()));
+                details.add("始点=%s, 終点=%s, 移動=%s, 始点の頭が水=%s, 始点の足場=%s, 終点の足場=%s, 素の掘削=%.3ftick, 移動込み=%.3ftick, 対象=[%s]"
+                        .formatted(from.toShortString(), step.pos().toShortString(), step.movement(), sourceWater,
+                                sourceFloor, targetFloor, raw, step.cost(), blocks));
+                if (details.size() == 8) {
+                    break;
+                }
+            }
+            from = step.pos();
+        }
+        return List.copyOf(details);
     }
 
     private static String summary(String kind, BlockPos start, BlockPos target, BlockPos goal, PathResult result,
