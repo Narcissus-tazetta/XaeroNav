@@ -43,12 +43,13 @@ public final class FlightRouter {
      */
     public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
                                      FlightTuning tuning, BooleanSupplier cancelled) {
-        return route(view, start, goal, rockets, tuning, FlightHorizon.NONE, cancelled);
+        return route(view, start, goal, rockets, tuning, FlightHorizon.NONE, FlightGuide.NONE, cancelled);
     }
 
     /** {@code horizon}の外へ出たところで打ち切ってよい版（{@link FlightHorizon}参照）。 */
     public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
-                                     FlightTuning tuning, FlightHorizon horizon, BooleanSupplier cancelled) {
+                                     FlightTuning tuning, FlightHorizon horizon, FlightGuide guide,
+                                     BooleanSupplier cancelled) {
         FlightRoute best = FlightRoute.NONE;
         long deadline = MonotonicTime.millis() + tuning.limits().timeLimitMillis();
         for (int cells = tuning.cellBlocks(); cells >= MIN_CELL_BLOCKS; cells /= 2) {
@@ -62,8 +63,10 @@ public final class FlightRouter {
             }
             SearchLimits limits = new SearchLimits(tuning.limits().maxExpandedNodes(),
                     Math.max(MIN_RETRY_BUDGET_MILLIS, remaining), tuning.limits().heuristicWeight());
-            FlightRoute route = new FlightPathfinder(new AirGrid(view, cells), rockets, limits,
-                    tuning.clearancePenaltyTicks()).search(start, goal, cells * GOAL_RADIUS_CELLS, horizon, cancelled);
+            AirGrid grid = new AirGrid(view, cells);
+            FlightRoute route = new FlightPathfinder(grid, rockets, limits,
+                    tuning.clearancePenaltyTicks()).search(start, goal, cells * GOAL_RADIUS_CELLS, horizon,
+                    guide, cancelled);
             if (route.complete()) {
                 return route;
             }

@@ -1029,6 +1029,11 @@ public final class PathfindingState {
         return flight.routeFrom();
     }
 
+    /** 空中経路の上の、{@code player}に最も近い点。線の描き始め。対応づけがまだ無ければ{@code null}。 */
+    public @Nullable Vec3 flightRouteAnchor(Vec3 player) {
+        return FlightProgress.INSTANCE.nearestOnRoute(flight.route(), player);
+    }
+
     /**
      * 点線が辿るべき中間点。<b>始点も目的地も含まない</b>——描画側はどちらも自分で持っている
      * （始点は太線の末端か現在地、終点は目的地）ので、端を含めると必ず添字をずらす処理が要る。

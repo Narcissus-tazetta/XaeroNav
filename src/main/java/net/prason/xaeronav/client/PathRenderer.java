@@ -277,7 +277,14 @@ public final class PathRenderer {
         // これが無いと線が自分の後ろへ伸びたままになる（歩行のrenderGroundPathと同じ理由）
         int first = PathfindingState.INSTANCE.flightRouteFrom();
         int count = 0;
-        count = pushStraightPoint(count, playerX, playerY, playerZ);
+        // 線は経路の上の自分に最も近い点から描く。自分の位置から描くと線の手前が体に付いて動き、
+        // 経路が引き直されていないのに描き変わっているように見える
+        Vec3 anchor = PathfindingState.INSTANCE.flightRouteAnchor(Minecraft.getInstance().player.position());
+        if (anchor != null) {
+            count = pushStraightPoint(count, anchor.x, anchor.y, anchor.z);
+        } else {
+            count = pushStraightPoint(count, playerX, playerY, playerZ);
+        }
         for (int i = first; i < points.size(); i++) {
             Vec3 point = points.get(i);
             count = pushStraightPoint(count, point.x, point.y, point.z);

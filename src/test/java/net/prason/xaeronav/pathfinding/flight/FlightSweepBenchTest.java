@@ -52,6 +52,8 @@ class FlightSweepBenchTest {
     private static final boolean SKIP_OPTIMAL = Boolean.getBoolean("xaeronav.skipClosure");
     /** {@code horizon}なら目的地を本物のまま狙い、読める範囲の縁を出口にする。 */
     private static final double WEIGHT = Double.parseDouble(System.getProperty("xaeronav.flightWeight", "1.5"));
+    /** 先を伸ばすとき、目的地へ十分近づいていれば継ぎ足しの代わりに引き直す（本番の{@code FlightNavState}と同じ）。 */
+    private static final boolean REPLAN = !Boolean.getBoolean("xaeronav.noReplan");
     private static final boolean TRACE = Boolean.getBoolean("xaeronav.walkTrace");
 
     // FlightNavStateの定数と同じ値
@@ -62,6 +64,11 @@ class FlightSweepBenchTest {
     private static final double LOADED_MARGIN = 0.9;
     private static final int HANDOFF_BLOCKS = 96;
     private static final int VERTICAL_MARGIN = FlightLineRouter.VERTICAL_MARGIN_BLOCKS;
+    /** 引き直した後は、そこより目的地へこれだけ近づくまで引き直さない（地上の見直しの往復止めと同じ）。 */
+    private static final double REPLAN_PROGRESS_BLOCKS = 64.0;
+    /** 引き直しても、プレイヤーのこれだけ先までは今の線を残す（ブロック）。手前の線が描き変わらないように。 */
+    private static final double REPLAN_KEEP_BLOCKS = Double.parseDouble(System.getProperty("xaeronav.replanKeep", "48"));
+    private static final boolean VCUT = !Boolean.getBoolean("xaeronav.noVCut");
     private static final double SPEED_BLOCKS_PER_TICK = 1.0 / FlightCosts.HORIZONTAL_TICKS_PER_BLOCK;
 
     @Test
@@ -77,6 +84,48 @@ class FlightSweepBenchTest {
     @Test
     void end() throws IOException {
         sweep(Dim.END, boxes("en1,en2,en3"));
+    }
+
+    /** {@code -Pxaeronav.alongPoints=箱:x,y,z:x,y,z;...}の1本ずつを追跡付きで飛ぶ。 */
+    @Test
+    void focus() throws IOException {
+        Path out = Path.of(System.getProperty("xaeronav.profileOut", "."), "flight-focus" + TAG + ".txt");
+        Files.deleteIfExists(out);
+        for (String spec : System.getProperty("xaeronav.alongPoints", "").split(";")) {
+            String[] p = spec.split(":");
+            Dim dim = p[0].startsWith("ow") ? Dim.OVERWORLD : p[0].startsWith("ne") ? Dim.NETHER : Dim.END;
+            FakeCells cells = RandomSweepBenchTest.load(DIR.resolve(p[0] + ".txt.gz"), dim);
+            SearchBounds b = cells.bounds();
+            CoarseMap map = dim == Dim.NETHER
+                    ? LiveCoarseSampler.sample(cells, new SearchBounds(b.minX(), b.minY(), b.minZ(), b.maxX(), 120,
+                            b.maxZ()), 64, () -> false)
+                    : null;
+            Vec3 start = parseVec(p[1]);
+            Vec3 goal = parseVec(p[2]);
+            Flight flight = fly(cells, dim, map, start, goal);
+            double optimal = optimal(cells, start, flight.end());
+            log(out, String.format(Locale.ROOT, "%s %s→%s 値段%.0f 最適比%.3f 後退%.0f", p[0], p[1], p[2],
+                    cost(cells, flight.points()), cost(cells, flight.points()) / optimal,
+                    worstRetreat(flight.points(), goal)));
+            StringBuilder line = new StringBuilder("  線");
+            for (Vec3 v : flight.points()) {
+                line.append(' ').append(shortVec(v));
+            }
+            log(out, line.toString());
+            FlightRoute best = new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), false,
+                    new SearchLimits(4_000_000, 120_000, 1.0), 12 * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK)
+                    .search(start, flight.end(), CELL_BLOCKS * 1.5);
+            StringBuilder opt = new StringBuilder("  最適");
+            for (Vec3 v : best.points()) {
+                opt.append(' ').append(shortVec(v));
+            }
+            log(out, opt.toString());
+        }
+    }
+
+    private static Vec3 parseVec(String s) {
+        String[] v = s.split(",");
+        return new Vec3(Double.parseDouble(v[0]) + 0.5, Double.parseDouble(v[1]), Double.parseDouble(v[2]) + 0.5);
     }
 
     private static List<String> boxes(String defaults) {
@@ -126,14 +175,16 @@ class FlightSweepBenchTest {
                 totalSearchMs += flight.searchMs();
                 totalWaitTicks += flight.waitTicks();
                 log(out, String.format(Locale.ROOT,
-                        "%s %s→%s 直線%.0f 到達=%s 探索%d回 計%.0fms 最大%.0fms 予算切れ%d 展開計%d 待ち%.1f秒 値段%.0f 最適比%.3f %s",
+                        "%s %s→%s 直線%.0f 到達=%s 探索%d回 計%.0fms 最大%.0fms 予算切れ%d 展開計%d 待ち%.1f秒 値段%.0f 最適比%.3f 後退%.0f %s",
                         box, shortVec(route[0]), shortVec(route[1]), horizontal(route[0], route[1]), flight.arrived(),
                         flight.searches(), flight.searchMs(), flight.maxMs(), flight.budgetOuts(), flight.nodes(),
-                        flight.waitTicks() / 20.0, cost, cost / optimal, flight.note()));
+                        flight.waitTicks() / 20.0, cost, cost / optimal, worstRetreat(flight.points(), route[1]),
+                        flight.note()));
             }
         }
         log(out, String.format(Locale.ROOT, "# 合計 %d本中%d本到達 探索計%.0fms 待ち計%.1f秒", totalRoutes, arrived,
                 totalSearchMs, totalWaitTicks / 20.0));
+
     }
 
     /** 実機の段取りの記録。{@code end}は空中経路が最後に届いた点（最適と比べる相手）。 */
@@ -149,7 +200,9 @@ class FlightSweepBenchTest {
         var coarse = map == null ? null : CoarseFlightRouter.findRoute(
                 CoarseAirMap.from(map, cells.bounds().minY() + 10, 117), BlockPos.containing(start),
                 BlockPos.containing(goal), false);
-        List<BlockPos> waypoints = coarse == null ? List.of() : coarse.waypoints();
+        CoarseFlightField field = map == null ? null : CoarseFlightField.toward(
+                CoarseAirMap.from(map, cells.bounds().minY() + 10, 117), BlockPos.containing(goal), false);
+        FlightGuide guide = field == null ? FlightGuide.NONE : field::estimate;
         if (TRACE) {
             System.out.println("  粗い経路 " + (coarse == null ? "なし" : coarse.waypoints().size() + "点 到達="
                     + coarse.reachedGoal() + " " + coarse.waypoints()));
@@ -164,23 +217,32 @@ class FlightSweepBenchTest {
         List<Vec3> flown = new ArrayList<>();
         flown.add(start);
 
-        Vec3 aim = detailTarget(start, goal, waypoints);
+        Vec3 aim = goal;
         FlightHorizon firstHorizon = new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN);
         long began = System.nanoTime();
         FlightRoute route = FlightRouter.route(view(cells, player, aim), player, aim, false, tuning(150_000),
-                firstHorizon, () -> false);
+                firstHorizon, guide, () -> false);
         double ms = (System.nanoTime() - began) / 1e6;
         searches++;
         searchMs += ms;
         maxMs = Math.max(maxMs, ms);
         nodes += route.expandedNodes();
         budgetOuts += route.budgetExhausted() ? 1 : 0;
+        if (TRACE) {
+            System.out.println(String.format(Locale.ROOT, "  初回 %s→狙い%s 末端%s %s 展開%d", shortVec(start),
+                    shortVec(aim), route.isEmpty() ? "-" : shortVec(route.tail()), route.termination(),
+                    route.expandedNodes()));
+        }
         if (route.isEmpty()) {
             return new Flight(false, searches, searchMs, maxMs, budgetOuts, nodes, waitTicks, flown, start, "初回空");
         }
         // 探索中もプレイヤーは飛んでいるが、最初の1本は線が出るまで待つしかない
         waitTicks += ms / 50.0;
         List<Vec3> line = new ArrayList<>(route.points());
+        int replans = 0;
+        int vcuts = 0;
+        int nearRedraws = 0;
+        double bestReplanDistance = Double.POSITIVE_INFINITY;
         double along = 0;
         Vec3 blockedAt = null;
         Vec3 blockedFrom = null;
@@ -188,7 +250,8 @@ class FlightSweepBenchTest {
             player = pointAt(line, along);
             if (horizontal(player, goal) <= HANDOFF_BLOCKS) {
                 return new Flight(true, searches, searchMs, maxMs, budgetOuts, nodes, waitTicks, line, line.get(
-                        line.size() - 1), "");
+                        line.size() - 1), (replans == 0 ? "" : "引き直し" + replans) + (vcuts == 0 ? "" : " 切り落とし" + vcuts)
+                        + " 手前の描き変わり" + nearRedraws);
             }
             Vec3 tail = line.get(line.size() - 1);
             double toTail = length(line) - along;
@@ -205,16 +268,49 @@ class FlightSweepBenchTest {
                 continue;
             }
             double lead = Math.min(DETAIL_HORIZON_BLOCKS, RENDER_RADIUS * LOADED_MARGIN - player.distanceTo(tail));
-            Vec3 target = extensionTarget(tail, goal, waypoints, lead);
+            Vec3 target = goal;
             if (lead < MIN_EXTENSION_BLOCKS || tail.distanceTo(target) < MIN_EXTENSION_BLOCKS) {
                 blockedAt = tail;
                 blockedFrom = player;
                 continue;
             }
+            Vec3 here = pointAt(line, along);
+            if (REPLAN && horizontal(here, goal) < bestReplanDistance - REPLAN_PROGRESS_BLOCKS) {
+                bestReplanDistance = horizontal(here, goal);
+                // 本番と同じく、プレイヤーのKEEP先までは今の線を残し、そこから引き直す
+                player = pointAt(line, along);
+                double keepAlong = Math.min(length(line), along + REPLAN_KEEP_BLOCKS);
+                Vec3 from = pointAt(line, keepAlong);
+                began = System.nanoTime();
+                FlightRoute replanned = FlightRouter.route(view(cells, player, goal), from, goal,
+                        false, tuning(150_000), new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN),
+                        guide, () -> false);
+                ms = (System.nanoTime() - began) / 1e6;
+                searches++;
+                replans++;
+                searchMs += ms;
+                maxMs = Math.max(maxMs, ms);
+                nodes += replanned.expandedNodes();
+                if (TRACE) {
+                    System.out.println(String.format(Locale.ROOT, "  %s から引き直し 末端%s", shortVec(from),
+                            replanned.isEmpty() ? "-" : shortVec(replanned.tail())));
+                }
+                if (!replanned.isEmpty()) {
+                    List<Vec3> kept = new ArrayList<>(flownPrefix(line, keepAlong));
+                    kept.addAll(replanned.points().subList(1, replanned.points().size()));
+                    if (nearShift(ahead(line, along), ahead(kept, along)) > NEAR_SHIFT_BLOCKS) {
+                        nearRedraws++;
+                    }
+                    line = kept;
+                    blockedAt = null;
+                    blockedFrom = null;
+                    continue;
+                }
+            }
             began = System.nanoTime();
             FlightHorizon horizon = new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN);
             FlightRoute extension = FlightRouter.route(view(cells, player, target), tail, target, false,
-                    tuning(60_000), horizon, () -> false);
+                    tuning(60_000), horizon, guide, () -> false);
             ms = (System.nanoTime() - began) / 1e6;
             searches++;
             searchMs += ms;
@@ -244,7 +340,27 @@ class FlightSweepBenchTest {
                 System.out.println(String.format(Locale.ROOT, "  継ぎ足し %s→狙い%s 末端%s %s 展開%d", shortVec(tail),
                         shortVec(target), shortVec(grown), extension.termination(), extension.expandedNodes()));
             }
-            line.addAll(extension.points().subList(1, extension.points().size()));
+            List<Vec3> extensionPoints = extension.points();
+            if (VCUT) {
+                TurnBack.Cut cut = TurnBack.cut(ahead(line, along), extensionPoints, new AirGrid(
+                        view(cells, pointAt(line, along), target), CELL_BLOCKS)::clearLine);
+                if (cut != null) {
+                    // プレイヤーより先の、戻ってきた点までを残して、そこから継ぎ足しの続きへ繋ぐ
+                    List<Vec3> kept = new ArrayList<>(flownPrefix(line, along));
+                    kept.addAll(cut.aheadKept().subList(1, cut.aheadKept().size()));
+                    double flownLength = length(flownPrefix(line, along));
+                    kept.addAll(cut.rest());
+                    vcuts++;
+                    if (TRACE) {
+                        System.out.println(String.format(Locale.ROOT, "  V字を切り落とし %s で繋ぎ直し",
+                                shortVec(cut.rest().get(0))));
+                    }
+                    line = kept;
+                    along = flownLength;
+                    continue;
+                }
+            }
+            line.addAll(extensionPoints.subList(1, extensionPoints.size()));
         }
         return new Flight(false, searches, searchMs, maxMs, budgetOuts, nodes, waitTicks, line,
                 line.get(line.size() - 1), "打ち切り");
@@ -258,47 +374,6 @@ class FlightSweepBenchTest {
         SearchBounds box = new SearchBounds(p.getX() - RENDER_RADIUS, minY, p.getZ() - RENDER_RADIUS,
                 p.getX() + RENDER_RADIUS, maxY, p.getZ() + RENDER_RADIUS);
         return new WindowedCells(cells, p, RENDER_RADIUS, box);
-    }
-
-    private static Vec3 detailTarget(Vec3 start, Vec3 goal, List<BlockPos> waypoints) {
-        if (waypoints.isEmpty() || start.distanceTo(goal) <= DETAIL_HORIZON_BLOCKS) {
-            return goal;
-        }
-        Vec3 target = null;
-        for (int i = nearest(waypoints, start) + 1; i < waypoints.size(); i++) {
-            if (Vec3.atCenterOf(waypoints.get(i)).distanceTo(start) > DETAIL_HORIZON_BLOCKS) {
-                break;
-            }
-            target = Vec3.atCenterOf(waypoints.get(i));
-        }
-        return target == null ? goal : target;
-    }
-
-    private static Vec3 extensionTarget(Vec3 tail, Vec3 goal, List<BlockPos> waypoints, double lead) {
-        if (tail.distanceTo(goal) <= lead) {
-            return goal;
-        }
-        Vec3 target = null;
-        for (int i = nearest(waypoints, tail) + 1; i < waypoints.size(); i++) {
-            if (Vec3.atCenterOf(waypoints.get(i)).distanceTo(tail) > lead) {
-                break;
-            }
-            target = Vec3.atCenterOf(waypoints.get(i));
-        }
-        return target != null ? target : goal;
-    }
-
-    private static int nearest(List<BlockPos> waypoints, Vec3 position) {
-        int best = -1;
-        double bestDistance = Double.MAX_VALUE;
-        for (int i = 0; i < waypoints.size(); i++) {
-            double d = Vec3.atCenterOf(waypoints.get(i)).distanceToSqr(position);
-            if (d < bestDistance) {
-                bestDistance = d;
-                best = i;
-            }
-        }
-        return best;
     }
 
     /** 全視界・重み1で、同じ始点から空中経路が最後に届いた点までの最適。 */
@@ -319,6 +394,84 @@ class FlightSweepBenchTest {
                     + Clearance.alongLine(grid, a, c, 12 * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK);
         }
         return total;
+    }
+
+    /** 線を辿る間に、それまでで最も目的地に近づいた所から水平に何ブロック遠ざかったか（最大）。 */
+    private static double worstRetreat(List<Vec3> line, Vec3 goal) {
+        double closest = Double.POSITIVE_INFINITY;
+        double worst = 0;
+        for (int i = 1; i < line.size(); i++) {
+            Vec3 a = line.get(i - 1);
+            Vec3 b = line.get(i);
+            int steps = Math.max(1, (int) Math.ceil(a.distanceTo(b) / 4.0));
+            for (int k = 0; k <= steps; k++) {
+                double left = horizontal(a.lerp(b, k / (double) steps), goal);
+                closest = Math.min(closest, left);
+                worst = Math.max(worst, left - closest);
+            }
+        }
+        return worst;
+    }
+
+    private static final double NEAR_SHIFT_BLOCKS = 8.0;
+
+    /** 2本の線の手前64ブロックが、どれだけ離れているか（片方の点からもう片方の線への最大距離）。 */
+    private static double nearShift(List<Vec3> before, List<Vec3> after) {
+        double worst = 0;
+        for (Vec3 p : samplesUpTo(after, 64.0)) {
+            double best = Double.POSITIVE_INFINITY;
+            for (Vec3 q : samplesUpTo(before, 96.0)) {
+                best = Math.min(best, p.distanceTo(q));
+            }
+            worst = Math.max(worst, best);
+        }
+        return worst;
+    }
+
+    private static List<Vec3> samplesUpTo(List<Vec3> line, double limit) {
+        List<Vec3> result = new ArrayList<>();
+        double walked = 0;
+        result.add(line.get(0));
+        for (int i = 1; i < line.size() && walked < limit; i++) {
+            Vec3 a = line.get(i - 1);
+            Vec3 b = line.get(i);
+            int steps = Math.max(1, (int) Math.ceil(a.distanceTo(b) / 2.0));
+            for (int k = 1; k <= steps && walked + a.distanceTo(b) * k / steps <= limit; k++) {
+                result.add(a.lerp(b, k / (double) steps));
+            }
+            walked += a.distanceTo(b);
+        }
+        return result;
+    }
+
+    /** 線の{@code along}の位置から末端まで（先頭はその位置）。 */
+    private static List<Vec3> ahead(List<Vec3> line, double along) {
+        List<Vec3> result = new ArrayList<>();
+        result.add(pointAt(line, along));
+        double walked = 0;
+        for (int i = 1; i < line.size(); i++) {
+            walked += line.get(i - 1).distanceTo(line.get(i));
+            if (walked > along) {
+                result.add(line.get(i));
+            }
+        }
+        return result;
+    }
+
+    /** 線の先頭から{@code along}の位置まで（末尾はその位置）。 */
+    private static List<Vec3> flownPrefix(List<Vec3> line, double along) {
+        List<Vec3> result = new ArrayList<>();
+        result.add(line.get(0));
+        double walked = 0;
+        for (int i = 1; i < line.size(); i++) {
+            walked += line.get(i - 1).distanceTo(line.get(i));
+            if (walked >= along) {
+                break;
+            }
+            result.add(line.get(i));
+        }
+        result.add(pointAt(line, along));
+        return result;
     }
 
     private static double length(List<Vec3> line) {
