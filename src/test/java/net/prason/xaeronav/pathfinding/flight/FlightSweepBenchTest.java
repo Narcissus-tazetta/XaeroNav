@@ -44,7 +44,8 @@ class FlightSweepBenchTest {
     private static final int MIN_BLOCKS = Integer.getInteger("xaeronav.sweepMin", 300);
     private static final int MAX_BLOCKS = Integer.getInteger("xaeronav.sweepMax", 700);
     private static final int SPREAD = Integer.getInteger("xaeronav.sweepSpread", 360);
-    private static final long SEED = Long.parseLong(System.getProperty("xaeronav.sweepSeed", "0"));
+    /** {@code random}なら実行ごとに変える。引いた値は出力の見出しに残すので、同じ組を後から再現できる。 */
+    private static final long SEED = seed(System.getProperty("xaeronav.sweepSeed", "0"));
     private static final String TAG = System.getProperty("xaeronav.sweepTag", "");
     /** 実機の描画距離15チャンク。 */
     private static final int RENDER_RADIUS = Integer.getInteger("xaeronav.window", 240);
@@ -120,12 +121,22 @@ class FlightSweepBenchTest {
                 opt.append(' ').append(shortVec(v));
             }
             log(out, opt.toString());
+            FlightRoute toGoal = new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), false,
+                    new SearchLimits(4_000_000, 120_000, 1.0), 12 * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK)
+                    .search(start, goal, CELL_BLOCKS * 1.5);
+            log(out, String.format(Locale.ROOT, "  全視界で目的地まで %s 末端%s 水平の残り%.0f", toGoal.termination(),
+                    toGoal.isEmpty() ? "-" : shortVec(toGoal.tail()),
+                    toGoal.isEmpty() ? Double.NaN : horizontal(toGoal.tail(), goal)));
         }
     }
 
     private static Vec3 parseVec(String s) {
         String[] v = s.split(",");
         return new Vec3(Double.parseDouble(v[0]) + 0.5, Double.parseDouble(v[1]), Double.parseDouble(v[2]) + 0.5);
+    }
+
+    private static long seed(String value) {
+        return value.equals("random") ? new Random().nextLong() : Long.parseLong(value);
     }
 
     private static List<String> boxes(String defaults) {
@@ -145,6 +156,8 @@ class FlightSweepBenchTest {
         double totalWaitTicks = 0;
         int totalRoutes = 0;
         int arrived = 0;
+        int failures = 0;
+        int unreachable = 0;
         for (String box : boxes) {
             FakeCells cells = RandomSweepBenchTest.load(DIR.resolve(box + ".txt.gz"), dim);
             SearchBounds b = cells.bounds();
@@ -161,17 +174,35 @@ class FlightSweepBenchTest {
                     : null;
             log(out, String.format(Locale.ROOT, "# 箱%s ルート%d本 種%d 格子%d 窓%d 重み%.2f", box,
                     routes.size(), SEED, CELL_BLOCKS, RENDER_RADIUS, WEIGHT));
-            if (!warmed) {
+            if (!warmed && !routes.isEmpty()) {
                 Vec3[] first = routes.get(0);
                 fly(cells, dim, map, first[0], first[1]);
                 warmed = true;
             }
             for (Vec3[] route : routes) {
-                Flight flight = fly(cells, dim, map, route[0], route[1]);
-                double optimal = SKIP_OPTIMAL ? Double.NaN : optimal(cells, route[0], flight.end());
-                double cost = cost(cells, flight.points());
                 totalRoutes++;
+                Flight flight;
+                double optimal;
+                double cost;
+                try {
+                    flight = fly(cells, dim, map, route[0], route[1]);
+                    optimal = SKIP_OPTIMAL ? Double.NaN : optimal(cells, route[0], flight.end());
+                    cost = cost(cells, flight.points());
+                } catch (RuntimeException | OutOfMemoryError e) {
+                    failures++;
+                    log(out, String.format(Locale.ROOT, "%s %s→%s 例外 %s", box, shortVec(route[0]),
+                            shortVec(route[1]), e));
+                    continue;
+                }
                 arrived += flight.arrived() ? 1 : 0;
+                // 着かなかった本は、全視界でも空から引き継ぎの距離まで寄れない（目的地が閉じた空間にある・
+                // 始点が閉じた空間にある）のか、寄れるのに案内が届かなかったのかを分けて残す
+                String reach = "";
+                if (!flight.arrived()) {
+                    boolean possible = reachable(cells, route[0], route[1]);
+                    unreachable += possible ? 0 : 1;
+                    reach = possible ? " 全視界なら届く" : " 全視界でも空から届かない";
+                }
                 totalSearchMs += flight.searchMs();
                 totalWaitTicks += flight.waitTicks();
                 log(out, String.format(Locale.ROOT,
@@ -179,12 +210,11 @@ class FlightSweepBenchTest {
                         box, shortVec(route[0]), shortVec(route[1]), horizontal(route[0], route[1]), flight.arrived(),
                         flight.searches(), flight.searchMs(), flight.maxMs(), flight.budgetOuts(), flight.nodes(),
                         flight.waitTicks() / 20.0, cost, cost / optimal, worstRetreat(flight.points(), route[1]),
-                        flight.note()));
+                        flight.note() + reach));
             }
         }
-        log(out, String.format(Locale.ROOT, "# 合計 %d本中%d本到達 探索計%.0fms 待ち計%.1f秒", totalRoutes, arrived,
-                totalSearchMs, totalWaitTicks / 20.0));
-
+        log(out, String.format(Locale.ROOT, "# 合計 %d本中%d本到達 例外%d 空から届かない%d 探索計%.0fms 待ち計%.1f秒 種%d",
+                totalRoutes, arrived, failures, unreachable, totalSearchMs, totalWaitTicks / 20.0, SEED));
     }
 
     /** 実機の段取りの記録。{@code end}は空中経路が最後に届いた点（最適と比べる相手）。 */
@@ -202,7 +232,6 @@ class FlightSweepBenchTest {
                 BlockPos.containing(goal), false);
         CoarseFlightField field = map == null ? null : CoarseFlightField.toward(
                 CoarseAirMap.from(map, cells.bounds().minY() + 10, 117), BlockPos.containing(goal), false);
-        FlightGuide guide = field == null ? FlightGuide.NONE : field::estimate;
         if (TRACE) {
             System.out.println("  粗い経路 " + (coarse == null ? "なし" : coarse.waypoints().size() + "点 到達="
                     + coarse.reachedGoal() + " " + coarse.waypoints()));
@@ -221,7 +250,7 @@ class FlightSweepBenchTest {
         FlightHorizon firstHorizon = new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN);
         long began = System.nanoTime();
         FlightRoute route = FlightRouter.route(view(cells, player, aim), player, aim, false, tuning(150_000),
-                firstHorizon, guide, () -> false);
+                firstHorizon, field, () -> false);
         double ms = (System.nanoTime() - began) / 1e6;
         searches++;
         searchMs += ms;
@@ -284,7 +313,7 @@ class FlightSweepBenchTest {
                 began = System.nanoTime();
                 FlightRoute replanned = FlightRouter.route(view(cells, player, goal), from, goal,
                         false, tuning(150_000), new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN),
-                        guide, () -> false);
+                        field, () -> false);
                 ms = (System.nanoTime() - began) / 1e6;
                 searches++;
                 replans++;
@@ -310,7 +339,7 @@ class FlightSweepBenchTest {
             began = System.nanoTime();
             FlightHorizon horizon = new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN);
             FlightRoute extension = FlightRouter.route(view(cells, player, target), tail, target, false,
-                    tuning(60_000), horizon, guide, () -> false);
+                    tuning(60_000), horizon, field, () -> false);
             ms = (System.nanoTime() - began) / 1e6;
             searches++;
             searchMs += ms;
@@ -329,7 +358,7 @@ class FlightSweepBenchTest {
                 blockedFrom = player;
                 continue;
             }
-            if (extension.budgetExhausted() && tail.distanceTo(grown) < MIN_EXTENSION_BLOCKS) {
+            if (!extension.complete() && tail.distanceTo(grown) < MIN_EXTENSION_BLOCKS) {
                 blockedAt = grown;
                 blockedFrom = player;
             } else {
@@ -374,6 +403,13 @@ class FlightSweepBenchTest {
         SearchBounds box = new SearchBounds(p.getX() - RENDER_RADIUS, minY, p.getZ() - RENDER_RADIUS,
                 p.getX() + RENDER_RADIUS, maxY, p.getZ() + RENDER_RADIUS);
         return new WindowedCells(cells, p, RENDER_RADIUS, box);
+    }
+
+    /** 全視界で、始点から目的地の引き継ぎの距離（{@link #HANDOFF_BLOCKS}）まで空から寄れるか。 */
+    private static boolean reachable(FakeCells cells, Vec3 start, Vec3 goal) {
+        return new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), false,
+                new SearchLimits(4_000_000, 120_000, 1.0), 12 * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK)
+                .search(start, goal, HANDOFF_BLOCKS).complete();
     }
 
     /** 全視界・重み1で、同じ始点から空中経路が最後に届いた点までの最適。 */

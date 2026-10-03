@@ -1,9 +1,12 @@
 package net.prason.xaeronav.pathfinding.flight;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.PriorityQueue;
+import java.util.function.ToDoubleFunction;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.cost.FlightCosts;
 
 /**
@@ -24,11 +27,21 @@ public final class CoarseFlightField {
     private static final int BAND_LINK_GAP_BLOCKS = 8;
     private static final double UNKNOWN_MULTIPLIER = 1.3;
 
+    /** チャンクを場から外すかどうか。 */
+    @FunctionalInterface
+    public interface ChunkFilter {
+        boolean test(int chunkX, int chunkZ);
+    }
+
+    private static final ChunkFilter NONE_EXCLUDED = (chunkX, chunkZ) -> false;
+
     private final CoarseAirMap map;
+    private final boolean rockets;
     private final double[] cost;
 
-    private CoarseFlightField(CoarseAirMap map, double[] cost) {
+    private CoarseFlightField(CoarseAirMap map, boolean rockets, double[] cost) {
         this.map = map;
+        this.rockets = rockets;
         this.cost = cost;
     }
 
@@ -39,13 +52,45 @@ public final class CoarseFlightField {
         if (!map.containsChunk(goalX, goalZ) || map.blocked(goalX, goalZ)) {
             return null;
         }
+        int goalState = state(map, goalX, goalZ, map.bandAt(goalX, goalZ, goal.getY()));
+        return new CoarseFlightField(map, rockets, solve(map, new int[] {goalState}, new double[] {0.0}, rockets,
+                NONE_EXCLUDED));
+    }
+
+    /**
+     * 同じ地図の上で、{@code excluded}のチャンクを一切通らずに{@code seeds}のどれかへ着く残りコストの場。
+     * 各点から先の残りは{@code seedCost}で与える。地図の外・壁の中・外したチャンクの点は使わない。
+     */
+    public CoarseFlightField avoiding(List<Vec3> seeds, ToDoubleFunction<Vec3> seedCost, ChunkFilter excluded) {
+        int[] states = new int[seeds.size()];
+        double[] costs = new double[seeds.size()];
+        int count = 0;
+        for (Vec3 seed : seeds) {
+            int chunkX = (int) Math.floor(seed.x) >> 4;
+            int chunkZ = (int) Math.floor(seed.z) >> 4;
+            if (!map.containsChunk(chunkX, chunkZ) || map.blocked(chunkX, chunkZ) || excluded.test(chunkX, chunkZ)) {
+                continue;
+            }
+            states[count] = state(map, chunkX, chunkZ, map.bandAt(chunkX, chunkZ, (int) Math.floor(seed.y)));
+            costs[count] = seedCost.applyAsDouble(seed);
+            count++;
+        }
+        return new CoarseFlightField(map, rockets, solve(map, Arrays.copyOf(states, count),
+                Arrays.copyOf(costs, count), rockets, excluded));
+    }
+
+    private static double[] solve(CoarseAirMap map, int[] seedStates, double[] seedCosts, boolean rockets,
+                                  ChunkFilter excluded) {
         double[] cost = new double[map.chunksX() * map.chunksZ() * CoarseAirMap.MAX_BANDS];
         Arrays.fill(cost, Double.POSITIVE_INFINITY);
-        int goalState = state(map, goalX, goalZ, map.bandAt(goalX, goalZ, goal.getY()));
-        cost[goalState] = 0.0;
         PriorityQueue<long[]> open = new PriorityQueue<>((a, b) -> Double.compare(
                 Double.longBitsToDouble(a[0]), Double.longBitsToDouble(b[0])));
-        open.add(new long[] {Double.doubleToRawLongBits(0.0), goalState});
+        for (int i = 0; i < seedStates.length; i++) {
+            if (seedCosts[i] < cost[seedStates[i]]) {
+                cost[seedStates[i]] = seedCosts[i];
+                open.add(new long[] {Double.doubleToRawLongBits(seedCosts[i]), seedStates[i]});
+            }
+        }
         while (!open.isEmpty()) {
             long[] top = open.poll();
             int current = (int) top[1];
@@ -66,7 +111,8 @@ public final class CoarseFlightField {
                     }
                     int fromX = chunkX + dx;
                     int fromZ = chunkZ + dz;
-                    if (!map.containsChunk(fromX, fromZ) || map.blocked(fromX, fromZ)) {
+                    if (!map.containsChunk(fromX, fromZ) || map.blocked(fromX, fromZ)
+                            || excluded.test(fromX, fromZ)) {
                         continue;
                     }
                     double horizontal = Math.sqrt(dx * dx + dz * dz) * CELL_BLOCKS;
@@ -87,7 +133,7 @@ public final class CoarseFlightField {
                 }
             }
         }
-        return new CoarseFlightField(map, cost);
+        return cost;
     }
 
     /**

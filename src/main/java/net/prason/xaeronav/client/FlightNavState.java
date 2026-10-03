@@ -30,7 +30,6 @@ import net.prason.xaeronav.pathfinding.flight.AirGrid;
 import net.prason.xaeronav.pathfinding.flight.CoarseAirMap;
 import net.prason.xaeronav.pathfinding.flight.CoarseFlightField;
 import net.prason.xaeronav.pathfinding.flight.CoarseFlightRouter;
-import net.prason.xaeronav.pathfinding.flight.FlightGuide;
 import net.prason.xaeronav.pathfinding.flight.FlightHorizon;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
@@ -384,7 +383,7 @@ final class FlightNavState {
                     // 出るかは粗い地図の残りコストの場が回り道ごと見積もる。手前の中間目標を狙う形は、
                     // 目標の点が岩の中に落ちるたびに予算を焼き、引き直しと組み合わせると往復した
                     FlightRoute solved = routing
-                            ? FlightRouter.route(view, start, goalVec, rockets, tuning, horizon, guide(field),
+                            ? FlightRouter.route(view, start, goalVec, rockets, tuning, horizon, field,
                                     () -> jobGeneration != myJob)
                             : FlightRoute.NONE;
                     // 曲がり点線は経路が引けなかったときだけ要る。引けているときに重ねると、
@@ -601,10 +600,6 @@ final class FlightNavState {
                 CoarseFlightField.toward(air, goal, rockets));
     }
 
-    private static FlightGuide guide(@Nullable CoarseFlightField field) {
-        return field == null ? FlightGuide.NONE : field::estimate;
-    }
-
     /**
      * その長距離ルートをまだ辿れているか。辿れている限り引き直さない——同じ地図から同じ結果が
      * 出るだけで、メインスレッドの地図読みを1回焼くことにしかならない。
@@ -658,7 +653,7 @@ final class FlightNavState {
         // 狙うのは目的地そのもの（recalculateと同じ理由）
         Vec3 target = Vec3.atCenterOf(currentGoal);
         CoarseRoute existing = coarseRoute;
-        FlightGuide guide = guide(existing != null && existing.goal().equals(currentGoal) ? existing.field() : null);
+        CoarseFlightField field = existing != null && existing.goal().equals(currentGoal) ? existing.field() : null;
         if (tail.distanceTo(target) < MIN_EXTENSION_BLOCKS) {
             // 末端がもう目的地のすぐ手前。伸ばす先が無い
             extendBlockedAt = tail;
@@ -690,7 +685,7 @@ final class FlightNavState {
         List<Vec3> ahead = ahead(source, segmentAtStart, player.position());
         CompletableFuture
                 .supplyAsync(() -> {
-                    FlightRoute grown = FlightRouter.route(view, tail, target, rockets, tuning, horizon, guide,
+                    FlightRoute grown = FlightRouter.route(view, tail, target, rockets, tuning, horizon, field,
                             () -> jobGeneration != myJob);
                     if (grown.isEmpty()) {
                         return new Extension(grown, segmentAtStart, null);
@@ -726,9 +721,10 @@ final class FlightNavState {
                             extendBlockedFrom = from;
                             return;
                         }
-                        if (extension.budgetExhausted() && tail.distanceTo(grown) < MIN_EXTENSION_BLOCKS) {
-                            // 予算を焼き切って数十ブロックしか伸びなかった。この末端から投げ直しても
-                            // 同じことの繰り返しになるので、プレイヤーが進んで地形が変わるまで待つ。
+                        if (!extension.complete() && tail.distanceTo(grown) < MIN_EXTENSION_BLOCKS) {
+                            // 予算を焼き切るか、先が無いと分かって数十ブロックしか伸びなかった。この末端から
+                            // 投げ直しても同じことの繰り返しになるので、プレイヤーが進んで地形が変わるまで待つ。
+                            // 先が無いときに待たないと、閉じた空間の中で2点の間を10tickごとに引き直し続ける。
                             // 伸びたぶんは捨てずに繋ぐ
                             extendBlockedAt = extension.tail();
                             extendBlockedFrom = from;
@@ -769,7 +765,7 @@ final class FlightNavState {
         FlightTuning tuning = tuning();
         FlightHorizon horizon = loadedHorizon(player.position(), renderRadius);
         CoarseRoute existing = coarseRoute;
-        FlightGuide guide = guide(existing != null && existing.goal().equals(currentGoal) ? existing.field() : null);
+        CoarseFlightField field = existing != null && existing.goal().equals(currentGoal) ? existing.field() : null;
         BlockPos from = player.blockPosition();
         ResourceKey<Level> dimension = level.dimension();
         ticksSinceRecalc = 0;
@@ -777,7 +773,7 @@ final class FlightNavState {
         computing = true;
         long startedAt = System.nanoTime();
         CompletableFuture
-                .supplyAsync(() -> FlightRouter.route(view, start, goalVec, rockets, tuning, horizon, guide,
+                .supplyAsync(() -> FlightRouter.route(view, start, goalVec, rockets, tuning, horizon, field,
                         () -> jobGeneration != myJob), executor)
                 .whenComplete((solved, error) -> Minecraft.getInstance().execute(() -> {
                     if (jobGeneration != myJob) {

@@ -42,7 +42,7 @@ public final class FlightPathfinder {
     private static final double MIN_USEFUL_PATH_BLOCKS = 8.0;
 
     /** 始点・目的地が格子の目に乗っていないときに、飛行可なセルを探す半径（セル数）。 */
-    private static final int SNAP_CELL_RADIUS = 3;
+    static final int SNAP_CELL_RADIUS = 3;
 
     /**
      * ゴール領域の垂直方向の許容幅（ブロック）。<b>水平半径より広く固定する</b>。
@@ -53,7 +53,7 @@ public final class FlightPathfinder {
      * ために毎回ノード上限を使い切る——地形が複雑なほど当たりやすく、経路が伸びなくなる。
      * 歩行の{@code AStarPathfinder.GOAL_VERTICAL_TOLERANCE_BLOCKS}とまったく同じ判断。
      */
-    private static final int GOAL_VERTICAL_TOLERANCE_BLOCKS = 24;
+    static final int GOAL_VERTICAL_TOLERANCE_BLOCKS = 24;
 
     private static final double MIN_IMPROVEMENT = 0.01;
 
@@ -183,7 +183,7 @@ public final class FlightPathfinder {
      * ブロック解像度では岩の中にあることが珍しくない——そのままだと領域ゴールでも届かず、
      * 毎回ノード上限を焼いてから部分経路を返すことになる。
      */
-    private static Vec3 snappedGoal(AirGrid grid, Vec3 target) {
+    static Vec3 snappedGoal(AirGrid grid, Vec3 target) {
         long goalCell = grid.nearestFlyable(target, SNAP_CELL_RADIUS);
         return goalCell == AirGrid.NONE ? target
                 : grid.center(BlockPos.getX(goalCell), BlockPos.getY(goalCell), BlockPos.getZ(goalCell));
