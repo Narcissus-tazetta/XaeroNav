@@ -1,6 +1,7 @@
 package net.prason.xaeronav.pathfinding.async;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import net.minecraft.core.BlockPos;
@@ -107,6 +108,45 @@ class PathfindingExecutorLooseningTest {
         PathResult result = new PathfindingExecutor().submit(cells, start, goal, LIMITS, true, 0).get();
 
         assertTrue(result.complete(), "小さい島からは元から渡れていた: " + result.termination());
+    }
+
+    /** 上限を厳守する設定では、緩めれば渡れる奈落でも渡らず、上限のせいだと結果に残す。 */
+    @Test
+    void strictLimitsNeverLoosenAndSayWhy() throws Exception {
+        FakeCells cells = twoIslands(20).strictLimits(true);
+        BlockPos start = new BlockPos(20, 61, 20);
+        BlockPos goal = new BlockPos(20 + VOID_GAP + 5, 61, 20);
+
+        PathResult result = new PathfindingExecutor().submit(cells, start, goal, LIMITS, true, 0).get();
+
+        assertFalse(result.complete(), "上限を超える橋を架けて渡ってしまった");
+        assertTrue(longestBridgeRun(result) <= BRIDGE_RUN_CAP, "上限を超える橋: " + longestBridgeRun(result));
+        assertEquals(PathResult.Termination.EXHAUSTED, result.termination());
+        assertTrue(result.limitsHeld(), "上限が手を捨てたことが結果に残っていない");
+    }
+
+    /** 上限の内側で届くなら、厳守の設定でも普通に届き、上限のせいとは言わない。 */
+    @Test
+    void strictLimitsStillReachWhatFitsWithinThem() throws Exception {
+        int narrowGap = BRIDGE_RUN_CAP - 10;
+        SearchBounds bounds = new SearchBounds(-8, 20, -8, 40 + narrowGap + 24, 93, 48);
+        FakeCells cells = FakeCells.empty(bounds).canPlaceBlocks(true).maxBridgeRunBlocks(BRIDGE_RUN_CAP)
+                .strictLimits(true);
+        for (int z = 0; z <= 40; z++) {
+            for (int x = 0; x <= 20; x++) {
+                cells.set(x, 60, z, FakeCells.BEDROCK);
+            }
+            for (int x = 21 + narrowGap; x <= 40 + narrowGap; x++) {
+                cells.set(x, 60, z, FakeCells.BEDROCK);
+            }
+        }
+        BlockPos start = new BlockPos(20, 61, 20);
+        BlockPos goal = new BlockPos(20 + narrowGap + 5, 61, 20);
+
+        PathResult result = new PathfindingExecutor().submit(cells, start, goal, LIMITS, true, 0).get();
+
+        assertTrue(result.complete(), "上限の内側で渡れるはず: " + result.termination());
+        assertFalse(result.limitsHeld());
     }
 
     /** 出発の島 → 奈落{@link #VOID_GAP}マス → 同じ高さの島。始点は出発の島の崖ぎわに置く。 */

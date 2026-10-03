@@ -579,6 +579,7 @@ public final class PathfindingExecutor {
         // チェーン全体の打ち切り理由は最後に解いた区間のもの。全区間が「範囲内に道が無い」で
         // 終わったときだけEXHAUSTEDのまま残り、本物の詰みとして呼び出し側に伝わる
         PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
+        boolean limitsHeld = false;
         BlockPos legStart = StanceFinder.resolveStart(view, start);
         for (int i = 0; i < rawLegGoals.size(); i++) {
             long remainingMillis = chainDeadline - MonotonicTime.millis();
@@ -639,6 +640,7 @@ public final class PathfindingExecutor {
             boolean lastLeg = i == rawLegGoals.size() - 1;
             if (!legResult.complete()) {
                 termination = legResult.termination();
+                limitsHeld = legResult.limitsHeld();
             }
 
             if (legResult.complete()) {
@@ -668,7 +670,7 @@ public final class PathfindingExecutor {
             steps.addAll(bestPartial);
         }
         return new PathResult(steps, complete ? PathResult.Termination.REACHED_GOAL : termination,
-                totalExpanded, totalDistinct);
+                totalExpanded, totalDistinct, !complete && limitsHeld);
     }
 
     /**
@@ -745,6 +747,12 @@ public final class PathfindingExecutor {
             if (greedier.complete()) {
                 return PathSafetyChecker.annotate(view, greedier);
             }
+        }
+        if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED && capBlocked
+                && view.strictLimits()) {
+            // 上限は「必要なら緩める希望」ではなく「守る線」だと設定で言われている。緩めれば届くかもしれない
+            // ことだけを結果に残し、届かなかった理由の表示に回す
+            return PathSafetyChecker.annotate(view, result.withLimitsHeld());
         }
         if (!result.complete() && result.termination() != PathResult.Termination.CANCELLED && capBlocked) {
             // 上限のせいで捨てた移動がある。詰むよりは長い橋・息継ぎの要る潜水の方がマシ、という

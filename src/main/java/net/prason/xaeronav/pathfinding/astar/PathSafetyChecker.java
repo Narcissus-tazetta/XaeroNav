@@ -57,7 +57,8 @@ public final class PathSafetyChecker {
                     : new PathStep(step.pos(), step.movement(), step.cost(), step.bodyCells(), step.digCells(),
                             risk, step.placedBlockPos()));
         }
-        return new PathResult(annotated, result.termination(), result.expandedNodes(), result.distinctNodes());
+        return new PathResult(annotated, result.termination(), result.expandedNodes(), result.distinctNodes(),
+                result.limitsHeld());
     }
 
     /**

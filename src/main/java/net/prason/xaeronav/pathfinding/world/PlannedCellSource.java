@@ -125,6 +125,11 @@ public final class PlannedCellSource implements CellSource {
     }
 
     @Override
+    public boolean strictLimits() {
+        return source.strictLimits();
+    }
+
+    @Override
     public double minDescentTicksPerBlock() {
         return source.minDescentTicksPerBlock();
     }

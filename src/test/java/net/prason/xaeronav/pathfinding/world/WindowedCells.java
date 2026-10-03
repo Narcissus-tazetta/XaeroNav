@@ -112,6 +112,11 @@ public record WindowedCells(CellSource all, BlockPos player, int radius, SearchB
     }
 
     @Override
+    public boolean strictLimits() {
+        return all.strictLimits();
+    }
+
+    @Override
     public double minDescentTicksPerBlock() {
         return all.minDescentTicksPerBlock();
     }

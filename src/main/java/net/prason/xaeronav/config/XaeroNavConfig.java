@@ -56,6 +56,7 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue costToGoGuideEnabled;
     private final NavConfigSpec.BoolValue fallDamageToleranceEnabled;
     private final NavConfigSpec.BoolValue avoidRiskyJumps;
+    private final NavConfigSpec.BoolValue strictLimits;
     private final NavConfigSpec.IntValue detailHorizonBlocks;
     private final NavConfigSpec.IntValue maxBridgeRunBlocks;
     private final NavConfigSpec.IntValue maxLavaBridgeRunBlocks;
@@ -138,12 +139,20 @@ public final class XaeroNavConfig {
                         "trueでも「絶対に跳ばない」ではない——回り込める道が一本も無いと分かったときだけ、",
                         "詰み回避として跳躍を解禁する。同じ島の中なら外周を回る方が安全だが、",
                         "島と島の間では跳ぶしかない、という使い分けをこれ一つで表す",
-                        "跳ぶことになった区間には警告色が付く",
+                        "跳ぶことになった区間には警告色が付く（strictLimitsがtrueなら解禁しない）",
                         "fallDamageToleranceEnabledとは意図的に扱いが違う。あちらはoffなら詰み回避でも",
                         "開けない（痛い落下を望まないという好みで、断られた以上は代案が要らない）が、",
                         "こちらの代案は「経路が出ない」しかない",
                         "falseにすると従来どおり、奈落や高所の隙間も普通に跳ぶ経路が出る")
                 .define("avoidRiskyJumps", true);
+
+        strictLimits = spec
+                .comment("橋の長さ・潜水の長さ・落下ダメージ・危険な跳躍・持ち物のブロック数の上限を、",
+                        "経路が一本も引けないときにも緩めないか",
+                        "falseなら、上限の内側に道が無いときだけ上限を緩めて探し直し、警告付きの経路を出す",
+                        "（詰むよりは長い橋・息継ぎの要る潜水・奈落の跳躍の方がマシ、という優先順）",
+                        "trueなら上限を超える経路は出さず、HUDが「上限の内側には道が無い」と知らせる")
+                .define("strictLimits", false);
 
         fallDamageToleranceEnabled = spec
                 .comment("落下ダメージを受ける降下を経路に含めることを許可するか",
@@ -461,6 +470,14 @@ public final class XaeroNavConfig {
         avoidRiskyJumps.set(value);
     }
 
+    public boolean strictLimits() {
+        return strictLimits.get();
+    }
+
+    public void setStrictLimits(boolean value) {
+        strictLimits.set(value);
+    }
+
     public void setFallDamageToleranceEnabled(boolean value) {
         fallDamageToleranceEnabled.set(value);
     }
@@ -565,7 +582,8 @@ public final class XaeroNavConfig {
     public MovementOptions movementOptions() {
         return new MovementOptions(diggingEnabled(), bridgingEnabled(), jumpGapEnabled(), lavaBridgingEnabled(),
                 maxBridgeRunBlocks(), maxLavaBridgeRunBlocks(), maxVoidBridgeRunBlocks(), maxSubmergedTicks(),
-                fallDamageToleranceEnabled(), avoidRiskyJumps(), blockBudgetEnabled(), blockBudgetReserve());
+                fallDamageToleranceEnabled(), avoidRiskyJumps(), blockBudgetEnabled(), blockBudgetReserve(),
+                strictLimits());
     }
 
     public boolean blockBudgetEnabled() {

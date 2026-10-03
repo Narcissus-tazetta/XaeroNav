@@ -124,7 +124,7 @@ final class StuckTracker {
         if (stalledSearches < SEARCH_STREAK || reason != null) {
             return;
         }
-        reason = classify(result.termination(), routeUnmapped);
+        reason = classify(result, routeUnmapped);
         pendingNotice = reason;
         XaeroNav.LOGGER.info("XaeroNav: 目的地へ行けないと判断しました (理由={}, 最接近={}ブロック, 目的地={})",
                 reason, Math.round(bestApproachBlocks), currentGoal.toShortString());
@@ -132,15 +132,19 @@ final class StuckTracker {
 
     /**
      * 詰みの理由を、確度の高い順に見て決める。次に確かなのが{@code EXHAUSTED}（探索範囲の中に
-     * 到達手段が無いことの証明）で、残りは資源不足。
+     * 到達手段が無いことの証明。上限を厳守したならその内側に限った証明）で、残りは資源不足。
      */
-    private static PathfindingState.StuckReason classify(PathResult.Termination termination, boolean routeUnmapped) {
+    private static PathfindingState.StuckReason classify(PathResult result, boolean routeUnmapped) {
         if (routeUnmapped) {
             return PathfindingState.StuckReason.UNMAPPED;
         }
-        return termination == PathResult.Termination.EXHAUSTED
-                ? PathfindingState.StuckReason.NO_WAY_THROUGH
-                : PathfindingState.StuckReason.SEARCH_TOO_HARD;
+        if (result.termination() != PathResult.Termination.EXHAUSTED) {
+            return PathfindingState.StuckReason.SEARCH_TOO_HARD;
+        }
+        // 舐め尽くしても上限が捨てた手は試していない。「道が無い」と言うと上限を緩めても無駄に聞こえる
+        return result.limitsHeld()
+                ? PathfindingState.StuckReason.LIMITS_HELD
+                : PathfindingState.StuckReason.NO_WAY_THROUGH;
     }
 
     /**

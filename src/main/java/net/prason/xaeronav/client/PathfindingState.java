@@ -1999,7 +1999,7 @@ public final class PathfindingState {
                     // この付近では中継を諦め、本来の目的地へ直接向かう（次tickで引き直される）
                     surfaceLegFailedAt = start;
                     PathResult withheld = new PathResult(List.of(), result.termination(),
-                            result.expandedNodes(), result.distinctNodes());
+                            result.expandedNodes(), result.distinctNodes(), result.limitsHeld());
                     noteRouteRegression(trigger, forced, start, currentGoal, withheld);
                     displayed = new DisplayedPath(withheld, PathMode.TO_SURFACE, -1);
                     return;
@@ -3461,7 +3461,9 @@ public final class PathfindingState {
         /** 資源を使い切っても近づけない。地形が複雑すぎて詳細探索が解き切れない。 */
         SEARCH_TOO_HARD("hud.xaeronav.unreachable_too_hard"),
         /** 粗い地図（Xaeroの地図データ）の上で、目的地まで繋がっていない。 */
-        UNMAPPED("hud.xaeronav.unreachable_unmapped");
+        UNMAPPED("hud.xaeronav.unreachable_unmapped"),
+        /** 設定の上限の内側には到達手段が無い。上限を厳守する設定なので緩めていない。 */
+        LIMITS_HELD("hud.xaeronav.unreachable_limits");
 
         private final String hintKey;
 

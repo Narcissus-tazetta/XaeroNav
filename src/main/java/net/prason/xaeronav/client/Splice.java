@@ -353,7 +353,7 @@ final class Splice {
             segments.add(new PathfindingState.PathSegment(folded.steps().size() - 1, shown.waypointIndex()));
         }
         PathResult combined = new PathResult(List.copyOf(folded.steps()), shown.result().termination(),
-                splice.expandedNodes(), splice.distinctNodes());
+                splice.expandedNodes(), splice.distinctNodes(), shown.result().limitsHeld());
         return new PathfindingState.DisplayedPath(combined, shown.mode(), shown.waypointIndex(),
                 List.copyOf(segments));
     }

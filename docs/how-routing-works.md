@@ -370,6 +370,8 @@ If a normal search does not get there, the search widens step by step (`Pathfind
    - falls that deal damage, only if enabled in the config, up to half your health
 
 Routes found this way mark their risky stretches with warning colors.
+With `strictLimits` set to `true` this step never runs. When nothing fits within the limits no route is
+shown, and the HUD says no way exists within the limits rather than no way at all.
 
 ## Getting out from underground
 

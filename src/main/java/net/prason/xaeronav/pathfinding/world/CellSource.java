@@ -152,6 +152,12 @@ public interface CellSource {
     boolean avoidRiskyJumps();
 
     /**
+     * 上限（橋の連続長・潜水・落下ダメージ・危険な跳躍・持ち物の数）を、経路が一本も引けないときにも
+     * 緩めないか。緩めないと届かないなら、経路は届かないまま返り{@code PathResult#limitsHeld}が立つ。
+     */
+    boolean strictLimits();
+
+    /**
      * この探索で生成されうる下降移動のうち、1ブロックあたり最も安いもの（tick）。
      * {@link net.prason.xaeronav.pathfinding.astar.Heuristic}の下降成分の下限に使う。
      *

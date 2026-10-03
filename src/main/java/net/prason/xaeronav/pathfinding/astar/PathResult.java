@@ -10,11 +10,23 @@ import java.util.List;
  * @param distinctNodes 探索が触れた異なるセルの数。{@code expandedNodes}がこれを大きく上回るときは、
  *                      同じセルを何度も展開し直している（重み付きヒューリスティックで確定済みノードが
  *                      openへ戻る）。両者を並べないと、この空回りと純粋な探索範囲の広さを区別できない
+ * @param limitsHeld    設定の上限（橋の長さ・潜水・落下ダメージ・危険な跳躍・持ち物の数）が手を捨て、
+ *                      {@code strictLimits}のため緩めずに終えたか。届かなかった理由を「道が無い」と
+ *                      「上限の内側に道が無い」とで言い分けるのに使う
  */
-public record PathResult(List<PathStep> steps, Termination termination, int expandedNodes, int distinctNodes) {
+public record PathResult(List<PathStep> steps, Termination termination, int expandedNodes, int distinctNodes,
+                         boolean limitsHeld) {
 
     public PathResult {
         steps = List.copyOf(steps);
+    }
+
+    public PathResult(List<PathStep> steps, Termination termination, int expandedNodes, int distinctNodes) {
+        this(steps, termination, expandedNodes, distinctNodes, false);
+    }
+
+    public PathResult withLimitsHeld() {
+        return new PathResult(steps, termination, expandedNodes, distinctNodes, true);
     }
 
     /** 探索の打ち切り理由。 */
