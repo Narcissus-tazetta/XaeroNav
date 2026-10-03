@@ -474,6 +474,16 @@ public final class ActionCosts {
     public static final double VOID_BRIDGE_PENALTY_TICKS = LAVA_BRIDGE_PENALTY_TICKS;
 
     /**
+     * 横が溶岩・奈落・致死落差のマスを歩いて踏む1手あたりの割増（tick）。人間は疾走の惰性やラグで
+     * 横へずれるので、縁をなめる最短は実際には危ない。
+     *
+     * <p><b>禁止ではなく小さな値段にする。</b>ネザーの細い通路やエンドの島の縁では縁を歩く以外に道が無く、
+     * 通行不能にすると経路が消えるか大回りになる。縁から1マス離れる手間は斜め2手ぶん（約0.83マス）なので、
+     * 半マス分なら縁に2手以上沿う区間だけが1マス内側へ寄る。
+     */
+    public static final double EDGE_HAZARD_PENALTY_TICKS = SPRINT_ONE_BLOCK * 0.5;
+
+    /**
      * 足場を外したときに落ちる高さに応じた危険料（tick）。橋を1マス架けるのと、隙間を1マス跳び越すのが
      * 共有する。落差{@code dropBlocks}は「足を置く高さの1つ下から床までの空きマス数」で、
      * 底が無いなら{@code fatalFallBlocks}以上を渡す。

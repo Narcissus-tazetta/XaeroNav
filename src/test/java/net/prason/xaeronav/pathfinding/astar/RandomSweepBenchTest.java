@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMapBuilder;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
@@ -154,14 +155,16 @@ public class RandomSweepBenchTest {
                 List<PathStep> steps = trace.steps();
                 double lower = Heuristic.estimate(start.getX(), start.getY(), start.getZ(), goal.getX(), goal.getY(), goal.getZ());
                 double cost = steps.isEmpty() ? Double.POSITIVE_INFINITY : ProgressiveWalk.cost(steps);
+                int edge = edgeSteps(cells, start, steps);
                 log(out, String.format(Locale.ROOT,
-                        "%s %s→%s 直線%.0f 到達=%s 値段%.0f 下限比%.2f 手%d 後退%.0f 重複%d 描き変わり%d(足元%d) 繋ぎ目%d ガイド無し区間%d 空のガイド%d 置く%d 掘る%d %ds %s",
+                        "%s %s→%s 直線%.0f 到達=%s 値段%.0f 下限比%.2f 手%d 後退%.0f 重複%d 描き変わり%d(足元%d) 繋ぎ目%d ガイド無し区間%d 空のガイド%d 置く%d 掘る%d 縁%d 割増抜き%.0f %ds %s",
                         box, start.toShortString(), goal.toShortString(), ProgressiveWalk.horizontal(start, goal),
                         !steps.isEmpty(), cost, cost / lower, steps.size(), worstRetreat(steps, goal),
                         ProgressiveWalk.selfOverlaps(steps), trace.redraws(), trace.nearRedraws(), trace.joints().size(),
                         ProgressiveWalk.UNGUIDED_LEGS.get(), unguided[0],
                         steps.stream().filter(s -> s.placedBlockPos() != null).count(),
-                        steps.stream().filter(PathStep::digging).count(), secs, trace.stopped()));
+                        steps.stream().filter(PathStep::digging).count(), edge, cost - edge * ActionCosts.EDGE_HAZARD_PENALTY_TICKS,
+                        secs, trace.stopped()));
             }
         }
     }
@@ -283,6 +286,60 @@ public class RandomSweepBenchTest {
             }
         }
         return true;
+    }
+
+    /**
+     * 横が溶岩・奈落・致死落差のマスへ歩いて着いた手の数（{@code AStarPathfinder#edgeHazardPenalty}と同じ判定）。
+     * 落下・跳躍・橋は除くため、水平1マス以内・上下1マス以内の手だけを数える。
+     */
+    private static int edgeSteps(FakeCells cells, BlockPos start, List<PathStep> steps) {
+        int count = 0;
+        BlockPos prev = start;
+        for (PathStep step : steps) {
+            BlockPos pos = step.pos();
+            boolean walk = switch (step.movement()) {
+                case TRAVERSE, ASCEND, DESCEND -> true;
+                default -> false;
+            };
+            if (walk && !step.bridging() && step.placedBlockPos() == null
+                    && Math.abs(pos.getX() - prev.getX()) <= 1 && Math.abs(pos.getZ() - prev.getZ()) <= 1
+                    && Math.abs(pos.getY() - prev.getY()) <= 1 && deadlyBeside(cells, pos)) {
+                count++;
+            }
+            prev = pos;
+        }
+        return count;
+    }
+
+    private static boolean deadlyBeside(FakeCells cells, BlockPos pos) {
+        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int[] d : dirs) {
+            int x = pos.getX() + d[0];
+            int y = pos.getY();
+            int z = pos.getZ() + d[1];
+            long feet = cells.cell(x, y, z);
+            if (CellData.lava(feet) || CellData.lava(cells.cell(x, y + 1, z))) {
+                return true;
+            }
+            if (!CellData.passableEmpty(feet)) {
+                continue;
+            }
+            int below = y - 1;
+            while (below >= y - ColumnScans.SCAN_DEPTH && CellData.passableEmpty(cells.cell(x, below, z))) {
+                below--;
+            }
+            long hit = cells.cell(x, below, z);
+            if (!CellData.present(hit)) {
+                if (!cells.isInBounds(x, below, z)) {
+                    return true;
+                }
+                continue;
+            }
+            if (CellData.lava(hit) || (!CellData.water(hit) && y - below - 1 >= cells.fatalFallBlocks())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static double worstRetreat(List<PathStep> steps, BlockPos goal) {

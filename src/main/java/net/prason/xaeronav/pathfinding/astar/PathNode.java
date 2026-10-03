@@ -112,6 +112,12 @@ final class PathNode {
      */
     boolean closed;
 
+    /**
+     * 横に踏み外したら死ぬ場所があるか（{@code AStarPathfinder#edgeHazardPenalty}の覚え書き）。0は未判定・1は無し・2は有り。
+     * 1セルへは周りの多くの手から着くので、手ごとに周りを読み直すとネザーのランダム経路検査が約1割遅かった。
+     */
+    byte edgeHazard;
+
     PathNode(int x, int y, int z, boolean boating, double estimatedCostToGoal) {
         this(x, y, z, boating, estimatedCostToGoal, false);
     }

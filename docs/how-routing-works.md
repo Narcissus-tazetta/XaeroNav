@@ -106,6 +106,10 @@ Digging costs roughly 7× sprinting and bridging roughly 11×. That is why route
 obstacles when they reasonably can, and only dig or bridge where going around would be a large
 detour.
 
+A walking step that lands right next to lava, the void, or a fatal drop costs an extra half block.
+Where there is room, routes keep one block away from such edges; on narrow ledges with no other
+way they still walk along the edge.
+
 Code: `pathfinding/cost/ActionCosts.java`, `DigCost.java`.
 
 ## The detailed search (A\*)

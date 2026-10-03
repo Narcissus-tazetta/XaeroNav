@@ -69,7 +69,8 @@ public final class SectionMoves {
             boolean surfacing = ty > fy && Math.abs(tx - fx) + Math.abs(tz - fz) <= 1;
             boolean submerged = !surfacing && CellData.water(cells.cell(tx, ty + 1, tz));
             sink.edge(BlockPos.asLong(fx, fy, fz), BlockPos.asLong(tx, ty, tz),
-                    (float) (submerged ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost));
+                    (float) ((submerged ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost)
+                            + closure.edgeHazardPenalty(kind, tx, ty, tz)));
         });
         return closure.exhaust(seeds.elements(), seeds.size(), goalX, goalZ, cancelled) >= 0;
     }
