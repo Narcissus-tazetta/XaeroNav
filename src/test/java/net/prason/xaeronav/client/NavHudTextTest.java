@@ -1,6 +1,7 @@
 package net.prason.xaeronav.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import org.junit.jupiter.api.Test;
 
@@ -17,10 +18,15 @@ class NavHudTextTest {
     @Test
     void arrivalTextDistinguishesDestinationSurfaceAndIntermediateEnds() {
         assertEquals("hud.xaeronav.arriving",
-                NavHud.endpointKey(false, true));
+                NavHud.endpointKey(false, true, false));
         assertEquals("hud.xaeronav.surface_ahead",
-                NavHud.endpointKey(true, false));
+                NavHud.endpointKey(true, false, false));
         assertEquals("hud.xaeronav.route_continues",
-                NavHud.endpointKey(false, false));
+                NavHud.endpointKey(false, false, false));
+    }
+
+    @Test
+    void aStuckRouteDoesNotPromiseThatGuidanceContinues() {
+        assertNull(NavHud.endpointKey(false, false, true));
     }
 }

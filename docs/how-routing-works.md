@@ -262,7 +262,7 @@ installed), these layers are unavailable and guidance works from loaded chunks o
 - Chunks missing from the map are not treated as walls; they cost 1.6× known land. A destination
   across unvisited land still gets a route, but a known detour wins if it is only somewhat longer.
 - The output is a **chain of waypoints**, one every 4 chunks (64 blocks). It is also the dotted line
-  on the map and the HUD.
+  on the map and feeds the HUD's time estimate.
 
 ### Layer 2: corridor refinement (`CorridorLegSolver`)
 
@@ -304,7 +304,7 @@ In the Nether the navigation graph waits for the 3D coarse layer: with only a st
 the window, it did worse than the 3D coarse layer alone.
 
 Even when the graph aims straight at the destination, Layer 1 is still computed, for the dotted line
-on the map and HUD and for the estimate outside the window.
+on the map, the HUD's time estimate, and the estimate outside the window.
 
 ## Growing the route: extend, splice, review
 

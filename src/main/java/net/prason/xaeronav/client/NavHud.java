@@ -148,10 +148,12 @@ public final class NavHud {
             PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
             int from = PathProgress.INSTANCE.indexFor(result) + 1;
             PathSuffixes.Action next = ahead.nextAction(from);
+            String endpoint = guidance.nearEnd ? endpointKey(climbing, endsAtDestination, stuck != null) : null;
             if (next != null && ahead.distanceToAction(from) <= ACTION_NOTICE_BLOCKS) {
                 add(TextCompat.translatable(next.key()), PRIMARY_COLOR);
-            } else if (guidance.nearEnd) {
-                add(TextCompat.translatable(endpointKey(climbing, endsAtDestination)), PRIMARY_COLOR);
+                endpoint = null;
+            } else if (endpoint != null) {
+                add(TextCompat.translatable(endpoint), PRIMARY_COLOR);
             }
             add(TextCompat.translatable(remainingKey(endsAtDestination, estimateBeyond),
                     guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
@@ -186,10 +188,10 @@ public final class NavHud {
                 // 踏んでから気付くのでは遅い（走って乗ると即座に燃える）
                 add(TextCompat.translatable("hud.xaeronav.sneak_over_magma"), WARNING_COLOR);
             }
-            // 詰みと判断済みなら「点線をたどってください」は嘘になる（その先に道が無いと
-            // 分かっているから詰みなので）。結論の方だけを残す
-            if (!guidance.complete && stuck == null) {
-                add(TextCompat.translatable("hud.xaeronav.incomplete"), WARNING_COLOR);
+            // 詰みと判断済みなら「続きが計算される」は嘘になる（その先に道が無いと分かっているから
+            // 詰みなので）。末端の手前で「案内が続く」を出している間も、同じことを2行で言うことになる
+            if (!guidance.complete && stuck == null && !"hud.xaeronav.route_continues".equals(endpoint)) {
+                add(TextCompat.translatable("hud.xaeronav.incomplete"), SECONDARY_COLOR);
             }
         }
 
@@ -308,13 +310,18 @@ public final class NavHud {
 
     /**
      * 経路末端の意味を取り違えない案内文を選ぶ。到達済みの中継経路でも、その末端は目的地ではない。
+     * 詰みと判断した経路の末端は行き止まりなので、「案内が続く」とは言わない（{@code null}）。
      */
-    static String endpointKey(boolean climbing, boolean endsAtDestination) {
-        return climbing ? "hud.xaeronav.surface_ahead"
-                : endsAtDestination ? "hud.xaeronav.arriving" : "hud.xaeronav.route_continues";
+    static String endpointKey(boolean climbing, boolean endsAtDestination, boolean stuck) {
+        if (climbing) {
+            return "hud.xaeronav.surface_ahead";
+        }
+        if (endsAtDestination) {
+            return "hud.xaeronav.arriving";
+        }
+        return stuck ? null : "hud.xaeronav.route_continues";
     }
 
-    /** 目的地までの直線距離。経路が出せないときでも、せめて遠いのか近いのかは分かるようにする。 */
     /** これ以上の上昇が控えているなら知らせる（ブロック）。 */
     private static final int CLIMB_NOTICE_BLOCKS = 12;
 
@@ -348,6 +355,7 @@ public final class NavHud {
                 target.getZ() + 0.5 - mc.player.getZ()));
     }
 
+    /** 目的地までの直線距離。経路が出せないときでも、せめて遠いのか近いのかは分かるようにする。 */
     private static int straightDistance(Minecraft mc, BlockPos goal) {
         if (goal == null) {
             return 0;

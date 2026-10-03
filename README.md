@@ -158,9 +158,10 @@ and the HUD work as usual.
 
 ![Right-click menu on Xaero's World Map showing "Navigate Here"](docs/images/how-to-use.png)
 
-Taking off with an elytra switches the guidance on its own: it computes a terrain-avoiding aerial
-path and shows it as a light-blue line, then goes back to walking navigation toward the same
-destination as soon as you touch down.
+Taking off with an elytra switches the guidance on its own. Under a roof or in the Nether it
+computes a terrain-avoiding aerial path and shows it as a light-blue line; under open sky it puts a
+light beam where you should land. As soon as you touch down it goes back to walking navigation
+toward the same destination.
 
 However you set it, the destination is marked on Xaero's maps, so you can tell where you are
 headed without following the line to its end. With Xaero's Minimap installed it is registered as a
@@ -235,6 +236,7 @@ Other markings:
 | Off-white | Dotted line for a stretch with no known route, heading toward the unexplored destination |
 | Amber | Coarse waypoint chain for a long-distance route |
 | Sky blue | Aerial path while gliding with an elytra |
+| Pale yellow beam | Where to land while gliding under open sky |
 | Red pin | The destination, drawn by XaeroNav when Xaero's Minimap is not installed |
 
 ## Configuration
@@ -295,14 +297,16 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 ## Known limitations
 
 - The search only covers loaded chunks and stops at the expanded-node cap. A far destination gets
-  a route that ends partway and continues as a dotted line, filling in as you get closer. The HUD
-  also says "unexplored beyond this point."
+  a route that ends partway and continues as a dotted line toward the destination. The rest is
+  computed as you go, and the HUD says so.
 - Search range is capped by Minecraft's render distance (render distance 8 means 128 blocks).
   Chunks the server hasn't sent can't be read, and vanilla has no packet to request them. If
   long-distance guidance keeps cutting off, raise your render distance.
 - Long-distance routing depends on Xaero's map data, so it isn't available without Xaero installed
   or in areas you haven't visited yet. It falls back to computing from loaded chunks only.
-- During aerial (elytra) routes, the HUD shows flight guidance, direct distance, and upcoming climbs.
+- While gliding with an elytra, the HUD shows the direct distance to the destination and upcoming
+  climbs. Under open sky (Overworld and End) the mod puts a light beam where you should land instead of
+  drawing an aerial path, and the HUD shows an arrow toward it and the distance.
 - Routes don't cross dimensions. Changing dimension clears the current destination.
 - Map integration hooks into Xaero's internals. If a newer Xaero changes them, only that part
   switches off; XaeroNav says which part in chat once per session, and in-world rendering and the
