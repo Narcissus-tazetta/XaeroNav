@@ -1093,6 +1093,20 @@ public final class PathfindingExecutor {
         return cap == 0 ? 0 : cap * multiplier;
     }
 
+    /**
+     * 走っている探索と待っている探索を捨てる。受け取る側が居なくなったとき（目的地の消去・ログアウト）用。
+     *
+     * <p>世代を進めるだけでは結果が捨てられるだけで、探索は予算を使い切るまで走り続ける。その間は
+     * {@code ChunkView}がチャンクを掴み続け、次の探索もこのワーカーの後ろで待たされる。
+     */
+    public void cancelAll() {
+        PathfindingJob previous = currentJob.getAndSet(null);
+        if (previous != null) {
+            previous.cancel();
+        }
+        executor.getQueue().clear();
+    }
+
     private CompletableFuture<PathResult> submit(Function<BooleanSupplier, PathResult> work) {
         CompletableFuture<PathResult> future = new CompletableFuture<>();
         PathfindingJob job = new PathfindingJob(future);

@@ -852,6 +852,8 @@ public final class PathfindingState {
     public void clear() {
         // 世代を進めた時点で実行中の探索の結果は捨てられる。その結果待ちを表すcomputingもここで下ろす
         generation.incrementAndGet();
+        executor.cancelAll();
+        corridorExecutor.cancelAll();
         GoalWaypoint.sync(null);
         this.computing = false;
         this.goal = null;
@@ -1153,6 +1155,7 @@ public final class PathfindingState {
                     // 世代を進めた時点で走っている探索の結果は捨てられる。ただし世代不一致の
                     // whenCompleteは早期returnしてcomputingを書かないので、ここで明示的に下ろす
                     generation.incrementAndGet();
+                    executor.cancelAll();
                     computing = false;
                     sky.begin(mc.level, mc.player);
                     if (!sky.active()) {
@@ -1516,6 +1519,7 @@ public final class PathfindingState {
     private void arrive() {
         // 走っている探索の結果で経路が復活しないように世代を進める
         generation.incrementAndGet();
+        executor.cancelAll();
         computing = false;
         displayed = null;
         flight.dropRoute();
