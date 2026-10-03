@@ -14,15 +14,11 @@ import net.minecraft.client.KeyMapping;
 /*import net.minecraft.client.input.KeyEvent;
 *///?}
 import net.minecraft.client.Minecraft;
-//? if >=1.19 {
-import net.minecraft.network.chat.contents.TranslatableContents;
-//?} else {
-/*import net.minecraft.network.chat.TranslatableComponent;
-*///?}
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.client.XaeroNavKeys;
+import net.prason.xaeronav.mixin.xaero.RightClickOptionAccessor;
 import xaero.common.minimap.waypoints.Waypoint;
 import xaero.hud.minimap.waypoint.WaypointColor;
 import xaero.hud.minimap.waypoint.WaypointPurpose;
@@ -169,13 +165,8 @@ public final class XaeroHookRuntimeProbe {
     }
 
     private static void requireOption(ArrayList<RightClickOption> options, String key) {
-        if (options == null || options.stream().noneMatch(option ->
-                //? if >=1.19 {
-                option.getDisplayName().getContents() instanceof TranslatableContents translatable
-                //?} else {
-                /*option.getDisplayName() instanceof TranslatableComponent translatable
-                *///?}
-                        && key.equals(translatable.getKey()))) {
+        if (options == null || options.stream().noneMatch(
+                option -> key.equals(((RightClickOptionAccessor) option).xaeronav$translationKey()))) {
             throw new IllegalStateException("missing menu option " + key);
         }
     }

@@ -15,7 +15,7 @@
 - Minecraft 1.21.10 / NeoForge 21.10.64 以降、Forge 60.1.15 以降、または Fabric（Fabric Loader 0.17.0 以降 +
   Fabric API 0.138.4 以降）
 - Minecraft 1.21.8 / NeoForge 21.8.54 以降、Forge 58.1.22 以降、または Fabric（Fabric Loader 0.16.13 以降 +
-  Fabric API 0.136.1 以降）
+  Fabric API 0.136.1 以降）。Fabric版の jar は Minecraft 1.21.6・1.21.7 でも動く（Fabric API 0.128.2 以降）
 - Minecraft 1.21.5 / NeoForge 21.5 以降、Forge 55 以降、または Fabric（Fabric Loader 0.16.10 以降 +
   Fabric API 0.128.2 以降）
 - Minecraft 1.21.4 / NeoForge 21.4 以降、Forge 54 以降、または Fabric（Fabric Loader 0.16.9 以降 +
@@ -69,6 +69,7 @@
    - Minecraft 1.21.8: [NeoForge](https://neoforged.net/) 21.8.54 以降、
      [Forge](https://files.minecraftforge.net/) 58.1.22 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.16.13 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.136.1 以降）。
+     Fabric版の jar は Minecraft 1.21.6・1.21.7 でも動きます（Fabric API 0.128.2 以降）。
    - Minecraft 1.21.5: [NeoForge](https://neoforged.net/) 21.5 以降、
      [Forge](https://files.minecraftforge.net/) 55 以降、または [Fabric](https://fabricmc.net/)
      （Fabric Loader 0.16.10 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.128.2 以降）。
@@ -95,6 +96,8 @@
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
    1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、26.1.2・1.21.11・1.21.10・1.21.8・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
    Minimap 26.5.0 以降、26.2 なら World Map 1.46.1 以降・Minimap 26.5.1 以降、26.3 なら World Map 1.46.4 以降・Minimap 26.5.3 以降。
+   1.21.6・1.21.7 向けの Xaero は更新が止まっているので、最後の版（1.21.6 は World Map 1.39.10・Minimap 25.2.7、
+   1.21.7 は World Map 1.39.12・Minimap 25.2.10）を使う。
 
 ## 何ができるか
 

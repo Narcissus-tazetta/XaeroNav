@@ -12,11 +12,6 @@ import org.spongepowered.asm.mixin.injection.At;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
-//? if >=1.19 {
-import net.minecraft.network.chat.contents.TranslatableContents;
-//?} else {
-/*import net.minecraft.network.chat.TranslatableComponent;
-*///?}
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.client.PathfindingState;
@@ -111,13 +106,7 @@ public abstract class GuiMapRightClickMixin {
 
     private static int firstActionIndex(ArrayList<RightClickOption> options) {
         for (int i = 0; i < options.size(); i++) {
-            if (
-                    //? if >=1.19 {
-                    options.get(i).getDisplayName().getContents() instanceof TranslatableContents translatable
-                    //?} else {
-                    /*options.get(i).getDisplayName() instanceof TranslatableComponent translatable
-                    *///?}
-                    && FIRST_ACTION_KEYS.contains(translatable.getKey())) {
+            if (FIRST_ACTION_KEYS.contains(((RightClickOptionAccessor) options.get(i)).xaeronav$translationKey())) {
                 return i;
             }
         }

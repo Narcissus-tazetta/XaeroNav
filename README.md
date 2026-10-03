@@ -16,7 +16,7 @@ where to go next.
 - Minecraft 1.21.10, on NeoForge 21.10.64+, Forge 60.1.15+, or Fabric (Fabric Loader 0.17.0+ and
   Fabric API 0.138.4+)
 - Minecraft 1.21.8, on NeoForge 21.8.54+, Forge 58.1.22+, or Fabric (Fabric Loader 0.16.13+ and
-  Fabric API 0.136.1+)
+  Fabric API 0.136.1+). The Fabric jar also runs on Minecraft 1.21.6 and 1.21.7 (Fabric API 0.128.2+)
 - Minecraft 1.21.5, on NeoForge 21.5+, Forge 55+, or Fabric (Fabric Loader 0.16.10+ and
   Fabric API 0.128.2+)
 - Minecraft 1.21.4, on NeoForge 21.4+, Forge 54+, or Fabric (Fabric Loader 0.16.9+ and
@@ -78,7 +78,8 @@ problem here.
    - Minecraft 1.21.8: [NeoForge](https://neoforged.net/) 21.8.54 or newer,
      [Forge](https://files.minecraftforge.net/) 58.1.22 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.16.13 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.136.1 or newer.
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.136.1 or newer. The Fabric jar also runs on
+     Minecraft 1.21.6 and 1.21.7, with Fabric API 0.128.2 or newer.
    - Minecraft 1.21.5: [NeoForge](https://neoforged.net/) 21.5 or newer,
      [Forge](https://files.minecraftforge.net/) 55 or newer, or [Fabric](https://fabricmc.net/)
      with Fabric Loader 0.16.10 or newer plus
@@ -114,6 +115,8 @@ problem here.
    optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, 1.21.4, 1.21.5 and 1.20.4,
    World Map 1.46.0 / Minimap 26.5.0 on 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.20.1, 1.19.2, 1.18.2 and 1.16.5,
    World Map 1.46.1 / Minimap 26.5.1 on 26.2, World Map 1.46.4 / Minimap 26.5.3 on 26.3.
+   Xaero no longer updates its mods for 1.21.6 and 1.21.7, so there the last releases work:
+   World Map 1.39.10 / Minimap 25.2.7 on 1.21.6, World Map 1.39.12 / Minimap 25.2.10 on 1.21.7.
 
 ## What it does
 
