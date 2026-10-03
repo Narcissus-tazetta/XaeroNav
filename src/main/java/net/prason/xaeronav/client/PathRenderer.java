@@ -294,9 +294,10 @@ public final class PathRenderer {
     }
 
     /**
-     * 降りる地点に立てる光の柱。描画距離の外にあるときは、同じ方角の描画距離の内側へ寄せて立てる——
-     * 地形の外に置いた形は遠景の霧と描画範囲で切られて見えない。太さは距離に比例させるので、
-     * 寄せても画面上の太さは本来の位置に立てたときと変わらない。
+     * 降りる地点に立てる光の柱。<b>描画距離の外でも本当の位置に立てる</b>——投影の奥行きの上限は
+     * 描画距離の4倍（{@code GameRenderer#getDepthFar}／26.xは{@code Camera#depthFar}）で、地形が無くても
+     * 柱は描ける。手前へ寄せて描くと、飛ぶにつれて柱が地面の上を滑り、違う場所を指して見える。
+     * それでも越える場合だけ、同じ方角の3倍の距離へ寄せる。
      */
     private void renderSkyPillar(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose, BlockPos pillar,
                                   double cullRadius, Vec3 camera) {
@@ -305,7 +306,7 @@ public final class PathRenderer {
         double dx = x - camera.x;
         double dz = z - camera.z;
         double horizontal = Math.sqrt(dx * dx + dz * dz);
-        double reach = cullRadius * 0.9;
+        double reach = cullRadius * 3.0;
         if (horizontal > reach) {
             x = camera.x + dx / horizontal * reach;
             z = camera.z + dz / horizontal * reach;

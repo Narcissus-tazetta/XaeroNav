@@ -3,6 +3,8 @@ package net.prason.xaeronav.client;
 import java.util.List;
 import java.util.function.IntBinaryOperator;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
@@ -22,6 +24,8 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
  * 潜るならその手前の地表の点（例: 要塞へ向かうルートが洞窟に入る所）。
  */
 final class SkyGuide {
+
+    private static final Logger LOGGER = LogManager.getLogger();
 
     /**
      * 空が見えている／見えていないが、これだけ続いたら切り替える（tick）。木の下や橋の下を
@@ -89,7 +93,13 @@ final class SkyGuide {
         if (pillar != null && goal.equals(pillarGoal) && route == pillarRoute && ++pillarAge < PILLAR_REFRESH_TICKS) {
             return pillar;
         }
-        pillar = descentPoint(goal, route, (x, z) -> surfaceY(level, map, x, z));
+        BlockPos chosen = descentPoint(goal, route, (x, z) -> surfaceY(level, map, x, z));
+        if (!chosen.equals(pillar)) {
+            LOGGER.debug("XaeroNav: 光の柱の地点 ({}, {}, {}, 目的地={}, {}, {}, 中間目標{}本, 地図{})",
+                    chosen.getX(), chosen.getY(), chosen.getZ(), goal.getX(), goal.getY(), goal.getZ(),
+                    route.size(), map == null ? "なし" : "あり");
+        }
+        pillar = chosen;
         pillarGoal = goal;
         pillarRoute = route;
         pillarAge = 0;
@@ -129,7 +139,8 @@ final class SkyGuide {
      */
     private static int surfaceY(Level level, @Nullable CoarseMap map, int x, int z) {
         if (level.hasChunk(x >> 4, z >> 4)) {
-            return level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+            // 葉を除く。森の上を通る中間目標が葉の高さより下になり、地下と誤判定して手前に柱が立つ
+            return level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
         }
         if (map == null) {
             return Integer.MIN_VALUE;
