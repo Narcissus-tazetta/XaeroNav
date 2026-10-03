@@ -66,30 +66,6 @@ public final class PathfindingState {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
-    /**
-     * 目的地までこの水平距離まで来たら、飛行の案内をやめて歩行の経路へ引き継ぐ（ブロック）＝3チャンク。
-     *
-     * <p>両側から挟んで決まる値。<b>遠すぎると</b>まだ空を飛んでいるうちに空中経路が消え、目的地への
-     * 直線だけになる。<b>近すぎると</b>歩行の経路が出るより先に着く——最良滑空の水平成分は
-     * 1.51ブロック/tick＝約30ブロック/秒（{@code ElytraPhysics}の掃引値）、急降下なら67ブロック/秒
-     * 出るので、16ブロックでは巡航で0.5秒・急降下で0.24秒しかなく、探索が間に合わない。
-     * 48ブロックなら巡航1.6秒・急降下0.7秒で、この距離の歩行探索は開けた地形なら十分収まる。
-     *
-     * <p>{@code detailHorizonBlocks}（既定96）の半分でもある——引き継いだ時点の歩行経路が必ず
-     * 一度の探索で解け、中間目標を挟まずに目的地まで通しで出る。
-     */
-    private static final double LANDING_APPROACH_ENTER_BLOCKS = 48.0;
-
-    /**
-     * 引き継いだ後、これを超えて離れたら飛行の案内へ戻す（ブロック）＝5チャンク。
-     *
-     * <p>往復しないよう入口より広く取るが、<b>広く取りすぎてはいけない</b>。留まる条件には
-     * 「真下に地面があること」が入っていない（谷や溶岩の海をまたぐたびに飛行へ戻さないため）ので、
-     * ここが広いと再び飛び立った後も歩行の案内のまま高空を滑空することになり、足元に床が無い始点で
-     * 探索を投げ続けて「経路なし」が出続ける。入口の1.67倍＝離陸し直してから約1秒で飛行へ戻る。
-     */
-    private static final double LANDING_APPROACH_EXIT_BLOCKS = 80.0;
-
     /** 着地できる地面を探す深さ（ブロック）。{@code StanceFinder.VERTICAL_SEARCH}に合わせる。 */
     private static final int LANDING_GROUND_SEARCH_BLOCKS = 32;
 
@@ -445,9 +421,6 @@ public final class PathfindingState {
     // 見せる（自動エリトラ検知。「空はプレイヤー自身が見て操縦できる」ため障害物回避の
     // 経路は不要という判断）
     private volatile boolean flying;
-    // 目的地の近くまで来て歩行の案内へ引き継いだか。境界での往復を防ぐヒステリシスに使う
-    private volatile boolean landingApproachActive;
-
     /** エリトラの滑空を飛行とみなすかの判定（時間と高さのヒステリシス）。 */
     private final ElytraTrigger elytraTrigger = new ElytraTrigger();
     /**
@@ -924,7 +897,6 @@ public final class PathfindingState {
         this.flying = false;
         this.flight.reset();
         this.sky.reset();
-        this.landingApproachActive = false;
         // elytraTriggerはここで戻さない。追っているのは目的地ではなく<b>プレイヤーの体の状態</b>で、
         // 滑空中にgotoを打つと「もう滑空している」という継続が消え、飛行モードへ入り直すまでの
         // 0.5秒だけ地上の探索が走ってHUDに「経路なし」が出る。滑空していなければ次のtickの
@@ -1174,7 +1146,7 @@ public final class PathfindingState {
                 pendingEscalation(mc.player);
                 return;
             }
-            boolean nowFlying = airborne(mc.level, mc.player) && !landingApproach(mc.level, mc.player, currentGoal);
+            boolean nowFlying = airborne(mc.level, mc.player);
             if (nowFlying != flying) {
                 flying = nowFlying;
                 if (nowFlying) {
@@ -1676,38 +1648,6 @@ public final class PathfindingState {
         double dy = pos.getY() - position.y;
         double dz = pos.getZ() + 0.5 - position.z;
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
-    }
-
-    /**
-     * 目的地の近くまで来ていて、そろそろ降りて歩くべきか。
-     *
-     * <p>空中経路は「どちらへ機首を向けるか」を示すもので、着地と最後の数十ブロックはそれでは
-     * 案内できない。目的地の近くまで来たら歩行の経路へ引き継ぐ方が、降りる場所も歩く道も
-     * そのまま出る。
-     *
-     * <p>条件に<b>真下に地面があること</b>を入れているのが要点。高い所を飛んでいる間に切り替えると、
-     * {@code StanceFinder.resolveStart}が始点を解決できず（真下{@code VERTICAL_SEARCH}ブロックしか
-     * 見ない）、辺が1本も出ないまま探索を投げ続けてHUDに「経路なし」が出続ける——飛行中に地上の
-     * 探索を止めている元々の理由そのもの。降りられる高さに来て初めて切り替える。
-     *
-     * <p>いったん切り替えたら、少し離れたくらいでは戻さない（{@link #LANDING_APPROACH_EXIT_BLOCKS}）。
-     * 境界上で飛行と歩行を往復すると、そのたびに経路が丸ごと作り直される。
-     */
-    private boolean landingApproach(Level level, Player player, BlockPos currentGoal) {
-        double distance = Math.sqrt(horizontalDistanceSq(player, currentGoal));
-        if (landingApproachActive) {
-            // 真下の地面は<b>入るとき</b>にだけ要る。留まる条件にも入れると、谷や溶岩の海を
-            // またぐたびに飛行へ戻り、そのたびに経路が丸ごと作り直される
-            landingApproachActive = distance <= LANDING_APPROACH_EXIT_BLOCKS;
-        } else {
-            landingApproachActive = distance <= LANDING_APPROACH_ENTER_BLOCKS && groundBelow(level, player);
-        }
-        return landingApproachActive;
-    }
-
-    /** 真下に立てる場所があるか（{@code StanceFinder}と同じ判定・同じ深さ）。 */
-    private static boolean groundBelow(Level level, Player player) {
-        return groundClearance(level, player) <= LANDING_GROUND_SEARCH_BLOCKS;
     }
 
     /**
