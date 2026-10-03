@@ -253,7 +253,7 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 | `flightClearanceDetourBlocks` | `12` | 狭い空間を通ることを、水平何ブロックぶんの遠回りと釣り合わせるか（`0` で無効） |
 | `flightMaxExpandedNodes` | `150000` | 空中経路の 1 回の探索で展開するセル数の上限 |
 | `flightExtendMaxExpandedNodes` | `60000` | 末端から先を継ぎ足すときの展開セル数の上限 |
-| `flightHeuristicWeight` | `2.5` | 空中経路のヒューリスティックの重み |
+| `flightHeuristicWeight` | `1.5` | 空中経路のヒューリスティックの重み |
 | `additionalDiggableBlocks` | `[]` | 掘削を許可するブロック ID を追加（modの地形ブロックなど。例: `"minecraft:cobblestone"`） |
 | `additionalForbiddenBlocks` | `[]` | 掘削を禁止するブロック ID を追加。上のリストより優先される（例: `"minecraft:diamond_ore"`） |
 

@@ -76,6 +76,16 @@ public final class NavHud {
         PathfindingState.StuckReason stuck = view.stuckReason();
         if (view.arrived()) {
             add(TextCompat.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
+        } else if (view.flying() && view.skyPillar() != null) {
+            // 空の下では線を引かず、降りる地点（柱）の方角と距離だけを出す
+            BlockPos pillar = view.skyPillar();
+            boolean atGoal = pillar.getX() == view.goal().getX() && pillar.getZ() == view.goal().getZ();
+            add(TextCompat.translatable(atGoal ? "hud.xaeronav.sky_goal" : "hud.xaeronav.sky_descent",
+                    bearingArrow(mc, pillar), horizontalDistance(mc, pillar)), PRIMARY_COLOR);
+            if (!atGoal) {
+                add(TextCompat.translatable("hud.xaeronav.direct_distance",
+                        straightDistance(mc, view.goal())), SECONDARY_COLOR);
+            }
         } else if (view.flying()) {
             // 空中経路が引けなかったこと（読み込み済みの範囲に抜け道が無い）と、そもそも案内が
             // 出ていないことは別。前者を「経路なし」と同じ文言にすると、地上と同じ失敗に見える
@@ -316,6 +326,26 @@ public final class NavHud {
             climb += Math.max(0.0, points.get(i + 1).y - points.get(i).y);
         }
         return (int) Math.round(climb);
+    }
+
+    /** 向いている方向から見た{@code target}の方角。8方向の矢印で、真上が正面。 */
+    private static final String[] ARROWS = {"↑", "↗", "→", "↘", "↓", "↙", "←", "↖"};
+
+    static String bearingArrow(double fromX, double fromZ, float yaw, double toX, double toZ) {
+        // Minecraftのヨーは南(+Z)が0で、右回り（西が90）に増える
+        double targetYaw = Math.toDegrees(Math.atan2(-(toX - fromX), toZ - fromZ));
+        double relative = ((targetYaw - yaw) % 360.0 + 360.0) % 360.0;
+        return ARROWS[(int) Math.round(relative / 45.0) % ARROWS.length];
+    }
+
+    private static String bearingArrow(Minecraft mc, BlockPos target) {
+        return bearingArrow(mc.player.getX(), mc.player.getZ(), GameCompat.yaw(mc.player),
+                target.getX() + 0.5, target.getZ() + 0.5);
+    }
+
+    private static int horizontalDistance(Minecraft mc, BlockPos target) {
+        return (int) Math.round(Math.hypot(target.getX() + 0.5 - mc.player.getX(),
+                target.getZ() + 0.5 - mc.player.getZ()));
     }
 
     private static int straightDistance(Minecraft mc, BlockPos goal) {

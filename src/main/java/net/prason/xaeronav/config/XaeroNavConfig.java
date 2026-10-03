@@ -339,10 +339,9 @@ public final class XaeroNavConfig {
 
         flightHeuristicWeight = spec
                 .comment("空中経路の「ゴールへの近さ」を重視する度合い",
-                        "歩行より高くしてある。空は障害物が疎で、寄り道の少ない見積もりがよく当たるうえ、",
-                        "空中経路に最短の保証は要らない（人間が見て操縦するための線であって、辿る手順ではない）",
-                        "上げるほど同じ予算で遠くまで届く。遠くまで検索したいときは格子幅の次に効く")
-                .defineInRange("flightHeuristicWeight", 2.5, 1.0, 5.0);
+                        "上げるほど探索は速くなるが、遠回りが混じる。1.0で最短",
+                        "探索は読み込み済みの範囲の縁で打ち切るので、上げても遠くまで届くようにはならない")
+                .defineInRange("flightHeuristicWeight", 1.5, 1.0, 5.0);
 
         diggableBlocks = spec
                 .comment("掘って通ってよいブロックの追加リスト（例: \"minecraft:cobblestone\"）",

@@ -38,6 +38,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
+import net.prason.xaeronav.pathfinding.flight.FlightGuide;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.pathfinding.world.BlockRegistryCompat;
 import net.prason.xaeronav.pathfinding.world.CellData;
@@ -562,7 +563,8 @@ public final class XaeroNavCommands {
         long generation = DIAGNOSTIC.begin();
         long startedAt = System.nanoTime();
         DIAGNOSTIC.submit(generation,
-                cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning(), cancelled),
+                cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning(),
+                        FlightNavState.loadedHorizon(start, renderRadius), FlightGuide.NONE, cancelled),
                 (route, error) -> {
                     if (error != null) {
                         XaeroNav.LOGGER.error("XaeroNav: flight診断の経路計算に失敗しました", error);

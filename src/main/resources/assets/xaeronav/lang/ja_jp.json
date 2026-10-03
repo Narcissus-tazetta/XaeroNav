@@ -36,6 +36,8 @@
   "hud.xaeronav.rerouted": "経路を引き直しました（先が通れなくなりました）",
   "hud.xaeronav.flying": "滑空ルートを案内中",
   "hud.xaeronav.flying_no_route": "滑空ルートを計算できません",
+  "hud.xaeronav.sky_goal": "%s 目的地まで%dブロック",
+  "hud.xaeronav.sky_descent": "%s 光の柱まで%dブロック（そこから地下へ）",
   "hud.xaeronav.flight_climb": "この先で%dブロック上昇します（ロケット花火を準備）",
   "hud.xaeronav.direct_distance": "目的地まで直線で%dブロック",
   "hud.xaeronav.direct_distance_eta": "目的地まで直線で%1$dブロック · 約%2$s",

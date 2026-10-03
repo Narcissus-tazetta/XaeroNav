@@ -276,7 +276,7 @@ Other markings:
 | `flightClearanceDetourBlocks` | `12` | How many blocks of detour a tight passage is worth avoiding (`0` disables this) |
 | `flightMaxExpandedNodes` | `150000` | Cap on cells expanded per aerial search |
 | `flightExtendMaxExpandedNodes` | `60000` | Cap on cells expanded when extending the path further from its end |
-| `flightHeuristicWeight` | `2.5` | Heuristic weight for the aerial search |
+| `flightHeuristicWeight` | `1.5` | Heuristic weight for the aerial search |
 | `additionalDiggableBlocks` | `[]` | Extra block IDs allowed to dig (e.g. modded terrain blocks; example: `"minecraft:cobblestone"`) |
 | `additionalForbiddenBlocks` | `[]` | Extra block IDs forbidden to dig; takes priority over the list above (example: `"minecraft:diamond_ore"`) |
 

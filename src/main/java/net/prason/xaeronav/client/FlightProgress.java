@@ -82,6 +82,18 @@ final class FlightProgress {
     }
 
     /** {@code route}に対応づけ済みの区間。違う経路なら先頭。 */
+    /**
+     * プレイヤーに最も近い、経路の上の点（いる区間への射影）。線をここから描けば、線は経路に固定されたまま
+     * 自分の真横から始まる——プレイヤーの位置から描くと、線の手前が体に付いて動き、経路そのものが
+     * 揺れて見える。対応づけがまだ無ければ{@code null}。
+     */
+    Vec3 nearestOnRoute(FlightRoute route, Vec3 position) {
+        if (route != source || route.points().size() < 2) {
+            return null;
+        }
+        return position.subtract(offsetOf(route.points(), segment, position));
+    }
+
     int segmentFor(FlightRoute route) {
         return route == source ? segment : 0;
     }

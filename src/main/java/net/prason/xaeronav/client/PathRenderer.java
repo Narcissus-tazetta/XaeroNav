@@ -64,6 +64,17 @@ public final class PathRenderer {
     private static final double FLIGHT_TUBE_MAX_RADIUS = 0.8;
     private static final float TUBE_ALPHA = 0.9f;
 
+    /**
+     * 柱の太さ（カメラからの距離あたり）。ウェイポイントの点がいくつ重なっていても形で見分けが付くよう、
+     * 空中経路の筒より太くする。
+     */
+    private static final double PILLAR_RADIUS_PER_BLOCK = 0.006;
+    private static final double PILLAR_MIN_RADIUS = 0.35;
+    /** 柱の高さ（ブロック）。根元が地平線の下に隠れていても、上の方が空に見えている長さにする。 */
+    private static final double PILLAR_HEIGHT_BLOCKS = 320.0;
+    private static final float PILLAR_ALPHA = 0.55f;
+    private static final float PILLAR_OCCLUDED_ALPHA = 0.3f;
+
     private static final float HIGHLIGHT_FILL_ALPHA = 0.35f;
     /** ハイライトの箱をブロック表面よりわずかに外側に出し、地形自体のZファイティングで隠れないようにする。 */
     private static final double HIGHLIGHT_EXPAND = 0.006;
@@ -154,8 +165,11 @@ public final class PathRenderer {
         boolean arrived = view.arrived();
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
-        boolean hasStraight = goal != null && !arrived && XaeroNavConfig.INSTANCE.straightLineEnabled();
-        if (!hasGround && !hasFlight && !hasStraight) {
+        BlockPos pillar = view.skyPillar();
+        // 柱を出している間は点線を引かない。降りる地点は柱が示し、点線は地平線の手前で途切れるだけになる
+        boolean hasStraight = pillar == null && goal != null && !arrived
+                && XaeroNavConfig.INSTANCE.straightLineEnabled();
+        if (!hasGround && !hasFlight && !hasStraight && pillar == null) {
             return;
         }
 
@@ -191,6 +205,9 @@ public final class PathRenderer {
         }
         if (hasStraight) {
             renderStraightLine(bufferSource, pose, current, hasFlight ? flight.tail() : null, goal, cullRadius);
+        }
+        if (pillar != null) {
+            renderSkyPillar(bufferSource, pose, pillar, cullRadius, cameraPos);
         }
         //? if >=26.2 {
         /*bufferSource.endFrame();
@@ -260,7 +277,14 @@ public final class PathRenderer {
         // これが無いと線が自分の後ろへ伸びたままになる（歩行のrenderGroundPathと同じ理由）
         int first = PathfindingState.INSTANCE.flightRouteFrom();
         int count = 0;
-        count = pushStraightPoint(count, playerX, playerY, playerZ);
+        // 線は経路の上の自分に最も近い点から描く。自分の位置から描くと線の手前が体に付いて動き、
+        // 経路が引き直されていないのに描き変わっているように見える
+        Vec3 anchor = PathfindingState.INSTANCE.flightRouteAnchor(Minecraft.getInstance().player.position());
+        if (anchor != null) {
+            count = pushStraightPoint(count, anchor.x, anchor.y, anchor.z);
+        } else {
+            count = pushStraightPoint(count, playerX, playerY, playerZ);
+        }
         for (int i = first; i < points.size(); i++) {
             Vec3 point = points.get(i);
             count = pushStraightPoint(count, point.x, point.y, point.z);
@@ -273,6 +297,38 @@ public final class PathRenderer {
 
         VertexConsumer quads = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
         drawTubeSegments(quads, pose, count, cullRadius, TUBE_ALPHA, camera, PathColors.FLIGHT);
+        bufferSource.endBatch(NavRenderTypes.DEBUG_QUADS);
+    }
+
+    /**
+     * 降りる地点に立てる光の柱。<b>描画距離の外でも本当の位置に立てる</b>——投影の奥行きの上限は
+     * 描画距離の4倍（{@code GameRenderer#getDepthFar}／26.xは{@code Camera#depthFar}）で、地形が無くても
+     * 柱は描ける。手前へ寄せて描くと、飛ぶにつれて柱が地面の上を滑り、違う場所を指して見える。
+     * それでも越える場合だけ、同じ方角の3倍の距離へ寄せる。
+     */
+    private void renderSkyPillar(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose, BlockPos pillar,
+                                  double cullRadius, Vec3 camera) {
+        double x = pillar.getX() + 0.5;
+        double z = pillar.getZ() + 0.5;
+        double dx = x - camera.x;
+        double dz = z - camera.z;
+        double horizontal = Math.sqrt(dx * dx + dz * dz);
+        double reach = cullRadius * 3.0;
+        if (horizontal > reach) {
+            x = camera.x + dx / horizontal * reach;
+            z = camera.z + dz / horizontal * reach;
+        }
+        double bottom = pillar.getY();
+        double top = bottom + PILLAR_HEIGHT_BLOCKS;
+        double radius = Math.max(PILLAR_MIN_RADIUS, Math.min(horizontal, reach) * PILLAR_RADIUS_PER_BLOCK);
+        float[] color = PathColors.SKY_PILLAR;
+
+        VertexConsumer occluded = bufferSource.getBuffer(NavRenderTypes.OCCLUDED_QUADS);
+        drawTube(occluded, pose, radius, x, bottom, z, x, top, z, color[0], color[1], color[2], PILLAR_OCCLUDED_ALPHA);
+        NavRenderTypes.endOccludedBatch(bufferSource, NavRenderTypes.OCCLUDED_QUADS);
+
+        VertexConsumer quads = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
+        drawTube(quads, pose, radius, x, bottom, z, x, top, z, color[0], color[1], color[2], PILLAR_ALPHA);
         bufferSource.endBatch(NavRenderTypes.DEBUG_QUADS);
     }
 

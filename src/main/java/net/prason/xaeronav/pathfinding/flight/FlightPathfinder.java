@@ -42,7 +42,7 @@ public final class FlightPathfinder {
     private static final double MIN_USEFUL_PATH_BLOCKS = 8.0;
 
     /** 始点・目的地が格子の目に乗っていないときに、飛行可なセルを探す半径（セル数）。 */
-    private static final int SNAP_CELL_RADIUS = 3;
+    static final int SNAP_CELL_RADIUS = 3;
 
     /**
      * ゴール領域の垂直方向の許容幅（ブロック）。<b>水平半径より広く固定する</b>。
@@ -53,7 +53,7 @@ public final class FlightPathfinder {
      * ために毎回ノード上限を使い切る——地形が複雑なほど当たりやすく、経路が伸びなくなる。
      * 歩行の{@code AStarPathfinder.GOAL_VERTICAL_TOLERANCE_BLOCKS}とまったく同じ判断。
      */
-    private static final int GOAL_VERTICAL_TOLERANCE_BLOCKS = 24;
+    static final int GOAL_VERTICAL_TOLERANCE_BLOCKS = 24;
 
     private static final double MIN_IMPROVEMENT = 0.01;
 
@@ -87,6 +87,8 @@ public final class FlightPathfinder {
 
     private Vec3 goal;
     private double goalRadius;
+    private FlightHorizon horizon = FlightHorizon.NONE;
+    private FlightGuide guide = FlightGuide.NONE;
     private long deadline;
 
     /**
@@ -113,6 +115,14 @@ public final class FlightPathfinder {
      * あとは自力で降りられるか、が実際に知りたいこと。
      */
     public FlightRoute search(Vec3 start, Vec3 target, double goalRadiusBlocks, BooleanSupplier cancelled) {
+        return search(start, target, goalRadiusBlocks, FlightHorizon.NONE, FlightGuide.NONE, cancelled);
+    }
+
+    /** {@code horizon}の外へ出たセルも着いたとみなす（{@link FlightHorizon}参照）。 */
+    public FlightRoute search(Vec3 start, Vec3 target, double goalRadiusBlocks, FlightHorizon horizon,
+                              FlightGuide guide, BooleanSupplier cancelled) {
+        this.horizon = horizon;
+        this.guide = guide;
         // ノードの見積もりはゴールが決まって初めて計算できる。2回目の探索でゴールが変わっても
         // 前回のノードは古い見積もりを持ったままなので、表ごと捨てる
         ids.clear();
@@ -121,14 +131,7 @@ public final class FlightPathfinder {
         this.goal = target;
         this.goalRadius = goalRadiusBlocks;
 
-        // ゴールも飛行可なセルへ寄せる。中間目標はチャンク中心＋帯のYという推定値なので、
-        // ブロック解像度では岩の中にあることが珍しくない——そのままだと領域ゴールでも届かず、
-        // 毎回ノード上限を焼いてから部分経路を返すことになる
-        long goalCell = grid.nearestFlyable(target, SNAP_CELL_RADIUS);
-        if (goalCell != AirGrid.NONE) {
-            this.goal = grid.center(BlockPos.getX(goalCell), BlockPos.getY(goalCell),
-                    BlockPos.getZ(goalCell));
-        }
+        this.goal = snappedGoal(grid, target);
 
         long startCell = grid.nearestFlyable(start, SNAP_CELL_RADIUS);
         if (startCell == AirGrid.NONE) {
@@ -176,10 +179,24 @@ public final class FlightPathfinder {
     }
 
     /**
+     * ゴールを飛行可なセルへ寄せた点。中間目標はチャンク中心＋帯のYという推定値なので、
+     * ブロック解像度では岩の中にあることが珍しくない——そのままだと領域ゴールでも届かず、
+     * 毎回ノード上限を焼いてから部分経路を返すことになる。
+     */
+    static Vec3 snappedGoal(AirGrid grid, Vec3 target) {
+        long goalCell = grid.nearestFlyable(target, SNAP_CELL_RADIUS);
+        return goalCell == AirGrid.NONE ? target
+                : grid.center(BlockPos.getX(goalCell), BlockPos.getY(goalCell), BlockPos.getZ(goalCell));
+    }
+
+    /**
      * 球ではなく<b>水平の円柱</b>で見る（垂直は{@link #GOAL_VERTICAL_TOLERANCE_BLOCKS}まで許す）。
      */
     private boolean reachedGoal(int node) {
         Vec3 center = centerOf(node);
+        if (horizon.outside(center.x, center.z)) {
+            return true;
+        }
         double dx = center.x - goal.x;
         double dz = center.z - goal.z;
         return dx * dx + dz * dz <= goalRadius * goalRadius
@@ -289,9 +306,10 @@ public final class FlightPathfinder {
         double horizontal = Math.max(0.0, Math.sqrt(dx * dx + dz * dz) - goalRadius);
         double verticalTolerance = Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
         double dy = goal.y - center.y;
-        double vertical = dy > 0.0 ? Math.max(0.0, dy - verticalTolerance)
-                : -Math.max(0.0, -dy - verticalTolerance);
-        return FlightCosts.heuristicTicks(horizontal, vertical, rockets);
+        double lowerBound = FlightCosts.lowerBoundTicks(horizontal, dy - verticalTolerance, dy + verticalTolerance,
+                rockets);
+        double guided = guide.estimate(center.x, center.y, center.z);
+        return Double.isNaN(guided) ? lowerBound : Math.max(lowerBound, guided);
     }
 
     private FlightRoute build(int startNode, int endNode, Vec3 start, PathResult.Termination termination,
