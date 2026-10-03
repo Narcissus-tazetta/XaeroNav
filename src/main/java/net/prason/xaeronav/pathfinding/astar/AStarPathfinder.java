@@ -728,7 +728,7 @@ public final class AStarPathfinder {
         double ladderProgress = horizontalFrom(startNode, ladder);
         for (int i = 0; i < COEFFICIENTS.length; i++) {
             PathNode landed = backOffUnfinishedBridge(bestSoFar[i]);
-            if (movedForward(startNode, landed)
+            if (closerOnGuide(startNode, landed) && movedForward(startNode, landed)
                     && horizontalFrom(startNode, landed)
                             >= MIN_CAPPED_PROGRESS_SHARE * ladderProgress) {
                 return landed;
@@ -741,11 +741,20 @@ public final class AStarPathfinder {
     private PathNode selectByLadder(PathNode startNode) {
         for (int i = COEFFICIENTS.length; i < bestSoFar.length; i++) {
             PathNode landed = backOffUnfinishedBridge(bestSoFar[i]);
-            if (farEnough(startNode, landed, MIN_DIST_PATH)) {
+            if (closerOnGuide(startNode, landed) && farEnough(startNode, landed, MIN_DIST_PATH)) {
                 return landed;
             }
         }
         return startNode;
+    }
+
+    /**
+     * 戻した後の点が、ガイドの上で始点より目的地に近いか。候補は{@code h + g/c < h(始点)}で選ぶので戻す前は必ず満たすが、
+     * 架けかけの橋から岸へ戻すと満たさないことがある。満たさない点を採ると、2つの岸が互いを終点に選び合って
+     * 継ぎ足しが往復する（{@code NetherWideRouteTest}、ネザーの溶岩の岸の5手ずつの往復）。
+     */
+    private static boolean closerOnGuide(PathNode startNode, PathNode landed) {
+        return landed.estimatedCostToGoal < startNode.estimatedCostToGoal;
     }
 
     private static double horizontalFrom(PathNode from, PathNode to) {
@@ -1095,6 +1104,64 @@ public final class AStarPathfinder {
                 || test.test(view.cell(x, y, z + 1)) || test.test(view.cell(x, y, z - 1));
     }
 
+    /**
+     * 歩いて着いたマスの横（4方向）に、踏み外したら死ぬ場所があるときの割増。
+     *
+     * <p>4方向だけ見れば斜めの角抜けも拾える——斜め移動が横切る角の2マスは、着地点の4方向の隣でもある。
+     *
+     * <p>{@link #relax}の「改善しない候補を捨てる」判定より後で呼ぶ。割増は0以上なので、
+     * 割増前に負けている候補のために周りを読む必要は無い。{@link EdgeSink}へ渡す値には入らないので、
+     * 航法グラフは{@link SectionMoves}が自分で足す——足さないとガイドが割増ぶん安くなり、縁に沿う区間が長いと
+     * {@code RouteReview}がその差を遠回りと取り違える。
+     */
+    double edgeHazardPenalty(MoveKind kind, int x, int y, int z) {
+        switch (kind) {
+            case TRAVERSE, DIAGONAL, ASCEND, DESCEND, DIAGONAL_ASCEND, DIAGONAL_DESCEND -> { }
+            default -> {
+                return 0.0;
+            }
+        }
+        PathNode arrival = node(x, y, z, false);
+        if (arrival.edgeHazard == 0) {
+            arrival.edgeHazard = 1;
+            for (int i = 0; i < CARDINAL_DX.length; i++) {
+                if (deadlyBeside(x + CARDINAL_DX[i], y, z + CARDINAL_DZ[i])) {
+                    arrival.edgeHazard = 2;
+                    break;
+                }
+            }
+        }
+        return arrival.edgeHazard == 2 ? ActionCosts.EDGE_HAZARD_PENALTY_TICKS : 0.0;
+    }
+
+    /** 足の高さで{@code (x, y, z)}へずれたら死ぬか（溶岩に入る・奈落か致死落差を落ちる）。 */
+    private boolean deadlyBeside(int x, int y, int z) {
+        long feet = view.cell(x, y, z);
+        if (CellData.lava(feet) || CellData.lava(view.cell(x, y + 1, z))) {
+            return true;
+        }
+        if (!CellData.passableEmpty(feet)) {
+            return false;
+        }
+        int obstacleY = scans.firstNonAirBelow(x, y - 1, z);
+        if (obstacleY == ColumnScans.NOTHING_BELOW) {
+            return true;
+        }
+        // 未ロードは危険と言い切れない。ここで割増を掛けると読み込みの縁に沿って経路が揺れる
+        if (obstacleY == ColumnScans.UNREADABLE_BELOW) {
+            return false;
+        }
+        long obstacle = view.cell(x, obstacleY, z);
+        if (CellData.lava(obstacle)) {
+            return true;
+        }
+        // 着水は落下距離がリセットされる
+        if (CellData.water(obstacle)) {
+            return false;
+        }
+        return y - obstacleY - 1 >= view.fatalFallBlocks();
+    }
+
     void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
         relax(from, x, y, z, edgeCost, kind, 0);
     }
@@ -1166,7 +1233,8 @@ public final class AStarPathfinder {
         // 実際にかかる時間でなければ意味がない
         boolean surfacing = y > from.y && Math.abs(x - from.x) + Math.abs(z - from.z) <= 1;
         double tentativeCost = from.cost
-                + (submerged && !surfacing ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost);
+                + (submerged && !surfacing ? edgeCost * ActionCosts.SUBMERGED_TRAVEL_PENALTY : edgeCost)
+                + edgeHazardPenalty(kind, x, y, z);
         if (neighbor.cost - tentativeCost <= MIN_IMPROVEMENT) {
             return;
         }
