@@ -9,7 +9,7 @@
 - Minecraft 26.2 / NeoForge 26.2.0.88 以降、Forge 65.1.3 以降、または Fabric（Fabric Loader 0.19.0 以降 +
   Fabric API 0.161.0 以降）
 - Minecraft 26.1.2 / NeoForge 26.1.2.112 以降、Forge 64.1.3 以降、または Fabric（Fabric Loader 0.19.0 以降 +
-  Fabric API 0.155.3 以降）
+  Fabric API 0.155.3 以降）。Fabric版の jar は Minecraft 26.1・26.1.1 でも動く
 - Minecraft 1.21.11 / NeoForge 21.11.45 以降、Forge 61.2.1 以降、または Fabric（Fabric Loader 0.17.3 以降 +
   Fabric API 0.141.6 以降）
 - Minecraft 1.21.10 / NeoForge 21.10.64 以降、Forge 60.1.15 以降、または Fabric（Fabric Loader 0.17.0 以降 +
@@ -59,6 +59,7 @@
    - Minecraft 26.1.2: [NeoForge](https://neoforged.net/) 26.1.2.112 以降、
      [Forge](https://files.minecraftforge.net/) 64.1.3 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.155.3 以降）。
+     Fabric版の jar は Minecraft 26.1・26.1.1 でも動きます。
    - Minecraft 1.21.11: [NeoForge](https://neoforged.net/) 21.11.45 以降、
      [Forge](https://files.minecraftforge.net/) 61.2.1 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.17.3 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 以降）。

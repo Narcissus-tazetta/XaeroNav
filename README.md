@@ -10,7 +10,7 @@ where to go next.
 - Minecraft 26.2, on NeoForge 26.2.0.88+, Forge 65.1.3+, or Fabric (Fabric Loader 0.19.0+ and
   Fabric API 0.161.0+)
 - Minecraft 26.1.2, on NeoForge 26.1.2.112+, Forge 64.1.3+, or Fabric (Fabric Loader 0.19.0+ and
-  Fabric API 0.155.3+)
+  Fabric API 0.155.3+). The Fabric jar also runs on Minecraft 26.1 and 26.1.1
 - Minecraft 1.21.11, on NeoForge 21.11.45+, Forge 61.2.1+, or Fabric (Fabric Loader 0.17.3+ and
   Fabric API 0.141.6+)
 - Minecraft 1.21.10, on NeoForge 21.10.64+, Forge 60.1.15+, or Fabric (Fabric Loader 0.17.0+ and
@@ -65,7 +65,8 @@ problem here.
    - Minecraft 26.1.2: [NeoForge](https://neoforged.net/) 26.1.2.112 or newer,
      [Forge](https://files.minecraftforge.net/) 64.1.3 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.19.0 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.155.3 or newer.
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.155.3 or newer. The Fabric jar also runs on
+     Minecraft 26.1 and 26.1.1.
    - Minecraft 1.21.11: [NeoForge](https://neoforged.net/) 21.11.45 or newer,
      [Forge](https://files.minecraftforge.net/) 61.2.1 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.17.3 or newer plus

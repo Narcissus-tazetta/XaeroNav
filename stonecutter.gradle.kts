@@ -86,7 +86,7 @@ if (publishTarget != null || publishNode != null) {
     val releaseFile = layout.buildDirectory.file(
         "libs/${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar")
 
-    val publishedMinecraftVersions = listOfNotNull(minecraftCompatFor(node.project), node.version)
+    val publishedMinecraftVersions = minecraftCompatFor(node.project) + node.version
 
     publishMods {
         file.set(releaseFile)

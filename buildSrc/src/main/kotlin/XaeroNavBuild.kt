@@ -174,20 +174,22 @@ fun Project.modResourceProperties(): Map<String, String> = mapOf(
 )
 
 /**
- * 同じjarを、そのMinecraftバージョンの直前のバージョンでも動かすノードの対応表（値は下側のバージョン）。
- * 1.21と1.21.1・1.20と1.20.1はマッピングもプロトコルも実質同じ修正版。
- * ただし現行のXaeroのjarが直前の版で動くローダーだけに限る: Fabric版Minimapは1.21.1ちょうどを、
+ * 同じjarを、そのMinecraftバージョンより前の版でも動かすノードの対応表（値は下側の版を古い順に）。
+ * 1.21と1.21.1・1.20と1.20.1・26.1〜26.1.2はマッピングもプロトコルも実質同じ修正版。
+ * ただし現行のXaeroのjarが前の版で動くローダーだけに限る: Fabric版Minimapは1.21.1ちょうどを、
  * Forge版はForge 52以上（1.21.1）を要求するので、fabric/forgeの1.21には付けられない。
+ * 26.1.xのForge版xaerolibはForge 64（26.1.2）以上を要求し、NeoForgeの26.1・26.1.1はbetaしか無いので、26.1はfabricだけ。
  */
-fun minecraftCompatFor(node: String): String? = when (node) {
-    "1.21.1-neoforge" -> "1.21"
-    "1.20.1-fabric", "1.20.1-forge" -> "1.20"
-    else -> null
+fun minecraftCompatFor(node: String): List<String> = when (node) {
+    "1.21.1-neoforge" -> listOf("1.21")
+    "1.20.1-fabric", "1.20.1-forge" -> listOf("1.20")
+    "26.1.2-fabric" -> listOf("26.1", "26.1.1")
+    else -> emptyList()
 }
 
 /** MOD定義へ書くMinecraftの版範囲。ローダーごとに範囲の書式が違う（Fabricは空白区切りのAND、Forge系はMaven区間）。 */
 fun minecraftRangeProperties(minecraftVersion: String, node: String): Map<String, String> {
-    val compat = minecraftCompatFor(node)
+    val compat = minecraftCompatFor(node).firstOrNull()
     return mapOf(
         "minecraft_version" to minecraftVersion,
         "minecraft_range_fabric" to if (compat == null) minecraftVersion else ">=$compat <=$minecraftVersion",
