@@ -562,7 +562,7 @@ final class Extend {
         // （中間目標へ向かう経路も、その中間目標に届いていればcomplete）。ここを reachesGoal に
         // すると、継ぎ足した瞬間に未到達扱いになってshouldExtendが止まり、1回しか伸びなくなる
         PathResult combined = new PathResult(List.copyOf(folded.steps()), tail.termination(),
-                tail.expandedNodes(), tail.distinctNodes());
+                tail.expandedNodes(), tail.distinctNodes(), tail.limitsHeld());
         List<PathfindingState.PathSegment> segments = new ArrayList<>();
         for (PathfindingState.PathSegment segment : current.segments()) {
             segments.add(new PathfindingState.PathSegment(folded.newIndex()[segment.endStep()],

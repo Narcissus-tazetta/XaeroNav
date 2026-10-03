@@ -104,6 +104,7 @@ public final class FakeCells implements CellSource {
     private int maxFallDamagePoints;
     /** 設定の既定値に合わせてtrue（＝奈落・致死落差の上は跳ばない）。 */
     private boolean avoidRiskyJumps = true;
+    private boolean strictLimits;
     /** 体力満タン(20)相当。実機で最も普通の状態に合わせる。 */
     private int fatalFallBlocks = ActionCosts.SAFE_FALL_BLOCKS + 20;
     private boolean canMlgWaterBucket;
@@ -228,6 +229,11 @@ public final class FakeCells implements CellSource {
 
     public FakeCells avoidRiskyJumps(boolean value) {
         this.avoidRiskyJumps = value;
+        return this;
+    }
+
+    public FakeCells strictLimits(boolean value) {
+        this.strictLimits = value;
         return this;
     }
 
@@ -414,6 +420,11 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean avoidRiskyJumps() {
         return avoidRiskyJumps;
+    }
+
+    @Override
+    public boolean strictLimits() {
+        return strictLimits;
     }
 
     @Override

@@ -120,6 +120,11 @@ public final class ArrayCells implements CellSource {
     }
 
     @Override
+    public boolean strictLimits() {
+        return all.strictLimits();
+    }
+
+    @Override
     public double minDescentTicksPerBlock() {
         return all.minDescentTicksPerBlock();
     }

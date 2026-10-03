@@ -425,6 +425,11 @@ class CoarseRouteChurnProbeTest {
         }
 
         @Override
+        public boolean strictLimits() {
+            return all.strictLimits();
+        }
+
+        @Override
         public double minDescentTicksPerBlock() {
             return all.minDescentTicksPerBlock();
         }

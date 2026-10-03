@@ -481,6 +481,11 @@ public final class ChunkView implements CellSource {
     }
 
     @Override
+    public boolean strictLimits() {
+        return options.strictLimits();
+    }
+
+    @Override
     public double minDescentTicksPerBlock() {
         return minDescentTicksPerBlock;
     }

@@ -97,6 +97,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.fall_damage_tolerance_enabled",
                 "gui.xaeronav.config.fall_damage_tolerance_enabled.tooltip",
                 cfg.fallDamageToleranceEnabled(), cfg::setFallDamageToleranceEnabled));
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.strict_limits",
+                "gui.xaeronav.config.strict_limits.tooltip", cfg.strictLimits(), cfg::setStrictLimits));
         addBig.accept(boolOption("gui.xaeronav.config.deep_look_ahead_enabled",
                 cfg.deepLookAheadEnabled(), cfg::setDeepLookAheadEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.flight_routing_enabled",
@@ -156,6 +158,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         add("gui.xaeronav.config.block_budget_enabled", cfg::blockBudgetEnabled, cfg::setBlockBudgetEnabled);
         add("gui.xaeronav.config.jump_gap_enabled", cfg::jumpGapEnabled, cfg::setJumpGapEnabled);
         add("gui.xaeronav.config.fall_damage_tolerance_enabled", cfg::fallDamageToleranceEnabled, cfg::setFallDamageToleranceEnabled);
+        add("gui.xaeronav.config.strict_limits", cfg::strictLimits, cfg::setStrictLimits);
         add("gui.xaeronav.config.deep_look_ahead_enabled", cfg::deepLookAheadEnabled, cfg::setDeepLookAheadEnabled);
         add("gui.xaeronav.config.flight_routing_enabled", cfg::flightRoutingEnabled, cfg::setFlightRoutingEnabled);
         add("gui.xaeronav.config.flight_clearance", () -> cfg.flightClearanceDetourBlocks() > 0, cfg::setFlightClearanceEnabled);
