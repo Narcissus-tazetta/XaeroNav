@@ -340,6 +340,8 @@ public final class PathfindingState {
     // 滑空中の案内。目的地と「いま滑空しているか」はこちらが持ち、その目的地への空中経路だけを
     // 向こうが持つ。非同期結果の鮮度はstillFlyingToで問い合わせてもらう
     private final FlightNavState flight = new FlightNavState(this::stillFlyingTo, this::publishNavigationView);
+    /** 空の下を滑空している間の柱と矢印の案内。クライアントスレッド専用。 */
+    private final SkyGuide sky = new SkyGuide();
     // clear()・新規setGoal()のたびに増分する。非同期結果を適用する直前にこれと照合し、
     // 一致しなければ「もう古くなったリクエストの結果」として捨てる(clear後に古い結果が
     // currentResultを復活させてしまう競合を防ぐ)。
@@ -654,7 +656,23 @@ public final class PathfindingState {
     private void publishNavigationView() {
         navigationView = new NavigationView(goal, flying, arrived, computing || awaitingNavGraph, stuckTracker.reason(), displayed,
                 coarseRoute, refinedRoute, passedWaypoints, rerouteNoticeTicks > 0,
-                flying ? flight.route() : FlightRoute.NONE);
+                flying ? flight.route() : FlightRoute.NONE, skyPillar());
+    }
+
+    /** 空の下を滑空している間だけ、柱を立てる地点。それ以外は{@code null}。 */
+    private @Nullable BlockPos skyPillar() {
+        Level level = Minecraft.getInstance().level;
+        BlockPos currentGoal = goal;
+        if (!flying || !sky.active() || level == null || currentGoal == null) {
+            return null;
+        }
+        CoarseRoute route = coarseRoute;
+        RefinedRoute refined = refinedRoute;
+        List<BlockPos> waypoints = route == null || !route.goal().equals(currentGoal) ? List.of()
+                : refined != null && refined.source() == route ? refined.waypoints() : route.waypoints();
+        CoarseMapForGoal map = latestCoarseMap;
+        return sky.pillar(level, currentGoal, waypoints,
+                map != null && map.goal().equals(currentGoal) ? map.map() : null);
     }
 
     /**
@@ -664,11 +682,11 @@ public final class PathfindingState {
     public record NavigationView(BlockPos goal, boolean flying, boolean arrived, boolean computing,
                                   StuckReason stuckReason, DisplayedPath displayed, CoarseRoute coarseRoute,
                                   RefinedRoute refinedRoute, int passedWaypoints, boolean rerouted,
-                                  FlightRoute flightRoute) {
+                                  FlightRoute flightRoute, @Nullable BlockPos skyPillar) {
 
         private static NavigationView empty() {
             return new NavigationView(null, false, false, false, null, null, null, null, 0, false,
-                    FlightRoute.NONE);
+                    FlightRoute.NONE, null);
         }
 
         /** {@link PathfindingState#currentResult()}と同じ規則。 */
@@ -741,7 +759,10 @@ public final class PathfindingState {
         this.flying = airborne(level, player);
         GoalWaypoint.sync(this.goal);
         if (this.flying) {
-            flight.recalculate(this.goal);
+            sky.begin(level, player);
+            if (!sky.active()) {
+                flight.recalculate(this.goal);
+            }
         } else {
             recalculate("目的地の設定");
         }
@@ -902,6 +923,7 @@ public final class PathfindingState {
         this.rerouteNoticeTicks = 0;
         this.flying = false;
         this.flight.reset();
+        this.sky.reset();
         this.landingApproachActive = false;
         // elytraTriggerはここで戻さない。追っているのは目的地ではなく<b>プレイヤーの体の状態</b>で、
         // 滑空中にgotoを打つと「もう滑空している」という継続が消え、飛行モードへ入り直すまでの
@@ -1155,13 +1177,17 @@ public final class PathfindingState {
                     // whenCompleteは早期returnしてcomputingを書かないので、ここで明示的に下ろす
                     generation.incrementAndGet();
                     computing = false;
-                    // 離陸した瞬間から線を曲げたい。周期を待つと最初の数秒だけ山を突き抜けて見える
-                    flight.recalculate(currentGoal);
+                    sky.begin(mc.level, mc.player);
+                    if (!sky.active()) {
+                        // 離陸した瞬間から線を曲げたい。周期を待つと最初の数秒だけ山を突き抜けて見える
+                        flight.recalculate(currentGoal);
+                    }
                 } else {
                     // 着地した。離陸前の経路は遠く離れた場所のものなので先に消してから引き直す
                     // （消さないと、新しい経路が届くまでの数tickだけ古い線が残って見える）
                     displayed = null;
                     flight.dropRoute();
+                    sky.reset();
                     recalculate("着地");
                     return;
                 }
@@ -1169,7 +1195,18 @@ public final class PathfindingState {
             if (flying) {
                 // 滑空中は地上の経路追従・A*の再計算を止め、空中経路だけを見る
                 checkArrival(mc.player, currentGoal, null);
-                flight.tick(mc.level, mc.player, currentGoal);
+                if (sky.tick(mc.level, mc.player)) {
+                    if (sky.active()) {
+                        // 走っている探索の結果も捨てる。後から届くと、柱と並んで空中経路が出る
+                        flight.reset();
+                    } else {
+                        // 屋根の下へ入った。ここからは障害物を避ける線が要る
+                        flight.recalculate(currentGoal);
+                    }
+                }
+                if (!sky.active()) {
+                    flight.tick(mc.level, mc.player, currentGoal);
+                }
                 return;
             }
             if (shown != null && shown.mode() == PathMode.WAYPOINT) {
