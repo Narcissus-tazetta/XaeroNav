@@ -224,6 +224,11 @@ final class XaeroSynthCells implements CellSource {
     }
 
     @Override
+    public boolean strictLimits() {
+        return real.strictLimits();
+    }
+
+    @Override
     public double minDescentTicksPerBlock() {
         return real.minDescentTicksPerBlock();
     }
@@ -325,6 +330,11 @@ final class XaeroSynthCells implements CellSource {
             @Override
             public boolean avoidRiskyJumps() {
                 return real.avoidRiskyJumps();
+            }
+
+            @Override
+            public boolean strictLimits() {
+                return real.strictLimits();
             }
 
             @Override

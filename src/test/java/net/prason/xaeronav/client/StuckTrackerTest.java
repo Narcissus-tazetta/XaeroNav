@@ -85,6 +85,18 @@ class StuckTrackerTest {
     }
 
     @Test
+    void exhaustingWithinStrictLimitsSaysTheLimitsAreInTheWay() {
+        StuckTracker tracker = new StuckTracker();
+        NetherVoxelGuide voxelGuide = new NetherVoxelGuide();
+        PathResult held = incomplete(Termination.EXHAUSTED).withLimitsHeld();
+        for (int i = 0; i < 5; i++) {
+            tracker.noteOutcome(START, START, GOAL, false, held, false, voxelGuide::noteStalled);
+        }
+        assertEquals(PathfindingState.StuckReason.LIMITS_HELD, tracker.reason(),
+                "上限が捨てた手を試していないのに「道が無い」と言わない");
+    }
+
+    @Test
     void movingFarBetweenAttemptsResetsTheStreak() {
         StuckTracker tracker = new StuckTracker();
         NetherVoxelGuide voxelGuide = new NetherVoxelGuide();

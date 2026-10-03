@@ -23,7 +23,8 @@ Minecraftのworldへ触れて探索入力を準備する処理と、重い経路
 - futureの完了callbackからMinecraftのUI、player、worldを直接変更しない。必要な結果はスレッド安全な
   受け渡しを通し、クライアントtickで適用する。
 - キャンセルは計算量を減らすために行うが、正しさはgeneration照合で守る。割り込みが遅れても古い結果を
-  復活させてはいけない。
+  復活させてはいけない。結果を受け取る側が居なくなる遷移（clear・到着・離陸）では、世代を進めるのに
+  加えて`PathfindingExecutor#cancelAll`で走っている探索を止める。
 - `NavigationView`へ含める状態を変更したら、全ての書き込み経路でsnapshotを再発行する。
 - logout後はgoal、route、世代、Xaeroの一時waypoint、worldを保持するビューを残さない。
 
@@ -39,13 +40,16 @@ futureのキャンセルだけでは、完了直前の古い処理が新しい�
 ## Verification
 
 - `PathfindingExecutor*Test`: 通常探索、deep fallback、緩和、粗いガイド
+- `SearchHandoverTest`: 目的地の変更・clear・離陸と着地の手順で、古い結果が届かないことと、走っている
+  探索（deep fallbackの2本目を含む）がビューを読むのをやめること
 - `DiagnosticJobRunnerTest`: 診断探索の世代管理
 - `StuckTrackerTest`: 状態機械から抽出した詰み判定
 - `NavHud*Test`, `MapPathOverlayTest`, `PathGeometryTest`: 公開snapshotの利用側
 - `CliffSpliceTest`, `SeamRepairSectionTest`, `SpliceJoinTest`: 非同期結果を使う経路差し替え
 
-時系列を横断する`PathfindingState`全体の決定的な統合テストは、まだ未整備です。状態機械をさらに分割
-するときは、fake scheduler/executorによる統合テストを先に追加します。
+`SearchHandoverTest`は`PathfindingState`と同じ部品・同じ手順を再現したもので、`PathfindingState`
+そのものはMinecraftのクライアントが要るため通していません。状態機械をさらに分割するときは、
+fake scheduler/executorによる統合テストを先に追加します。
 
 ## Code map
 

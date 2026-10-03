@@ -120,6 +120,12 @@ public final class SurfaceCellSource implements CellSource {
         return false;
     }
 
+    /** 層2の結果は中間目標にしかならないので、上限を守るかは層3の探索で決める。 */
+    @Override
+    public boolean strictLimits() {
+        return false;
+    }
+
     /** {@link #avoidRiskyJumps()}がfalseなので参照されない。 */
     @Override
     public int fatalFallBlocks() {

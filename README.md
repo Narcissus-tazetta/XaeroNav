@@ -255,6 +255,7 @@ Other markings:
 | `blockBudgetEnabled` | `true` | Cap the total blocks a route may place at how many you carry (lifted when no route fits, with a shortage warning; never applied in creative) |
 | `blockBudgetReserve` | `0` | Blocks held back from that budget |
 | `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
+| `strictLimits` | `false` | Never loosen the limits on bridge length, time underwater, fall damage, risky jumps and carried blocks, even when there is no other way. `false` loosens them only when no route fits and shows the result with warnings; `true` shows no route and says no way exists within the limits |
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
 | `costToGoGuideEnabled` | `true` | Guide the detailed search with a cost-to-go estimate. This builds a navigation graph of the loaded area in the background and aims straight at the destination (uses spare CPU cores and up to about 270 MB, or about 150 MB when the Java heap limit is below 2.5 GB); until the graph is ready, the coarse route's estimate is used. `false` falls back to straight-line distance |
 | `detailHorizonBlocks` | `96` | Max horizontal distance the detailed search targets in one shot; farther destinations get intermediate waypoints |

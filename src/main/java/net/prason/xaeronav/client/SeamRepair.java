@@ -441,7 +441,7 @@ final class SeamRepair {
             segments.add(new PathfindingState.PathSegment(last, tailWaypointIndex));
         }
         PathResult combined = new PathResult(List.copyOf(folded.steps()), shown.result().termination(),
-                shown.result().expandedNodes(), shown.result().distinctNodes());
+                shown.result().expandedNodes(), shown.result().distinctNodes(), shown.result().limitsHeld());
         // 差し替えたのは歩いた先だけなので、いま指している位置はそのまま通用する
         PathProgress.INSTANCE.carryOver(combined);
         return new PathfindingState.DisplayedPath(combined, shown.mode(), shown.waypointIndex(),
