@@ -311,7 +311,7 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 リリースの公開手順と必要な設定は [docs/releasing.md](docs/releasing.md) にあります。
 
 テストは重さで分けてあります。`./gradlew test` は実機の保存データを使う探索以外の全部で数秒、
-その探索（1分ほどかかる）は `@Tag("slow")` を付けて `./gradlew slowTest` に分けてあります。
+その探索（並列に回して数分。10コアの手元で約4分）は `@Tag("slow")` を付けて `./gradlew slowTest` に分けてあります。
 `build` は両方を回すので、CI は全部を通ります。
 
 ```bash

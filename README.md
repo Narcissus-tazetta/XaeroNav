@@ -336,7 +336,7 @@ How the targets are set up, and how to add one, is in [docs/multiloader.md](docs
 Release publishing and its required repository settings are documented in [docs/releasing.md](docs/releasing.md).
 
 The suite is split by cost. `./gradlew test` runs everything except the searches over real saved
-world data, which take about a minute; those carry `@Tag("slow")` and run as `./gradlew slowTest`.
+world data, which take a few minutes run in parallel (about 4 on a 10-core machine); those carry `@Tag("slow")` and run as `./gradlew slowTest`.
 `build` runs both, so CI covers the whole suite.
 
 ```bash
