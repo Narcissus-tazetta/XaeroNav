@@ -54,10 +54,10 @@ class FlightExtensionTargetTest {
     }
 
     @Test
-    void fallsBackToAPointTowardTheGoalWithNoWaypoints() {
-        // 未訪問領域では長距離ルートが無い。目的地の方向へleadぶん進んだ点を狙う
+    void aimsAtTheGoalItselfWithNoWaypoints() {
+        // 未訪問領域では長距離ルートが無い。手前の点ではなく目的地を狙い、読める範囲の縁で打ち切る
         Vec3 target = FlightNavState.extensionTarget(new Vec3(0.0, 64.0, 0.0), GOAL, List.of(), 100.0);
 
-        assertEquals(100.0, target.x, 1.0e-6);
+        assertEquals(GOAL, target);
     }
 }

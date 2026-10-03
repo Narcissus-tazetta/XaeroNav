@@ -37,7 +37,7 @@ import net.prason.xaeronav.pathfinding.world.WindowedCells;
 
 /** 保存ワールドから書き出した箱の中で、ランダムな始点・目的地を本番の設定で歩き通す。 */
 @Tag("bench")
-class RandomSweepBenchTest {
+public class RandomSweepBenchTest {
 
     /** 書き出した箱（{@code <箱>.txt.gz}）を置いたディレクトリ。{@code -Pxaeronav.sweepDir=...}で渡す。 */
     private static final Path DIR = Path.of(System.getProperty("xaeronav.sweepDir", "."));
@@ -52,7 +52,7 @@ class RandomSweepBenchTest {
     private static final int SPREAD = Integer.getInteger("xaeronav.sweepSpread", 200);
     private static final String TAG = System.getProperty("xaeronav.sweepTag", "");
 
-    enum Dim { OVERWORLD, NETHER, END }
+    public enum Dim { OVERWORLD, NETHER, END }
 
     @Test
     void overworld() throws IOException {
@@ -297,7 +297,7 @@ class RandomSweepBenchTest {
     }
 
     /** 実機の既定（経路の再現用ログの設定）に揃える。ネザーは列の最下ブロックより下を石で埋める。 */
-    private static FakeCells load(Path file, Dim dim) throws IOException {
+    public static FakeCells load(Path file, Dim dim) throws IOException {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 new GZIPInputStream(Files.newInputStream(file)), StandardCharsets.UTF_8))) {
             String[] h = reader.readLine().trim().split(" ");

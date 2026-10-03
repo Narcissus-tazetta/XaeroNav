@@ -105,4 +105,22 @@ class FlightCostsTest {
             }
         }
     }
+
+    @Test
+    void lowerBoundNeverExceedsAnyTwoLegDetour() {
+        // 経由点を挟んだ折れ線は、始点と終点を結ぶ1区間の下限を下回らない（A*の許容性と一貫性）
+        for (boolean rockets : new boolean[] {false, true}) {
+            for (double viaX = -60.0; viaX <= 160.0; viaX += 20.0) {
+                for (double viaY = -80.0; viaY <= 80.0; viaY += 20.0) {
+                    for (double endY = -60.0; endY <= 60.0; endY += 30.0) {
+                        double first = FlightCosts.segmentTicks(Math.abs(viaX), viaY, rockets);
+                        double second = FlightCosts.segmentTicks(Math.abs(100.0 - viaX), endY - viaY, rockets);
+                        double bound = FlightCosts.lowerBoundTicks(100.0, endY, endY, rockets);
+                        assertTrue(bound <= first + second + 1.0e-9,
+                                "下限が折れ線を上回った: 経由" + viaX + "," + viaY + " 終点Y" + endY);
+                    }
+                }
+            }
+        }
+    }
 }

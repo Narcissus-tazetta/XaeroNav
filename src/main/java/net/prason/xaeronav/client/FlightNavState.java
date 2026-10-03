@@ -28,6 +28,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.cost.FlightCosts;
 import net.prason.xaeronav.pathfinding.flight.CoarseAirMap;
 import net.prason.xaeronav.pathfinding.flight.CoarseFlightRouter;
+import net.prason.xaeronav.pathfinding.flight.FlightHorizon;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
@@ -355,6 +356,7 @@ final class FlightNavState {
         CoarseRequest coarseRequest = routing ? coarseRequest(level, player, currentGoal) : CoarseRequest.NONE;
         int minAirY = GameCompat.minBuildHeight(level) + CEILING_MARGIN_BLOCKS;
         int maxAirY = GameCompat.maxBuildHeight(level) - 1 - CEILING_MARGIN_BLOCKS;
+        FlightHorizon horizon = loadedHorizon(start, renderRadius);
         int passedSnapshot = coarseRequest.fresh() ? 0 : passedWaypoints;
         BlockPos aimedSnapshot = aimedWaypoint;
         long myJob = ++jobGeneration;
@@ -371,7 +373,7 @@ final class FlightNavState {
                     // 縁ちょうどを狙うと、その周りのセルが未ロード＝飛行不可で必ず未到達に終わる
                     Aim aim = detailTarget(start, goalVec, coarse, passedSnapshot, aimedSnapshot);
                     FlightRoute solved = routing
-                            ? FlightRouter.route(view, start, aim.target(), rockets, tuning,
+                            ? FlightRouter.route(view, start, aim.target(), rockets, tuning, horizon,
                                     () -> jobGeneration != myJob)
                             : FlightRoute.NONE;
                     // 曲がり点線は経路が引けなかったときだけ要る。引けているときに重ねると、
@@ -707,8 +709,11 @@ final class FlightNavState {
         computing = true;
 
         long startedAt = System.nanoTime();
+        // 出口はプレイヤー中心の読める範囲の縁。末端中心の円にすると、末端の<b>後ろ側</b>の縁も
+        // 数十ブロック先にあることになり、前が塞がった途端に後ろから出て線が引き返す
+        FlightHorizon horizon = loadedHorizon(player.position(), renderRadius);
         CompletableFuture
-                .supplyAsync(() -> FlightRouter.route(view, tail, target, rockets, tuning,
+                .supplyAsync(() -> FlightRouter.route(view, tail, target, rockets, tuning, horizon,
                         () -> jobGeneration != myJob), executor)
                 .whenComplete((extension, error) -> Minecraft.getInstance().execute(() -> {
                     if (jobGeneration != myJob) {
@@ -776,11 +781,18 @@ final class FlightNavState {
             }
             target = Vec3.atCenterOf(waypoints.get(i));
         }
-        if (target != null) {
-            return target;
-        }
-        // 中間目標が無い（未訪問領域）。目的地へ向かう直線上のleadぶん先を狙う
-        return tail.add(goalVec.subtract(tail).normalize().scale(lead));
+        // 中間目標が無い（未訪問領域）なら目的地そのもの。読める範囲の外にあっても、探索は
+        // 縁（{@link #loadedHorizon}）で打ち切られる。手前に点を置くと、その点が山や岩の中に
+        // 落ちたときに届かないことを確かめるために予算を使い切る
+        return target != null ? target : goalVec;
+    }
+
+    /**
+     * 空中経路の探索の出口。プレイヤー中心の、読み込み済みと当てにしてよい円
+     * （{@link FlightHorizon}参照）。診断コマンドもここを通す。
+     */
+    static FlightHorizon loadedHorizon(Vec3 player, int renderRadius) {
+        return new FlightHorizon(player.x, player.z, renderRadius * LOADED_MARGIN);
     }
 
     /**

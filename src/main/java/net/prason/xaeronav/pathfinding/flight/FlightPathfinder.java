@@ -87,6 +87,7 @@ public final class FlightPathfinder {
 
     private Vec3 goal;
     private double goalRadius;
+    private FlightHorizon horizon = FlightHorizon.NONE;
     private long deadline;
 
     /**
@@ -113,6 +114,13 @@ public final class FlightPathfinder {
      * あとは自力で降りられるか、が実際に知りたいこと。
      */
     public FlightRoute search(Vec3 start, Vec3 target, double goalRadiusBlocks, BooleanSupplier cancelled) {
+        return search(start, target, goalRadiusBlocks, FlightHorizon.NONE, cancelled);
+    }
+
+    /** {@code horizon}の外へ出たセルも着いたとみなす（{@link FlightHorizon}参照）。 */
+    public FlightRoute search(Vec3 start, Vec3 target, double goalRadiusBlocks, FlightHorizon horizon,
+                              BooleanSupplier cancelled) {
+        this.horizon = horizon;
         // ノードの見積もりはゴールが決まって初めて計算できる。2回目の探索でゴールが変わっても
         // 前回のノードは古い見積もりを持ったままなので、表ごと捨てる
         ids.clear();
@@ -180,6 +188,9 @@ public final class FlightPathfinder {
      */
     private boolean reachedGoal(int node) {
         Vec3 center = centerOf(node);
+        if (horizon.outside(center.x, center.z)) {
+            return true;
+        }
         double dx = center.x - goal.x;
         double dz = center.z - goal.z;
         return dx * dx + dz * dz <= goalRadius * goalRadius
@@ -289,9 +300,7 @@ public final class FlightPathfinder {
         double horizontal = Math.max(0.0, Math.sqrt(dx * dx + dz * dz) - goalRadius);
         double verticalTolerance = Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
         double dy = goal.y - center.y;
-        double vertical = dy > 0.0 ? Math.max(0.0, dy - verticalTolerance)
-                : -Math.max(0.0, -dy - verticalTolerance);
-        return FlightCosts.heuristicTicks(horizontal, vertical, rockets);
+        return FlightCosts.lowerBoundTicks(horizontal, dy - verticalTolerance, dy + verticalTolerance, rockets);
     }
 
     private FlightRoute build(int startNode, int endNode, Vec3 start, PathResult.Termination termination,

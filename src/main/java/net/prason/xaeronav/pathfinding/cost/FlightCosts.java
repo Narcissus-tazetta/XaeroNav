@@ -25,12 +25,11 @@ import net.prason.xaeronav.pathfinding.cost.ElytraPhysics.Velocity;
  * <p>副次的に、滑空比より急な降下も割に合わなくなる（{@code -dv}に課金され、requiredClimbは0で
  * 頭打ちなので得にならない）。使い切った高度は登り直すしかない、という実際の損得がそのまま出る。
  *
- * <h2>ヒューリスティックが滑空分を差し引かない理由</h2>
+ * <h2>見積もりも同じ式で測る</h2>
  *
- * 見積もりから{@code dh / GLIDE_RATIO}を引くと、遠回りするほど滑空で稼げる降下が増えて
- * {@code requiredClimb}が減るため、直線距離で測った見積もりが実際のコストを<b>上回りうる</b>
- * ＝非許容になる。滑空の割引は区間コスト側にだけ置き、見積もりは割り引かない。
- * こうすると常に{@code 区間コスト >= 見積もりの減少分}が成り立ち、A*の最適性が保たれる。
+ * 直線の区間コストそのものが、どんな折れ線のコストも下回らない（{@link #lowerBoundTicks}参照）。
+ * 水平飛行の登りの分（ロケット無しで水平コストの約3割）を見積もりから落とすと、そのぶん見積もりが
+ * 実コストから離れ、A*が横へ広がる。
  */
 public final class FlightCosts {
 
@@ -90,8 +89,27 @@ public final class FlightCosts {
     }
 
     /**
-     * ゴールまでの見積もり。滑空の割引を入れないぶん{@link #segmentTicks}を必ず下回るので、
-     * 重みを掛けない限りA*の最適性が保たれる。
+     * 水平{@code horizontalBlocks}・垂直{@code verticalLow}〜{@code verticalHigh}（上が正）のどこかへ着く
+     * 経路のコストの下限。<b>どう折れ曲がった経路でも、これを下回らない</b>。
+     *
+     * <p>{@link #segmentTicks}の3項はどれも区間に対して劣加法的（水平の項は線形、残り2つは線形な量の
+     * {@code max(0, ·)}）なので、折れ線の合計は始点と終点を直線で結んだ1区間のコストを下回らない。
+     * 遠回りは水平距離を増やすだけで、{@code requiredClimb}をかえって増やす。だから直線の区間コストが
+     * そのまま許容的な見積もりになり、隣どうしでも三角不等式が成り立つ（一貫性もある）。
+     *
+     * <p>垂直の幅の中では、最良滑空の勾配（{@code -水平/GLIDE_RATIO}）に最も近い高さで測る。区間コストは
+     * そこで最小になる（それより下は降下に、上は登りに課金される）。
+     */
+    public static double lowerBoundTicks(double horizontalBlocks, double verticalLow, double verticalHigh,
+                                         boolean rockets) {
+        double glide = -horizontalBlocks / GLIDE_RATIO;
+        double vertical = Math.max(verticalLow, Math.min(verticalHigh, glide));
+        return segmentTicks(horizontalBlocks, vertical, rockets);
+    }
+
+    /**
+     * 滑空で賄える登りを割り引かない、粗い見積もり。{@link #lowerBoundTicks}より常に小さい。
+     * 帯の幅を持つ粗い層の状態から測る{@code CoarseFlightRouter}が使う。
      */
     public static double heuristicTicks(double horizontalBlocks, double verticalBlocks, boolean rockets) {
         return horizontalBlocks * HORIZONTAL_TICKS_PER_BLOCK

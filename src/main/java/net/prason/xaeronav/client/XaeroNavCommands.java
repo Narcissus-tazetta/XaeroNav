@@ -562,7 +562,8 @@ public final class XaeroNavCommands {
         long generation = DIAGNOSTIC.begin();
         long startedAt = System.nanoTime();
         DIAGNOSTIC.submit(generation,
-                cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning(), cancelled),
+                cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning(),
+                        FlightNavState.loadedHorizon(start, renderRadius), cancelled),
                 (route, error) -> {
                     if (error != null) {
                         XaeroNav.LOGGER.error("XaeroNav: flight診断の経路計算に失敗しました", error);
