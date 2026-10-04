@@ -54,8 +54,12 @@ stonecutter {
         match("1.21.8", "neoforge", "fabric", "forge")
         match("1.21.5", "neoforge", "fabric", "forge")
         match("1.21.4", "neoforge", "fabric", "forge")
+        match("1.21.3", "neoforge", "fabric", "forge")
         match("1.21.1", "neoforge", "fabric", "forge")
+        match("1.20.6", "neoforge", "fabric", "forge")
         match("1.20.4", "neoforge", "fabric", "forge")
+        // NeoForge 20.2はbetaしか無い
+        match("1.20.2", "fabric", "forge")
         match("1.20.1", "fabric")
         match("1.19.2", "fabric")
         match("1.18.2", "fabric")

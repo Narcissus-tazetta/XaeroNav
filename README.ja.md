@@ -16,14 +16,20 @@
   Fabric API 0.138.4 以降）。Fabric版の jar は Minecraft 1.21.9 でも動く（Fabric API 0.134.1 以降）
 - Minecraft 1.21.8 / NeoForge 21.8.54 以降、Forge 58.1.22 以降、または Fabric（Fabric Loader 0.16.13 以降 +
   Fabric API 0.136.1 以降）。Fabric版の jar は Minecraft 1.21.6・1.21.7 でも動く（Fabric API 0.128.2 以降）
-- Minecraft 1.21.5 / NeoForge 21.5 以降、Forge 55 以降、または Fabric（Fabric Loader 0.16.10 以降 +
+- Minecraft 1.21.5 / NeoForge 21.5 以降、Forge 55.0.24 以降、または Fabric（Fabric Loader 0.16.10 以降 +
   Fabric API 0.128.2 以降）
-- Minecraft 1.21.4 / NeoForge 21.4 以降、Forge 54 以降、または Fabric（Fabric Loader 0.16.9 以降 +
+- Minecraft 1.21.4 / NeoForge 21.4 以降、Forge 54.1.5 以降、または Fabric（Fabric Loader 0.16.9 以降 +
   Fabric API 0.119.4 以降）
+- Minecraft 1.21.3 / NeoForge 21.3 以降、Forge 53.1.2 以降、または Fabric（Fabric Loader 0.15.11 以降 +
+  Fabric API 0.114.1 以降）
 - Minecraft 1.21.1 / NeoForge 21.1.228 以降、Forge 52.1.16 以降、または Fabric（Fabric Loader
-  0.15.11 以降 + Fabric API）。NeoForge 版の jar は Minecraft 1.21（NeoForge 21.0 以降）でも動きます
-- Minecraft 1.20.4 / NeoForge 20.4 以降、Forge 49 以降、または Fabric（Fabric Loader 0.15.11 以降 +
-  Fabric API 0.97.3 以降）
+  0.15.11 以降 + Fabric API 0.102.0 以降）。NeoForge 版と Fabric 版の jar は Minecraft 1.21（NeoForge 21.0 以降、
+  Fabric API 0.102.0 以降）でも動きます
+- Minecraft 1.20.6 / NeoForge 20.6 以降、Forge 50.2.1 以降、または Fabric（Fabric Loader 0.15.11 以降 +
+  Fabric API 0.100.8 以降）。Fabric版の jar は Minecraft 1.20.5 でも動く（Fabric API 0.97.8 以降）
+- Minecraft 1.20.4 / NeoForge 20.4 以降、Forge 49.1.10 以降、または Fabric（Fabric Loader 0.15.11 以降 +
+  Fabric API 0.97.3 以降）。Fabric版の jar は Minecraft 1.20.3 でも動く（Fabric API 0.91.1 以降）
+- Minecraft 1.20.2 / Forge 48 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.91.6 以降）
 - Minecraft 1.20.1 / Forge 47.4.23 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API）。
   この jar は Minecraft 1.20（Forge 46 以降、Fabric API 0.83.0 以降）でも動きます
 - Minecraft 1.19.2 / Forge 43 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.77.0 以降）
@@ -75,14 +81,25 @@
      [Forge](https://files.minecraftforge.net/) 55 以降、または [Fabric](https://fabricmc.net/)
      （Fabric Loader 0.16.10 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.128.2 以降）。
    - Minecraft 1.21.4: [NeoForge](https://neoforged.net/) 21.4 以降、
-     [Forge](https://files.minecraftforge.net/) 54 以降、または [Fabric](https://fabricmc.net/)
+     [Forge](https://files.minecraftforge.net/) 54.1.5 以降、または [Fabric](https://fabricmc.net/)
      （Fabric Loader 0.16.9 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.119.4 以降）。
+   - Minecraft 1.21.3: [NeoForge](https://neoforged.net/) 21.3 以降、
+     [Forge](https://files.minecraftforge.net/) 53.1.2 以降、または [Fabric](https://fabricmc.net/)
+     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.114.1 以降）。
    - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 以降、
      [Forge](https://files.minecraftforge.net/) 52.1.16 以降、または [Fabric](https://fabricmc.net/)
-     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
+     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.102.0 以降）。
+     NeoForge 版と Fabric 版の jar は Minecraft 1.21 でも動きます。
+   - Minecraft 1.20.6: [NeoForge](https://neoforged.net/) 20.6 以降、
+     [Forge](https://files.minecraftforge.net/) 50.2.1 以降、または [Fabric](https://fabricmc.net/)
+     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.100.8 以降）。
+     Fabric版の jar は Minecraft 1.20.5 でも動きます（Fabric API 0.97.8 以降）。
    - Minecraft 1.20.4: [NeoForge](https://neoforged.net/) 20.4 以降、
-     [Forge](https://files.minecraftforge.net/) 49 以降、または [Fabric](https://fabricmc.net/)
+     [Forge](https://files.minecraftforge.net/) 49.1.10 以降、または [Fabric](https://fabricmc.net/)
      （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.97.3 以降）。
+     Fabric版の jar は Minecraft 1.20.3 でも動きます（Fabric API 0.91.1 以降）。
+   - Minecraft 1.20.2: [Forge](https://files.minecraftforge.net/) 48 以降、または
+     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.91.6 以降）。
    - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
    - Minecraft 1.19.2: [Forge](https://files.minecraftforge.net/) 43 以降、または
@@ -97,8 +114,12 @@
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
    1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、26.1.2・1.21.11・1.21.10・1.21.8・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
    Minimap 26.5.0 以降、26.2 なら World Map 1.46.1 以降・Minimap 26.5.1 以降、26.3 なら World Map 1.46.4 以降・Minimap 26.5.3 以降。
-   1.21.6・1.21.7・1.21.9 向けの Xaero は更新が止まっているので、最後の版（1.21.6 は World Map 1.39.10・Minimap 25.2.7、
-   1.21.7 は World Map 1.39.12・Minimap 25.2.10、1.21.9 は World Map 1.39.17・Minimap 25.2.15）を使う。
+   1.21.3 なら World Map 1.40.6 以降・Minimap 25.3.5 以降。
+   Xaero の更新が止まっている版では最後の版を使う（1.20.2・1.20.5・1.20.6 は World Map 1.39.12・Minimap 25.2.10
+   （Forge 版の Minimap は 25.2.12）、1.21.6 は World Map 1.39.10・Minimap 25.2.7、1.21.7 は World Map 1.39.12・
+   Minimap 25.2.10、1.21.9 は World Map 1.39.17・Minimap 25.2.15）。
+   1.21 と 1.20.3（Fabric）は今の World Map が動くが、その版向けの最後の Minimap（25.3.2）とは一緒に動かない
+   （World Map が拒む）。両方を入れるなら World Map 1.41.2 と Minimap 25.3.2 を組み合わせる。
 
 ## 何ができるか
 

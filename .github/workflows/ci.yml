@@ -218,11 +218,12 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.node.java }}
 
-      # Forgeの起動画面（early display）はXvfbでウィンドウの用意がタイムアウトすることがあり、
+      # Forge・NeoForgeの起動画面（early display）はXvfbでウィンドウの用意がタイムアウトすることがあり、
       # そのときstdinへy/nを問い続ける無限ループに入る。出力の洪水でランナーごと応答しなくなり、
       # stepのtimeoutもstall監視も効かないまま打ち切られるので、起動画面をバニラに任せる
+      # （NeoForgeでは1.21.3で発生。キーはForgeと同じ: https://neoforged.net/meta/displayerrors/）
       - name: Disable the Forge early display
-        if: matrix.node.loader == 'forge' && matrix.node.minecraft != '1.16.5'
+        if: (matrix.node.loader == 'forge' && matrix.node.minecraft != '1.16.5') || matrix.node.loader == 'neoforge'
         run: |
           mkdir -p run/config
           echo "earlyWindowControl = false" > run/config/fml.toml

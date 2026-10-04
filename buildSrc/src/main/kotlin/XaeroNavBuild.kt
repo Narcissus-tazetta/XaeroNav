@@ -15,6 +15,7 @@ fun Project.modProperty(key: String): String =
 /** 各Minecraft版で利用者に必要となるJavaの最低バージョン。 */
 fun javaVersionFor(minecraftVersion: String): Int = when {
     minecraftVersion.startsWith("1.16.") -> 8
+    minecraftVersion == "1.20.5" || minecraftVersion == "1.20.6" -> 21
     minecraftVersion.startsWith("1.18.") || minecraftVersion.startsWith("1.19.") || minecraftVersion.startsWith("1.20.") -> 17
     minecraftVersion.startsWith("26.") -> 25
     else -> 21
@@ -43,6 +44,8 @@ fun mixinCompatibilityLevelFor(minecraftVersion: String): String {
         minecraftVersion.startsWith("1.16.") -> minOf(compileVersion, 18)
         // ForgeのMixinはJAVA_25を知らず（"not recognised"で起動前に落ちる）、このMODのmixinが要る機能はJava 21までで足りる
         minecraftVersion.startsWith("26.") -> minOf(compileVersion, 21)
+        // Forge 50（1.20.6）のMixin 0.8.5はJAVA_18までしか知らず、JAVA_21のconfigを読んだところで起動が止まる
+        minecraftVersion == "1.20.5" || minecraftVersion == "1.20.6" -> minOf(compileVersion, 17)
         else -> compileVersion
     }
     return "JAVA_$level"
@@ -62,8 +65,11 @@ fun packFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
     "1.18.2" -> 8
     "1.19.2" -> 9
     "1.20.1" -> 15
+    "1.20.2" -> 18
     "1.20.4" -> 22
+    "1.20.6" -> 32
     "1.21.1" -> 34
+    "1.21.3" -> 42
     "1.21.4" -> 46
     "1.21.5" -> 55
     "1.21.8" -> 64
@@ -78,6 +84,9 @@ fun packFormatFor(minecraftVersion: String): Int = when (minecraftVersion) {
 /**
  * Xaeroの3モジュール（lib/worldmap/minimap）の依存座標。artifactId中のloader名部分
  * （fabric/forge/neoforge）だけが4ノードで違う。
+ *
+ * <p>更新の止まった版（1.20.6など）のXaeroはXaeroのMavenに無く、Modrinthにしか無い。`modrinth:<Modrinthの版名>`と
+ * 書いた版はModrinthのMavenから取る。その頃のXaeroはxaerolibを使わないので、`xaerolibVersion`は`none`にする。
  */
 fun xaeroModuleCoordinates(
     loader: String,
@@ -85,11 +94,15 @@ fun xaeroModuleCoordinates(
     xaerolibVersion: String,
     worldmapVersion: String,
     minimapVersion: String,
-): List<String> = listOf(
-    "xaero.lib:xaerolib-$loader-$minecraftVersion:$xaerolibVersion",
-    "xaero.map:xaeroworldmap-$loader-$minecraftVersion:$worldmapVersion",
-    "xaero.minimap:xaerominimap-$loader-$minecraftVersion:$minimapVersion",
+): List<String> = listOfNotNull(
+    xaerolibVersion.takeIf { it != "none" }?.let { "xaero.lib:xaerolib-$loader-$minecraftVersion:$it" },
+    xaeroCoordinate("xaero.map:xaeroworldmap-$loader-$minecraftVersion", "xaeros-world-map", worldmapVersion),
+    xaeroCoordinate("xaero.minimap:xaerominimap-$loader-$minecraftVersion", "xaeros-minimap", minimapVersion),
 )
+
+private fun xaeroCoordinate(xaeroModule: String, modrinthProject: String, version: String): String =
+    if (version.startsWith("modrinth:")) "maven.modrinth:$modrinthProject:${version.removePrefix("modrinth:")}"
+    else "$xaeroModule:$version"
 
 /** `./gradlew runClient -Pwith_xaero=false` でXaeroを外せるようにする開発実行の共通判定。 */
 fun Project.withXaeroProperty(): Boolean = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
@@ -175,14 +188,15 @@ fun Project.modResourceProperties(): Map<String, String> = mapOf(
 
 /**
  * 同じjarを、そのMinecraftバージョンより前の版でも動かすノードの対応表（値は下側の版を古い順に）。
- * 1.21と1.21.1・1.20と1.20.1・1.21.6〜1.21.8・1.21.9と1.21.10・26.1〜26.1.2はマッピングもプロトコルも実質同じ修正版。
- * ただし現行のXaeroのjarが前の版で動くローダーだけに限る: Fabric版Minimapは1.21.1ちょうどを、
- * Forge版はForge 52以上（1.21.1）を要求するので、fabric/forgeの1.21には付けられない。
- * 1.21.6・1.21.7・1.21.9のXaeroは古い系統（World Map 1.39.x）で更新が止まっているが、注入先は現行版と同じ。
- * 26.1.xのForge版xaerolibはForge 64（26.1.2）以上を要求し、NeoForgeの26.1・26.1.1はbetaしか無いので、26.1はfabricだけ。
+ * どれもマッピングもプロトコルも実質同じ修正版。前の版のXaeroが更新の止まった古い系統（World Map 1.39.x・
+ * Minimap 25.x）でも、注入先は現行版と同じだった。
+ * 付けられないもの: Forge 1.21（Forge 51にHUDを差し込むイベントが無い）、Forge 1.20.3（Forge 49.0.xに
+ * ClientTickEvent.Postが無い）、26.1.xのForge（xaerolibがForge 64以上を要求）、NeoForgeの1.20.3・26.1・26.1.1（betaのみ）。
  */
 fun minecraftCompatFor(node: String): List<String> = when (node) {
-    "1.21.1-neoforge" -> listOf("1.21")
+    "1.21.1-neoforge", "1.21.1-fabric" -> listOf("1.21")
+    "1.20.6-fabric" -> listOf("1.20.5")
+    "1.20.4-fabric" -> listOf("1.20.3")
     "1.20.1-fabric", "1.20.1-forge" -> listOf("1.20")
     "1.21.8-fabric" -> listOf("1.21.6", "1.21.7")
     "1.21.10-fabric" -> listOf("1.21.9")

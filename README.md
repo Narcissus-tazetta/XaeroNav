@@ -17,14 +17,20 @@ where to go next.
   Fabric API 0.138.4+). The Fabric jar also runs on Minecraft 1.21.9 (Fabric API 0.134.1+)
 - Minecraft 1.21.8, on NeoForge 21.8.54+, Forge 58.1.22+, or Fabric (Fabric Loader 0.16.13+ and
   Fabric API 0.136.1+). The Fabric jar also runs on Minecraft 1.21.6 and 1.21.7 (Fabric API 0.128.2+)
-- Minecraft 1.21.5, on NeoForge 21.5+, Forge 55+, or Fabric (Fabric Loader 0.16.10+ and
+- Minecraft 1.21.5, on NeoForge 21.5+, Forge 55.0.24+, or Fabric (Fabric Loader 0.16.10+ and
   Fabric API 0.128.2+)
-- Minecraft 1.21.4, on NeoForge 21.4+, Forge 54+, or Fabric (Fabric Loader 0.16.9+ and
+- Minecraft 1.21.4, on NeoForge 21.4+, Forge 54.1.5+, or Fabric (Fabric Loader 0.16.9+ and
   Fabric API 0.119.4+)
+- Minecraft 1.21.3, on NeoForge 21.3+, Forge 53.1.2+, or Fabric (Fabric Loader 0.15.11+ and
+  Fabric API 0.114.1+)
 - Minecraft 1.21.1, on NeoForge 21.1.228+, Forge 52.1.16+, or Fabric (Fabric Loader 0.15.11+ and
-  Fabric API). The NeoForge jar also runs on Minecraft 1.21 with NeoForge 21.0+
-- Minecraft 1.20.4, on NeoForge 20.4+, Forge 49+, or Fabric (Fabric Loader 0.15.11+ and
-  Fabric API 0.97.3+)
+  Fabric API 0.102.0+). The NeoForge and Fabric jars also run on Minecraft 1.21, with NeoForge 21.0+ or
+  Fabric API 0.102.0+
+- Minecraft 1.20.6, on NeoForge 20.6+, Forge 50.2.1+, or Fabric (Fabric Loader 0.15.11+ and
+  Fabric API 0.100.8+). The Fabric jar also runs on Minecraft 1.20.5 (Fabric API 0.97.8+)
+- Minecraft 1.20.4, on NeoForge 20.4+, Forge 49.1.10+, or Fabric (Fabric Loader 0.15.11+ and
+  Fabric API 0.97.3+). The Fabric jar also runs on Minecraft 1.20.3 (Fabric API 0.91.1+)
+- Minecraft 1.20.2, on Forge 48+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.91.6+)
 - Minecraft 1.20.1, on Forge 47.4.23+ or Fabric (Fabric Loader 0.15.11+ and Fabric API). The jars also
   run on Minecraft 1.20, with Forge 46+ or Fabric API 0.83.0+
 - Minecraft 1.19.2, on Forge 43+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.77.0+)
@@ -86,16 +92,30 @@ problem here.
      with Fabric Loader 0.16.10 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api) 0.128.2 or newer.
    - Minecraft 1.21.4: [NeoForge](https://neoforged.net/) 21.4 or newer,
-     [Forge](https://files.minecraftforge.net/) 54 or newer, or [Fabric](https://fabricmc.net/)
+     [Forge](https://files.minecraftforge.net/) 54.1.5 or newer, or [Fabric](https://fabricmc.net/)
      with Fabric Loader 0.16.9 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api) 0.119.4 or newer.
+   - Minecraft 1.21.3: [NeoForge](https://neoforged.net/) 21.3 or newer,
+     [Forge](https://files.minecraftforge.net/) 53.1.2 or newer, or [Fabric](https://fabricmc.net/)
+     with Fabric Loader 0.15.11 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.114.1 or newer.
    - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 or newer,
      [Forge](https://files.minecraftforge.net/) 52.1.16 or newer, or [Fabric](https://fabricmc.net/)
-     with Fabric Loader 0.15.11 or newer plus [Fabric API](https://modrinth.com/mod/fabric-api).
-   - Minecraft 1.20.4: [NeoForge](https://neoforged.net/) 20.4 or newer,
-     [Forge](https://files.minecraftforge.net/) 49 or newer, or [Fabric](https://fabricmc.net/)
+     with Fabric Loader 0.15.11 or newer plus [Fabric API](https://modrinth.com/mod/fabric-api) 0.102.0
+     or newer. The NeoForge and Fabric jars also run on Minecraft 1.21.
+   - Minecraft 1.20.6: [NeoForge](https://neoforged.net/) 20.6 or newer,
+     [Forge](https://files.minecraftforge.net/) 50.2.1 or newer, or [Fabric](https://fabricmc.net/)
      with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.97.3 or newer.
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.100.8 or newer. The Fabric jar also runs on
+     Minecraft 1.20.5, with Fabric API 0.97.8 or newer.
+   - Minecraft 1.20.4: [NeoForge](https://neoforged.net/) 20.4 or newer,
+     [Forge](https://files.minecraftforge.net/) 49.1.10 or newer, or [Fabric](https://fabricmc.net/)
+     with Fabric Loader 0.15.11 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.97.3 or newer. The Fabric jar also runs on
+     Minecraft 1.20.3, with Fabric API 0.91.1 or newer.
+   - Minecraft 1.20.2: [Forge](https://files.minecraftforge.net/) 48 or newer, or
+     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
+     [Fabric API](https://modrinth.com/mod/fabric-api) 0.91.6 or newer.
    - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 or newer, or
      [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
      [Fabric API](https://modrinth.com/mod/fabric-api).
@@ -116,9 +136,14 @@ problem here.
    optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, 1.21.4, 1.21.5 and 1.20.4,
    World Map 1.46.0 / Minimap 26.5.0 on 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.20.1, 1.19.2, 1.18.2 and 1.16.5,
    World Map 1.46.1 / Minimap 26.5.1 on 26.2, World Map 1.46.4 / Minimap 26.5.3 on 26.3.
-   Xaero no longer updates its mods for 1.21.6, 1.21.7 and 1.21.9, so there the last releases work:
+   World Map 1.40.6 / Minimap 25.3.5 on 1.21.3.
+   Xaero no longer updates its mods for some versions, so there the last releases work:
+   World Map 1.39.12 / Minimap 25.2.10 on 1.20.2, 1.20.5 and 1.20.6 (Forge: Minimap 25.2.12),
    World Map 1.39.10 / Minimap 25.2.7 on 1.21.6, World Map 1.39.12 / Minimap 25.2.10 on 1.21.7,
    World Map 1.39.17 / Minimap 25.2.15 on 1.21.9.
+   On 1.21 and 1.20.3 (Fabric) the current World Map works, but the last Minimap for them is 25.3.2,
+   which the current World Map refuses to run with. To use both there, take World Map 1.41.2 with
+   Minimap 25.3.2.
 
 ## What it does
 

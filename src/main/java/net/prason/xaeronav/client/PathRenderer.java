@@ -835,7 +835,17 @@ public final class PathRenderer {
         *///?} else if >=1.21 {
         buffer.addVertex(pose, x0, y0, z0).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
         buffer.addVertex(pose, x1, y1, z1).setColor(red, green, blue, 1.0f).setNormal(pose, 0f, 1f, 0f);
-        //?} else {
+        //?} else if >=1.20.5 {
+        /*// 1.20.5〜1.20.6は旧世代のチェーンのままだが、normalがMatrix3fではなくPoseを取る
+        buffer.vertex(pose.pose(), x0, y0, z0)
+                .color(red, green, blue, 1.0f)
+                .normal(pose, 0f, 1f, 0f)
+                .endVertex();
+        buffer.vertex(pose.pose(), x1, y1, z1)
+                .color(red, green, blue, 1.0f)
+                .normal(pose, 0f, 1f, 0f)
+                .endVertex();
+        *///?} else {
         /*buffer.vertex(pose.pose(), x0, y0, z0)
                 .color(red, green, blue, 1.0f)
                 .normal(pose.normal(), 0f, 1f, 0f)
