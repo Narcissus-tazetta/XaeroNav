@@ -175,14 +175,17 @@ fun Project.modResourceProperties(): Map<String, String> = mapOf(
 
 /**
  * 同じjarを、そのMinecraftバージョンより前の版でも動かすノードの対応表（値は下側の版を古い順に）。
- * 1.21と1.21.1・1.20と1.20.1・26.1〜26.1.2はマッピングもプロトコルも実質同じ修正版。
+ * 1.21と1.21.1・1.20と1.20.1・1.21.6〜1.21.8・1.21.9と1.21.10・26.1〜26.1.2はマッピングもプロトコルも実質同じ修正版。
  * ただし現行のXaeroのjarが前の版で動くローダーだけに限る: Fabric版Minimapは1.21.1ちょうどを、
  * Forge版はForge 52以上（1.21.1）を要求するので、fabric/forgeの1.21には付けられない。
+ * 1.21.6・1.21.7・1.21.9のXaeroは古い系統（World Map 1.39.x）で更新が止まっているが、注入先は現行版と同じ。
  * 26.1.xのForge版xaerolibはForge 64（26.1.2）以上を要求し、NeoForgeの26.1・26.1.1はbetaしか無いので、26.1はfabricだけ。
  */
 fun minecraftCompatFor(node: String): List<String> = when (node) {
     "1.21.1-neoforge" -> listOf("1.21")
     "1.20.1-fabric", "1.20.1-forge" -> listOf("1.20")
+    "1.21.8-fabric" -> listOf("1.21.6", "1.21.7")
+    "1.21.10-fabric" -> listOf("1.21.9")
     "26.1.2-fabric" -> listOf("26.1", "26.1.1")
     else -> emptyList()
 }

@@ -1,5 +1,6 @@
 package net.prason.xaeronav.xaero;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 
@@ -14,15 +15,11 @@ import net.minecraft.client.KeyMapping;
 /*import net.minecraft.client.input.KeyEvent;
 *///?}
 import net.minecraft.client.Minecraft;
-//? if >=1.19 {
-import net.minecraft.network.chat.contents.TranslatableContents;
-//?} else {
-/*import net.minecraft.network.chat.TranslatableComponent;
-*///?}
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.client.XaeroNavKeys;
+import net.prason.xaeronav.mixin.xaero.RightClickOptionAccessor;
 import xaero.common.minimap.waypoints.Waypoint;
 import xaero.hud.minimap.waypoint.WaypointColor;
 import xaero.hud.minimap.waypoint.WaypointPurpose;
@@ -157,25 +154,40 @@ public final class XaeroHookRuntimeProbe {
         }
     }
 
-    private static void verifyWaypointMenu(GuiMap map, Minecraft minecraft) {
-        Waypoint source = new Waypoint(minecraft.player.blockPosition().getX(), minecraft.player.blockPosition().getY(),
-                minecraft.player.blockPosition().getZ(), "XaeroNav runtime probe", "X", WaypointColor.BLUE,
-                WaypointPurpose.NORMAL);
-        xaero.map.mods.gui.Waypoint element = new xaero.map.mods.gui.Waypoint(
-                source, true, "runtime-probe", 1.0);
+    private static void verifyWaypointMenu(GuiMap map, Minecraft minecraft) throws ReflectiveOperationException {
+        int x = minecraft.player.blockPosition().getX();
+        int y = minecraft.player.blockPosition().getY();
+        int z = minecraft.player.blockPosition().getZ();
+        Waypoint source = new Waypoint(x, y, z, "XaeroNav runtime probe", "X", WaypointColor.BLUE, WaypointPurpose.NORMAL);
+        xaero.map.mods.gui.Waypoint element = mapWaypoint(source, x, y, z);
         ArrayList<RightClickOption> options = new WaypointReader().getRightClickOptions(element, map);
         requireOption(options, "gui.xaeronav_goto_waypoint");
         requireOption(options, "gui.xaeronav_clear_route");
     }
 
+    /**
+     * 更新の止まった版のXaero（1.21.6・1.21.7・1.21.9向けのWorld Map 1.39系）には、座標などを個別に受け取る
+     * 12引数のコンストラクタしか無い。どちらの版でも動かすので、直接呼ばずに引数の数で選ぶ。
+     */
+    private static xaero.map.mods.gui.Waypoint mapWaypoint(Waypoint source, int x, int y, int z)
+            throws ReflectiveOperationException {
+        for (Constructor<?> constructor : xaero.map.mods.gui.Waypoint.class.getConstructors()) {
+            switch (constructor.getParameterCount()) {
+                case 4:
+                    return (xaero.map.mods.gui.Waypoint) constructor.newInstance(source, true, "runtime-probe", 1.0);
+                case 12:
+                    return (xaero.map.mods.gui.Waypoint) constructor.newInstance(
+                            source, x, y, z, "XaeroNav runtime probe", "X", 0, 0, true, "runtime-probe", false, 1.0);
+                default:
+                    break;
+            }
+        }
+        throw new NoSuchMethodException("xaero.map.mods.gui.Waypoint: no known constructor");
+    }
+
     private static void requireOption(ArrayList<RightClickOption> options, String key) {
-        if (options == null || options.stream().noneMatch(option ->
-                //? if >=1.19 {
-                option.getDisplayName().getContents() instanceof TranslatableContents translatable
-                //?} else {
-                /*option.getDisplayName() instanceof TranslatableComponent translatable
-                *///?}
-                        && key.equals(translatable.getKey()))) {
+        if (options == null || options.stream().noneMatch(
+                option -> key.equals(((RightClickOptionAccessor) option).xaeronav$translationKey()))) {
             throw new IllegalStateException("missing menu option " + key);
         }
     }
