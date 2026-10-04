@@ -13,7 +13,7 @@
 - Minecraft 1.21.11 / NeoForge 21.11.45 以降、Forge 61.2.1 以降、または Fabric（Fabric Loader 0.17.3 以降 +
   Fabric API 0.141.6 以降）
 - Minecraft 1.21.10 / NeoForge 21.10.64 以降、Forge 60.1.15 以降、または Fabric（Fabric Loader 0.17.0 以降 +
-  Fabric API 0.138.4 以降）
+  Fabric API 0.138.4 以降）。Fabric版の jar は Minecraft 1.21.9 でも動く（Fabric API 0.134.1 以降）
 - Minecraft 1.21.8 / NeoForge 21.8.54 以降、Forge 58.1.22 以降、または Fabric（Fabric Loader 0.16.13 以降 +
   Fabric API 0.136.1 以降）。Fabric版の jar は Minecraft 1.21.6・1.21.7 でも動く（Fabric API 0.128.2 以降）
 - Minecraft 1.21.5 / NeoForge 21.5 以降、Forge 55 以降、または Fabric（Fabric Loader 0.16.10 以降 +
@@ -66,6 +66,7 @@
    - Minecraft 1.21.10: [NeoForge](https://neoforged.net/) 21.10.64 以降、
      [Forge](https://files.minecraftforge.net/) 60.1.15 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.17.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.138.4 以降）。
+     Fabric版の jar は Minecraft 1.21.9 でも動きます（Fabric API 0.134.1 以降）。
    - Minecraft 1.21.8: [NeoForge](https://neoforged.net/) 21.8.54 以降、
      [Forge](https://files.minecraftforge.net/) 58.1.22 以降、または
      [Fabric](https://fabricmc.net/)（Fabric Loader 0.16.13 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.136.1 以降）。
@@ -96,8 +97,8 @@
 3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
    1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、26.1.2・1.21.11・1.21.10・1.21.8・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
    Minimap 26.5.0 以降、26.2 なら World Map 1.46.1 以降・Minimap 26.5.1 以降、26.3 なら World Map 1.46.4 以降・Minimap 26.5.3 以降。
-   1.21.6・1.21.7 向けの Xaero は更新が止まっているので、最後の版（1.21.6 は World Map 1.39.10・Minimap 25.2.7、
-   1.21.7 は World Map 1.39.12・Minimap 25.2.10）を使う。
+   1.21.6・1.21.7・1.21.9 向けの Xaero は更新が止まっているので、最後の版（1.21.6 は World Map 1.39.10・Minimap 25.2.7、
+   1.21.7 は World Map 1.39.12・Minimap 25.2.10、1.21.9 は World Map 1.39.17・Minimap 25.2.15）を使う。
 
 ## 何ができるか
 
@@ -338,6 +339,16 @@ tools/run-client.sh 1.21.1-neoforge -Pwith_xaero=false   # Xaero 抜き（フォ
 ```
 
 Xaero はコンパイルと開発用クライアントのときだけ使う依存で、配布物には含まれません。
+
+一部の jar は、ビルドした版より前の Minecraft でも動きます（例: 1.21.10 の Fabric 版を 1.21.9 で）。
+`tools/compat_check.py` は配布用の jar をビルドし、そうした版ごとに、合う Xaero と Fabric API を入れた
+Prism Launcher のインスタンスを作ります。`--auto` を付けると順に起動し、Xaero へのフックがすべて動いたかを表で出します。
+
+```bash
+tools/compat_check.py                    # インスタンスを作る（手で起動して確かめる）
+tools/compat_check.py --auto             # 順に起動して Xaero へのフックを確かめる
+tools/compat_check.py --auto 1.21.9-fabric
+```
 
 ### 構成
 

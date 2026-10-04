@@ -22,9 +22,9 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 /^import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 //? if >=26.1 {
 /^¹import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
-¹^///?} else {
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
-//?}
+¹^///?} else if >=1.21.11 {
+/^¹import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
+¹^///?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 ^///?} else {
@@ -67,14 +67,15 @@ public final class FabricEntry implements ClientModInitializer {
                 (handler, client) -> XaeroNavClient.TICK_HANDLER.onLoggingOut());
 
         //? if >=1.21.9 {
-        /^// 半透明の地形まで描き終えた後。以前のAFTER_TRANSLUCENTに当たる
+        /^// 半透明の地形まで描き終えた後。以前のAFTER_TRANSLUCENTに当たる。1.21.10のjarは1.21.9でも使うが、1.21.9のFabric APIには
+        // WorldRenderEventsが無いので、1.21.10ではFabricLevelRendererMixinが同じ位置で描く
         //? if >=26.1 {
         /^¹LevelRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
                 context.poseStack(), ClientCompat.mainCamera(Minecraft.getInstance())));
-        ¹^///?} else {
-        WorldRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
+        ¹^///?} else if >=1.21.11 {
+        /^¹WorldRenderEvents.END_MAIN.register(context -> XaeroNavClient.PATH_RENDERER.render(
                 context.matrices(), ClientCompat.mainCamera(Minecraft.getInstance())));
-        //?}
+        ¹^///?}
         HudElementRegistry.addLast(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
                 (graphics, tickCounter) -> XaeroNavClient.HUD.render(graphics));
         ^///?} else {
