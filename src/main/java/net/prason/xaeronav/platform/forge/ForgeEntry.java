@@ -2,7 +2,7 @@ package net.prason.xaeronav.platform.forge;
 
 // 1.21.6以降（Forge 56以降）はForgeMod・ForgeClientSetupが受け持つ
 //? if forge && <1.21.6 {
-/*//? if >=1.21 {
+/*//? if >=1.20.6 {
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.event.AddGuiOverlayLayersEvent;
 //?} else {
@@ -103,9 +103,10 @@ public final class ForgeEntry {
                     () -> new ConfigScreenHandler.ConfigScreenFactory(
                             parent -> new XaeroNavConfigScreen(parent)));
             //?} else if >=1.19 {
-            /^ModLoadingContext.get().registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
+            /^// Forge 48（1.20.2）のConfigScreenFactoryには(Screen)だけを取るコンストラクタが無い
+            ModLoadingContext.get().registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
                     () -> new ConfigScreenHandler.ConfigScreenFactory(
-                            parent -> new XaeroNavConfigScreen(parent)));
+                            (minecraft, parent) -> new XaeroNavConfigScreen(parent)));
             ^///?} else if >=1.17 {
             /^// Forge 40（1.18.2）にはRegisterKeyMappingsEventもConfigScreenHandlerも無い
             XaeroNavKeys.register(ClientRegistry::registerKeyBinding);
@@ -127,14 +128,21 @@ public final class ForgeEntry {
         //?}
 
         // ForgeにはNeoForgeのRenderGuiEvent.Postが無い。HUD描画をオーバーレイとして登録する形で
-        // 差し込む（ForgeとNeoForge/Fabricの構造差はここだけ）。登録イベント自体が1.21.1と1.20.1で
+        // 差し込む（ForgeとNeoForge/Fabricの構造差はここだけ）。登録イベント自体が1.20.6以降と1.20.4以前で
         // 別クラス（AddGuiOverlayLayersEvent / RegisterGuiOverlaysEvent）かつシグネチャも違う。
+        // 1.20.6はForge 50.2.1でAddGuiOverlayLayersEventが入るまでHUDを差し込むイベントが無い。
         // 1.18.2以前にはオーバーレイの登録イベントが無く、ForgeEventsがRenderGameOverlayEventで描く
         //? if >=1.19 {
         @SubscribeEvent
-        //? if >=1.21 {
+        //? if >=1.20.6 {
         public static void onAddGuiOverlayLayers(AddGuiOverlayLayersEvent event) {
-            event.getLayeredDraw().add(ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
+            event.getLayeredDraw().add(
+                    //? if >=1.21 {
+                    ResourceLocation.fromNamespaceAndPath(XaeroNav.MOD_ID, "hud"),
+                    //?} else {
+                    /^// ForgeはResourceLocationのコンストラクタを削除予定にしている
+                    ResourceLocation.tryBuild(XaeroNav.MOD_ID, "hud"),
+                    ^///?}
                     (graphics, partialTick) -> XaeroNavClient.HUD.render(graphics));
         }
         //?} else {

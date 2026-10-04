@@ -9,7 +9,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
-//? if >=1.21 {
+//? if >=1.20.5 {
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 //?} else {
 /*import net.neoforged.neoforge.event.TickEvent;
@@ -53,13 +53,13 @@ public final class NeoForgeEvents {
 
     @SubscribeEvent
     public void onClientTick(
-            //? if >=1.21 {
+            //? if >=1.20.5 {
             ClientTickEvent.Post event
             //?} else {
             /*TickEvent.ClientTickEvent event
             *///?}
     ) {
-        //? if <1.21 {
+        //? if <1.20.5 {
         /*if (event.phase != TickEvent.Phase.END) {
             return;
         }

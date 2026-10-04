@@ -61,11 +61,26 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     protected void addOptions() {
         addAllOptions(XaeroNavConfig.INSTANCE, this.list::addBig);
     }
-    //?} else {
+    //?} else if >=1.20.5 {
+    /*// 1.20.5でOptionsSubScreenがヘッダーとフッター（Doneボタン込み）のレイアウトを持つようになった。
+    // 位置はそのレイアウトが決めるので、リストを足してからsuper.init()に任せる
+    @Override
+    protected void init() {
+        this.list = this.addRenderableWidget(new OptionsList(this.minecraft, this.width, this.height, this));
+        addAllOptions(XaeroNavConfig.INSTANCE, this.list::addBig);
+        super.init();
+    }
+
+    @Override
+    protected void repositionElements() {
+        super.repositionElements();
+        this.list.updateSize(this.width, this.layout);
+    }
+    *///?} else {
     /*@Override
     protected void init() {
-        // 1.20.2でitemHeight引数がなくなった。
-        //? if >=1.20.2 {
+        // 1.20.3でitemHeight引数がなくなった。
+        //? if >=1.20.3 {
         this.list = new OptionsList(this.minecraft, this.width, this.height, 32, this.height - 32);
         //?} else {
         /^this.list = new OptionsList(this.minecraft, this.width, this.height, 32, this.height - 32, 25);

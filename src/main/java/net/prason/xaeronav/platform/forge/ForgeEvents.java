@@ -49,8 +49,8 @@ public final class ForgeEvents {
             return;
         }
         //?}
-        //? if >=1.21 {
-        // Forge 1.21.1のRenderLevelStageEventはPoseStackではなくMatrix4fを持つ（Mojang側がGUI描画で
+        //? if >=1.20.5 {
+        // Forge 1.20.6以降のRenderLevelStageEventはPoseStackではなくMatrix4fを持つ（Mojang側がGUI描画で
         // PoseStackの受け渡しをやめたため）。PathRendererはPoseStackのpush/pop APIに依存しているので、
         // 単体のPoseStackへ積み直して渡す（回転・並進が乗った行列を1回複製するだけ、毎フレームの負荷は軽い）。
         // event.getPoseStack()はforRemoval=trueで削除予定（Forge 1.21〜）。同じ値は
@@ -59,7 +59,7 @@ public final class ForgeEvents {
         PoseStack poseStack = new PoseStack();
         poseStack.last().pose().set(RenderSystem.getModelViewMatrix());
         //?} else {
-        /^// 1.20.1のRenderLevelStageEventはPoseStackをそのまま持っている（1.21のMatrix4f化以前）
+        /^// 1.20.4以前のRenderLevelStageEventはPoseStackをそのまま持っている（1.20.5のMatrix4f化以前）
         //? if >=1.17 {
         PoseStack poseStack = event.getPoseStack();
         //?} else {
@@ -76,17 +76,17 @@ public final class ForgeEvents {
     }
     //?}
 
-    // 1.20.1のTickEvent.ClientTickEventはPost/Preのネストクラスに分かれておらず、
+    // Forge 49.1.10（1.20.4）より前のTickEvent.ClientTickEventはPost/Preのネストクラスに分かれておらず、
     // phaseフィールド（START/END）で前後を区別する旧い形
     @SubscribeEvent
     public void onClientTick(
-            //? if >=1.20.2 {
+            //? if >=1.20.4 {
             TickEvent.ClientTickEvent.Post event
             //?} else {
             /^TickEvent.ClientTickEvent event
             ^///?}
     ) {
-        //? if <1.20.2 {
+        //? if <1.20.4 {
         /^if (event.phase != TickEvent.Phase.END) {
             return;
         }

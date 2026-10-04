@@ -15,32 +15,40 @@ XaeroNav は 1 つのソースツリーから、対応するローダーとバ�
 | `26.2-fabric` | 26.2 | Fabric Loader 0.19.0+ / Fabric API 0.161.0+ |
 | `26.2-forge` | 26.2 | Forge 65.1.3+ |
 | `26.2-neoforge` | 26.2 | NeoForge 26.2.0.88+ |
-| `26.1.2-fabric` | 26.1.2 | Fabric Loader 0.19.0+ / Fabric API 0.155.3+ |
+| `26.1.2-fabric` | 26.1.2（26.1・26.1.1でも） | Fabric Loader 0.19.0+ / Fabric API 0.155.3+ |
 | `26.1.2-forge` | 26.1.2 | Forge 64.1.3+ |
 | `26.1.2-neoforge` | 26.1.2 | NeoForge 26.1.2.112+ |
 | `1.21.11-fabric` | 1.21.11 | Fabric Loader 0.17.3+ / Fabric API 0.141.6+ |
 | `1.21.11-forge` | 1.21.11 | Forge 61.2.1+ |
 | `1.21.11-neoforge` | 1.21.11 | NeoForge 21.11.45+ |
-| `1.21.10-fabric` | 1.21.10 | Fabric Loader 0.17.0+ / Fabric API 0.138.4+ |
+| `1.21.10-fabric` | 1.21.10（1.21.9でも） | Fabric Loader 0.17.0+ / Fabric API 0.138.4+ |
 | `1.21.10-forge` | 1.21.10 | Forge 60.1.15+ |
 | `1.21.10-neoforge` | 1.21.10 | NeoForge 21.10.64+ |
-| `1.21.8-fabric` | 1.21.8 | Fabric Loader 0.16.13+ / Fabric API 0.136.1+ |
+| `1.21.8-fabric` | 1.21.8（1.21.6・1.21.7でも） | Fabric Loader 0.16.13+ / Fabric API 0.136.1+ |
 | `1.21.8-forge` | 1.21.8 | Forge 58.1.22+ |
 | `1.21.8-neoforge` | 1.21.8 | NeoForge 21.8.54+ |
 | `1.21.5-fabric` | 1.21.5 | Fabric Loader 0.16.10+ / Fabric API 0.128.2+ |
-| `1.21.5-forge` | 1.21.5 | Forge 55+ |
+| `1.21.5-forge` | 1.21.5 | Forge 55.0.24+ |
 | `1.21.5-neoforge` | 1.21.5 | NeoForge 21.5+ |
 | `1.21.4-fabric` | 1.21.4 | Fabric Loader 0.16.9+ / Fabric API 0.119.4+ |
-| `1.21.4-forge` | 1.21.4 | Forge 54+ |
+| `1.21.4-forge` | 1.21.4 | Forge 54.1.5+ |
 | `1.21.4-neoforge` | 1.21.4 | NeoForge 21.4+ |
-| `1.21.1-neoforge` | 1.21.1 | NeoForge 21.1.228+ |
-| `1.21.1-fabric` | 1.21.1 | Fabric Loader 0.19.5+ / Fabric API |
-| `1.21.1-forge` | 1.21.1 | Forge 52.1.16+ |
+| `1.21.3-fabric` | 1.21.3 | Fabric Loader 0.15.11+ / Fabric API 0.114.1+ |
+| `1.21.3-forge` | 1.21.3 | Forge 53.1.2+ |
+| `1.21.3-neoforge` | 1.21.3 | NeoForge 21.3+ |
+| `1.21.1-neoforge` | 1.21.1（1.21でも） | NeoForge 21.0+ |
+| `1.21.1-fabric` | 1.21.1（1.21でも） | Fabric Loader 0.15.11+ / Fabric API 0.102.0+ |
+| `1.21.1-forge` | 1.21.1 | Forge 52.1.2+ |
+| `1.20.6-fabric` | 1.20.6（1.20.5でも） | Fabric Loader 0.15.11+ / Fabric API 0.97.8+ |
+| `1.20.6-forge` | 1.20.6 | Forge 50.2.1+ |
+| `1.20.6-neoforge` | 1.20.6 | NeoForge 20.6+ |
 | `1.20.4-neoforge` | 1.20.4 | NeoForge 20.4+ |
-| `1.20.4-fabric` | 1.20.4 | Fabric Loader 0.15.11+ / Fabric API 0.97.3+ |
-| `1.20.4-forge` | 1.20.4 | Forge 49+ |
-| `1.20.1-fabric` | 1.20.1 | Fabric Loader 0.19.5+ / Fabric API |
-| `1.20.1-forge` | 1.20.1 | Forge 47.4.23+ |
+| `1.20.4-fabric` | 1.20.4（1.20.3でも） | Fabric Loader 0.15.11+ / Fabric API 0.91.1+ |
+| `1.20.4-forge` | 1.20.4 | Forge 49.1.10+ |
+| `1.20.2-fabric` | 1.20.2 | Fabric Loader 0.15.11+ / Fabric API 0.91.6+ |
+| `1.20.2-forge` | 1.20.2 | Forge 48+ |
+| `1.20.1-fabric` | 1.20.1（1.20でも） | Fabric Loader 0.15.11+ / Fabric API |
+| `1.20.1-forge` | 1.20.1（1.20でも） | Forge 46+ |
 | `1.19.2-fabric` | 1.19.2 | Fabric Loader 0.15.11+ / Fabric API 0.77.0+ |
 | `1.19.2-forge` | 1.19.2 | Forge 43+ |
 | `1.18.2-fabric` | 1.18.2 | Fabric Loader 0.15.11+ / Fabric API 0.77.0+ |
@@ -181,8 +189,8 @@ Minecraft自体のAPI差にだけ使う。
 
 Fabric・Forge・NeoForgeの3ローダーを持つ。1.20.1とゲーム側のAPIは近いが、ビルドとローダーAPIには次の差がある。
 
-- `OptionsList`のコンストラクタは1.20.2から行高の引数を取らない。設定画面はこの境界で分岐する
-- Forge 49のclient tickは`ClientTickEvent.Post`。1.20.1以前の`phase == END`判定は不要
+- `OptionsList`のコンストラクタは1.20.3から行高の引数を取らない。設定画面はこの境界で分岐する
+- Forge 49.1.10からclient tickは`ClientTickEvent.Post`。それより前（1.20.2のForge 48を含む）は`phase == END`で判定する
 - Forge 1.20.4はFG7でビルドするが、本番はまだSRG名で動く。MixinExtrasをjar-in-jarした後のjarを
   Renamer GradleでSRGへ変換し、その出力だけを配布する。Xaeroの`GuiMap#keyPressed`もSRG実名を注入先にする
   - 変換タスク（`renameJarJar`）のmapはRenamerの既定（`renamer.mappings`）に任せる。手で足すと2ファイルになって拒否される
@@ -218,21 +226,59 @@ Fabric・Forge・NeoForgeの3ローダーを持つ。1.21.1と1.21.5の間にあ
 
 ## 1つのjarを複数のMinecraftバージョンで使う
 
-1.21.1のNeoForge版は1.21でも、1.20.1のFabric版・Forge版は1.20でも、同じjarで動く。
-対応表は`minecraftCompatFor`（`buildSrc/src/main/kotlin/XaeroNavBuild.kt`）で、値は下側のバージョン。
+修正版の関係にある版は、ノードを増やさず既存のjarの対応範囲を下へ広げている。
+
+| jar | 下側の版 |
+|---|---|
+| `26.1.2-fabric` | 26.1・26.1.1 |
+| `1.21.10-fabric` | 1.21.9 |
+| `1.21.8-fabric` | 1.21.6・1.21.7 |
+| `1.21.1-neoforge`・`1.21.1-fabric` | 1.21 |
+| `1.20.6-fabric` | 1.20.5 |
+| `1.20.4-fabric` | 1.20.3 |
+| `1.20.1-fabric`・`1.20.1-forge` | 1.20 |
+
+対応表は`minecraftCompatFor`（`buildSrc/src/main/kotlin/XaeroNavBuild.kt`）で、値は下側の版を古い順に並べたもの。
 これがMOD定義のMinecraft範囲（`minecraft_range_fabric` / `minecraft_range_maven`）と、
 Modrinth・CurseForgeへ付ける対応バージョンの両方を決める。
 
-- **付けられるのは、現行のXaeroのjarがその版で動くローダーだけ。** Fabric版のMinimapは1.21.1ちょうど、
-  Forge版は1.21.1のForge 52以上を要求するので、Fabric・Forgeの1.21には付けていない。
-- ローダー側の下限（`neoforge_range` / `forge_loader_range` / `fabric_api_range`）は、下側のバージョンで
-  実際に動いた版まで下げる。`fabric_api_range`は開発に使う`fabric_api`とは別のキー。
-- 下側のバージョンには古いローダーが乗る。**その版のAPIで足りるか**を実機で確かめること。
-  Forge 46（1.20.0）にはForge 47にある次の2つが無く、`<1.21`のノードは46に揃えてある。
+- **下側の版のXaeroは古い系統でよい。** Xaeroは版によって更新を止めている（1.21.6・1.21.7・1.21.9はWorld Map 1.39.x・
+  Minimap 25.2.x、1.21と1.20.3はMinimap 25.3.2まで）が、XaeroNavの注入先（`GuiMap`のフィールド・`render`・`keyPressed`・
+  `getRightClickOptions`・`endBatch()`の呼び出し数・`@Local`の変数名・`renderChunksToFBO`）は現行版と同じだった。
+  古いXaeroとの違いで実害があったのは`RightClickOption#getDisplayName()`の戻り値（古い版は`String`）だけで、
+  `RightClickOptionAccessor`が全版で`String`の`name`フィールドを読む。
+- **付けられないもの:** その版にXaeroが無い（1.21.2）、ローダーに安定版が無い（NeoForgeの1.20.3・1.20.5・
+  1.21.6・1.21.7・26.1・26.1.1）、そのローダーの版にXaeroNavが使うAPIが無い（Forge 51の1.21・Forge 49.0.xの1.20.3・
+  Forge 57の1.21.7はHUDか描画かtickの差し込み口が無い）、Xaeroのjarがそのローダーの版を拒む（Forge 1.21.6・26.1・26.1.1）。
+- ローダー側の下限（`neoforge_range` / `forge_loader_range` / `fabric_api_range`）は、下側の版で動く版まで下げる。
+  `fabric_api_range`は開発に使う`fabric_api`とは別のキー。下げた版でコンパイルが通ることを、ノードの`deps.minecraft`と
+  `deps.fabric_api`を一時的に下側の版へ差し替えて確かめる。
+- 1.21.9向けのFabric APIには`WorldRenderEvents`が無いので、`1.21.10-fabric`だけは`FabricLevelRendererMixin`が
+  Fabric APIの`END_MAIN`と同じ位置（`LevelRenderer#method_62214`の最後の`endBatch()`）で描く。
+- Forge 46（1.20.0）にはForge 47にある次の2つが無く、`<1.21`のノードは46に揃えてある。
   - `@Mod`クラスのコンストラクタへの`FMLJavaModLoadingContext`の注入（引数なしで`get()`を使う）
   - `ForgeConfigSpec.Builder#defineListAllowEmpty(String, List, Predicate)`（`List<String>`と`Supplier`を取る版を使う）
 - NeoForge 21.0.xは`@EventBusSubscriber`の購読先のバスを自動で選ばないので、MODバスのイベントは
   `modEventBus.addListener`で登録する。
+- 実機での確認は`tools/compat_check.py`。配布jarと、その版のXaero・Fabric APIを入れたPrism Launcherの
+  インスタンスを作り、`--auto`でmc-runtime-testとruntime hook probeを入れて順に起動する。
+
+## 1.20.2・1.20.6・1.21.3
+
+- **Xaeroの取得元。** 1.20.2・1.20.6のXaeroはXaeroのMavenに無くModrinthにしか無い。`deps.xaero_worldmap`などを
+  `modrinth:<Modrinthの版名>`と書くとModrinthのMavenから取り、その頃のXaeroはxaerolibを使わないので`deps.xaerolib = "none"`にする。
+  1.21.3のXaeroはXaeroのMavenにある（xaerolib 1.0.45）。
+- **1.20.5の境界。** 1.20.5で次が変わった: `BlockState#isPathfindable`の引数、効率エンチャントの名前（`EFFICIENCY`）、
+  `VertexConsumer#normal`が`Pose`を取る、`OptionsSubScreen`がヘッダーとフッターのレイアウトを持つ、NeoForgeの
+  `IConfigScreenFactory`・`ClientTickEvent`・`ModContainer#registerConfig`、ForgeのRenderLevelStageEventが`Matrix4f`を持つ。
+  1.20.5〜1.20.6は`getTagEnchantmentLevel`がどのローダーにも無いので、効率はデータコンポーネント（`DataComponents.ENCHANTMENTS`）から読む。
+- **Java。** 1.20.5以降はJava 21。ただしForge 50（1.20.6）のMixin 0.8.5は`JAVA_18`までしか知らないので、1.20.5・1.20.6の
+  mixin configの`compatibilityLevel`は`JAVA_17`にしている。
+- **Forgeの下限。** HUDを差し込む`AddGuiOverlayLayersEvent`が入った版を下限にしている（50.2.1・52.1.2・53.1.2・54.1.5・55.0.24）。
+  Forge 48（1.20.2）の`ConfigScreenFactory`は`(Minecraft, Screen)`を取る形しか無い。
+- **Forge 1.21.3の描画。** 1.21.4と同じく`RenderLevelStageEvent`が無く、`ForgeLevelRendererMixin`が注入する。
+  `lambda$addMainPass$1`の引数は1.21.4と同じ。
+- `pack.mcmeta`のresource pack formatは1.20.2が18、1.20.6が32、1.21.3が42。
 
 ## 26.1・26.2・26.3
 

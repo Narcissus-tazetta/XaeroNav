@@ -4,7 +4,7 @@ package net.prason.xaeronav.platform.neoforge;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
-//? if <1.21 {
+//? if <1.20.5 {
 /*import net.neoforged.fml.ModLoadingContext;
 *///?}
 import net.neoforged.fml.common.Mod;
@@ -12,7 +12,7 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
-//? if >=1.21 {
+//? if >=1.20.5 {
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 //?} else {
 /*import net.neoforged.neoforge.client.ConfigScreenHandler;
@@ -40,7 +40,7 @@ public final class NeoForgeEntry {
     public NeoForgeEntry(IEventBus modEventBus, ModContainer modContainer) {
         XaeroNav.LOGGER.info("XaeroNav initialized");
         container = modContainer;
-        //? if >=1.21 {
+        //? if >=1.20.5 {
         modContainer.registerConfig(ModConfig.Type.CLIENT, modConfigSpec());
         //?} else {
         /*ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, modConfigSpec());
@@ -71,7 +71,7 @@ public final class NeoForgeEntry {
             NeoForge.EVENT_BUS.register(new NeoForgeEvents());
 
             // Modsの一覧からもキーバインド（XaeroNavKeys.OPEN_CONFIG_SCREEN）と同じ画面を開けるようにする
-            //? if >=1.21 {
+            //? if >=1.20.5 {
             container.registerExtensionPoint(IConfigScreenFactory.class,
                     (modContainer, parent) -> new XaeroNavConfigScreen(parent));
             //?} else {

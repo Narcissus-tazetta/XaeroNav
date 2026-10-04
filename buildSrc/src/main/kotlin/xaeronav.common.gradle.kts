@@ -49,6 +49,11 @@ tasks.withType<JavaCompile>().configureEach {
 repositories {
     mavenCentral()
     maven("https://chocolateminecraft.com/maven") { name = "Xaero's Maven" }
+    // XaeroのMavenに無い古い版のXaero（xaeroModuleCoordinatesの`modrinth:`）だけをここから取る
+    exclusiveContent {
+        forRepository { maven("https://api.modrinth.com/maven") { name = "Modrinth" } }
+        filter { includeGroup("maven.modrinth") }
+    }
 }
 
 // Fletching Tableはmixin設定を初期化すると、全依存に対して有効なmavenLocalと

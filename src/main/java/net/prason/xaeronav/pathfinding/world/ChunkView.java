@@ -6,6 +6,10 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
 
 import net.minecraft.core.BlockPos;
+//? if >=1.20.5 && <1.21 {
+/*import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
+*///?}
 //? if >=1.21 {
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
@@ -218,8 +222,8 @@ public final class ChunkView implements CellSource {
             }
         }
 
-        // 1.20.1はエンチャントがレジストリ経由のHolderではなく、Enchantments直下の静的フィールドを
-        // そのままEnchantmentHelperへ渡す旧モデル（フィールド名もBLOCK_EFFICIENCYで別物）。
+        // 1.21より前はエンチャントがレジストリ経由のHolderではなく、Enchantments直下の静的フィールドを
+        // そのままEnchantmentHelperへ渡す旧モデル（フィールド名は1.20.5でBLOCK_EFFICIENCYからEFFICIENCYへ変わった）。
         // vanilla APIの形そのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
         //? if >=1.21.2 {
         /*Holder<Enchantment> efficiency = level.registryAccess()
@@ -229,7 +233,9 @@ public final class ChunkView implements CellSource {
         Holder<Enchantment> efficiency = level.registryAccess()
                 .registryOrThrow(Registries.ENCHANTMENT)
                 .getHolderOrThrow(Enchantments.EFFICIENCY);
-        //?} else {
+        //?} else if >=1.20.5 {
+        /*Enchantment efficiency = Enchantments.EFFICIENCY;
+        *///?} else {
         /*Enchantment efficiency = Enchantments.BLOCK_EFFICIENCY;
         *///?}
         ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
@@ -243,8 +249,13 @@ public final class ChunkView implements CellSource {
             // (deprecated)ので、NBTの値をそのまま返すgetTagEnchantmentLevelを使う。Fabricは無改造の
             // vanilla APIでgetItemEnchantmentLevelが最初からNBTの値を返し、1.21.1-forgeはそもそも
             // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
-            // その2つはgetItemEnchantmentLevelのままでよい
-            //? if (forge && <1.21) || neoforge {
+            // その2つはgetItemEnchantmentLevelのままでよい。1.20.5〜1.20.6はNBTがデータコンポーネントに
+            // 置き換わった直後でgetTagEnchantmentLevelがどのローダーにも無く、NeoForgeはgetItemEnchantmentLevelを
+            // 非推奨にしているので、保存された値をデータコンポーネントから直接読む
+            //? if >=1.20.5 && <1.21 {
+            /*hotbarEfficiency[slot] = stack.getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY)
+                    .getLevel(efficiency);
+            *///?} else if (forge && <1.21) || neoforge {
             //? if >=1.19 {
             hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
             //?} else {

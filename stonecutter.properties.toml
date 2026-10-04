@@ -241,7 +241,8 @@ deps.xaero_minimap_min = "26.4.2"
 [forge."1.21.5"]
 deps.minecraft = "1.21.5"
 deps.forge = "55.1.14"
-deps.forge_loader_range = "[55,)"
+# HUDを差し込むAddGuiOverlayLayersEventはForge 55.0.24から
+deps.forge_loader_range = "[55.0.24,)"
 deps.mixinextras = "0.5.5"
 deps.xaerolib = "1.7.3"
 deps.xaero_worldmap = "1.46.0"
@@ -278,7 +279,8 @@ deps.xaero_minimap_min = "26.4.2"
 [forge."1.21.4"]
 deps.minecraft = "1.21.4"
 deps.forge = "54.1.18"
-deps.forge_loader_range = "[54,)"
+# HUDを差し込むAddGuiOverlayLayersEventはForge 54.1.5から
+deps.forge_loader_range = "[54.1.5,)"
 deps.mixinextras = "0.5.5"
 deps.xaerolib = "1.7.3"
 deps.xaero_worldmap = "1.46.0"
@@ -315,7 +317,8 @@ deps.minecraft = "1.21.1"
 deps.forge = "52.1.16"
 # mods.tomlへ書く「動く下限」。開発で使う版とは別物にしておく——Fabricで踏んだ落とし穴と同じ理由
 # （stonecutter.properties.tomlのdeps.fabric_loader_rangeのコメント参照）
-deps.forge_loader_range = "[52,)"
+# HUDを差し込むAddGuiOverlayLayersEventはForge 52.1.2から
+deps.forge_loader_range = "[52.1.2,)"
 # Forgeは本体にMixinExtrasを同梱していない（NeoForge/Fabricとの違い）。jar-in-jarで足す版
 deps.mixinextras = "0.5.5"
 deps.xaerolib = "1.7.3"
@@ -324,12 +327,89 @@ deps.xaero_minimap = "26.5.0"
 deps.xaero_worldmap_min = "1.44.2"
 deps.xaero_minimap_min = "26.4.2"
 
+[fabric."1.21.3"]
+deps.minecraft = "1.21.3"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.15.11"
+deps.fabric_api = "0.114.1+1.21.3"
+deps.fabric_api_range = "0.114.1+1.21.3"
+deps.modmenu = "12.0.1"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+deps.xaerolib = "1.0.45"
+deps.xaero_worldmap = "1.40.6"
+deps.xaero_minimap = "25.3.5"
+deps.xaero_worldmap_min = "1.40.6"
+deps.xaero_minimap_min = "25.3.5"
+
+[forge."1.21.3"]
+deps.minecraft = "1.21.3"
+deps.forge = "53.1.12"
+# HUDを差し込むAddGuiOverlayLayersEventはForge 53.1.2から
+deps.forge_loader_range = "[53.1.2,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "1.0.45"
+deps.xaero_worldmap = "1.40.6"
+deps.xaero_minimap = "25.3.5"
+deps.xaero_worldmap_min = "1.40.6"
+deps.xaero_minimap_min = "25.3.5"
+
+[neoforge."1.21.3"]
+deps.minecraft = "1.21.3"
+deps.neoforge = "21.3.97"
+deps.neoforge_range = "[21.3,)"
+deps.neoforge_loader_range = "[4,)"
+deps.xaerolib = "1.0.45"
+deps.xaero_worldmap = "1.40.6"
+deps.xaero_minimap = "25.3.5"
+deps.xaero_worldmap_min = "1.40.6"
+deps.xaero_minimap_min = "25.3.5"
+
+[fabric."1.20.6"]
+deps.minecraft = "1.20.6"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.15.11"
+deps.fabric_api = "0.100.8+1.20.6"
+deps.fabric_api_range = "0.97.8+1.20.5"
+deps.modmenu = "10.0.0"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+# 1.20.6のXaeroは更新が止まっていてXaeroのMavenに無い（xaerolibも使わない頃の版）。Modrinthから取る
+deps.xaerolib = "none"
+deps.xaero_worldmap = "modrinth:1.39.12_Fabric_1.20.6"
+deps.xaero_minimap = "modrinth:25.2.10_Fabric_1.20.6"
+deps.xaero_worldmap_min = "1.39.12"
+deps.xaero_minimap_min = "25.2.10"
+
+[forge."1.20.6"]
+deps.minecraft = "1.20.6"
+deps.forge = "50.2.10"
+# HUDを差し込むAddGuiOverlayLayersEventはForge 50.2.1から
+deps.forge_loader_range = "[50.2.1,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "none"
+deps.xaero_worldmap = "modrinth:1.39.12_Forge_1.20.6"
+deps.xaero_minimap = "modrinth:25.2.12_Forge_1.20.6"
+deps.xaero_worldmap_min = "1.39.12"
+deps.xaero_minimap_min = "25.2.12"
+
+[neoforge."1.20.6"]
+deps.minecraft = "1.20.6"
+deps.neoforge = "20.6.141"
+deps.neoforge_range = "[20.6,)"
+deps.neoforge_loader_range = "[2,)"
+deps.xaerolib = "none"
+deps.xaero_worldmap = "modrinth:1.39.12_NeoForge_1.20.6"
+deps.xaero_minimap = "modrinth:25.2.10_NeoForge_1.20.6"
+deps.xaero_worldmap_min = "1.39.12"
+deps.xaero_minimap_min = "25.2.10"
+
 [fabric."1.20.4"]
 deps.minecraft = "1.20.4"
 deps.fabric_loader = "0.19.5"
 deps.fabric_loader_range = ">=0.15.11"
 deps.fabric_api = "0.97.3+1.20.4"
-deps.fabric_api_range = "0.97.3+1.20.4"
+deps.fabric_api_range = "0.91.1+1.20.3"
 deps.modmenu = "9.2.0"
 deps.mixinextras = "0.5.3"
 deps.night_config = "3.8.3"
@@ -342,7 +422,8 @@ deps.xaero_minimap_min = "26.4.2"
 [forge."1.20.4"]
 deps.minecraft = "1.20.4"
 deps.forge = "49.2.9"
-deps.forge_loader_range = "[49,)"
+# ClientTickEvent.PostはForge 49.1.10から
+deps.forge_loader_range = "[49.1.10,)"
 deps.mixinextras = "0.5.5"
 deps.xaerolib = "1.7.3"
 deps.xaero_worldmap = "1.46.0"
@@ -360,6 +441,33 @@ deps.xaero_worldmap = "1.46.0"
 deps.xaero_minimap = "26.5.0"
 deps.xaero_worldmap_min = "1.44.2"
 deps.xaero_minimap_min = "26.4.2"
+
+[fabric."1.20.2"]
+deps.minecraft = "1.20.2"
+deps.fabric_loader = "0.19.5"
+deps.fabric_loader_range = ">=0.15.11"
+deps.fabric_api = "0.91.6+1.20.2"
+deps.fabric_api_range = "0.91.6+1.20.2"
+deps.modmenu = "8.0.1"
+deps.mixinextras = "0.5.3"
+deps.night_config = "3.8.3"
+# 1.20.2のXaeroは更新が止まっていてXaeroのMavenに無い（xaerolibも使わない頃の版）。Modrinthから取る
+deps.xaerolib = "none"
+deps.xaero_worldmap = "modrinth:1.39.12_Fabric_1.20.2"
+deps.xaero_minimap = "modrinth:25.2.10_Fabric_1.20.2"
+deps.xaero_worldmap_min = "1.39.12"
+deps.xaero_minimap_min = "25.2.10"
+
+[forge."1.20.2"]
+deps.minecraft = "1.20.2"
+deps.forge = "48.1.0"
+deps.forge_loader_range = "[48,)"
+deps.mixinextras = "0.5.5"
+deps.xaerolib = "none"
+deps.xaero_worldmap = "modrinth:1.39.12_Forge_1.20.2"
+deps.xaero_minimap = "modrinth:25.2.10_Forge_1.20.2"
+deps.xaero_worldmap_min = "1.39.12"
+deps.xaero_minimap_min = "25.2.10"
 
 [fabric."1.20.1"]
 deps.minecraft = "1.20.1"
@@ -396,7 +504,7 @@ deps.fabric_loader = "0.19.5"
 # 下限はハード依存のfabric-apiが要求する値に合わせてある
 deps.fabric_loader_range = ">=0.15.11"
 deps.fabric_api = "0.116.7+1.21.1"
-deps.fabric_api_range = "0.116.7+1.21.1"
+deps.fabric_api_range = "0.102.0+1.21"
 deps.modmenu = "11.0.4"
 # NeoForgeは本体に同梱しているものと同じ版に揃える（mixinの@Local / @WrapOperation）
 deps.mixinextras = "0.5.3"
