@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  discover:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,6 +27,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       nodes: ${{ steps.nodes.outputs.nodes }}
+      canonical_node: ${{ steps.nodes.outputs.canonical_node }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,7 +36,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Resolve and validate release version
         id: release
@@ -68,42 +68,91 @@ jobs:
       - name: Test release notes validation
         run: python3 -m unittest discover -s tools -p 'test_release_notes.py' -v
 
+      # 全ノードを構成するとMinecraftを1つずつ用意して40分を超える。一覧は構成しないノードも持っているので、
+      # 正典ノードだけを構成すれば足りる
       - name: Discover release nodes
         id: nodes
         run: |
-          NODES=$(./gradlew printNodes -q --console=plain | tail -1)
+          CANON=$(grep '^canonical_test_node' stonecutter.properties.toml | cut -d'"' -f2)
+          NODES=$(./gradlew printNodes "-Pxaeronav.onlyNodes=$CANON" -q --console=plain | tail -1)
           echo "$NODES" | jq -e 'length > 0' > /dev/null
           echo "nodes=$NODES" >> "$GITHUB_OUTPUT"
+          echo "canonical_node=$CANON" >> "$GITHUB_OUTPUT"
 
-      - name: Build and verify every distribution jar
-        env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: ./gradlew build verifyDistribution -Prelease "-Pmod_version=$RELEASE_VERSION"
+      # 公開ジョブも正典ノードだけを構成するので、ここで空から作ったGradleホームがそのまま使える。
+      # setup-gradleに任せると、公開ジョブには自分のエントリが無く、別ジョブの全ノード分の巨大なキャッシュを
+      # 1件ごとに2分以上かけて戻していた
+      - name: Stop the Gradle daemon before caching
+        run: ./gradlew --stop
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: release-publish-gradle-${{ github.run_id }}
 
-      - name: Dry run every platform and node
+  # ノードごとに別ランナーでビルドする。1台で全ノードを順に作ると20分近くかかる
+  build:
+    needs: discover
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        node: ${{ fromJson(needs.discover.outputs.nodes) }}
+    name: build (${{ matrix.node.node }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+      # CIのbuildジョブのキャッシュを借りるだけにする。リリースから書き出しても次のリリースまでに追い出される
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: true
+
+      # テストはソースを共有する正典ノードでだけ走らせる（CIのbuildジョブと同じ）
+      - name: Build and verify the distribution jar
         env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          RELEASE_NODES: ${{ steps.nodes.outputs.nodes }}
+          RELEASE_VERSION: ${{ needs.discover.outputs.version }}
+          NODE: ${{ matrix.node.node }}
+          CANONICAL_NODE: ${{ needs.discover.outputs.canonical_node }}
+        run: |
+          if [ "$NODE" = "$CANONICAL_NODE" ]; then
+            TASKS=(spotlessCheck ":$NODE:build")
+          else
+            TASKS=(":$NODE:assemble")
+          fi
+          ./gradlew "${TASKS[@]}" verifyDistribution --console=plain -Prelease \
+            "-Pmod_version=$RELEASE_VERSION" "-Pxaeronav.onlyNodes=$NODE"
+
+      # 公開ジョブと同じく正典ノードだけを構成して試す
+      - name: Dry run every platform
+        env:
+          RELEASE_VERSION: ${{ needs.discover.outputs.version }}
+          NODE: ${{ matrix.node.node }}
+          LOADER: ${{ matrix.node.loader }}
+          MINECRAFT: ${{ matrix.node.minecraft }}
+          CANONICAL_NODE: ${{ needs.discover.outputs.canonical_node }}
           MODRINTH_PROJECT_ID: example
           MODRINTH_TOKEN: example
           CURSEFORGE_PROJECT_ID: "123456"
           CURSEFORGE_TOKEN: example
         run: |
           set -euo pipefail
-          while IFS=$'\t' read -r NODE LOADER MINECRAFT; do
-            for PLATFORM in modrinth curseforge; do
-              OUTPUT=$(./gradlew publishMods --console=plain -Prelease \
-                "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" \
-                "-Ppublish_node=$NODE" "-Pxaeronav.onlyNodes=$NODE" -Ppublish_dry_run=true)
-              grep -Fq "Main file: xaeronav-$RELEASE_VERSION-$LOADER-$MINECRAFT.jar" <<< "$OUTPUT"
-              grep -Fq "Version: $RELEASE_VERSION-$LOADER-$MINECRAFT" <<< "$OUTPUT"
-              echo "Verified $PLATFORM / $NODE"
-            done
-          done < <(jq -r '.[] | [.node, .loader, .minecraft] | @tsv' <<< "$RELEASE_NODES")
+          for PLATFORM in modrinth curseforge; do
+            OUTPUT=$(./gradlew publishMods --console=plain -Prelease \
+              "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" \
+              "-Ppublish_node=$NODE" "-Pxaeronav.onlyNodes=$CANONICAL_NODE" -Ppublish_dry_run=true)
+            grep -Fq "Main file: xaeronav-$RELEASE_VERSION-$LOADER-$MINECRAFT.jar" <<< "$OUTPUT"
+            grep -Fq "Version: $RELEASE_VERSION-$LOADER-$MINECRAFT" <<< "$OUTPUT"
+            echo "Verified $PLATFORM / $NODE"
+          done
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-jars
+          name: release-jar-${{ matrix.node.node }}
           path: build/libs/xaeronav-*.jar
           if-no-files-found: error
           retention-days: 30
@@ -132,7 +181,7 @@ jobs:
           fi
 
   tag:
-    needs: [build, credentials]
+    needs: [discover, build, credentials]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,41 +192,46 @@ jobs:
       - name: Create tag for a manual release
         if: github.event_name == 'workflow_dispatch'
         env:
-          TAG: ${{ needs.build.outputs.tag }}
+          TAG: ${{ needs.discover.outputs.tag }}
         run: |
           git tag "$TAG"
           git push origin "refs/tags/$TAG"
 
   publish:
-    needs: [build, tag]
+    needs: [discover, tag]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
     strategy:
       fail-fast: false
-      # 1件の投稿は数リクエストなので、Modrinth（毎分300）・CurseForgeの上限には10並列でも届かない
-      max-parallel: 10
+      # GitHub Freeの公開リポジトリで同時に動かせるジョブ数の上限（これ以上は待たされるだけ）。
+      # 1件の投稿は数リクエストなので、Modrinth（IPごとに毎分300）・CurseForgeの上限には届かない
+      max-parallel: 20
       matrix:
         platform: [modrinth, curseforge]
-        node: ${{ fromJson(needs.build.outputs.nodes) }}
+        node: ${{ fromJson(needs.discover.outputs.nodes) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "25"
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          cache-read-only: true
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: release-publish-gradle-${{ github.run_id }}
+          fail-on-cache-miss: true
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: release-jars
+          name: release-jar-${{ matrix.node.node }}
           path: build/libs
 
       - name: Check publication inputs
         env:
-          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_VERSION: ${{ needs.discover.outputs.version }}
           MINECRAFT: ${{ matrix.node.minecraft }}
           LOADER: ${{ matrix.node.loader }}
           PLATFORM: ${{ matrix.platform }}
@@ -196,18 +250,19 @@ jobs:
 
       - name: Publish ${{ matrix.node.node }} to ${{ matrix.platform }}
         env:
-          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_VERSION: ${{ needs.discover.outputs.version }}
           NODE: ${{ matrix.node.node }}
           PLATFORM: ${{ matrix.platform }}
+          CANONICAL_NODE: ${{ needs.discover.outputs.canonical_node }}
           MODRINTH_PROJECT_ID: ${{ vars.MODRINTH_PROJECT_ID }}
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
           CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
-        # 投稿するノードだけを構成する。全ノードを構成すると、キャッシュに無いノードのMinecraftを作り直して1件に数分かかる
-        run: ./gradlew publishMods -Prelease "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" "-Ppublish_node=$NODE" "-Pxaeronav.onlyNodes=$NODE"
+        # 投稿はビルド済みのjarを送るだけなので、公開ノードは構成しない（構成するとそのノードのMinecraftを用意する）
+        run: ./gradlew publishMods -Prelease "-Pmod_version=$RELEASE_VERSION" "-Ppublish_target=$PLATFORM" "-Ppublish_node=$NODE" "-Pxaeronav.onlyNodes=$CANONICAL_NODE"
 
   github_release:
-    needs: [build, publish]
+    needs: [discover, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -216,20 +271,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: release-jars
+          pattern: release-jar-*
+          merge-multiple: true
           path: build/libs
       - name: Validate release assets and notes
         env:
-          RELEASE_VERSION: ${{ needs.build.outputs.version }}
-          RELEASE_NODES: ${{ needs.build.outputs.nodes }}
+          RELEASE_VERSION: ${{ needs.discover.outputs.version }}
+          RELEASE_NODES: ${{ needs.discover.outputs.nodes }}
         run: |
           python3 tools/release_notes.py "$RELEASE_VERSION"
           test "$(find build/libs -maxdepth 1 -name 'xaeronav-*.jar' | wc -l | tr -d ' ')" = "$(jq 'length' <<< "$RELEASE_NODES")"
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          tag_name: ${{ needs.build.outputs.tag }}
-          name: ${{ needs.build.outputs.tag }}
-          body_path: changelogs/${{ needs.build.outputs.version }}.md
+          tag_name: ${{ needs.discover.outputs.tag }}
+          name: ${{ needs.discover.outputs.tag }}
+          body_path: changelogs/${{ needs.discover.outputs.version }}.md
           draft: false
           generate_release_notes: false
           files: build/libs/xaeronav-*.jar

@@ -71,28 +71,40 @@ stonecutter.parameters {
     }
 }
 
+@Suppress("UNCHECKED_CAST")
+val allNodes = (gradle.extensions.extraProperties["xaeronav.allNodes"] as List<String>)
+    .map { it.substringBefore('|') to it.substringAfter('|') }
+
+// -Pxaeronav.onlyNodesで絞ったときは、そのノードのjarだけを集めて検査する。
+// 正典ノードはStonecutterの都合で常に構成されるが、指定していなければ集めない（ノードごとに並列ビルドするため）
+val distributionNodes = providers.gradleProperty("xaeronav.onlyNodes").orNull
+    ?.split(',')?.map(String::trim)?.filter(String::isNotEmpty)?.toSet()
+    .let { only -> stonecutter.versions.filter { only == null || it.project in only } }
+
 // 公開は1ジョブにつき1サイト・1ノード。失敗したジョブだけを再実行でき、
 // 既に成功した別ノードを重複投稿しない。通常ビルドでは公開先を登録しない。
+// ノードは構成済みのものではなく全ノードの一覧から引く。公開ノードを構成しなければ、
+// そのノードのMinecraftを用意せずにjarだけを投稿できる
 val publishTarget = providers.gradleProperty("publish_target").orNull
 val publishNode = providers.gradleProperty("publish_node").orNull
 if (publishTarget != null || publishNode != null) {
     check(publishTarget in setOf("modrinth", "curseforge") && publishNode != null) {
         "公開には -Ppublish_target=modrinth|curseforge と -Ppublish_node=<ノード> の両方が必要です"
     }
-    val node = stonecutter.versions.singleOrNull { it.project == publishNode }
+    val minecraft = allNodes.singleOrNull { it.first == publishNode }?.second
         ?: error("不明な公開ノード: $publishNode")
-    val loader = node.project.substringAfterLast('-')
+    val loader = publishNode!!.substringAfterLast('-')
     val releaseVersion = modProperty("mod_version")
     val releaseFile = layout.buildDirectory.file(
-        "libs/${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar")
+        "libs/${modProperty("mod_id")}-${archiveVersionFor(loader, minecraft)}.jar")
 
-    val publishedMinecraftVersions = minecraftCompatFor(node.project) + node.version
+    val publishedMinecraftVersions = minecraftCompatFor(publishNode) + minecraft
 
     publishMods {
         file.set(releaseFile)
         // 同じプロジェクトに複数ファイルを投稿するため、サイト上のversion番号はノードごとに一意にする。
-        version.set("$releaseVersion-$loader-${node.version}")
-        displayName.set("XaeroNav $releaseVersion - $loader ${node.version}")
+        version.set("$releaseVersion-$loader-$minecraft")
+        displayName.set("XaeroNav $releaseVersion - $loader $minecraft")
         changelog.set(providers.fileContents(
             layout.projectDirectory.file("changelogs/$releaseVersion.md")).asText)
         type.set(STABLE)
@@ -130,12 +142,12 @@ tasks.register("buildAll") {
 // 古い成果物がそのままリリースに添付されうる（release.ymlはbuild/libs/*.jarを丸ごと拾う）
 tasks.register<Sync>("collectJars") {
     group = "build"
-    description = "全ノードの配布jarをルートのbuild/libsへ集める"
-    dependsOn(tasks.named("buildAll"))
+    description = "配布jar（-Pxaeronav.onlyNodes指定時はそのノードだけ）をルートのbuild/libsへ集める"
+    distributionNodes.forEach { dependsOn(":${it.project}:assemble") }
     // ノード側のbuild/libsにも過去のビルドのjarが残る（jarタスクは古い出力を消さない）。
     // 今回のバージョンのものだけを拾う——バージョンにはgitの短縮ハッシュが付くので、
     // これで「このビルドが作ったjar」だけに絞れる
-    stonecutter.versions.forEach { node ->
+    distributionNodes.forEach { node ->
         val loader = node.project.substringAfterLast('-')
         from(layout.projectDirectory.dir("versions/${node.project}/build/libs")) {
             include("${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar")
@@ -148,18 +160,18 @@ tasks.register<Sync>("collectJars") {
 // Xaero mixin configが正しいjarへ入っていることまで、公開前に機械的に検査する。
 tasks.register("verifyDistribution") {
     group = "verification"
-    description = "全配布jarの個数・名前・loader metadata・Mixin設定を検査する"
+    description = "collectJarsが集めた配布jarの個数・名前・loader metadata・Mixin設定を検査する"
     dependsOn(tasks.named("collectJars"))
     doLast {
-        val expected = stonecutter.versions.associate { node ->
+        val expected = distributionNodes.associate { node ->
             val loader = node.project.substringAfterLast('-')
             "${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar" to loader
         }
-        val javaVersions = stonecutter.versions.associate { node ->
+        val javaVersions = distributionNodes.associate { node ->
             val loader = node.project.substringAfterLast('-')
             "${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar" to javaVersionFor(node.version)
         }
-        val isBefore1205 = stonecutter.versions.associate { node ->
+        val isBefore1205 = distributionNodes.associate { node ->
             val loader = node.project.substringAfterLast('-')
             "${modProperty("mod_id")}-${archiveVersionFor(loader, node.version)}.jar" to stonecutter.eval(node.version, "<1.20.5")
         }
@@ -264,9 +276,7 @@ spotless {
 tasks.register("printNodes") {
     group = "help"
     description = "全ノードを JSON 配列で出す（CIのmatrix用）"
-    @Suppress("UNCHECKED_CAST")
-    val nodes = (gradle.extensions.extraProperties["xaeronav.allNodes"] as List<String>)
-        .map { it.substringBefore('|') to it.substringAfter('|') }
+    val nodes = allNodes
     val fabricApi = fabricApiVersions(file("stonecutter.properties.toml").readText())
     doLast {
         println(nodes.joinToString(",", "[", "]") { (project, version) ->
