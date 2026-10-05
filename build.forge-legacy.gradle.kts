@@ -87,13 +87,15 @@ dependencies {
 
 val stageRuntimeTestMods = tasks.register<Copy>("stageRuntimeTestMods") {
     from(xaeroRuntimeMods)
-    from(tasks.named("jar"))
+    // jarタスクの出力はnamed名のdevlibs側で、本番のSRG名へ変換した配布jarはreobfJarの出力。
+    // jarを渡すと本番でNoSuchFieldErrorになる
+    from(tasks.named("reobfJar"))
     into(rootProject.layout.buildDirectory.dir("runtime-test/${stonecutter.current.project}/mods"))
 }
 
 // 専用サーバーのproduction smoke testにはXaeroを入れず、利用者へ配るjarだけを渡す。
 tasks.register<Sync>("stageServerTestMod") {
-    from(tasks.named("jar"))
+    from(tasks.named("reobfJar"))
     into(rootProject.layout.buildDirectory.dir("server-test/${stonecutter.current.project}/mods"))
 }
 
