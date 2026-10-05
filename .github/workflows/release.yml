@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
     outputs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
@@ -68,6 +69,20 @@ jobs:
       - name: Test release notes validation
         run: python3 -m unittest discover -s tools -p 'test_release_notes.py' -v
 
+      # テスト・起動確認はこのcommitのCIが済ませているので、リリースでは繰り返さずCIの結果を見る
+      # （正典ノードのテストを回すとそれだけで10分以上かかり、ビルドの律速になる）
+      - name: Require a green CI run for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          RESULT=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --event push --limit 1 \
+            --json status,conclusion -q '.[0] | "\(.status)/\(.conclusion)"')
+          if [ "$RESULT" != "completed/success" ]; then
+            echo "::error::CI for $GITHUB_SHA is not green yet ($RESULT). Wait for CI on main before releasing."
+            exit 1
+          fi
+
       # 全ノードを構成するとMinecraftを1つずつ用意して40分を超える。一覧は構成しないノードも持っているので、
       # 正典ノードだけを構成すれば足りる
       - name: Discover release nodes
@@ -112,20 +127,11 @@ jobs:
         with:
           cache-read-only: true
 
-      # テストはソースを共有する正典ノードでだけ走らせる（CIのbuildジョブと同じ）
       - name: Build and verify the distribution jar
         env:
           RELEASE_VERSION: ${{ needs.discover.outputs.version }}
           NODE: ${{ matrix.node.node }}
-          CANONICAL_NODE: ${{ needs.discover.outputs.canonical_node }}
-        run: |
-          if [ "$NODE" = "$CANONICAL_NODE" ]; then
-            TASKS=(spotlessCheck ":$NODE:build")
-          else
-            TASKS=(":$NODE:assemble")
-          fi
-          ./gradlew "${TASKS[@]}" verifyDistribution --console=plain -Prelease \
-            "-Pmod_version=$RELEASE_VERSION" "-Pxaeronav.onlyNodes=$NODE"
+        run: ./gradlew verifyDistribution --console=plain -Prelease "-Pmod_version=$RELEASE_VERSION" "-Pxaeronav.onlyNodes=$NODE"
 
       # 公開ジョブと同じく正典ノードだけを構成して試す
       - name: Dry run every platform
@@ -205,9 +211,9 @@ jobs:
       actions: read
     strategy:
       fail-fast: false
-      # GitHub Freeの公開リポジトリで同時に動かせるジョブ数の上限（これ以上は待たされるだけ）。
+      # GitHub Proで同時に動かせるジョブ数の上限（これ以上は待たされるだけ）。
       # 1件の投稿は数リクエストなので、Modrinth（IPごとに毎分300）・CurseForgeの上限には届かない
-      max-parallel: 20
+      max-parallel: 40
       matrix:
         platform: [modrinth, curseforge]
         node: ${{ fromJson(needs.discover.outputs.nodes) }}

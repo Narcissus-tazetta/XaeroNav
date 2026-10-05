@@ -36,7 +36,7 @@ NeoForgeはentrypointのdist指定でクライアントに限定します。Forg
 
 ## Verification
 
-- Releaseのbuild matrix（`-Pxaeronav.onlyNodes=<ノード>`の`verifyDistribution`）: 正典ノードのテストと各ノードの配布jar契約
+- Releaseのbuild matrix（`-Pxaeronav.onlyNodes=<ノード>`の`verifyDistribution`）: 各ノードの配布jar契約。テストは同じcommitのCIが緑であることを公開前に確認する
 - `.github/workflows/ci.yml`のbuild matrix: 全ノードのコンパイル
 - 同workflowのclient runtime matrix: Minecraft起動とXaero hook適用
 - Forge dedicated-server smoke matrix: クライアントクラスの早期ロード防止
