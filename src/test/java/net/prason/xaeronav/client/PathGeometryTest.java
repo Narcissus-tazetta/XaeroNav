@@ -78,6 +78,19 @@ class PathGeometryTest {
         assertEquals(diagonal, launches[1].forwardZ(), 1.0e-9);
     }
 
+    @Test
+    void theBoatOutlineFollowsTheDrawnLine() {
+        // 手は東向きだが、線は(0,0)→(10,10)へ斜めに畳まれている
+        PathGeometry.BoatLaunch[] launches = {new PathGeometry.BoatLaunch(1, 2.5, 64.0, 0.5, 1.0, 0.0)};
+
+        PathGeometry.alignToLine(launches, new double[] {0.0, 10.0}, new double[] {0.0, 10.0}, new int[] {5}, 1);
+
+        double diagonal = Math.sqrt(0.5);
+        assertEquals(diagonal, launches[0].forwardX(), 1.0e-9, "線と同じ向き");
+        assertEquals(diagonal, launches[0].forwardZ(), 1.0e-9);
+        assertEquals(launches[0].x(), launches[0].z(), 1.0e-9, "線の上に載る");
+    }
+
     private static PathStep step(int x, int y, int z, MovementType movement) {
         return new PathStep(new BlockPos(x, y, z), movement, 1.0, List.of(), List.of(), PathRisk.NONE, null);
     }

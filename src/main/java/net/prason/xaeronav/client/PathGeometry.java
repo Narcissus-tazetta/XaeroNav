@@ -45,13 +45,13 @@ final class PathGeometry {
     private static final double SWIM_LINE_DEPTH = 1.25;
 
     /**
-     * 水面のセルの下端から、浮いたボートの原点（底）までの高さ。
+     * 水面のセルの下端から、ボートの枠の底までの高さ。水源の水面（セルの8/9）に底を合わせる。
      *
-     * <p>{@code AbstractBoat#floatBoat}の浮力は「水面−底」を当たり判定の高さ0.5625で割った値に比例し、
-     * 重力0.04と釣り合うのはその比が0.65のとき。水源の水面はセルの8/9の高さなので、
-     * 8/9 − 0.65×0.5625 ≈ 0.523。
+     * <p>実物のボートはこれより約0.37低く浮く（{@code AbstractBoat#floatBoat}の浮力が重力と釣り合うのは
+     * 「水面−底」が当たり判定の高さ0.5625の0.65倍のとき）。その高さでは半透明の枠が半分水に沈んで
+     * 読みにくいので、水面の上へ出している。
      */
-    private static final double BOAT_FLOAT_HEIGHT = 8.0 / 9.0 - 0.65 * 0.5625;
+    private static final double BOAT_FLOAT_HEIGHT = 8.0 / 9.0;
 
     /** 2区間を一直線とみなす外積の大きさの上限。区間長が約1ブロックなので、この値なら実質的に厳密一致。 */
     private static final double COLLINEAR_EPSILON = 1.0e-6;
@@ -394,8 +394,44 @@ final class PathGeometry {
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentInWater,
                 flatSegmentDashed,
-                hx, hy, hz, hColor, hPlacement, hStep, boatLaunches(steps, start),
+                hx, hy, hz, hColor, hPlacement, hStep,
+                alignToLine(boatLaunches(steps, start), outX, outZ, outEndStep, segments),
                 Math.min(fadeFromSegment, segments));
+    }
+
+    /**
+     * ボートの枠を、描いた線の上へ載せて線と同じ向きにする。
+     *
+     * <p>水上の線は何手もまとめて1本の直線へ畳んである（{@link #fluidShortcut}）。手の向きのままだと
+     * 斜めに引いた線に対して枠だけが格子の向きを向き、セルの中心のままだと線から横にずれる。
+     */
+    static BoatLaunch[] alignToLine(BoatLaunch[] launches, double[] pointX, double[] pointZ, int[] segmentEndStep,
+                                    int segments) {
+        double[] projected = new double[3];
+        for (int i = 0; i < launches.length; i++) {
+            BoatLaunch launch = launches[i];
+            int segment = 0;
+            while (segment < segments - 1 && segmentEndStep[segment] < launch.step()) {
+                segment++;
+            }
+            if (segment >= segments) {
+                continue;
+            }
+            double ax = pointX[segment];
+            double az = pointZ[segment];
+            double bx = pointX[segment + 1];
+            double bz = pointZ[segment + 1];
+            double dx = bx - ax;
+            double dz = bz - az;
+            double length = Math.sqrt(dx * dx + dz * dz);
+            if (length == 0.0) {
+                continue;
+            }
+            projectOntoSegment(launch.x(), 0.0, launch.z(), ax, 0.0, az, bx, 0.0, bz, projected);
+            launches[i] = new BoatLaunch(launch.step(), projected[0], launch.y(), projected[2],
+                    dx / length, dz / length);
+        }
+        return launches;
     }
 
     /**
