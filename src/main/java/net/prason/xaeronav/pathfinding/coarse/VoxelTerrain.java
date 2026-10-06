@@ -262,7 +262,7 @@ public final class VoxelTerrain {
                 standable++;
             }
         }
-        return "床=" + standable + ", 溶岩=" + lava + ", 空洞=" + (kind.length - lava - standable);
+        return "floor=" + standable + ", lava=" + lava + ", air=" + (kind.length - lava - standable);
     }
 
     /** ブロック座標が箱の中にあるか。 */

@@ -128,7 +128,7 @@ final class StuckTracker {
         }
         reason = classify(result, routeUnmapped);
         pendingNotice = reason;
-        XaeroNav.LOGGER.info("XaeroNav: 目的地へ行けないと判断しました (理由={}, 最接近={}ブロック, 目的地={})",
+        XaeroNav.LOGGER.info("XaeroNav: concluded the goal is unreachable (reason={}, closest={} blocks, goal={})",
                 reason, Math.round(bestApproachBlocks), currentGoal.toShortString());
     }
 

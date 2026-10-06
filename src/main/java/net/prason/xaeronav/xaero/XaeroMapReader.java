@@ -263,7 +263,7 @@ public final class XaeroMapReader {
         CoarseMapBuilder builder = new CoarseMapBuilder(minChunkX, minChunkZ, chunksX, chunksZ);
         MapProcessor processor = processor();
         if (processor == null) {
-            return new SurfaceRead(builder.build(), "レイヤー無し");
+            return new SurfaceRead(builder.build(), "no layers");
         }
         LongSet voidCandidates = new LongOpenHashSet();
         StringBuilder perLayer = new StringBuilder();
@@ -273,7 +273,7 @@ public final class XaeroMapReader {
             if (!perLayer.isEmpty()) {
                 perLayer.append(' ');
             }
-            perLayer.append(caveLayer == SURFACE_LAYER ? "地表" : "L" + caveLayer)
+            perLayer.append(caveLayer == SURFACE_LAYER ? "surface" : "L" + caveLayer)
                     .append('=').append(builder.knownCells() - before);
         }
         markVoidCells(builder, voidCandidates);
@@ -597,7 +597,7 @@ public final class XaeroMapReader {
 
     private static MapProcessor processor() {
         if (!Minecraft.getInstance().isSameThread()) {
-            throw new IllegalStateException("XaeroMapReaderはメインスレッドから呼ぶこと");
+            throw new IllegalStateException("XaeroMapReader must be called from the main thread");
         }
         WorldMapSession session = WorldMapSession.getCurrentSession();
         if (session == null || !session.isUsable()) {

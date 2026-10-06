@@ -60,8 +60,8 @@ final class GoalWaypoint {
         } catch (LinkageError incompatible) {
             unavailable = true;
             placedAt = null;
-            XaeroNav.LOGGER.warn("XaeroNav: Xaeroのウェイポイントに目的地を置けないため、この連携を無効にします"
-                    + "（Xaeroの版が対応範囲の外にある可能性があります）", incompatible);
+            XaeroNav.LOGGER.warn("XaeroNav: cannot place the goal as a Xaero waypoint, disabling this integration"
+                    + " (the installed Xaero version may be outside the supported range)", incompatible);
         }
     }
 }

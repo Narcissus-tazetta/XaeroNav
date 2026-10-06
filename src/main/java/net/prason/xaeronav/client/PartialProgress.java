@@ -26,10 +26,10 @@ record PartialProgress(double oldLeft, double newLeft, String yardstick, boolean
                 && guide.measuredInWindow(newEnd.getX(), newEnd.getZ())) {
             double oldLeft = guide.estimate(oldEnd.getX(), oldEnd.getY(), oldEnd.getZ());
             double newLeft = guide.estimate(newEnd.getX(), newEnd.getY(), newEnd.getZ());
-            return new PartialProgress(oldLeft, newLeft, "ガイド", oldLeft < newLeft);
+            return new PartialProgress(oldLeft, newLeft, "guide", oldLeft < newLeft);
         }
         double oldLeft = BlockDistance.horizontal(oldEnd, goal);
         double newLeft = BlockDistance.horizontal(newEnd, goal);
-        return new PartialProgress(oldLeft, newLeft, "距離", oldLeft < newLeft);
+        return new PartialProgress(oldLeft, newLeft, "distance", oldLeft < newLeft);
     }
 }

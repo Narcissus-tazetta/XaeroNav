@@ -394,7 +394,7 @@ final class FlightNavState {
                     try {
                         computing = false;
                         if (error != null) {
-                            LOGGER.error("XaeroNav: 滑空中の経路の計算に失敗しました", error);
+                            LOGGER.error("XaeroNav: failed to compute the gliding route", error);
                             return;
                         }
                         if (result.coarse() != null) {
@@ -694,12 +694,12 @@ final class FlightNavState {
                     try {
                         computing = false;
                         if (error != null) {
-                            LOGGER.error("XaeroNav: 空中経路の継ぎ足しに失敗しました", error);
+                            LOGGER.error("XaeroNav: failed to extend the flight route", error);
                             return;
                         }
                         FlightRoute extension = result.route();
                         Vec3 grown = extension.tail();
-                        LOGGER.debug("XaeroNav: 空中経路の継ぎ足し ({}, 展開={}, {}ms, 伸び={}ブロック, 格子={})",
+                        LOGGER.debug("XaeroNav: extended the flight route ({}, expanded={}, {}ms, gained={} blocks, grid={})",
                                 extension.termination(), extension.expandedNodes(),
                                 (System.nanoTime() - startedAt) / 1_000_000L,
                                 grown == null ? 0 : Mth.floor(tail.distanceTo(grown)), extension.cellBlocks());
@@ -730,7 +730,7 @@ final class FlightNavState {
                                 ? spliced(source, result.segmentAtStart(), result.cut(), extension)
                                 : source.append(extension);
                         if (result.cut() != null) {
-                            LOGGER.debug("XaeroNav: 空中経路の継ぎ足しが手前へ戻ってきたので、行って戻る区間を切り落としました");
+                            LOGGER.debug("XaeroNav: flight route extension doubled back, trimmed the out-and-back section");
                         }
                         // 対応づけを引き継がないと、伸ばした瞬間だけ通過済みの区間が描き直される
                         FlightProgress.INSTANCE.carryOver(extended);
@@ -776,10 +776,10 @@ final class FlightNavState {
                     try {
                         computing = false;
                         if (error != null) {
-                            LOGGER.error("XaeroNav: 空中経路の引き直しに失敗しました", error);
+                            LOGGER.error("XaeroNav: failed to replan the flight route", error);
                             return;
                         }
-                        LOGGER.debug("XaeroNav: 空中経路を{}ブロック先から引き直し ({}, 展開={}, {}ms)",
+                        LOGGER.debug("XaeroNav: replanned the flight route from {} blocks ahead ({}, expanded={}, {}ms)",
                                 (int) REROUTE_KEEP_BLOCKS, solved.termination(), solved.expandedNodes(),
                                 (System.nanoTime() - startedAt) / 1_000_000L);
                         if (!current.stillFlyingTo(currentGoal, dimension) || route != source || solved.isEmpty()) {

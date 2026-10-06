@@ -264,7 +264,7 @@ final class NetherVoxelGuide {
         SearchBounds minimumBox = VoxelTerrain.boxFor(level, player, goal,
                 Math.min(player.getY(), goal.getY()), Math.max(player.getY(), goal.getY()));
         if (VoxelTerrain.cellBlocksFor(minimumBox) == 0) {
-            LOGGER.debug("XaeroNav: 3D粗層の範囲が大きすぎるため地図読みを省略します ({})", minimumBox);
+            LOGGER.debug("XaeroNav: 3D coarse layer area too large, skipping the map read ({})", minimumBox);
             return;
         }
         // 要求しないと、Xaeroが既にメモリへ載せているリージョンしか読めない。要求は非同期なので
@@ -283,7 +283,7 @@ final class NetherVoxelGuide {
         if (floors == 0 && rememberedFloors.isEmpty()) {
             // この範囲の地図をXaeroがまだ持っていない。床が1枚も無い格子から作る表は
             // 直線距離を一定倍しただけのもので、幾何ヒューリスティックと同じことしか言わない
-            LOGGER.debug("XaeroNav: 3D粗層のもとになる地図がありません ({}, {})", minX, minZ);
+            LOGGER.debug("XaeroNav: no map data for the 3D coarse layer ({}, {})", minX, minZ);
             return;
         }
         rememberFloors(key, range);
@@ -291,7 +291,7 @@ final class NetherVoxelGuide {
         VoxelTerrain terrain = VoxelTerrain.of(box, key.lavaPassable());
         if (terrain == null) {
             // 目的地が遠すぎて、いちばん粗い格子でも収まらない
-            LOGGER.debug("XaeroNav: 3D粗層の箱が大きすぎます ({})", box);
+            LOGGER.debug("XaeroNav: 3D coarse layer box too large ({})", box);
             return;
         }
         LongIterator remembered = rememberedFloors.iterator();
@@ -312,12 +312,12 @@ final class NetherVoxelGuide {
                         return;
                     }
                     if (error != null) {
-                        LOGGER.error("XaeroNav: 3D粗層の作成に失敗しました", error);
+                        LOGGER.error("XaeroNav: failed to build the 3D coarse layer", error);
                         return;
                     }
                     if (guide == null) {
                         // 黙ってガイド無しへ落とさない。遠距離ネザーで線が出ないのはまさにこれ
-                        LOGGER.debug("XaeroNav: 3D粗層の起点を決められませんでした (目的地={}, 箱={})",
+                        LOGGER.debug("XaeroNav: could not pick a start for the 3D coarse layer (goal={}, box={})",
                                 goal.toShortString(), box);
                         return;
                     }
@@ -325,11 +325,11 @@ final class NetherVoxelGuide {
                     // 膨らみ＝始点の見積もり÷直線距離。<b>この層が効いているかはここだけで分かる</b>
                     // ——1倍付近なら幾何ヒューリスティックと同じことしか言っていない。
                     // 箱も出す: Yの範囲が歩ける高さより広いと、格子の大半が天井の上の空きになる
-                    LOGGER.debug("XaeroNav: 3D粗層 (床={}, {}, セル={}, 辺={}, 膨らみ{}倍, 箱={}, "
-                                    + "今回の床Y={}, 覚えている床={}, 地図{}ms, Dijkstra{}ms)",
+                    LOGGER.debug("XaeroNav: 3D coarse layer (floors={}, {}, cells={}, cell size={}, inflation x{}, box={}, "
+                                    + "floor Y this time={}, remembered floors={}, map {}ms, Dijkstra {}ms)",
                             floors, terrain.breakdown(), terrain.cellCount(), terrain.cellBlocks(),
                             round(inflation(guide, player, goal)), box,
-                            floors == 0 ? "読めず" : range.lowest + ".." + range.highest, rememberedCount,
+                            floors == 0 ? "unreadable" : range.lowest + ".." + range.highest, rememberedCount,
                             read, MonotonicTime.millis() - began - read);
                 });
     }

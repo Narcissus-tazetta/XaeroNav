@@ -685,7 +685,7 @@ public final class PathfindingState {
                 flight.recalculate(this.goal);
             }
         } else {
-            recalculate("目的地の設定");
+            recalculate("goal set");
         }
         publishNavigationView();
         return this.goal;
@@ -749,7 +749,7 @@ public final class PathfindingState {
         if (resolved.equals(current)) {
             return false;
         }
-        LOGGER.info("XaeroNav: 目的地の列が読み込まれたので立てる高さへ寄せ直しました ({} → {})",
+        LOGGER.info("XaeroNav: goal column loaded, moved the goal to a standable height ({} -> {})",
                 current.toShortString(), resolved.toShortString());
         if (flying) {
             setGoal(requested);
@@ -1072,12 +1072,12 @@ public final class PathfindingState {
             // 更新されないままだったので、その間に経路が差し替わると「別の経路に対して測った距離」が
             // 残り続ける——逸脱の判定・案内・描画がまとめてその値を読む。地図を開いたまま経路が
             // 出来上がるのは一番ありがちな操作（下のコメント参照）で、そこが一番当たりやすい
-            TickLaps.measure("進捗の対応づけ",
+            TickLaps.measure("progress mapping",
                     () -> PathProgress.INSTANCE.update(shown == null ? null : shown.result(), mc.player.position()));
             // 画面を開いている間の早期returnより先に置く。ここから下で止まるのはプレイヤーが
             // 動けない状況だけなので、後退の観測を落としても取りこぼしは無いが、順序を変えると
             // 「滑空中は数えない」のような穴が生まれる
-            TickLaps.measure("後退の監視", () -> noteRetreat(mc.player.blockPosition(), currentGoal, shown));
+            TickLaps.measure("retreat watch", () -> noteRetreat(mc.player.blockPosition(), currentGoal, shown));
             // Xaeroの世界地図やインベントリを開いている間、プレイヤーは動けない。ここで止めないと
             // 地図を眺めているだけの間ずっと同じ入力に対する探索が走り続ける。
             if (ClientCompat.screen(mc) != null) {
@@ -1099,7 +1099,7 @@ public final class PathfindingState {
                 // 地上に出た。ここから先は本来の目的地に向けて経路を引き直す
                 // （新しい経路が届くまでは中継経路のまま表示し続ける。先にモードだけ戻すと、
                 // 中継経路の終端＝いまの足元が「経路の終わり」と見なされて誤って到着になる）
-                recalculate("地上に出た");
+                recalculate("reached the surface");
                 return;
             }
             PathResult result = shown == null ? null : shown.result();
@@ -1113,7 +1113,7 @@ public final class PathfindingState {
             }
             if (awaitingNavGraph) {
                 // 組み上がったかは探索を投げる側（recalculate）が見る。組み上がるまでは何も投げずに戻る
-                recalculate("航法グラフ待ち");
+                recalculate("waiting for nav graph");
                 return;
             }
             ticksSinceRecalc++;
@@ -1148,7 +1148,7 @@ public final class PathfindingState {
                 if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
                         && !splice.trySplice(mc.level, mc.player, shown, 0)) {
                     // 合流できない経路だけ、全部引き直す
-                    recalculate("逸脱して合流できなかった");
+                    recalculate("off path, could not splice");
                 }
                 return;
             }
@@ -1176,9 +1176,9 @@ public final class PathfindingState {
                     // 案内の無い状態で立たされる（実機報告「ルートの先まで着いて計算が追いついていない」）。
                     // <b>継ぎ足しがなぜ間に合わなかったのか</b>が分からないと直しようがないので、
                     // 断った理由をここで残す。1本の経路につき1回しか出ない（この直後にcomputingが立つ）
-                    LOGGER.debug("XaeroNav: 経路の末端に着いたので引き直します (継ぎ足せなかった理由={}, {}ステップ)",
+                    LOGGER.debug("XaeroNav: reached the end of the path, replanning (why it was not extended={}, {} steps)",
                             extend.extendRefusal(mc.player, shown, renderRadius), shown.result().steps().size());
-                    recalculate("経路の末端に到着");
+                    recalculate("reached path end");
                     return;
                 }
                 // 継ぎ足す先も末端への到達も無いtickでだけ、直前の繋ぎ目を解き直す。案内を先へ
@@ -1195,7 +1195,7 @@ public final class PathfindingState {
                     && !result.complete() && nearPathEnd(mc.player.position(), result)
                     && retryTruncatedNow(mc.player)) {
                 // 打ち切られた末端に近づいた。ここから先は新しく読み込まれたチャンクを使って伸ばせる
-                recalculate("打ち切られた末端に接近");
+                recalculate("approaching truncated end");
                 return;
             }
             if (ticksSinceValidation >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
@@ -1210,7 +1210,7 @@ public final class PathfindingState {
                 // 関係が無いうえ、そこから走査すると背後の変化で止まって先の変化を見落とす。
                 // 描画距離より先は goto 直後のストリーミング中に誤爆するので見ない（PathValidator参照）
                 int validationHorizon = ClientCompat.renderDistance(mc.options) * 16;
-                PathValidator.Failure failure = TickLaps.measure("経路の検証",
+                PathValidator.Failure failure = TickLaps.measure("path validation",
                         () -> PathValidator.firstFailureFrom(mc.level, result,
                                 PathProgress.INSTANCE.indexFor(result), mc.player.blockPosition(), validationHorizon));
                 if (failure != null) {
@@ -1219,7 +1219,7 @@ public final class PathfindingState {
                 }
             }
         } finally {
-            TickLaps.measure("表示の更新", () -> publishNavigationView());
+            TickLaps.measure("view publish", () -> publishNavigationView());
         }
     }
 
@@ -1248,7 +1248,7 @@ public final class PathfindingState {
                 displayed = null;
                 flight.dropRoute();
                 sky.reset();
-                recalculate("着地");
+                recalculate("landed");
                 return true;
             }
         }
@@ -1284,14 +1284,14 @@ public final class PathfindingState {
         if (splice.trySplice(level, player, shown, failure.stepIndex() + 1)) {
             // 迂回はHUDで知らせない。合流点から先はそのまま残るので「歩いていた道が突然消えた」
             // ことにはならず、橋を架けながら置くたびに警告が出続けるだけになる
-            LOGGER.debug("XaeroNav: 経路上のセルが変化したため塞がった箇所を迂回します ({})", failure.reason());
+            LOGGER.debug("XaeroNav: a cell on the path changed, rerouting around the blocked spot ({})", failure.reason());
             return;
         }
         // 迂回できずに全部引き直す。案内が急に変わる理由が分からないままなので、変わったこと自体を
         // 知らせる
-        LOGGER.debug("XaeroNav: 経路上のセルが変化したため引き直します ({})", failure.reason());
+        LOGGER.debug("XaeroNav: a cell on the path changed, replanning ({})", failure.reason());
         rerouteNoticeTicks = REROUTE_NOTICE_TICKS;
-        recalculate("経路上のセルが変化");
+        recalculate("cell on path changed");
     }
 
     /**
@@ -1313,7 +1313,7 @@ public final class PathfindingState {
         }
         Escalation reserved = escalations.take();
         if (reserved != Escalation.NONE) {
-            recalculate(reserved, "予約した再挑戦");
+            recalculate(reserved, "scheduled retry");
             return true;
         }
         RefinedRoute pendingRefined = pendingRefinedRouteReady;
@@ -1322,7 +1322,7 @@ public final class PathfindingState {
             // 向かっていれば、精緻版へ切り替えるために引き直す
             pendingRefinedRouteReady = null;
             refinedRoute = pendingRefined;
-            recalculate("層2の精緻化が完了");
+            recalculate("layer 2 refinement done");
             return true;
         }
         if (pendingRefined != null) {
@@ -1369,7 +1369,7 @@ public final class PathfindingState {
             // 経路ごと引き直さない——引き直すと読み込みが進むたびに線が描き変わる（遠回りは組み直したガイドの見直しが拾う）
             freshRouteInBackground(mc.player.blockPosition(), currentGoal, ChunkView.boatAvailable(mc.player), true);
         } else {
-            recalculate("地図の読み込みが進んだ");
+            recalculate("more map loaded");
         }
         if (guided) {
             // 経路を投げていないので、呼び出し元の他のトリガーをこのtickで止める理由は無い
@@ -1518,7 +1518,7 @@ public final class PathfindingState {
         boolean moved = lastStart == null
                 || lastStart.distSqr(start) >= RETRY_MOVE_BLOCKS * RETRY_MOVE_BLOCKS;
         if (moved || ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS) {
-            recalculate("経路が無いので再試行");
+            recalculate("no path, retrying");
         }
     }
 
@@ -1541,11 +1541,11 @@ public final class PathfindingState {
         if (!replacement.steps().isEmpty() && newLeft <= oldLeft + ROUTE_REGRESSION_LOG_BLOCKS) {
             return;
         }
-        LOGGER.debug("XaeroNav: 引き直しで経路が後退しました (理由={}, 再挑戦={}, 始点={}, "
-                        + "前={}ステップ/{}/{}/末端から目的地まで{}, 新={}ステップ/{}/{}/末端から目的地まで{}, 展開={})",
+        LOGGER.debug("XaeroNav: replanning made the path regress (trigger={}, escalation={}, start={}, "
+                        + "old={} steps/{}/{}/end-to-goal {}, new={} steps/{}/{}/end-to-goal {}, expanded={})",
                 trigger, forced, start.toShortString(),
-                old.steps().size(), old.complete() ? "完走" : "途中まで", before.mode(), Math.round(oldLeft),
-                replacement.steps().size(), replacement.complete() ? "完走" : "途中まで", replacement.termination(),
+                old.steps().size(), old.complete() ? "complete" : "partial", before.mode(), Math.round(oldLeft),
+                replacement.steps().size(), replacement.complete() ? "complete" : "partial", replacement.termination(),
                 Math.round(newLeft), replacement.expandedNodes());
     }
 
@@ -1662,7 +1662,7 @@ public final class PathfindingState {
     }
 
     private void recalculate(Escalation forced, String trigger) {
-        TickLaps.measure("再計算", () -> recalculateNow(forced, trigger));
+        TickLaps.measure("recalculate", () -> recalculateNow(forced, trigger));
     }
 
     private void recalculateNow(Escalation forced, String trigger) {
@@ -1717,7 +1717,7 @@ public final class PathfindingState {
                         goalGuide.costToGo())
                 : SearchBounds.around(level, start, target, margin.horizontal(),
                         verticalSearchMargin(level, margin.wide()), renderRadius);
-        ChunkView view = TickLaps.measure("チャンク集め",
+        ChunkView view = TickLaps.measure("chunk capture",
                 () -> ChunkView.capture(level, player, bounds, tuning.movementOptions()));
         if (!climbing) {
             noteTargetStandability(view, target, plan.mode(), plan.waypointIndex());
@@ -1751,13 +1751,13 @@ public final class PathfindingState {
                 deepBudgetInParallel, limits, deepLimits, tuning.costToGoGuideEnabled(), prepared);
         Recalc recalc = new Recalc(trigger, forced, level, start, currentGoal, plan, attempt, renderRadius,
                 worthKeeping, keepGuide, goalGuide, prepared, view, tuning);
-        generationGate.whenStillCurrent(future, myGeneration, TickLaps.timed("受け取り/再計算", (result, error) -> {
+        generationGate.whenStillCurrent(future, myGeneration, TickLaps.timed("receive/recalculate", (result, error) -> {
             try {
                 computing = false;
                 if (error != null) {
                     // キャンセルは正常な終わり方（新しいリクエストに置き換わった）
                     if (!(error instanceof CancellationException)) {
-                        LOGGER.error("XaeroNav: 経路探索に失敗しました", error);
+                        LOGGER.error("XaeroNav: pathfinding failed", error);
                     }
                     return;
                 }
@@ -1878,7 +1878,7 @@ public final class PathfindingState {
             // 経路が目的地まで届かなかった理由は、探索の打ち切りか本当に道が無いかのどちらか。
             // 展開ノード数を出しておかないと、maxExpandedNodesを上げ下げした効果を確かめる
             // 手段がなく、「なぜ線が途中で切れるのか」に答えられない
-            LOGGER.debug("XaeroNav: 経路が未到達のまま終了しました (粗い経由地チェーン={}, 展開ノード数={}, 上限={}, ステップ数={})",
+            LOGGER.debug("XaeroNav: search ended without reaching the target (coarse chain={}, expanded={}, cap={}, steps={})",
                     r.attempt().coarseGuided(), result.expandedNodes(), XaeroNavConfig.INSTANCE.maxExpandedNodes(),
                     result.steps().size());
         }
@@ -1888,8 +1888,8 @@ public final class PathfindingState {
             // 打ち切り理由を併記するのは、「資源が足りない」と「範囲内に道が無い」が
             // 到達=falseでは区別できないため。前者は目的地を手前に取れば解決するが、
             // 後者は何度やっても同じで、打つ手がまったく違う
-            LOGGER.debug("XaeroNav: 粗い経由地チェーンで再挑戦しました"
-                            + " (目標={}, 到達={}, {}, 展開ノード数={}, ステップ数={}, 設置可={}, 橋={}本)",
+            LOGGER.debug("XaeroNav: retried with the coarse waypoint chain"
+                            + " (target={}, reached={}, {}, expanded={}, steps={}, can place={}, bridges={})",
                     r.plan().target().toShortString(), result.complete(), result.termination(),
                     result.expandedNodes(), result.steps().size(),
                     r.view().canPlaceBlocks(), result.steps().stream().filter(PathStep::bridging).count());
@@ -1922,11 +1922,11 @@ public final class PathfindingState {
         }
         // 新しい経路に対する合流可否は測り直しになる。前の経路で失敗した記録は持ち越さない
         splice.clearBlock();
-        TickLaps.measure("形の点検", () -> RouteExplain.log("再計算:" + r.trigger(), r.level(), r.start(),
+        TickLaps.measure("shape check", () -> RouteExplain.log("recalculate:" + r.trigger(), r.level(), r.start(),
                 r.plan().target(), r.currentGoal(), result, r.prepared(),
                 r.goalGuide() == null ? null : r.goalGuide().costToGo(), r.view(),
                 r.tuning().movementOptions(), r.renderRadius()));
-        TickLaps.measure("後退の点検",
+        TickLaps.measure("regression check",
                 () -> noteRouteRegression(r.trigger(), r.forced(), r.start(), r.currentGoal(), result));
         displayed = new DisplayedPath(result, r.plan().mode(), r.plan().waypointIndex());
     }
@@ -1941,14 +1941,14 @@ public final class PathfindingState {
             // 予約を立てただけの行はdebugに留める。実際に何が起きたかは1秒後の
             // 「粗い経由地チェーンで再挑戦しました」が目標ごと記録している——予算切れが
             // 常態化する地形（ネザー）では、これをINFOに出すと同じ内容が3秒おきに3行ずつ並ぶ
-            LOGGER.debug("XaeroNav: 展開ノード数の上限に当たりました。次tickで粗い経由地チェーンを試します"
-                    + " (目標={})", target.toShortString());
+            LOGGER.debug("XaeroNav: hit the expansion cap, trying the coarse waypoint chain next tick"
+                    + " (target={})", target.toShortString());
         }
         // 再挑戦の予約が残っている間はまだ手を尽くしていない。詰みの判定は、この探索に
         // 対してできることを全部やり終えてからにする（さもないと、エスカレーションで
         // 解決するはずの状況を先に詰みと決めつけてその再挑戦ごと止めてしまう）
         if (!escalations.any()) {
-            TickLaps.measure("詰みの判定", () -> noteSearchOutcome(r.start(), endOf(result, r.start()), result));
+            TickLaps.measure("stuck check", () -> noteSearchOutcome(r.start(), endOf(result, r.start()), result));
         }
     }
 
@@ -1961,11 +1961,11 @@ public final class PathfindingState {
         if (worthKeeping.result().complete()) {
             // 完走した経路は「ここからそこまで実際に歩ける」という証明で、未到達の結果は
             // その証明を持たない。証明を持たないもので上書きしない
-            LOGGER.debug("XaeroNav: 完走した経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {})",
+            LOGGER.debug("XaeroNav: kept the complete path (shown={} steps, new result={} steps, {})",
                     worthKeeping.result().steps().size(), result.steps().size(), result.termination());
             return true;
         }
-        PartialProgress kept = TickLaps.measure("途中までの比較", () -> PartialProgress.compare(
+        PartialProgress kept = TickLaps.measure("partial comparison", () -> PartialProgress.compare(
                 worthKeeping.result(), result, r.start(), r.currentGoal(), r.keepGuide()));
         if (!kept.oldAhead()) {
             return false;
@@ -1973,8 +1973,8 @@ public final class PathfindingState {
         // 途中までどうしなら、目的地の近くまで引けている方が案内として上。予算切れの探索は
         // 引き直すたびに違う所で打ち切られるので、比べずに差し替えると、目的地まで16ブロックの
         // 所まで引けていた経路が145ブロック手前で切れる経路へ縮む（実機のネザー）
-        LOGGER.debug("XaeroNav: 途中までの経路を残しました (表示中={}ステップ, 新しい結果={}ステップ, {}, "
-                        + "末端の残り 表示中={} 新={}, 物差し={})",
+        LOGGER.debug("XaeroNav: kept the partial path (shown={} steps, new result={} steps, {}, "
+                        + "remaining from end shown={} new={}, yardstick={})",
                 worthKeeping.result().steps().size(), result.steps().size(), result.termination(),
                 Math.round(kept.oldLeft()), Math.round(kept.newLeft()), kept.yardstick());
         return true;
@@ -2021,15 +2021,15 @@ public final class PathfindingState {
         // 渡り切った直後に完走ルートが手放されるような症状の原因を追えない
         PathValidator.Failure validationFailure = null;
         if (offPath > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
-            dropped = "逸脱";
+            dropped = "off path";
         } else if (reachedPathEnd(player, shown)) {
-            dropped = "終端に到着";
+            dropped = "reached the end";
         } else if ((validationFailure = PathValidator.firstFailureFrom(level, result,
                 PathProgress.INSTANCE.indexFor(result), player.blockPosition(),
                 ClientCompat.renderDistance(Minecraft.getInstance().options) * 16)) != null) {
             // もう歩き終えた区間の変化では手放さない。渡ってきた橋を後ろから壊しても、
             // これから通る道が使えることの証明は失われない
-            dropped = "地形が変わった";
+            dropped = "terrain changed";
         }
         if (dropped != null && !result.complete()) {
             // 途中までの経路を手放すのは普通の出来事（逸脱のたびに起きる）なので黙って手放す
@@ -2039,8 +2039,8 @@ public final class PathfindingState {
             if (validationFailure != null) {
                 noteUnusableCell(validationFailure);
             }
-            LOGGER.debug("XaeroNav: 完走した経路を手放しました"
-                            + " (理由={}, {}ステップ, 経路までの距離={}, 対応づけ={}, 現在地={}, 経路の先頭={}{})",
+            LOGGER.debug("XaeroNav: dropped the complete path"
+                            + " (reason={}, {} steps, distance to path={}, tracked={}, player={}, path start={}{})",
                     dropped, result.steps().size(), Math.round(offPath), tracked,
                     player.blockPosition().toShortString(), result.steps().get(0).pos().toShortString(),
                     validationFailure == null ? "" : ", " + validationFailure.reason());
@@ -2297,11 +2297,11 @@ public final class PathfindingState {
         if (!detour.worthReplanning(REVIEW_MIN_EXTRA_TICKS)) {
             return false;
         }
-        LOGGER.debug("XaeroNav: 組み直したガイドで見ると遠回りなので引き直します (余計に{}tick, 見直した区間{}tick, 現在地={})",
+        LOGGER.debug("XaeroNav: rebuilt guide shows a detour, replanning ({} extra ticks, reviewed section {} ticks, player={})",
                 Math.round(detour.extraTicks()), Math.round(detour.walkedTicks()), at.toShortString());
         reviewReplannedAt = at;
         reviewReplannedValue = value;
-        recalculate("ガイドの見直しで遠回り");
+        recalculate("guide review found detour");
         return true;
     }
 
@@ -2327,7 +2327,7 @@ public final class PathfindingState {
             if (!XaeroPresence.mapPresent()) {
                 return null;
             }
-            CostToGo voxel = TickLaps.measure("3D粗層の起動",
+            CostToGo voxel = TickLaps.measure("3D coarse layer start",
                     () -> voxelGuide.forGoal(level, level.dimension(), player.blockPosition(), currentGoal,
                             XaeroNavConfig.INSTANCE.movementOptions().lavaBridgingEnabled()));
             if (voxel == null || !navGraphEnabled) {
@@ -2335,7 +2335,7 @@ public final class PathfindingState {
             }
             // 窓の外が幾何下限だとネザーは3D粗層だけより悪い（実測1.257倍）。3D粗層が組み上がってから航法グラフを使う
             fallback = voxel;
-            far = new NavGraphGuide.Far("3D粗層", voxel, () -> FarField.of(
+            far = new NavGraphGuide.Far("3D coarse layer", voxel, () -> FarField.of(
                     (x, y, z) -> NavGraphGuide.VOXEL_FAR_SCALE * voxel.estimate(x, y, z)), false);
         } else if (!navGraphEnabled) {
             return null;
@@ -2349,14 +2349,14 @@ public final class PathfindingState {
                 // 層1そのものは既知の陸を1倍・未知を約5倍で数えるので、既知の陸沿いの遠回りへ引かれて窓の外には使えない。
                 // 推定の上で後ろになる縁は種にしない（NavGraphGuide.Far#forwardOnly）
                 double scale = map == null ? 1.0 : CoarseRouter.unknownMultiplier(map);
-                far = new NavGraphGuide.Far("直線距離x" + String.format(Locale.ROOT, "%.1f", scale),
+                far = new NavGraphGuide.Far("straight line x" + String.format(Locale.ROOT, "%.1f", scale),
                         map == null ? currentGoal : map, () -> FarField.straightLineTo(currentGoal, scale), true);
             } else {
                 far = map == null ? null
-                        : new NavGraphGuide.Far("層1", map, () -> layer1Far(map, currentGoal), false);
+                        : new NavGraphGuide.Far("layer 1", map, () -> layer1Far(map, currentGoal), false);
             }
         }
-        WindowField field = TickLaps.measure("航法グラフの起動",
+        WindowField field = TickLaps.measure("nav graph start",
                 () -> navGraphGuide.forGoal(level, player, currentGoal, renderRadius,
                         XaeroNavConfig.INSTANCE.movementOptions(), far));
         // 窓の中の目的地が殻に繋がっていない回は使わない。窓全体の値が縁の外の推定だけから来る
@@ -2555,9 +2555,9 @@ public final class PathfindingState {
         if (!unstandableTargetGate.changed(target)) {
             return;
         }
-        LOGGER.debug("XaeroNav: 探索目標に立てません (目標={}, 種別={}, 中間目標#{}, 層2の精緻版={})",
+        LOGGER.debug("XaeroNav: search target is not standable (target={}, mode={}, waypoint #{}, layer 2 refined={})",
                 target.toShortString(), mode, waypointIndex,
-                refinedRouteInUse() ? "使用中" : "無し");
+                refinedRouteInUse() ? "in use" : "none");
     }
 
     /** いま{@link #cachedOrFreshRoute}が層2の精緻版を返しているか（上のログの内訳用）。 */
@@ -2583,14 +2583,15 @@ public final class PathfindingState {
         if (!result.complete() && (result.steps().isEmpty()
                 || BlockDistance.horizontal(start, end) < MIN_EXTEND_PROGRESS_BLOCKS)) {
             stalledSearches.incrementAndGet();
-            LOGGER.debug("XaeroNav: 詳細探索が十分に前進できません (始点={}, 目標={}, 末端={}, {}, 展開={}, ステップ={})",
+            LOGGER.debug("XaeroNav: detail search is not making enough progress"
+                            + " (start={}, target={}, end={}, {}, expanded={}, steps={})",
                     start.toShortString(), target.toShortString(), end.toShortString(),
                     result.termination(), result.expandedNodes(), result.steps().size());
         }
         if (!LOGGER.isDebugEnabled()) {
             return;
         }
-        LOGGER.debug("XaeroNav: 詳細探索 (目標 {} ({} ブロック先), 実到達 {} ブロック, {}, 展開 {})",
+        LOGGER.debug("XaeroNav: detail search (target {} ({} blocks away), reached {} blocks, {}, expanded {})",
                 target.toShortString(), Math.round(BlockDistance.horizontal(start, target)),
                 Math.round(BlockDistance.horizontal(start, end)), result.termination(), result.expandedNodes());
     }
@@ -2625,8 +2626,8 @@ public final class PathfindingState {
             return false;
         }
         BlockPos end = result.steps().get(result.steps().size() - 1).pos();
-        LOGGER.info("XaeroNav: 目的地から遠ざかる案内なので採りません "
-                        + "(末端={}で{}, 最接近={}で{}, {}ステップ, {})",
+        LOGGER.info("XaeroNav: rejected a path that leads away from the goal "
+                        + "(end={} at {}, closest={} at {}, {} steps, {})",
                 end.toShortString(), Math.round(BlockDistance.horizontal(end, currentGoal)), anchor.toShortString(),
                 Math.round(retreatWatcher.closest()), result.steps().size(), result.termination());
         return true;
@@ -2647,16 +2648,16 @@ public final class PathfindingState {
         }
         WindowField field = navGraphGuide.latest(currentGoal);
         List<PathStep> steps = shown == null ? List.of() : shown.result().steps();
-        LOGGER.info("XaeroNav: 目的地から遠ざかっています (現在地={}, 目的地まで{}, 最接近={}で{}, 遠ざかった{}, "
-                        + "経路の末端={}, {}, 前進できません{}回, ガイド={})",
+        LOGGER.info("XaeroNav: moving away from the goal (player={}, to goal {}, closest={} at {}, retreated {}, "
+                        + "path end={}, {}, stalled searches {}, guide={})",
                 at.toShortString(), Math.round(retreat.distance()),
                 retreat.closestAt().toShortString(), Math.round(retreat.closest()),
                 Math.round(retreat.retreated()),
-                steps.isEmpty() ? "無し" : steps.get(steps.size() - 1).pos().toShortString(),
-                shown == null ? "経路無し" : shown.result().complete() ? "目的地まで引けている" : "途中まで",
+                steps.isEmpty() ? "none" : steps.get(steps.size() - 1).pos().toShortString(),
+                shown == null ? "no path" : shown.result().complete() ? "complete to goal" : "partial",
                 stalledSearches.get(),
-                field == null ? "無し"
-                        : Math.round(field.estimate(at.getX(), at.getY(), at.getZ())) + "tick");
+                field == null ? "none"
+                        : Math.round(field.estimate(at.getX(), at.getY(), at.getZ())) + " ticks");
     }
 
     /**
@@ -2706,7 +2707,7 @@ public final class PathfindingState {
 
     private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
                                        boolean ceilingDimension) {
-        CoarseAttempt attempt = TickLaps.measure("長距離ルート",
+        CoarseAttempt attempt = TickLaps.measure("long route",
                 () -> solveCoarseRoute(readCoarseMapFor(start, currentGoal), start, currentGoal, boatAvailable));
         // 裏で解いている要求より、いま同期で引いた方が新しい
         solvingCoarse = null;
@@ -2723,7 +2724,7 @@ public final class PathfindingState {
         if (pending != null && pending.goal().equals(currentGoal)) {
             return;
         }
-        CoarseRead read = TickLaps.measure("長距離ルートの地図読み", () -> readCoarseMapFor(start, currentGoal));
+        CoarseRead read = TickLaps.measure("long route map read", () -> readCoarseMapFor(start, currentGoal));
         CoarseSolve solve = new CoarseSolve(currentGoal);
         solvingCoarse = solve;
         CompletableFuture.supplyAsync(() -> solveCoarseRoute(read, start, currentGoal, boatAvailable), coarseExecutor)
@@ -2733,7 +2734,7 @@ public final class PathfindingState {
                     }
                     solvingCoarse = null;
                     if (error != null) {
-                        LOGGER.error("XaeroNav: 長距離ルートの計算に失敗しました", error);
+                        LOGGER.error("XaeroNav: failed to compute the long route", error);
                         return;
                     }
                     adoptCoarseRoute(start, currentGoal, attempt, ceilingDimension);
@@ -2782,11 +2783,11 @@ public final class PathfindingState {
             mapRetryBefore = null;
             // 引き直したこと自体より「地図が埋まって大局が変わったか」が知りたい。変わらないなら、
             // 遠回りの原因は読み込み待ちではなく別にある
-            LOGGER.debug("XaeroNav: 地図の読み込みを待って長距離ルートを引き直しました"
-                            + " (未読み込みリージョン={}→{}, 中間目標={}→{}個, {}, {}回目/{})",
+            LOGGER.debug("XaeroNav: replanned the long route after more map loaded"
+                            + " (pending regions={}->{}, waypoints={}->{}, {}, attempt {}/{})",
                     before.pendingRegions(), thisRoute.pendingRegions(),
                     before.waypoints().size(), waypoints.size(),
-                    waypoints.equals(before.waypoints()) ? "同じルート" : "変わった",
+                    waypoints.equals(before.waypoints()) ? "same route" : "changed",
                     coarseMapRetries, COARSE_MAP_RETRY_LIMIT);
         }
         return thisRoute;
@@ -3067,7 +3068,7 @@ public final class PathfindingState {
         // NO_DATAで見えていなかった」のかは、ここが黙っていると実機ログから区別できない——
         // 未知セルはCoarseRouterでほぼ最安なので、見えていなければ溶岩の海を直進するルートが引かれる
         if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("XaeroNav: 長距離ルートの地図 (既知セル={}/{}, {}, レイヤー別={}, 未読み込みリージョン={}, 読み取り={}ms)",
+            LOGGER.debug("XaeroNav: long route map (known cells={}/{}, {}, per layer={}, pending regions={}, read={}ms)",
                     map.knownCells(), map.totalCells(), map.kindBreakdown(), window.layerBreakdown(),
                     window.pendingRegions(), window.readMillis());
         }
@@ -3075,7 +3076,7 @@ public final class PathfindingState {
         // 50msを超えたら、閾値以下に戻るまでの間も5秒おきに知らせる（毎回だと洪水になる）
         if (window.readMillis() > SLOW_MAP_READ_THRESHOLD_MILLIS
                 && slowMapReadGate.changed(true, MonotonicTime.millis(), SLOW_MAP_READ_LOG_INTERVAL_MILLIS)) {
-            LOGGER.warn("XaeroNav: 長距離ルートの地図読み取りが遅い ({}ms > {}ms)",
+            LOGGER.warn("XaeroNav: slow long route map read ({}ms > {}ms)",
                     window.readMillis(), SLOW_MAP_READ_THRESHOLD_MILLIS);
         }
         return new CoarseRead(map, window.pendingRegions());
@@ -3124,14 +3125,14 @@ public final class PathfindingState {
         CoarseRouter.Route allowed = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.ALLOW);
         if (allowed.reachedGoal()) {
-            LOGGER.info("XaeroNav: 奈落・溶岩混じりを避ける道が見つからないため、そこを通る長距離ルートに切り替えました");
+            LOGGER.info("XaeroNav: no route avoids void/lava-mixed cells, switched to a long route through them");
             return new CoarseAttempt(allowed, read.pendingRegions());
         }
 
         CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
                 CoarseRouter.BridgePolicy.BRIDGE);
         if (bridged.reachedGoal()) {
-            LOGGER.info("XaeroNav: 溶岩を避ける道が見つからないため、橋を架けて渡る長距離ルートに切り替えました");
+            LOGGER.info("XaeroNav: no route avoids lava, switched to a long route that bridges over it");
             return new CoarseAttempt(bridged, read.pendingRegions());
         }
         return new CoarseAttempt(furtherRoute(furtherRoute(avoided, allowed), bridged), read.pendingRegions());

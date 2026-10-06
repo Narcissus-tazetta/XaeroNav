@@ -74,10 +74,10 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
         try {
             Files.move(path, broken, StandardCopyOption.REPLACE_EXISTING);
             file.clear();
-            LOGGER.warn("XaeroNav: 壊れた設定ファイルを {} へ退避し、既定値で再生成します", broken, parseError);
+            LOGGER.warn("XaeroNav: moved the broken config file to {} and regenerated it with defaults", broken, parseError);
         } catch (java.io.IOException moveError) {
             moveError.addSuppressed(parseError);
-            throw new IllegalStateException("壊れた設定ファイルを退避できませんでした: " + path, moveError);
+            throw new IllegalStateException("Could not move the broken config file aside: " + path, moveError);
         }
     }
 

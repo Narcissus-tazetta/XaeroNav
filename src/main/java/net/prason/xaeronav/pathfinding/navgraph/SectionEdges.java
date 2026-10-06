@@ -141,7 +141,7 @@ final class SectionEdges {
                     int ddz = BlockPos.getZ(toPos) - fz;
                     if (ddx < Byte.MIN_VALUE || ddx > Byte.MAX_VALUE || ddz < Byte.MIN_VALUE || ddz > Byte.MAX_VALUE
                             || ddy < Short.MIN_VALUE || ddy > Short.MAX_VALUE) {
-                        throw new IllegalStateException("移動が長すぎて辺に収まらない: " + BlockPos.of(fromPos)
+                        throw new IllegalStateException("Move too long to fit in an edge: " + BlockPos.of(fromPos)
                                 + " → " + BlockPos.of(toPos));
                     }
                     w.add(local(fx, fy, fz), MoveTable.offsetKey(ddx, ddy, ddz), edgeCost);

@@ -279,18 +279,19 @@ final class NavGraphGuide {
      */
     static String origin(CostToGo guide, BlockPos from) {
         if (!(guide instanceof WindowField field)) {
-            return "航法グラフ以外";
+            return "not a nav graph";
         }
         WindowField.Descent descent = field.descend(from.getX(), from.getY(), from.getZ());
         if (descent == null) {
-            return "ノードでない";
+            return "not a node";
         }
         if (descent.reachedGoal()) {
-            return "目的地(窓の中%d)".formatted(Math.round(descent.inside()));
+            return "goal (inside window %d)".formatted(Math.round(descent.inside()));
         }
         BlockPos exit = descent.exit();
         BlockPos goal = field.goal();
-        return "縁%s(窓の中%d+外の推定%d, 縁から目的地まで直線%d)".formatted(exit.toShortString(),
+        return "edge %s (inside window %d + outside estimate %d, straight line from edge to goal %d)".formatted(
+                exit.toShortString(),
                 Math.round(descent.inside()), Math.round(descent.outside()),
                 Math.round(Math.hypot(exit.getX() - goal.getX(), exit.getZ() - goal.getZ())));
     }
@@ -334,12 +335,12 @@ final class NavGraphGuide {
                             at.getX(), at.getZ(), WARM_UP_WINDOW,
                             LoadedArea.chunks(at.getX(), at.getZ(), WARM_UP_WINDOW, view::chunkLoaded),
                             FarField.straightLineTo(goal), pool, WARM_UP_WORKERS, () -> generation.get() != myGeneration);
-                    LOGGER.info("XaeroNav: 航法グラフの下準備 ({}ms, {})", MonotonicTime.millis() - began,
-                            warmed == null ? "目的地が決まったので打ち切り" : "セクション" + warmed.sectionsBuilt());
+                    LOGGER.info("XaeroNav: nav graph warm-up ({}ms, {})", MonotonicTime.millis() - began,
+                            warmed == null ? "stopped because a goal was set" : "sections=" + warmed.sectionsBuilt());
                 }, coordinator)
                 .whenComplete((ignored, error) -> {
                     if (error != null) {
-                        LOGGER.warn("XaeroNav: 航法グラフの下準備に失敗しました（案内には影響しません）", error);
+                        LOGGER.warn("XaeroNav: nav graph warm-up failed (navigation is unaffected)", error);
                     }
                 });
     }
@@ -394,14 +395,14 @@ final class NavGraphGuide {
                     retargeted = false;
                     if (LOGGER.isDebugEnabled() && logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
                         NavGraph current = graph;
-                        LOGGER.debug("XaeroNav: 航法グラフ (組んだセクション={}, 構築{}ms, ガイド{}ms, 辺={}, ノード={}, "
-                                        + "グラフ{}MB, ガイド{}MB, 窓{}(ヒープ上限{}MB), 並列{}, 窓の外={}, 到着時間での窓の外の倍率={}, "
-                                        + "中心{}の値の出どころ={})",
+                        LOGGER.debug("XaeroNav: nav graph (sections built={}, build {}ms, guide {}ms, edges={}, nodes={}, "
+                                        + "graph {}MB, guide {}MB, window {} (max heap {}MB), workers {}, outside window={}, "
+                                        + "outside-window scale by arrival time={}, value origin at center {}={})",
                                 refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
                                 refreshed.field().edges(), refreshed.field().nodes(),
                                 current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
                                 key.window(), Runtime.getRuntime().maxMemory() >> 20, workers,
-                                farMap == null ? "直線距離" : farMap.name(), "%.2f".formatted(farScale.scale()),
+                                farMap == null ? "straight line" : farMap.name(), "%.2f".formatted(farScale.scale()),
                                 at.toShortString(), origin(refreshed.field(), at));
                     }
                 });
@@ -415,7 +416,7 @@ final class NavGraphGuide {
         failures++;
         built = null;
         retryAfterMillis = MonotonicTime.millis() + FAILURE_BACKOFF_MILLIS;
-        LOGGER.error("XaeroNav: 航法グラフの作成に失敗しました（{}回続けて）。{}秒は組み直さず、航法グラフ無しで案内します",
+        LOGGER.error("XaeroNav: failed to build the nav graph ({} times in a row). Navigating without it for {}s",
                 failures, FAILURE_BACKOFF_MILLIS / 1000, error);
         // 完了済みの回にwhenCompleteを付けるとメインスレッドで呼ばれるので、グラフは段取りの1本で手放す
         coordinator.execute(this::forgetGraph);
@@ -546,8 +547,8 @@ final class NavGraphGuide {
             }
             long span = Math.max(1L, now - since);
             Runtime runtime = Runtime.getRuntime();
-            LOGGER.info("XaeroNav: 航法グラフの負荷 (直近{}秒, 組み直し{}回(打ち切り{}), 段取りの稼働率{}%, 構築計{}ms, ガイド計{}ms, "
-                            + "1回最大{}ms, チャンク集め最大{}ms(メインスレッド), GC{}ms, ヒープ{}/{}MB)",
+            LOGGER.info("XaeroNav: nav graph load (last {}s, rebuilds {} (cancelled {}), coordinator busy {}%, build total {}ms, "
+                            + "guide total {}ms, max per run {}ms, max chunk capture {}ms (main thread), GC {}ms, heap {}/{}MB)",
                     span / 1000, runs, cancelled, 100 * busyMillis / span, buildMillis, guideMillis, maxMillis,
                     maxCaptureMillis, TickLaps.gcPauseMillis() - gcSince, (runtime.totalMemory() - runtime.freeMemory()) >> 20,
                     runtime.maxMemory() >> 20);

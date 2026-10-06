@@ -71,7 +71,7 @@ final class MoveTable {
             int id = index.get(key);
             if (id < 0) {
                 if (size == CAPACITY) {
-                    throw new IllegalStateException("移動の種類が" + CAPACITY + "を超えた");
+                    throw new IllegalStateException("More than " + CAPACITY + " move kinds");
                 }
                 if (size == dx.length) {
                     int grown = Math.min(CAPACITY, size * 2);

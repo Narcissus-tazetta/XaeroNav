@@ -523,7 +523,7 @@ public final class PathfindingExecutor {
         // 内訳はCoarseRouterのNO_DATA較正の入力そのものでもあるので、値の妥当性確認にも要る。
         // 実際にこの内訳で「奈落は正しく検出されている」を確認し、原因の候補を1つ潰した
         if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("XaeroNav: 粗い経由地チェーンの地図 (既知セル={}/{}, {}, 中間目標={}個, 溶岩={})",
+            LOGGER.debug("XaeroNav: coarse waypoint chain map (known cells={}/{}, {}, waypoints={}, lava={})",
                     coarseMap.knownCells(), coarseMap.totalCells(), coarseMap.kindBreakdown(),
                     route.waypoints().size(), bridgePolicy);
         }
@@ -614,7 +614,7 @@ public final class PathfindingExecutor {
             // チェーンが走るのは通常探索が失敗した後だけとはいえ、1回で区間数ぶんの行が出るので
             // debugに留める
             if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("XaeroNav: 区間{}/{} {} → {} (到達={}, {}, 展開ノード数={}, ステップ数={}, {}ms)",
+                LOGGER.debug("XaeroNav: leg {}/{} {} -> {} (reached={}, {}, expanded={}, steps={}, {}ms)",
                         i + 1, rawLegGoals.size(), currentLegStart.toShortString(), legGoal.toShortString(),
                         legResult.complete(), legResult.termination(), legResult.expandedNodes(),
                         legResult.steps().size(), MonotonicTime.millis() - legBegan);
@@ -971,7 +971,7 @@ public final class PathfindingExecutor {
                 // 予算の問題だという手がかりなので残す——ただし予算が厳しい地形では毎回出るので
                 // debugに留める（実機の既定ではdebugは出ない）
                 if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("XaeroNav: 上限を疑ったが緩和の時間が残っていなかった");
+                    LOGGER.debug("XaeroNav: suspected a cap but no time was left to loosen it");
                 }
                 break;
             }

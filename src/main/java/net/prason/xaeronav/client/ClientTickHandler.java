@@ -32,10 +32,10 @@ public final class ClientTickHandler {
     public void onClientTick() {
         long startMillis = MonotonicTime.millis();
         TickLaps.begin();
-        TickLaps.measure("キー入力", () -> XaeroNavKeys.handleInput());
-        TickLaps.measure("経路の状態", () -> PathfindingState.INSTANCE.onClientTick());
-        TickLaps.measure("速度の実測", () -> NavPace.INSTANCE.onClientTick());
-        TickLaps.measure("Xaero連携の点検", () -> XaeroHookHealth.onClientTick());
+        TickLaps.measure("key input", () -> XaeroNavKeys.handleInput());
+        TickLaps.measure("route state", () -> PathfindingState.INSTANCE.onClientTick());
+        TickLaps.measure("pace sampling", () -> NavPace.INSTANCE.onClientTick());
+        TickLaps.measure("Xaero hook check", () -> XaeroHookHealth.onClientTick());
         // XaeroHookRuntimeProbeはXaero型を直接参照するため、通常起動ではクラス自体をloadしない。
         if (RUNTIME_HOOK_PROBE) {
             XaeroHookRuntimeProbe.onClientTick();
@@ -45,7 +45,7 @@ public final class ClientTickHandler {
         long elapsedMillis = nowMillis - startMillis;
         if (elapsedMillis > SLOW_TICK_THRESHOLD_MILLIS
                 && slowTickGate.changed(true, nowMillis, SLOW_TICK_LOG_INTERVAL_MILLIS)) {
-            XaeroNav.LOGGER.warn("XaeroNav: tick処理が遅い ({}ms > {}ms, 内訳={})", elapsedMillis, SLOW_TICK_THRESHOLD_MILLIS,
+            XaeroNav.LOGGER.warn("XaeroNav: slow tick ({}ms > {}ms, breakdown={})", elapsedMillis, SLOW_TICK_THRESHOLD_MILLIS,
                     TickLaps.summary());
         }
     }
@@ -99,8 +99,8 @@ public final class ClientTickHandler {
                 features.append(" / ");
             }
             features.append(TextCompat.translatable(hook.nameKey()));
-            XaeroNav.LOGGER.warn("XaeroNav: Xaero連携のmixinが当たっていない ({} / {})。"
-                    + "Xaeroの版が対応範囲の外にある可能性がある", hook.modId(), hook.className());
+            XaeroNav.LOGGER.warn("XaeroNav: Xaero integration mixin is not applied ({} / {})."
+                    + " The installed Xaero version may be outside the supported range", hook.modId(), hook.className());
         }
         GameCompat.tell(player, TextCompat.translatable("hud.xaeronav.hook_missing", features), false);
     }
