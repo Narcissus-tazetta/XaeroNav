@@ -559,7 +559,7 @@ final class FlightNavState {
      * Xaeroの地図から空中の長距離ルートを1本解く。<b>メインスレッド専用</b>
      * （{@code XaeroMapReader.readSurface}がXaeroの書き込みスレッドと同じ構造を触るため）。
      *
-     * <p>診断コマンド（{@code /xaeronav debug flight}）もここを通すこと。範囲やマージンを別々に組むと、
+     * <p>診断コマンド（{@code /xaeronav debug probe}の滑空中）もここを通すこと。範囲やマージンを別々に組むと、
      * 測った数字が実際の案内と食い違う——実際に、診断側の独自実装はチャンク範囲が常に1つ狭く、
      * 目的地が地図の外に落ちると「中間目標0本」と報告していた（{@link #tuning()}を1箇所に
      * 置いてあるのと同じ理由）。

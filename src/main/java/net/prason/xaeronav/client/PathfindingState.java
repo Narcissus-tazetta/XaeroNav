@@ -855,15 +855,28 @@ public final class PathfindingState {
     }
 
     /**
-     * 直近の再計算判断の要約。実機デバッグで「今何が起きているか」をログを遡らず
-     * 把握するためのもの（{@code /xaeronav debug summary}）。状態は変えない。
+     * {@code /xaeronav debug}に出す、外からは見えない判断材料。合流拒否・繋ぎ目解き直し見送り・立てない目標は
+     * いずれも「同じ理由が続く間は黙る」ログなので、実機で今の状態を知るにはここで拾うしかない。
+     * メインスレッドから読む。
      */
-    public record DiagnosticSummary(@Nullable String spliceRefusal, @Nullable String seamRepairRefusal,
-                                     @Nullable BlockPos unstandableTarget) {
+    record DebugState(@Nullable ResourceKey<Level> goalDimension, @Nullable BlockPos unresolvedGoal,
+            boolean awaitingNavGraph, @Nullable PathMode mode, int waypointIndex, int passedWaypoints,
+            int coarseWaypoints, boolean coarseReachedGoal, int coarsePendingRegions, boolean refinedRouteInUse,
+            boolean navGraphReady, boolean navGraphFailedRecently, int stalledSearches,
+            @Nullable String spliceRefusal, @Nullable String seamRepairRefusal, @Nullable BlockPos unstandableTarget) {
     }
 
-    public DiagnosticSummary diagnosticSummary() {
-        return new DiagnosticSummary(splice.currentRefusal(), seamRepair.currentRefusal(),
+    DebugState debugState() {
+        BlockPos currentGoal = goal;
+        DisplayedPath shown = displayed;
+        CoarseRoute route = coarseRoute;
+        boolean routeForGoal = route != null && route.goal().equals(currentGoal);
+        return new DebugState(goalDimension, unresolvedGoal, awaitingNavGraph,
+                shown == null ? null : shown.mode(), shown == null ? -1 : shown.waypointIndex(), passedWaypoints,
+                routeForGoal ? route.waypoints().size() : 0, routeForGoal && route.reachedGoal(),
+                routeForGoal ? route.pendingRegions() : 0, refinedRouteInUse(),
+                currentGoal != null && navGraphGuide.latest(currentGoal) != null, navGraphGuide.failedRecently(),
+                stalledSearches.get(), splice.currentRefusal(), seamRepair.currentRefusal(),
                 unstandableTargetGate.current());
     }
 

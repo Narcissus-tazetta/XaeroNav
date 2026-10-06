@@ -90,12 +90,10 @@ body:
     attributes:
       label: Diagnostics
       description: |
-        Stand where the problem happens and run the commands that match, then paste the chat output:
+        Stand where the problem happens with the destination still set, run these two commands, then paste the output:
 
-        - `/xaeronav debug probe <x> <y> <z>` — what the detailed search reached and why it stopped (start here for almost everything)
-        - `/xaeronav debug route <x> <y> <z>` and `/xaeronav debug corridor <x> <y> <z>` — the long-distance waypoint chain, for destinations beyond render distance
-        - `/xaeronav debug flight <x> <y> <z>` — the aerial route, for elytra problems
-        - `/xaeronav debug mapdata` — how much of Xaero's map data exists around you, if no long-distance route appears at all
+        - `/xaeronav debug` — the current state (it is also copied to your clipboard)
+        - `/xaeronav debug probe` — map data around you, the long-distance route, and what the detailed search reached and why it stopped
       render: text
     validations:
       required: true

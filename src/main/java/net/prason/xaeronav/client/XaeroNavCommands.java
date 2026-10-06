@@ -1,6 +1,5 @@
 package net.prason.xaeronav.client;
 
-import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -8,7 +7,6 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 import com.mojang.brigadier.arguments.ArgumentType;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -36,7 +34,6 @@ import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.DiagnosticJobRunner;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
-import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightGuide;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
@@ -45,8 +42,6 @@ import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
-import net.prason.xaeronav.xaero.XaeroHookHealth;
-import net.prason.xaeronav.xaero.XaeroHooks;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 import net.prason.xaeronav.util.GameCompat;
@@ -55,23 +50,14 @@ import net.prason.xaeronav.util.BlockDistance;
 /**
  * {@code /xaeronav} のクライアントコマンド。
  *
- * <p>案内そのものに使うのは{@code goto} / {@code clear} / {@code version}の3つだけ。残りは経路を
- * 引かずに数値をチャットへ出す計測用なので{@code debug}の下へ入れてある——同じ高さに並べると、
- * 目的地を設定したいだけの人のタブ補完が計測用の名前で埋まる。
+ * <p>案内そのものに使うのは{@code goto} / {@code clear} / {@code version}の3つだけ。{@code debug}は
+ * 不具合報告用の状態の一覧（{@link DebugReport}）、{@code debug probe}はいまの目的地に向けて探索を
+ * 測り直す計測用。どちらも座標を取らない——報告する人に「どの座標で打てばいいか」を考えさせない。
  */
 public final class XaeroNavCommands {
 
-    /** 既定の確認範囲（チャンク）。既定の描画距離より十分広く、読み取りが一瞬で終わる程度。 */
-    private static final int DEFAULT_MAPDATA_RADIUS_CHUNKS = 64;
-
-    /**
-     * {@code mapdata}の半径引数の上限。{@link XaeroMapReader}の読み取りはメインスレッド専用
-     * （クラスJavadoc参照）なのでワーカーへ逃がせず、一辺{@code radiusChunks*2+1}チャンクぶんを
-     * 丸ごと同期でXaeroの地図から読む。既定値64（一辺129、約16,641セル）が「一瞬で終わる」規模と
-     * 分かっている前提で、その2倍を安全側の上限にする——旧上限512（一辺1025、約1,050,625セル）は
-     * この規模の16倍あり、要求するとクライアントを長時間止め得た。
-     */
-    private static final int MAPDATA_MAX_RADIUS_CHUNKS = 128;
+    /** 地図データを確かめる範囲（チャンク）。既定の描画距離より十分広く、読み取りが一瞬で終わる程度。 */
+    private static final int MAPDATA_RADIUS_CHUNKS = 64;
 
     /**
      * {@code probe}の上限なし計測で使う展開ノード数。時間上限（ライブナビと同じ）の方が先に効くよう、
@@ -81,11 +67,11 @@ public final class XaeroNavCommands {
     private static final int PROBE_UNBOUNDED_MAX_EXPANDED_NODES = 100_000_000;
 
     /**
-     * {@code corridor}/{@code probe}/{@code flight}が使う専用の非同期実行基盤。ライブナビの
+     * {@code probe}が使う専用の非同期実行基盤。ライブナビの
      * {@code PathfindingExecutor}とは別インスタンス・別スレッド——共有すると診断コマンドを
      * 打っただけで進行中の本番探索がキャンセルされてしまう。Xaeroの地図を読む層1部分
      * （{@link CoarseRouter}・{@link XaeroMapReader}）はメインスレッド専用のため対象外
-     * （{@link CorridorLegSolver}・{@code FlightNavState}のクラスJavadoc参照）で、この基盤へ
+     * （{@code FlightNavState}のクラスJavadoc参照）で、この基盤へ
      * 委ねるのは実際に重いA*探索/空中経路計算だけ。
      */
     private static final DiagnosticJobRunner DIAGNOSTIC =
@@ -127,74 +113,12 @@ public final class XaeroNavCommands {
                             return 1;
                         }))
                 .then(XaeroNavCommands.<S>literal("debug")
-                        .then(XaeroNavCommands.<S>literal("mapdata")
-                                .executes(ctx -> reportMapData(sink.apply(ctx), DEFAULT_MAPDATA_RADIUS_CHUNKS))
-                                .then(XaeroNavCommands.<S, Integer>argument("radiusChunks",
-                                        IntegerArgumentType.integer(1, MAPDATA_MAX_RADIUS_CHUNKS))
-                                        .executes(ctx -> reportMapData(sink.apply(ctx),
-                                                IntegerArgumentType.getInteger(ctx, "radiusChunks")))))
-                        .then(XaeroNavCommands.<S>literal("route")
-                                .then(XaeroNavCommands.<S, Coordinates>argument("pos", BlockPosArgument.blockPos())
-                                        .executes(ctx -> reportRoute(sink.apply(ctx),
-                                                blockPos.read(ctx, "pos")))))
-                        .then(XaeroNavCommands.<S>literal("corridor")
-                                .then(XaeroNavCommands.<S, Coordinates>argument("pos", BlockPosArgument.blockPos())
-                                        .executes(ctx -> reportCorridor(sink.apply(ctx),
-                                                blockPos.read(ctx, "pos")))))
+                        .executes(ctx -> {
+                            DebugReport.send(sink.apply(ctx));
+                            return 1;
+                        })
                         .then(XaeroNavCommands.<S>literal("probe")
-                                .then(XaeroNavCommands.<S, Coordinates>argument("pos", BlockPosArgument.blockPos())
-                                        .executes(ctx -> reportProbe(sink.apply(ctx),
-                                                blockPos.read(ctx, "pos")))))
-                        .then(XaeroNavCommands.<S>literal("hooks")
-                                .executes(ctx -> reportHooks(sink.apply(ctx))))
-                        .then(XaeroNavCommands.<S>literal("summary")
-                                .executes(ctx -> reportSummary(sink.apply(ctx))))
-                        .then(XaeroNavCommands.<S>literal("flight")
-                                .then(XaeroNavCommands.<S, Coordinates>argument("pos", BlockPosArgument.blockPos())
-                                        .executes(ctx -> reportFlight(sink.apply(ctx),
-                                                blockPos.read(ctx, "pos"))))));
-    }
-
-    /**
-     * Xaero連携が今どうなっているかを1行ずつ出す。「地図に線が出ない」の切り分けは、
-     * 連携先のMODが入っていない / mixinが当たっていない / 当たっているが描かれていない、の
-     * どれなのかが分からないと進まない。
-     */
-    private static int reportHooks(NavCommandSink out) {
-        for (XaeroHooks.Hook hook : XaeroHooks.Hook.values()) {
-            Component name = TextCompat.translatable(hook.nameKey());
-            if (!ModPresence.isLoaded(hook.modId())) {
-                out.success(TextCompat.translatable("commands.xaeronav.hooks_mod_missing", name, hook.modId()));
-            } else if (!XaeroHooks.applied(hook)) {
-                out.success(TextCompat.translatable("commands.xaeronav.hooks_not_applied", name));
-            } else {
-                out.success(TextCompat.translatable("commands.xaeronav.hooks_ok", name));
-            }
-        }
-        if (XaeroHookHealth.worldMapRenderBroken()) {
-            out.failure(TextCompat.translatable("commands.xaeronav.hooks_render_broken"));
-        }
-        return 1;
-    }
-
-    /**
-     * 直近の再計算判断の要約を出す。合流拒否・繋ぎ目解き直し見送り・立てない目標は
-     * いずれも「同じ理由が続く間は黙る」ログなので、実機で今の状態を知るには
-     * ログを遡るしかなかった。ここで1コマンドにまとめて出す。
-     */
-    private static int reportSummary(NavCommandSink out) {
-        PathfindingState.DiagnosticSummary summary = PathfindingState.INSTANCE.diagnosticSummary();
-        out.success(TextCompat.translatable("commands.xaeronav.summary_splice_refusal",
-                summary.spliceRefusal() != null
-                        ? summary.spliceRefusal() : TextCompat.translatable("commands.xaeronav.summary_none")));
-        out.success(TextCompat.translatable("commands.xaeronav.summary_seam_repair_refusal",
-                summary.seamRepairRefusal() != null
-                        ? summary.seamRepairRefusal() : TextCompat.translatable("commands.xaeronav.summary_none")));
-        out.success(TextCompat.translatable("commands.xaeronav.summary_unstandable_target",
-                summary.unstandableTarget() != null
-                        ? summary.unstandableTarget().toShortString()
-                        : TextCompat.translatable("commands.xaeronav.summary_none")));
-        return 1;
+                                .executes(ctx -> reportProbe(sink.apply(ctx)))));
     }
 
     /**
@@ -221,69 +145,33 @@ public final class XaeroNavCommands {
         return ModPresence.version(XaeroNav.MOD_ID);
     }
 
-    /** {@link #reportRoute}が読む範囲を、始点と終点の周りにどれだけ広げるか（チャンク）。 */
+    /** {@link #reportCoarseRoute}が読む範囲を、始点と終点の周りにどれだけ広げるか（チャンク）。 */
     private static final int ROUTE_PADDING_CHUNKS = 32;
 
     /** 一辺がこれを超える範囲は読まない。粗い地図とはいえ、無制限だと配列確保だけで固まる。 */
     private static final int ROUTE_MAX_SPAN_CHUNKS = 1024;
 
     /**
-     * 段階Aの目視確認用。実際の案内は開始せず、{@link CoarseRouter}が引いた中間目標をその場で
-     * チャットに列挙するだけ。実データの海や山で意図通り曲がるかは、これで見るしかない。
-     */
-    private static int reportRoute(NavCommandSink out, BlockPos goal) {
-        return withCoarseRoute(out, goal, (start, waypoints) -> {
-            for (int i = 0; i < waypoints.size(); i++) {
-                int number = i + 1;
-                BlockPos waypoint = waypoints.get(i);
-                out.success(TextCompat.translatable("commands.xaeronav.route_waypoint",
-                        number, waypoints.size(), waypoint.toShortString()));
-            }
-        });
-    }
-
-    /** {@link #withCoarseRoute}が層1の要約を出した後に呼ぶ、コマンドごとの続き。 */
-    @FunctionalInterface
-    private interface RouteDetail {
-        void report(BlockPos start, List<BlockPos> waypoints);
-    }
-
-    /**
-     * 2つの診断コマンドが共有する前半——プレイヤーと地図データの確認、層1の実行、経路が
-     * 引けなかった場合の報告、waypoint数と所要時間の要約まで。要約まで出せたときだけ
-     * {@code detail}を呼ぶ。
+     * いまの目的地まで層1（Xaeroの地図の上の長距離ルート）が引けるかを要約する。
      *
-     * <p>地図の読み取り（{@link #readCoarseMapOrFail}）はXaero API契約によりメインスレッドで
-     * 同期実行するが、その後の{@link CoarseRouter#findRoute}はMinecraft/Xaero状態を読まない
-     * 純粋な計算なので{@link #DIAGNOSTIC}のワーカーへ逃がす。{@code detail}は
-     * ワーカー完了後のメインスレッドcallback内から呼ばれる。
+     * <p>地図の読み取りはXaero API契約によりメインスレッドで同期実行するが、その後の
+     * {@link CoarseRouter#findRoute}はMinecraft/Xaero状態を読まない純粋な計算なので{@link #DIAGNOSTIC}の
+     * ワーカーへ逃がす。
      */
-    private static int withCoarseRoute(NavCommandSink out, BlockPos goal, RouteDetail detail) {
-        Player player = Minecraft.getInstance().player;
-        if (player == null) {
-            return 0;
-        }
-        if (!XaeroPresence.mapPresent()) {
-            out.failure(TextCompat.translatable("commands.xaeronav.mapdata_unavailable"));
-            return 0;
-        }
-
+    private static void reportCoarseRoute(NavCommandSink out, long generation, Player player, BlockPos goal) {
         BlockPos start = player.blockPosition();
         boolean boatAvailable = ChunkView.boatAvailable(player);
         CoarseMap map = readCoarseMapOrFail(out, start, goal);
         if (map == null) {
-            return 0;
+            return;
         }
-
-        out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
-        long generation = DIAGNOSTIC.begin();
         long startNanos = System.nanoTime();
         DIAGNOSTIC.submit(generation,
-                // 診断コマンドは既定の重み付けをそのまま見せる（溶岩の梯子はPathfindingState側の話）
+                // 診断は既定の重み付けをそのまま見せる（溶岩の梯子はPathfindingState側の話）
                 cancelled -> CoarseRouter.findRoute(map, start, goal, boatAvailable, CoarseRouter.BridgePolicy.ALLOW),
                 (route, error) -> {
                     if (error != null) {
-                        XaeroNav.LOGGER.error("XaeroNav: 診断コマンドの層1探索に失敗しました", error);
+                        XaeroNav.LOGGER.error("XaeroNav: diagnostic layer 1 search failed", error);
                         return;
                     }
                     long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
@@ -295,21 +183,15 @@ public final class XaeroNavCommands {
                         out.failure(TextCompat.translatable("commands.xaeronav.route_none", elapsedMillis));
                         return;
                     }
-
-                    List<BlockPos> waypoints = route.waypoints();
                     out.success(TextCompat.translatable(
                             route.reachedGoal() ? "commands.xaeronav.route_summary_reached"
                                     : "commands.xaeronav.route_summary_partial",
-                            waypoints.size(), elapsedMillis));
-                    detail.report(start, waypoints);
+                            route.waypoints().size(), elapsedMillis));
                 });
-        // 層1探索はワーカーへ委譲したため、ここで返せるのは「ジョブを投入できたか」であって
-        // 探索結果そのものではない。結果はout.success/out.failureでプレイヤーへ非同期に届く
-        return 1;
     }
 
     /**
-     * {@link #reportRoute}と{@link #reportCorridor}が共有する層1の地図読み取り。範囲が
+     * 層1の地図読み取り。範囲が
      * {@link #ROUTE_MAX_SPAN_CHUNKS}を超える場合は失敗を送って{@code null}を返す。
      */
     private static CoarseMap readCoarseMapOrFail(NavCommandSink out, BlockPos start, BlockPos goal) {
@@ -327,90 +209,18 @@ public final class XaeroNavCommands {
     }
 
     /**
-     * 長距離ルート層2（ブロック解像度の地表グラフ）の目視確認用。層1のwaypoint列を隣接ペアで結び、
-     * 線分ごとに{@link CorridorLegSolver}で廊下を切り出して既存の{@link AStarPathfinder}を走らせる。
-     * {@code goto}（ライブナビ）も同じ{@link CorridorLegSolver}を使ってwaypointを精緻化するが、
-     * こちらは区間ごとの結果をその場でチャットへ出す目視確認用コマンドとして独立に残す。
-     */
-    private static int reportCorridor(NavCommandSink out, BlockPos goal) {
-        return withCoarseRoute(out, goal, (start, waypoints) -> {
-            List<BlockPos> legs = new ArrayList<>();
-            legs.add(start);
-            legs.addAll(waypoints);
-            int legCount = legs.size() - 1;
-            // prepareはXaeroの地図データを読むためメインスレッド専用（CorridorLegSolverのクラス
-            // Javadoc参照）。全区間ぶん先に済ませてしまい、後段の探索チェーンには不変な結果だけを渡す
-            // ——PathfindingState#refineRouteAsyncと同じ順序（ライブナビ側が先に確立した分離）
-            List<TimedLeg> prepared = new ArrayList<>(legCount);
-            for (int i = 0; i < legCount; i++) {
-                long prepareStartNanos = System.nanoTime();
-                CorridorLegSolver.PreparedLeg leg = CorridorLegSolver.prepare(legs.get(i), legs.get(i + 1));
-                prepared.add(new TimedLeg(leg, (System.nanoTime() - prepareStartNanos) / 1_000_000));
-            }
-            out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
-            reportCorridorLeg(out, DIAGNOSTIC.begin(), prepared, 0, legCount);
-        });
-    }
-
-    /** {@link CorridorLegSolver#prepare}1回ぶんと、その所要時間（地図データが無い場合の報告に使う）。 */
-    private record TimedLeg(CorridorLegSolver.PreparedLeg leg, long prepareElapsedMillis) {
-    }
-
-    /**
-     * 区間を1本ずつ順番に探索する再帰チェーン。前の区間の完了を待ってから次を投げる
-     * ——{@code PathfindingState#refineRouteAsync}のleg-by-legチェーンと同じ考え方。
-     */
-    private static void reportCorridorLeg(NavCommandSink out, long generation, List<TimedLeg> prepared,
-                                           int index, int total) {
-        if (index >= total) {
-            return;
-        }
-        TimedLeg timed = prepared.get(index);
-        if (timed.leg().view() == null) {
-            out.failure(TextCompat.translatable("commands.xaeronav.corridor_no_data",
-                    index + 1, total, timed.prepareElapsedMillis(), timed.leg().pendingRegions()));
-            reportCorridorLeg(out, generation, prepared, index + 1, total);
-            return;
-        }
-        long startNanos = System.nanoTime();
-        DIAGNOSTIC.submit(generation,
-                cancelled -> new AStarPathfinder(timed.leg().view(), CorridorLegSolver.SEARCH_LIMITS)
-                        .search(timed.leg().from(), timed.leg().to(), cancelled),
-                (result, error) -> {
-                    if (error != null) {
-                        XaeroNav.LOGGER.error("XaeroNav: corridor診断の区間探索に失敗しました", error);
-                        return;
-                    }
-                    long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
-                    out.success(TextCompat.translatable(
-                            result.complete() ? "commands.xaeronav.corridor_leg_reached"
-                                    : "commands.xaeronav.corridor_leg_partial",
-                            index + 1, total, result.steps().size(), elapsedMillis, timed.leg().pendingRegions()));
-                    reportCorridorLeg(out, generation, prepared, index + 1, total);
-                });
-    }
-
-    /**
      * Xaeroの地図からどれだけ地形が読めているかをその場で確かめるためのもの。長距離ルートは
      * このデータの上に組み立てるので、まず「どこまで読めているか」が見えないと何も判断できない。
      */
-    private static int reportMapData(NavCommandSink out, int radiusChunks) {
-        Player player = Minecraft.getInstance().player;
-        if (player == null) {
-            return 0;
-        }
-        if (!XaeroPresence.mapPresent()) {
-            out.failure(TextCompat.translatable("commands.xaeronav.mapdata_unavailable"));
-            return 0;
-        }
-
+    private static void reportMapData(NavCommandSink out, Player player) {
         int centerChunkX = player.blockPosition().getX() >> 4;
         int centerChunkZ = player.blockPosition().getZ() >> 4;
         int referenceY = player.blockPosition().getY();
-        int side = radiusChunks * 2 + 1;
+        int side = MAPDATA_RADIUS_CHUNKS * 2 + 1;
+        int minChunkX = centerChunkX - MAPDATA_RADIUS_CHUNKS;
+        int minChunkZ = centerChunkZ - MAPDATA_RADIUS_CHUNKS;
         long startNanos = System.nanoTime();
-        CoarseMap map = XaeroMapReader.readSurface(
-                centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side, referenceY);
+        CoarseMap map = XaeroMapReader.readSurface(minChunkX, minChunkZ, side, side, referenceY);
         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
 
         int known = map.knownCells();
@@ -419,20 +229,17 @@ public final class XaeroNavCommands {
         out.success(TextCompat.translatable("commands.xaeronav.mapdata_summary",
                 side * 16, known, total, percent, elapsedMillis));
 
-        XaeroMapReader.RegionStats regions = XaeroMapReader.surveyRegions(
-                centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side, referenceY);
+        XaeroMapReader.RegionStats regions = XaeroMapReader.surveyRegions(minChunkX, minChunkZ, side, side, referenceY);
         out.success(TextCompat.translatable("commands.xaeronav.mapdata_regions",
                 regions.loaded(), regions.pendingLoad(), regions.inRange()));
 
         if (regions.pendingLoad() > 0) {
-            int requested = XaeroMapReader.requestLoad(
-                    centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side, side, referenceY);
-            out.success(TextCompat.translatable("commands.xaeronav.mapdata_requested",
-                    requested));
+            int requested = XaeroMapReader.requestLoad(minChunkX, minChunkZ, side, side, referenceY);
+            out.success(TextCompat.translatable("commands.xaeronav.mapdata_requested", requested));
         }
 
-        reportKindHistogram(out, map, centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side);
-        reportMapLayers(out, centerChunkX - radiusChunks, centerChunkZ - radiusChunks, side);
+        reportKindHistogram(out, map, minChunkX, minChunkZ, side);
+        reportMapLayers(out, minChunkX, minChunkZ, side);
 
         // 実際に立っているYに最も近い床を報告する。粗い地図の高さは洞窟レイヤーのcaveStartから
         // 下向きに走査した結果なので、足元と食い違っていないかはこの2つを比べないと分からない。
@@ -443,7 +250,6 @@ public final class XaeroNavCommands {
         int hereHeight = hereFloor < 0 ? 0 : map.heightAtFloor(centerChunkX, centerChunkZ, hereFloor);
         out.success(TextCompat.translatable("commands.xaeronav.mapdata_here",
                 describeKind(hereKind), hereHeight, referenceY, hereFloorCount));
-        return 1;
     }
 
     /**
@@ -529,46 +335,60 @@ public final class XaeroNavCommands {
     }
 
     /**
-     * 徒歩の詳細A*を{@code goto}と同じ設定・範囲で同期実行し、到達可否・展開ノード数・移動種類の
-     * 内訳（斜め昇降が実際に選ばれているか）をその場で確認する診断コマンド。「多分できてる」で
-     * 終わらせず数値で裏取りするためのもの。
-     *
-     * <p>1回目は通常のマージンで探索する。続けて同じ箱のまま掘削だけを切って探索し、展開ノード数を
-     * 並べて報告する（掘削が分岐数に効いている量を測るため）。展開ノード数の上限に達して届かなかった
-     * 場合は、上限を外して時間だけで打ち切る計測も行う（必要な展開ノード数そのものを知るため）。
-     * 範囲内なのに届かなかった場合は、{@link PathfindingState}の「探索範囲を読み込み済みチャンクいっぱい
-     * まで広げる再挑戦」と同じ条件・同じ広さでもう一度探索し、その結果も併せて報告する。
+     * いまの目的地に向けて計測を走らせる。周りの地図データと層1の要約を出したうえで、滑空中なら空中経路を、
+     * そうでなければ徒歩の詳細A*を測る。
      */
-    /**
-     * 空中経路を1回だけ解いて中身を出す。飛んでいる必要は無い——地上から投げて格子の粒度や
-     * 展開数を確かめられる方が、飛びながら画面を読むより遥かに測りやすい。
-     */
-    private static int reportFlight(NavCommandSink out, BlockPos goal) {
+    private static int reportProbe(NavCommandSink out) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
         if (level == null || player == null) {
             return 0;
         }
+        BlockPos goal = PathfindingState.INSTANCE.goal();
+        if (goal == null) {
+            out.failure(TextCompat.translatable("commands.xaeronav.probe_no_goal"));
+            return 0;
+        }
+        long generation = DIAGNOSTIC.begin();
+        if (XaeroPresence.mapPresent()) {
+            reportMapData(out, player);
+            reportCoarseRoute(out, generation, player, goal);
+        } else {
+            out.success(TextCompat.translatable("commands.xaeronav.mapdata_unavailable"));
+        }
+        if (PathfindingState.INSTANCE.flying()) {
+            reportFlight(out, generation, level, player, goal);
+        } else {
+            reportGroundProbe(out, generation, level, player, goal);
+        }
+        return 1;
+    }
 
-        int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
+    /**
+     * 空中経路を1回だけ解いて中身を出す。表示中の空中経路とは別に解き直すので、格子の粒度や展開数を
+     * 本番の状態に左右されずに確かめられる。
+     */
+    private static void reportFlight(NavCommandSink out, long generation, Level level, Player player,
+                                     BlockPos goal) {
+        int renderRadius = ClientCompat.renderDistance(Minecraft.getInstance().options) * 16;
         BlockPos playerPos = player.blockPosition();
         SearchBounds bounds = SearchBounds.around(level, playerPos, goal,
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, MovementOptions.NONE);
-        boolean rockets = ChunkView.hasItem(GameCompat.inventory(player), stack -> stack.getItem() instanceof FireworkRocketItem);
+        boolean rockets = ChunkView.hasItem(GameCompat.inventory(player),
+                stack -> stack.getItem() instanceof FireworkRocketItem);
         Vec3 start = player.position();
         Vec3 target = Vec3.atCenterOf(goal);
 
         out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
-        long generation = DIAGNOSTIC.begin();
         long startedAt = System.nanoTime();
         DIAGNOSTIC.submit(generation,
                 cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning(),
                         FlightNavState.loadedHorizon(start, renderRadius), FlightGuide.NONE, cancelled),
                 (route, error) -> {
                     if (error != null) {
-                        XaeroNav.LOGGER.error("XaeroNav: flight診断の経路計算に失敗しました", error);
+                        XaeroNav.LOGGER.error("XaeroNav: flight probe failed", error);
                         return;
                     }
                     long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
@@ -589,22 +409,23 @@ public final class XaeroNavCommands {
                         out.success(TextCompat.translatable("commands.xaeronav.flight_coarse",
                                 coarse.waypoints().size(), coarse.reachedGoal() ? 1 : 0));
                     }
-                    // これは測るだけのコマンドで、目的地は設定しない。線を出すには goto が要る
-                    out.success(TextCompat.translatable("commands.xaeronav.flight_diagnostic_only"));
                 });
-        return 1;
     }
 
-    private static int reportProbe(NavCommandSink out, BlockPos goal) {
-        Minecraft mc = Minecraft.getInstance();
-        Level level = mc.level;
-        Player player = mc.player;
-        if (level == null || player == null) {
-            return 0;
-        }
-
+    /**
+     * 徒歩の詳細A*を{@code goto}と同じ設定・範囲で実行し、到達可否・展開ノード数・移動種類の内訳を出す。
+     *
+     * <p>1回目は通常のマージンで探索する。続けて同じ箱のまま掘削だけを切って探索し、展開ノード数を
+     * 並べて報告する（掘削が分岐数に効いている量を測るため）。展開ノード数の上限に達して届かなかった
+     * 場合は、上限を外して時間だけで打ち切る計測も行う（必要な展開ノード数そのものを知るため）。
+     * 範囲内なのに届かなかった場合は、{@link PathfindingState}の「探索範囲を読み込み済みチャンクいっぱい
+     * まで広げる再挑戦」と同じ条件・同じ広さでもう一度探索する。
+     */
+    private static void reportGroundProbe(NavCommandSink out, long generation, Level level, Player player,
+                                          BlockPos destination) {
         BlockPos start = player.blockPosition();
-        int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
+        int renderRadius = ClientCompat.renderDistance(Minecraft.getInstance().options) * 16;
+        BlockPos goal = probeTarget(out, start, destination, renderRadius);
         int verticalMargin = PathfindingState.verticalSearchMargin(level, false);
         int normalMargin = XaeroNavConfig.INSTANCE.searchHorizontalMargin();
 
@@ -614,19 +435,34 @@ public final class XaeroNavCommands {
         reportGoalCell(out, level, normal.view(), normal.bounds(), start, goal, renderRadius);
         out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
 
-        long generation = DIAGNOSTIC.begin();
         DIAGNOSTIC.submit(generation,
                 cancelled -> runProbe(normal.view(), normal.bounds(), start, goal, cancelled),
                 (normalRun, error) -> {
                     if (error != null) {
-                        XaeroNav.LOGGER.error("XaeroNav: probe診断の通常予算実行に失敗しました", error);
+                        XaeroNav.LOGGER.error("XaeroNav: probe failed (normal budget)", error);
                         return;
                     }
                     reportProbeRun(out, "commands.xaeronav.probe_normal", normalRun);
                     continueProbeAfterNormal(out, generation, level, player, start, goal, renderRadius,
                             normalMargin, normal, normalRun);
                 });
-        return 1;
+    }
+
+    /**
+     * 目的地が描画距離の外なら、表示中の経路の末端を測る。詳細探索は描画距離の内側しか読めないので、
+     * 遠い目的地をそのまま渡すと必ず「箱の外」で終わり、何も測れない。
+     */
+    private static BlockPos probeTarget(NavCommandSink out, BlockPos start, BlockPos destination,
+                                        int renderRadius) {
+        PathResult shown = PathfindingState.INSTANCE.currentResult();
+        if (BlockDistance.horizontal(start, destination) > renderRadius && shown != null
+                && !shown.steps().isEmpty()) {
+            BlockPos end = shown.steps().get(shown.steps().size() - 1).pos();
+            out.success(TextCompat.translatable("commands.xaeronav.probe_target_path_end", end.toShortString()));
+            return end;
+        }
+        out.success(TextCompat.translatable("commands.xaeronav.probe_target_goal", destination.toShortString()));
+        return destination;
     }
 
     /**
@@ -649,7 +485,7 @@ public final class XaeroNavCommands {
                 cancelled -> runProbe(normal.view().withoutDigging(), normal.bounds(), start, goal, cancelled),
                 (noDiggingRun, error) -> {
                     if (error != null) {
-                        XaeroNav.LOGGER.error("XaeroNav: probe診断の掘削OFF実行に失敗しました", error);
+                        XaeroNav.LOGGER.error("XaeroNav: probe failed (digging off)", error);
                         return;
                     }
                     reportProbeRun(out, "commands.xaeronav.probe_no_digging", noDiggingRun);
@@ -684,7 +520,7 @@ public final class XaeroNavCommands {
                     cancelled -> runProbe(normal.view(), normal.bounds(), start, goal, unboundedLimits, cancelled),
                     (unboundedRun, error) -> {
                         if (error != null) {
-                            XaeroNav.LOGGER.error("XaeroNav: probe診断の上限なし実行に失敗しました", error);
+                            XaeroNav.LOGGER.error("XaeroNav: probe failed (unbounded)", error);
                             return;
                         }
                         reportProbeRun(out, "commands.xaeronav.probe_unbounded", unboundedRun);
@@ -700,7 +536,7 @@ public final class XaeroNavCommands {
                     cancelled -> runProbe(widened.view(), widened.bounds(), start, goal, cancelled),
                     (widenedRun, error) -> {
                         if (error != null) {
-                            XaeroNav.LOGGER.error("XaeroNav: probe診断の拡大再試行に失敗しました", error);
+                            XaeroNav.LOGGER.error("XaeroNav: probe failed (widened)", error);
                             return;
                         }
                         reportProbeRun(out, "commands.xaeronav.probe_widened", widenedRun);
