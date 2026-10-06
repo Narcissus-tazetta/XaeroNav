@@ -29,6 +29,8 @@ enum MoveKind {
     BOAT_ENTER(MovementType.BOAT),
     /** 水面をボートで進む。 */
     BOAT_PADDLE(MovementType.BOAT),
+    /** レールの上でトロッコに乗り、線路に沿って降りる点まで走る。乗る点から降りる点までの1手。 */
+    CART_RIDE(MovementType.CART),
     CLIMB(MovementType.CLIMB),
     CLIMB_UP(MovementType.CLIMB),
     CLIMB_DOWN(MovementType.CLIMB),

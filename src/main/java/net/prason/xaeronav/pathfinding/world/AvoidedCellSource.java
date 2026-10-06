@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.rail.CartRide;
 
 /**
  * 指定したセルだけを「無い」ことにした地形。<b>直前に経路の再確認が不成立と判定したセルを、
@@ -154,6 +155,16 @@ public final class AvoidedCellSource implements CellSource {
     @Override
     public boolean ridingBoat() {
         return source.ridingBoat();
+    }
+
+    @Override
+    public int track(int x, int y, int z) {
+        return avoided.contains(BlockPos.asLong(x, y, z)) ? CartRide.NONE : source.track(x, y, z);
+    }
+
+    @Override
+    public MinecartState minecart() {
+        return source.minecart();
     }
 
     @Override

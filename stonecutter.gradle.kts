@@ -68,6 +68,10 @@ stonecutter.parameters {
         string(eval(current.version, ">=1.21.11")) {
             replace("net.minecraft.world.entity.vehicle.Boat;", "net.minecraft.world.entity.vehicle.boat.Boat;")
         }
+        string(eval(current.version, ">=1.21.11")) {
+            replace("net.minecraft.world.entity.vehicle.AbstractMinecart;",
+                "net.minecraft.world.entity.vehicle.minecart.AbstractMinecart;")
+        }
     }
 }
 

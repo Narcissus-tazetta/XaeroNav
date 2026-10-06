@@ -19,22 +19,13 @@ import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.BaseRailBlock;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.DetectorRailBlock;
-import net.minecraft.world.level.block.PoweredRailBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.Property;
-import net.minecraft.world.level.block.state.properties.RailShape;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.storage.LevelResource;
 import net.prason.xaeronav.XaeroNav;
-import net.prason.xaeronav.rail.RailCell;
-import net.prason.xaeronav.rail.RailKind;
+import net.prason.xaeronav.rail.RailBlocks;
 import net.prason.xaeronav.rail.RailStore;
-import net.prason.xaeronav.rail.TrackShape;
 import net.prason.xaeronav.util.DaemonThreads;
 import net.prason.xaeronav.util.GameCompat;
 
@@ -243,7 +234,7 @@ public final class RailMemory {
         for (int i = 0; i < sections.length; i++) {
             LevelChunkSection section = sections[i];
             // 1.17以前は空のセクションをnullで持つ
-            if (section == null || !section.maybeHas(RailMemory::isRail)) {
+            if (section == null || !section.maybeHas(RailBlocks::isRail)) {
                 continue;
             }
             int baseY = (minSection + i) << 4;
@@ -251,56 +242,17 @@ public final class RailMemory {
                 for (int z = 0; z < 16; z++) {
                     for (int x = 0; x < 16; x++) {
                         BlockState state = section.getBlockState(x, y, z);
-                        if (isRail(state)) {
+                        if (RailBlocks.isRail(state)) {
                             if (rails == null) {
                                 rails = new IntArrayList();
                             }
-                            rails.add(encode(state, x, baseY + y, z));
+                            rails.add(RailBlocks.encode(state, x, baseY + y, z));
                         }
                     }
                 }
             }
         }
         return rails == null ? new int[0] : rails.toIntArray();
-    }
-
-    private static boolean isRail(BlockState state) {
-        return state.getBlock() instanceof BaseRailBlock;
-    }
-
-    private static int encode(BlockState state, int localX, int y, int localZ) {
-        Block block = state.getBlock();
-        TrackShape shape = TrackShape.valueOf(shapeOf(state).name());
-        RailKind kind;
-        boolean powered = false;
-        if (block == Blocks.RAIL) {
-            kind = RailKind.RAIL;
-        } else if (block == Blocks.POWERED_RAIL) {
-            kind = RailKind.POWERED;
-            powered = state.getValue(PoweredRailBlock.POWERED);
-        } else if (block == Blocks.ACTIVATOR_RAIL) {
-            kind = RailKind.ACTIVATOR;
-            powered = state.getValue(PoweredRailBlock.POWERED);
-        } else if (block == Blocks.DETECTOR_RAIL) {
-            kind = RailKind.DETECTOR;
-            powered = state.getValue(DetectorRailBlock.POWERED);
-        } else {
-            kind = RailKind.OTHER;
-        }
-        return RailCell.pack(localX, y, localZ, shape, kind, powered);
-    }
-
-    /**
-     * {@code BaseRailBlock#getShapeProperty}はNeoForgeで非推奨なので、状態の持つ値から向きを探す。
-     * 向きの値はどのレールにも必ずある（{@code getShapeProperty}が抽象メソッド）。
-     */
-    private static RailShape shapeOf(BlockState state) {
-        for (Property<?> property : state.getProperties()) {
-            if (property.getValueClass() == RailShape.class) {
-                return (RailShape) state.getValue(property);
-            }
-        }
-        throw new IllegalStateException("Rail block without a shape property: " + state);
     }
 
     /**

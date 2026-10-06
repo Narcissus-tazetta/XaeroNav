@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
+import net.prason.xaeronav.rail.CartRide;
 
 /**
  * 既に計画済みの区間を歩き終えた時点の地形。経路を継ぎ足す探索は、その末端へ着くまでに
@@ -152,6 +153,17 @@ public final class PlannedCellSource implements CellSource {
     @Override
     public boolean ridingBoat() {
         return source.ridingBoat();
+    }
+
+    @Override
+    public int track(int x, int y, int z) {
+        // 経路の手前で掘る・置くセルにあったレールは、そこへ着く頃には無い
+        return changes.containsKey(BlockPos.asLong(x, y, z)) ? CartRide.NONE : source.track(x, y, z);
+    }
+
+    @Override
+    public MinecartState minecart() {
+        return source.minecart();
     }
 
     @Override

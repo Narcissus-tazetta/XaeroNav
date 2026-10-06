@@ -431,6 +431,24 @@ public final class ActionCosts {
     public static final double BOAT_STOW_TICKS = PLACE_BLOCK_AIM_TICKS + 28.0 + 10.0;
 
     /**
+     * レールにトロッコを置いて乗るまでの手間。乗る点で1度だけ払う。
+     *
+     * <p>内訳: レールを狙って置く（{@link #PLACE_BLOCK_AIM_TICKS}）＋乗る（置いたトロッコは照準の先にあるので
+     * 右クリックの間隔4tick）。乗ってから前進キーで押し出す遅さは{@code CartRide}が走りの中で数える。
+     */
+    public static final double CART_BOARD_TICKS = PLACE_BLOCK_AIM_TICKS + 4.0;
+
+    /**
+     * 降りたトロッコを壊して拾うまでの手間。トロッコもボートと同じ{@code VehicleEntity}なので、素手で叩く回数も
+     * 拾えるまでの遅れも{@link #BOAT_STOW_TICKS}と同じ。
+     *
+     * <p>走っている途中で降りると空のトロッコは先へ走って行く（全速から約26ブロック）。追いかけて拾うか
+     * 置いて行くかは人に任せ、値段は止まってから降りる場合と同じにする——降りる点で値段を変えると、
+     * 止まる手前で飛び降りる案内ばかりになる。
+     */
+    public static final double CART_STOW_TICKS = BOAT_STOW_TICKS;
+
+    /**
      * 溶岩の上に足場を置いて渡る1ブロックあたりの追加ペナルティ。設置を1回でも外せば死ぬので
      * 通常の設置より重くするが、<b>詳細探索が現実的な予算で橋を見つけられる範囲に収める</b>。
      *

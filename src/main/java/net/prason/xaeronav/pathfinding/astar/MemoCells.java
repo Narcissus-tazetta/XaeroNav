@@ -6,6 +6,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.world.CellSource;
+import net.prason.xaeronav.pathfinding.world.MinecartState;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 
 /**
@@ -191,6 +192,16 @@ final class MemoCells implements CellSource {
     @Override
     public boolean ridingBoat() {
         return source.ridingBoat();
+    }
+
+    @Override
+    public int track(int x, int y, int z) {
+        return source.track(x, y, z);
+    }
+
+    @Override
+    public MinecartState minecart() {
+        return source.minecart();
     }
 
     @Override

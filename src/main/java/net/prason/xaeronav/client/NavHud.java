@@ -163,6 +163,9 @@ public final class NavHud {
             if (ahead.usesBoat(from) && !ChunkView.ridingBoat(mc.player)) {
                 add(TextCompat.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
             }
+            if (ahead.usesCart(from) && !ChunkView.ridingMinecart(mc.player)) {
+                add(TextCompat.translatable("hud.xaeronav.cart_ahead"), SECONDARY_COLOR);
+            }
             // 持ち物で足りない経路は、予算を外した緩和の梯子を通って出てくる（他に道が無い場合）。
             // 足りているうちは黙っている——設置を含む経路はエンドではほぼ全てなので、常に出すと
             // 警告として意味を失う。クリエイティブは持ち物が空でも置けるので数えない
@@ -227,7 +230,8 @@ public final class NavHud {
             DIG("hud.xaeronav.action_dig"),
             PLACE("hud.xaeronav.action_place"),
             JUMP("hud.xaeronav.action_jump"),
-            CLIMB("hud.xaeronav.action_climb");
+            CLIMB("hud.xaeronav.action_climb"),
+            ALIGHT("hud.xaeronav.action_alight");
 
             private final String key;
 
@@ -242,6 +246,7 @@ public final class NavHud {
 
         private final int[] riskMasks;
         private final boolean[] boats;
+        private final boolean[] carts;
         private final int[] placements;
         private final int[] nextActionSteps;
         private final Action[] actions;
@@ -251,6 +256,7 @@ public final class NavHud {
             List<PathStep> steps = result.steps();
             riskMasks = new int[steps.size() + 1];
             boats = new boolean[steps.size() + 1];
+            carts = new boolean[steps.size() + 1];
             placements = new int[steps.size() + 1];
             nextActionSteps = new int[steps.size() + 1];
             actions = new Action[steps.size()];
@@ -263,8 +269,13 @@ public final class NavHud {
                 PathStep step = steps.get(i);
                 riskMasks[i] = riskMasks[i + 1] | (1 << step.risk().ordinal());
                 boats[i] = boats[i + 1] || step.boating();
+                boolean riding = step.movement() == MovementType.CART;
+                carts[i] = carts[i + 1] || riding;
+                // 降りるのは乗車の最後のセル。経路の末尾で降りる場合も、着いた所で降りる操作が要る
+                boolean alight = riding && (i + 1 == steps.size() || steps.get(i + 1).movement() != MovementType.CART);
                 placements[i] = placements[i + 1] + (step.bridging() ? 1 : 0);
-                actions[i] = step.digging() ? Action.DIG
+                actions[i] = alight ? Action.ALIGHT
+                        : step.digging() ? Action.DIG
                         : step.bridging() ? Action.PLACE
                         : step.movement() == MovementType.JUMP ? Action.JUMP
                         : step.climbing() ? Action.CLIMB : null;
@@ -278,6 +289,10 @@ public final class NavHud {
 
         boolean usesBoat(int from) {
             return boats[index(from)];
+        }
+
+        boolean usesCart(int from) {
+            return carts[index(from)];
         }
 
         int placements(int from) {

@@ -43,6 +43,8 @@ final class PathColors {
     static final float[] SWIM = {0.1f, 0.4f, 1.0f};
     /** ボートで渡る区間。泳ぎ（{@link #SWIM}）と同じ水面上の移動なので近い色調にしつつ、緑を足して分ける。 */
     static final float[] BOAT = {0.2f, 0.8f, 0.85f};
+    /** トロッコで走る区間。レール（鉄）の色に寄せた灰色で、地形を触る色（掘る・置く）と取り違えないようにする。 */
+    static final float[] CART = {0.78f, 0.78f, 0.85f};
     static final float[] JUMP = {0.95f, 0.6f, 0.9f};
     static final float[] CLIMB = {0.7f, 0.5f, 1.0f};
     static final float[] ASCEND = {1.0f, 0.9f, 0.2f};
@@ -103,6 +105,7 @@ final class PathColors {
         return switch (step.movement()) {
             case SWIM -> SWIM;
             case BOAT -> BOAT;
+            case CART -> CART;
             case JUMP -> JUMP;
             case CLIMB -> CLIMB;
             case ASCEND -> ASCEND;

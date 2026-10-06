@@ -10,9 +10,11 @@ import java.util.function.Predicate;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
+import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.world.CellData;
+import net.prason.xaeronav.rail.RailBlocks;
 import net.prason.xaeronav.util.BlockDistance;
 
 /**
@@ -231,6 +233,12 @@ final class PathValidator {
             // 泳ぐ区間もボートの区間も、足場ではなく水そのものが前提
             if (!CellData.water(CellData.flagsOf(level.getBlockState(pos)))) {
                 return new CellFailure(pos, "step %d (%s): no water for swimming/boating pos=%s"
+                        .formatted(i, step.movement(), pos.toShortString()));
+            }
+        } else if (step.movement() == MovementType.CART) {
+            // 走る区間はレールそのものが前提。レールは何かの上にしか置けないので床は見なくてよい
+            if (!RailBlocks.isRail(level.getBlockState(pos))) {
+                return new CellFailure(pos, "step %d (%s): no rail pos=%s"
                         .formatted(i, step.movement(), pos.toShortString()));
             }
         } else if (step.climbing()) {

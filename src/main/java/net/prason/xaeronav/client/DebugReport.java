@@ -14,6 +14,8 @@ import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
+import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.MinecartState;
 import net.prason.xaeronav.platform.ModPresence;
 import net.prason.xaeronav.util.BlockDistance;
 import net.prason.xaeronav.util.GameCompat;
@@ -99,6 +101,7 @@ final class DebugReport {
                 + ", unstandable target=" + (debug.unstandableTarget() == null ? "none"
                         : debug.unstandableTarget().toShortString()));
         lines.add(RailMemory.INSTANCE.debugLine());
+        lines.add(minecartLine(level, player));
         lines.add(hooksLine());
         lines.add(configLine());
         return lines;
@@ -125,6 +128,19 @@ final class DebugReport {
                 + ", complete=" + result.complete() + ", termination=" + result.termination()
                 + ", expanded=" + result.expandedNodes() + ", placements=" + bridges + ", digs=" + digs
                 + (steps.isEmpty() ? "" : ", end=" + steps.get(steps.size() - 1).pos().toShortString());
+    }
+
+    /** トロッコで走る経路が出るか。出ないときは理由を言う（実験的トロッコでは黙って止めているので）。 */
+    private static String minecartLine(Level level, Player player) {
+        if (ChunkView.experimentalMinecarts(level)) {
+            return "minecart rides: disabled (experimental minecarts are on in this world)";
+        }
+        MinecartState cart = ChunkView.minecart(level, player);
+        if (cart.riding()) {
+            return String.format(Locale.ROOT, "minecart rides: riding on %d, %d, %d at %.3f blocks/tick",
+                    cart.railX(), cart.railY(), cart.railZ(), cart.speed());
+        }
+        return cart.available() ? "minecart rides: on (carrying a minecart)" : "minecart rides: off (no minecart)";
     }
 
     private static String hooksLine() {

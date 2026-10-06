@@ -17,7 +17,11 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.entity.vehicle.Boat;
+//? if >=1.21.2 {
+/*import net.minecraft.world.flag.FeatureFlags;
+*///?}
 import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -31,6 +35,9 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.Vec3;
+import net.prason.xaeronav.rail.CartRide;
+import net.prason.xaeronav.rail.RailBlocks;
 import net.prason.xaeronav.util.GameCompat;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.cost.DigCost;
@@ -114,6 +121,7 @@ public final class ChunkView implements CellSource {
     private final boolean canMlgWaterBucket;
     private final boolean boatAvailable;
     private final boolean ridingBoat;
+    private final MinecartState minecart;
     private final double minDescentTicksPerBlock;
 
     /**
@@ -144,7 +152,7 @@ public final class ChunkView implements CellSource {
                       ItemStack[] hotbar, int[] hotbarEfficiency, MovementOptions options, boolean canPlaceBlocks,
                       int placedBlockBudget, int maxFallDamagePoints, int fatalFallBlocks,
                       boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
-                      boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
+                      MinecartState minecart, boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection, boolean cacheCells) {
         this.deepFallPossible = deepFallPossible;
         this.chunks = chunks;
@@ -160,6 +168,7 @@ public final class ChunkView implements CellSource {
         this.canMlgWaterBucket = canMlgWaterBucket;
         this.boatAvailable = boatAvailable;
         this.ridingBoat = ridingBoat;
+        this.minecart = minecart;
         this.minDescentTicksPerBlock = minDescentTicksPerBlock;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
@@ -186,6 +195,51 @@ public final class ChunkView implements CellSource {
     /** いまボートに乗っているか。 */
     public static boolean ridingBoat(Player player) {
         return player.getVehicle() instanceof Boat;
+    }
+
+    /** いまトロッコに乗っているか。 */
+    public static boolean ridingMinecart(Player player) {
+        return player.getVehicle() instanceof AbstractMinecart;
+    }
+
+    /**
+     * 探索から見たトロッコの状態。メインスレッド専用。
+     *
+     * <p>乗っている間はトロッコがアイテムではなくエンティティになるので、乗っていれば持っている扱いにする
+     * （{@link #boatAvailable}と同じ理由）。
+     */
+    public static MinecartState minecart(Level level, Player player) {
+        if (experimentalMinecarts(level)) {
+            return MinecartState.UNAVAILABLE;
+        }
+        if (ridingMinecart(player)) {
+            AbstractMinecart cart = (AbstractMinecart) player.getVehicle();
+            BlockPos at = cart.blockPosition();
+            // トロッコの高さはレールより僅かに上で、坂の上ではレールのセルの1つ上になる
+            BlockPos rail = RailBlocks.isRail(level.getBlockState(at)) ? at
+                    : RailBlocks.isRail(level.getBlockState(at.below())) ? at.below() : null;
+            if (rail == null) {
+                return MinecartState.carrying();
+            }
+            Vec3 motion = cart.getDeltaMovement();
+            double speed = Math.sqrt(motion.x * motion.x + motion.z * motion.z);
+            return new MinecartState(true, true, rail.getX(), rail.getY(), rail.getZ(), speed,
+                    speed > 0.0 ? motion.x / speed : 0.0, speed > 0.0 ? motion.z / speed : 0.0);
+        }
+        return hasItem(GameCompat.inventory(player), stack -> stack.getItem() == Items.MINECART)
+                ? MinecartState.carrying() : MinecartState.UNAVAILABLE;
+    }
+
+    /**
+     * 実験的トロッコ（1.21.2以降の{@code minecart_improvements}）のワールドか。走り方がまったく違い、
+     * 最高速もゲームルールで変わるので、トロッコの移動は出さない。
+     */
+    public static boolean experimentalMinecarts(Level level) {
+        //? if >=1.21.2 {
+        /*return level.enabledFeatures().contains(FeatureFlags.MINECART_IMPROVEMENTS);
+        *///?} else {
+        return false;
+        //?}
     }
 
     /**
@@ -313,7 +367,7 @@ public final class ChunkView implements CellSource {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
                 canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
-                deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
+                minecart(level, player), deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
                 GameCompat.maxBuildHeight(level), GameCompat.minSection(level), true);
     }
 
@@ -370,7 +424,7 @@ public final class ChunkView implements CellSource {
         }
         return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
                 options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock,
+                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, deepFallPossible, minDescentTicksPerBlock,
                 minBuildHeight, maxBuildHeight, minSection, true);
     }
 
@@ -385,10 +439,11 @@ public final class ChunkView implements CellSource {
         for (int slot = 0; slot < hotbar.length; slot++) {
             copiedHotbar[slot] = hotbar[slot].copy();
         }
+        // 航法グラフは乗車を持たない（1手が{@code MoveTable}の相対座標の幅を超えるうえ、乗る点ごとの模擬が窓全体に掛かる）
         return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
                 options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock,
-                minBuildHeight, maxBuildHeight, minSection, false);
+                canMlgWaterBucket, boatAvailable, ridingBoat, MinecartState.UNAVAILABLE, deepFallPossible,
+                minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection, false);
     }
 
     /**
@@ -401,7 +456,7 @@ public final class ChunkView implements CellSource {
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency,
                 options.withoutDigging(), canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, deepFallPossible, minDescentTicksPerBlock,
+                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, deepFallPossible, minDescentTicksPerBlock,
                 minBuildHeight, maxBuildHeight, minSection, true);
     }
 
@@ -514,6 +569,17 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean ridingBoat() {
         return ridingBoat;
+    }
+
+    @Override
+    public MinecartState minecart() {
+        return minecart;
+    }
+
+    @Override
+    public int track(int x, int y, int z) {
+        BlockState state = bounds.contains(x, y, z) ? blockStateAt(x, y, z) : null;
+        return state != null && RailBlocks.isRail(state) ? RailBlocks.encode(state, x & 15, y, z & 15) : CartRide.NONE;
     }
 
     /** 初回アクセス時に計算してキャッシュする。 */
