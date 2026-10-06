@@ -7,6 +7,7 @@ import java.util.Locale;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.XaeroNav;
@@ -61,7 +62,7 @@ final class DebugReport {
         }
         IntegratedServer server = mc.getSingleplayerServer();
         lines.add("world: " + (server == null ? "multiplayer" : "singleplayer") + ", dimension "
-                + level.dimension() + ", seed "
+                + dimensionId(level.dimension()) + ", seed "
                 + (server == null ? "unknown (multiplayer)" : String.valueOf(server.overworld().getSeed()))
                 + ", render distance " + ClientCompat.renderDistance(mc.options) + " chunks");
         BlockPos at = player.blockPosition();
@@ -73,14 +74,14 @@ final class DebugReport {
         if (goal == null) {
             lines.add("goal: none");
         } else {
-            lines.add("goal: " + goal.toShortString() + " in " + debug.goalDimension()
+            lines.add("goal: " + goal.toShortString() + " in " + dimensionId(debug.goalDimension())
                     + (debug.unresolvedGoal() == null ? "" : " (requested " + debug.unresolvedGoal().toShortString()
                             + ", column not loaded yet)")
                     + ", horizontal " + Math.round(BlockDistance.horizontal(at, goal))
                     + " blocks, dy " + (goal.getY() - at.getY()));
         }
         lines.add("state: computing=" + state.computing() + ", arrived=" + state.arrived()
-                + ", flying=" + state.flying() + ", stuck=" + state.stuckReason()
+                + ", flying=" + state.flying() + ", stuck=" + (state.stuckReason() == null ? "none" : state.stuckReason())
                 + ", awaiting nav graph=" + debug.awaitingNavGraph());
         lines.add(pathLine(state.currentResult(), debug));
         if (state.flying()) {
@@ -144,6 +145,20 @@ final class DebugReport {
                 + ", lavaBridging=" + config.movementOptions().lavaBridgingEnabled()
                 + ", strictLimits=" + config.strictLimits() + ", maxExpandedNodes=" + config.maxExpandedNodes()
                 + ", searchMargin=" + config.searchHorizontalMargin() + ", flightRouting=" + config.flightRoutingEnabled();
+    }
+
+    /**
+     * {@code ResourceKey[minecraft:dimension / minecraft:overworld]}から{@code minecraft:overworld}だけを取り出す。
+     * 識別子を返すメソッドは版によって名前と型が違う（1.21.11で{@code ResourceLocation}が{@code Identifier}に
+     * なった）ので、どの版にもある{@code toString}から切り出す。
+     */
+    private static String dimensionId(@Nullable ResourceKey<Level> dimension) {
+        if (dimension == null) {
+            return "none";
+        }
+        String text = dimension.toString();
+        int slash = text.lastIndexOf(" / ");
+        return slash < 0 || !text.endsWith("]") ? text : text.substring(slash + 3, text.length() - 1);
     }
 
     private static String loader() {
