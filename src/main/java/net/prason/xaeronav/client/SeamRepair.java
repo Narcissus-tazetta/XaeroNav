@@ -211,12 +211,7 @@ final class SeamRepair {
      * @return 解き直しを投げたか（投げたなら、結果は非同期で反映される）
      */
     boolean tryRepair(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius) {
-        long lap = TickLaps.start();
-        try {
-            return tryRepairNow(level, player, shown, renderRadius);
-        } finally {
-            TickLaps.add("繋ぎ目の解き直し", lap);
-        }
+        return TickLaps.measure("繋ぎ目の解き直し", () -> tryRepairNow(level, player, shown, renderRadius));
     }
 
     private boolean tryRepairNow(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius) {
@@ -305,9 +300,8 @@ final class SeamRepair {
         SearchBounds bounds = SearchBounds.around(level, fromPos, toPos,
                 tuning.searchHorizontalMargin(), PathfindingState.verticalSearchMargin(level, false),
                 renderRadius);
-        long captureLap = TickLaps.start();
-        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
-        TickLaps.add("チャンク集め", captureLap);
+        ChunkView view = TickLaps.measure("チャンク集め",
+                () -> ChunkView.capture(level, player, bounds, tuning.movementOptions()));
         SearchLimits full = tuning.searchLimits();
         // 予算は1区間と同じ。<b>頭打ちにしてはいけない</b>——6万で切ったところ、実機ログに
         // 「解き直しが繋ぎ目の先へ届かなかった (NODE_BUDGET)」が出て、ネザーの橋だらけの繋ぎ目が
@@ -356,9 +350,8 @@ final class SeamRepair {
                     return;
                 }
                 refusalGate.reset();
-                long replaceLap = TickLaps.start();
-                host.setDisplayed(withSection(shown, repaired.steps(), sectionFrom, sectionTo));
-                TickLaps.add("解き直しの差し替え", replaceLap);
+                TickLaps.measure("解き直しの差し替え",
+                        () -> host.setDisplayed(withSection(shown, repaired.steps(), sectionFrom, sectionTo)));
                 LOGGER.debug("XaeroNav: 繋ぎ目を解き直しました ({}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
                         label, Math.round(current), Math.round(replacement),
                         sectionTo - sectionFrom + 1, repaired.steps().size(), repaired.expandedNodes());

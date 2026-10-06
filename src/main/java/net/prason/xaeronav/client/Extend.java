@@ -13,7 +13,6 @@ import org.apache.logging.log4j.LogManager;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.config.XaeroNavConfig;
@@ -31,6 +30,7 @@ import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * いま表示している経路を、その<b>末端から</b>次の区間ぶん伸ばす（プレイヤーからではない）継ぎ足し。
@@ -184,7 +184,7 @@ final class Extend {
             LOGGER.debug("XaeroNav: 地図が揃ったので通常の継ぎ足しに戻します");
         }
         if (streaming
-                && PathfindingState.horizontalDistance(player.blockPosition(), end)
+                && BlockDistance.horizontal(player.blockPosition(), end)
                         > PathfindingState.detailHorizon(renderRadius)) {
             // goto直後、地図がまだストリーミングで届いている間は末端を1レグ先までに留める。
             // extendLeadは読み込み済みの余地しか見ないので、放っておくとチャンクが届くたびに継ぎ足しが
@@ -196,7 +196,7 @@ final class Extend {
                 LOGGER.debug("XaeroNav: 地図の読み込み中は継ぎ足しの先を{}ブロックに留めます"
                                 + " (未読み込みリージョン={}, 末端まで{}ブロック, {}ステップ)",
                         PathfindingState.detailHorizon(renderRadius), pendingRegions,
-                        Math.round(PathfindingState.horizontalDistance(player.blockPosition(), end)), steps.size());
+                        Math.round(BlockDistance.horizontal(player.blockPosition(), end)), steps.size());
             }
             return false;
         }
@@ -229,7 +229,7 @@ final class Extend {
         }
         int pendingRegions = host.coarseRoutePendingRegions(currentGoal);
         if (pendingRegions > 0
-                && PathfindingState.horizontalDistance(player.blockPosition(), end)
+                && BlockDistance.horizontal(player.blockPosition(), end)
                         > PathfindingState.detailHorizon(renderRadius)) {
             return "地図の読み込み待ち (未読み込みリージョン" + pendingRegions + ")";
         }
@@ -271,7 +271,7 @@ final class Extend {
      * {@code EXHAUSTED}で終わり、{@code complete()}は決して真にならない。
      */
     private static int extendLead(Player player, BlockPos end, int renderRadius) {
-        return renderRadius - (int) Math.round(PathfindingState.horizontalDistance(player.blockPosition(), end));
+        return renderRadius - (int) Math.round(BlockDistance.horizontal(player.blockPosition(), end));
     }
 
     /**
@@ -313,12 +313,7 @@ final class Extend {
      * 同じ扱いで、合成後の{@code complete}がfalseになることで次からは自然に上のトリガーへ引き継がれる。
      */
     void extendPath(PathfindingState.DisplayedPath shown) {
-        long lap = TickLaps.start();
-        try {
-            extendPathNow(shown);
-        } finally {
-            TickLaps.add("継ぎ足し", lap);
-        }
+        TickLaps.measure("継ぎ足し", () -> extendPathNow(shown));
     }
 
     private void extendPathNow(PathfindingState.DisplayedPath shown) {
@@ -333,9 +328,8 @@ final class Extend {
         BlockPos from = steps.get(steps.size() - 1).pos();
         boolean boatAvailable = ChunkView.boatAvailable(player);
         int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
-        // 継続はワーカースレッドで走るので、プレイヤー・次元はここで写し取ってから渡す
+        // 継続はワーカースレッドで走るので、プレイヤーの位置はここで写し取ってから渡す
         BlockPos playerAt = player.blockPosition();
-        ResourceKey<Level> searchDimension = level.dimension();
         boolean ceilingDimension = level.dimensionType().hasCeiling();
 
         // 末端基準の上限は、プレイヤー中心の読み込み済み正方形の「残り」で切る（extendLead参照）
@@ -363,7 +357,7 @@ final class Extend {
         boolean landing = goalGuide != null && goalGuide.landing() != null
                 && target.equals(goalGuide.landing().target());
         if (target.equals(from)
-                || (!aimingAtGoal && !landing && PathfindingState.horizontalDistance(from, target) > lead)) {
+                || (!aimingAtGoal && !landing && BlockDistance.horizontal(from, target) > lead)) {
             // これ以上伸ばす先が無いか、伸ばす先が読み込み済みチャンクの外（中間目標が1つも
             // 残りの中に無いとselectDetailTargetは本来の目的地へフォールバックする）。
             // 歯止めを立てないと、shouldExtendが毎tick真を返し続け、そのたびに
@@ -378,9 +372,8 @@ final class Extend {
                         tuning.searchHorizontalMargin(), landing, goalGuide.costToGo())
                 : SearchBounds.around(level, from, target, tuning.searchHorizontalMargin(),
                         PathfindingState.verticalSearchMargin(level, false), renderRadius);
-        long captureLap = TickLaps.start();
-        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
-        TickLaps.add("チャンク集め", captureLap);
+        ChunkView view = TickLaps.measure("チャンク集め",
+                () -> ChunkView.capture(level, player, bounds, tuning.movementOptions()));
         SearchLimits limits = navGraphGuided ? PathfindingState.navGraphLimits(tuning.searchLimits())
                 : tuning.searchLimits();
 
@@ -429,7 +422,7 @@ final class Extend {
                     return;
                 }
                 if (!result.complete()
-                        && PathfindingState.horizontalDistance(from, tail.get(tail.size() - 1).pos())
+                        && BlockDistance.horizontal(from, tail.get(tail.size() - 1).pos())
                                 < PathfindingState.MIN_EXTEND_PROGRESS_BLOCKS) {
                     // 予算切れの末端からは伸ばしてよいが、ほとんど前へ出ていないならそれ以上は無駄。
                     // selectFallbackは「始点から5ブロック以上離れた最良点」を返すので、行き止まりの
@@ -444,13 +437,11 @@ final class Extend {
                 // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
                 // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
                 // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
-                long loopLap = TickLaps.start();
-                SeamRepair.Loop loop = noteLoop(steps, tail, PathProgress.INSTANCE.indexFor(current.result()) + 1,
-                        target, result, navGraphGuided);
-                TickLaps.add("輪の検出", loopLap);
-                long retreatLap = TickLaps.start();
-                noteRetreatingTail(from, tail.get(tail.size() - 1).pos(), currentGoal, target, result, goalGuide);
-                TickLaps.add("遠ざかりの点検", retreatLap);
+                SeamRepair.Loop loop = TickLaps.measure("輪の検出",
+                        () -> noteLoop(steps, tail, PathProgress.INSTANCE.indexFor(current.result()) + 1,
+                                target, result, navGraphGuided));
+                TickLaps.measure("遠ざかりの点検", () -> noteRetreatingTail(from, tail.get(tail.size() - 1).pos(),
+                        currentGoal, target, result, goalGuide));
                 seamRepair.queue(from);
                 if (loop != null) {
                     seamRepair.queueLoop(loop);
@@ -458,9 +449,8 @@ final class Extend {
                 RouteExplain.log("継ぎ足し", level, from, target, currentGoal, result, prepared,
                         goalGuide == null ? null : goalGuide.costToGo(), view,
                         tuning.movementOptions(), renderRadius);
-                long appendLap = TickLaps.start();
-                host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal));
-                TickLaps.add("継ぎ足しの連結", appendLap);
+                TickLaps.measure("継ぎ足しの連結",
+                        () -> host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal)));
                 blockedAt = null;
                 blockedFrom = null;
             } finally {
@@ -481,8 +471,8 @@ final class Extend {
         if (!LOGGER.isDebugEnabled()) {
             return;
         }
-        double fromLeft = PathfindingState.horizontalDistance(from, currentGoal);
-        double endLeft = PathfindingState.horizontalDistance(end, currentGoal);
+        double fromLeft = BlockDistance.horizontal(from, currentGoal);
+        double endLeft = BlockDistance.horizontal(end, currentGoal);
         if (endLeft <= fromLeft + RETREATING_TAIL_LOG_BLOCKS) {
             return;
         }

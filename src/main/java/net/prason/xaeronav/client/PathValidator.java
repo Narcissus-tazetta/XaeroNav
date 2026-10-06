@@ -13,6 +13,7 @@ import net.minecraft.world.level.Level;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.world.CellData;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * 提示中の経路が今のワールドでもまだ成立するかを確認する。
@@ -99,7 +100,7 @@ final class PathValidator {
                 }
                 continue;
             }
-            if (near != null && horizonSq > 0 && horizontalDistSq(near, step.pos()) > horizonSq) {
+            if (near != null && horizonSq > 0 && BlockDistance.horizontalSq(near, step.pos()) > horizonSq) {
                 // 経路は手前から順に遠ざかるとは限らない（岬を回り込む・戻る）ので、ここで打ち切らず
                 // 先のステップも見る。近傍へ戻ってくる経路ならそこは検証される
                 if (step.placedBlockPos() != null) {
@@ -200,11 +201,6 @@ final class PathValidator {
         return level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4) != null;
     }
 
-    private static double horizontalDistSq(BlockPos a, BlockPos b) {
-        double dx = a.getX() - b.getX();
-        double dz = a.getZ() - b.getZ();
-        return dx * dx + dz * dz;
-    }
 
     /**
      * 身体が通るセルが今は通れないか。

@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.util.ChangeGate;
@@ -48,6 +49,24 @@ final class TickLaps {
 
     static long start() {
         return System.nanoTime();
+    }
+
+    static void measure(String name, Runnable work) {
+        long lap = start();
+        try {
+            work.run();
+        } finally {
+            add(name, lap);
+        }
+    }
+
+    static <T> T measure(String name, Supplier<T> work) {
+        long lap = start();
+        try {
+            return work.get();
+        } finally {
+            add(name, lap);
+        }
     }
 
     static void add(String name, long startNanos) {

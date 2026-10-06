@@ -5,10 +5,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -37,6 +34,7 @@ import net.prason.xaeronav.pathfinding.world.CellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.util.MonotonicTime;
+import net.prason.xaeronav.util.DaemonThreads;
 
 /**
  * ワーカースレッドでA*を実行する。新しいリクエストが来たら
@@ -50,12 +48,7 @@ public final class PathfindingExecutor {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
-    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
-            new LinkedBlockingQueue<>(), runnable -> {
-                Thread thread = new Thread(runnable, "xaeronav-pathfinding");
-                thread.setDaemon(true);
-                return thread;
-            });
+    private final ThreadPoolExecutor executor = DaemonThreads.singleThread("xaeronav-pathfinding");
 
     /**
      * {@link #submitWithDeepFallback}が深い予算の探索だけに使う2本目のワーカー。
@@ -64,11 +57,7 @@ public final class PathfindingExecutor {
      * 同時に進める。通常予算が届けば{@link AtomicBoolean}で打ち切るので、実際にCPUを
      * 2コア分使い続けるのは「通常予算が結局失敗するとき」だけに限られる。
      */
-    private final ExecutorService deepExecutor = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "xaeronav-pathfinding-deep");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService deepExecutor = DaemonThreads.singleThread("xaeronav-pathfinding-deep");
 
     /**
      * 直前に組んだ層1ガイドと、それを組んだ条件。
@@ -232,14 +221,9 @@ public final class PathfindingExecutor {
 
     private final AtomicReference<PathfindingJob> currentJob = new AtomicReference<>();
 
-    public CompletableFuture<PathResult> submit(CellSource view, BlockPos start, BlockPos goal, SearchLimits limits) {
-        return submit(view, start, goal, limits, true);
-    }
-
     /**
-     * {@code costToGoGuideEnabled}を明示的に指定する版。既定（引数無しの{@link #submit}）はtrue——
-     * 層1のcost-to-go（{@link #buildCostToGoGuide}）を幾何学的なHeuristicと併用する。設定で
-     * 切れるようにする理由は{@code XaeroNavConfig#costToGoGuideEnabled}を参照。
+     * {@code costToGoGuideEnabled}を有効にすると、層1のcost-to-go（{@link #buildCostToGoGuide}）を
+     * 幾何学的なHeuristicと併用する。設定で切れるようにする理由は{@code XaeroNavConfig#costToGoGuideEnabled}を参照。
      *
      * <p>この設定値をここで{@code XaeroNavConfig}から直接読まないのは、{@link PathfindingExecutor}が
      * 単体テスト対象（{@code PathfindingExecutorCoarseGuidedTest}）で、NeoForgeの設定システムが

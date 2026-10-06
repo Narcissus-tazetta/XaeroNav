@@ -2,10 +2,7 @@ package net.prason.xaeronav.client;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -29,6 +26,7 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.util.ChangeGate;
 import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.util.GameCompat;
+import net.prason.xaeronav.util.DaemonThreads;
 
 /**
  * 航法グラフのガイドの作りかけ・出来上がりを持つ。
@@ -50,11 +48,7 @@ final class NavGraphGuide {
      * メインスレッドで組むと継ぎ足しの受け取りが数十ms止まる。ガイドは組み上がった後は変わらず、探索スレッドからも
      * 読まれているので、別スレッドから読んでよい。
      */
-    private static final ExecutorService DIAGNOSTIC_LOG = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "xaeronav-diagnostic-log");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static final ExecutorService DIAGNOSTIC_LOG = DaemonThreads.singleThread("xaeronav-diagnostic-log");
 
     /** {@link #origin}を使うログを{@link #DIAGNOSTIC_LOG}で出す。 */
     static void logOffThread(Runnable log) {
@@ -154,26 +148,14 @@ final class NavGraphGuide {
     private static final long LOAD_LOG_INTERVAL_MILLIS = 300_000L;
 
     /** 組み立ての段取りを回す1本。探索用のワーカーを塞がないよう分ける。 */
-    private final ExecutorService coordinator = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "XaeroNav 航法グラフ");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService coordinator = DaemonThreads.singleThread("xaeronav-navgraph");
 
-    /** セクションを並べて組む手。段取りの1本も手を動かすので、これは1本少ない。 */
+    /**
+     * セクションを並べて組む手。段取りの1本も手を動かすので、これは1本少ない。優先度は描画より後に回す——
+     * 組み上がりが遅れても探索は従来どおり進むが、フレームが落ちると遊べない。
+     */
     private final @Nullable ExecutorService pool = WORKERS <= 1 ? null
-            : Executors.newFixedThreadPool(WORKERS - 1, new ThreadFactory() {
-                private final AtomicInteger count = new AtomicInteger();
-
-                @Override
-                public Thread newThread(Runnable runnable) {
-                    Thread thread = new Thread(runnable, "XaeroNav 航法グラフ-" + count.incrementAndGet());
-                    thread.setDaemon(true);
-                    // 描画より後に回す。組み上がりが遅れても探索は従来どおり進むが、フレームが落ちると遊べない
-                    thread.setPriority(Thread.MIN_PRIORITY);
-                    return thread;
-                }
-            });
+            : DaemonThreads.fixedPool("xaeronav-navgraph", WORKERS - 1);
 
     private final AtomicLong generation = new AtomicLong();
     private final ChangeGate<Boolean> logGate = new ChangeGate<>();

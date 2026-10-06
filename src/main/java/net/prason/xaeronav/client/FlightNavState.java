@@ -2,9 +2,7 @@ package net.prason.xaeronav.client;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.Nullable;
@@ -40,6 +38,7 @@ import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.util.GameCompat;
+import net.prason.xaeronav.util.DaemonThreads;
 
 /**
  * エリトラで滑空している間の案内。3D空中経路（太線）と、その先を繋ぐ中間目標の点線を持つ。
@@ -194,12 +193,7 @@ final class FlightNavState {
      * 滑空中の点線を曲げる計算専用。A*とはライフサイクルも打ち切り方も関係が無いので、
      * {@code PathfindingExecutor}（呼ぶたび前のジョブを打ち切る）ではなく素のスレッドを1本持つ。
      */
-    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
-            new LinkedBlockingQueue<>(), runnable -> {
-                Thread thread = new Thread(runnable, "xaeronav-flight-line");
-                thread.setDaemon(true);
-                return thread;
-            });
+    private final ThreadPoolExecutor executor = DaemonThreads.singleThread("xaeronav-flight-line");
 
     /** 空中経路（太線で描く本体）。引けなければ空。 */
     private volatile FlightRoute route = FlightRoute.NONE;

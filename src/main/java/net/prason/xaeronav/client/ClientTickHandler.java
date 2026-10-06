@@ -32,18 +32,10 @@ public final class ClientTickHandler {
     public void onClientTick() {
         long startMillis = MonotonicTime.millis();
         TickLaps.begin();
-        long lap = TickLaps.start();
-        XaeroNavKeys.handleInput();
-        TickLaps.add("キー入力", lap);
-        lap = TickLaps.start();
-        PathfindingState.INSTANCE.onClientTick();
-        TickLaps.add("経路の状態", lap);
-        lap = TickLaps.start();
-        NavPace.INSTANCE.onClientTick();
-        TickLaps.add("速度の実測", lap);
-        lap = TickLaps.start();
-        XaeroHookHealth.onClientTick();
-        TickLaps.add("Xaero連携の点検", lap);
+        TickLaps.measure("キー入力", () -> XaeroNavKeys.handleInput());
+        TickLaps.measure("経路の状態", () -> PathfindingState.INSTANCE.onClientTick());
+        TickLaps.measure("速度の実測", () -> NavPace.INSTANCE.onClientTick());
+        TickLaps.measure("Xaero連携の点検", () -> XaeroHookHealth.onClientTick());
         // XaeroHookRuntimeProbeはXaero型を直接参照するため、通常起動ではクラス自体をloadしない。
         if (RUNTIME_HOOK_PROBE) {
             XaeroHookRuntimeProbe.onClientTick();

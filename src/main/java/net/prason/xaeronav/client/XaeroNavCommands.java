@@ -50,6 +50,7 @@ import net.prason.xaeronav.xaero.XaeroHooks;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 import net.prason.xaeronav.util.GameCompat;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * {@code /xaeronav} のクライアントコマンド。
@@ -670,7 +671,7 @@ public final class XaeroNavCommands {
         int maxExpandedNodes = XaeroNavConfig.INSTANCE.maxExpandedNodes();
         boolean budgetExhausted = normalRun.result().budgetExhausted();
         boolean widenTriggered = !normalRun.result().complete() && !budgetExhausted
-                && horizontalDistance(start, goal) <= renderRadius && normalMargin < renderRadius;
+                && BlockDistance.horizontal(start, goal) <= renderRadius && normalMargin < renderRadius;
         if (!normalRun.result().complete() && budgetExhausted) {
             out.success(TextCompat.translatable(
                     "commands.xaeronav.probe_widen_skipped_budget", maxExpandedNodes));
@@ -725,7 +726,7 @@ public final class XaeroNavCommands {
             // 箱はゴール方向へrenderRadiusで切られる。長距離ナビの目的地をそのまま渡すと必ずここへ
             // 落ちるので、どこまでなら測れるのかを併せて出さないと同じ指定を繰り返すことになる
             out.success(TextCompat.translatable("commands.xaeronav.probe_goal_outside_bounds",
-                    Math.round(horizontalDistance(start, goal)), renderRadius));
+                    Math.round(BlockDistance.horizontal(start, goal)), renderRadius));
             return;
         }
         BlockPos feetPos = new BlockPos(x, y, z);
@@ -944,13 +945,4 @@ public final class XaeroNavCommands {
                              boolean bridgeRunCapBlocked) {
     }
 
-    /**
-     * {@link PathfindingState}が範囲を広げた再挑戦を発動する条件と同じ水平距離の測り方（{@code y}は見ない）。
-     * ここでも同じ判定を再現する必要があるため、同じ式を独立に持つ。
-     */
-    private static double horizontalDistance(BlockPos a, BlockPos b) {
-        double dx = a.getX() - b.getX();
-        double dz = a.getZ() - b.getZ();
-        return Math.sqrt(dx * dx + dz * dz);
-    }
 }

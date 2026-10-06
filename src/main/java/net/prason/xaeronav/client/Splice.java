@@ -176,12 +176,7 @@ final class Splice {
      *                     先へ合流しないと同じ場所へ戻ってしまうので、その次を渡す
      */
     boolean trySplice(Level level, Player player, PathfindingState.DisplayedPath shown, int minJoinIndex) {
-        long lap = TickLaps.start();
-        try {
-            return trySpliceNow(level, player, shown, minJoinIndex);
-        } finally {
-            TickLaps.add("合流", lap);
-        }
+        return TickLaps.measure("合流", () -> trySpliceNow(level, player, shown, minJoinIndex));
     }
 
     private boolean trySpliceNow(Level level, Player player, PathfindingState.DisplayedPath shown, int minJoinIndex) {
@@ -230,9 +225,8 @@ final class Splice {
         SearchBounds bounds = SearchBounds.around(level, playerAt, joinPos,
                 tuning.searchHorizontalMargin(), PathfindingState.verticalSearchMargin(level, false),
                 renderRadius);
-        long captureLap = TickLaps.start();
-        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
-        TickLaps.add("チャンク集め", captureLap);
+        ChunkView view = TickLaps.measure("チャンク集め",
+                () -> ChunkView.capture(level, player, bounds, tuning.movementOptions()));
         SearchLimits full = tuning.searchLimits();
         SearchLimits limits = new SearchLimits(Math.min(full.maxExpandedNodes(), SPLICE_MAX_EXPANDED_NODES),
                 full.timeLimitMillis(), full.heuristicWeight());
@@ -290,9 +284,7 @@ final class Splice {
                 blockedFrom = null;
                 refusalGate.reset();
                 seamRepair.queue(joinPos);
-                long spliceLap = TickLaps.start();
-                host.setDisplayed(spliced(shown, splice, joinIndex));
-                TickLaps.add("合流の差し替え", spliceLap);
+                TickLaps.measure("合流の差し替え", () -> host.setDisplayed(spliced(shown, splice, joinIndex)));
                 LOGGER.debug("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
                         splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
             } finally {

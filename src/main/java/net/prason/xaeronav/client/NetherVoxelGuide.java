@@ -2,7 +2,6 @@ package net.prason.xaeronav.client;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.logging.log4j.LogManager;
@@ -24,6 +23,7 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
+import net.prason.xaeronav.util.DaemonThreads;
 
 /**
  * 天井のある次元で使う3D粗層の作りかけ・出来上がりを持つ。
@@ -67,11 +67,7 @@ final class NetherVoxelGuide {
     private static final long MIN_REBUILD_INTERVAL_MILLIS = 15_000L;
 
     /** Dijkstra専用の1本。探索用のワーカーを塞がないよう分ける。 */
-    private final ExecutorService worker = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "XaeroNav 3D粗層");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService worker = DaemonThreads.singleThread("xaeronav-nether-voxel");
 
     /** 世代。組み上がった結果が今も求められているものかを見る。 */
     private final AtomicLong generation = new AtomicLong();
