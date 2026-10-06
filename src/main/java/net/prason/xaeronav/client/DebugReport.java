@@ -7,7 +7,6 @@ import java.util.Locale;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.XaeroNav;
@@ -17,6 +16,7 @@ import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.platform.ModPresence;
 import net.prason.xaeronav.util.BlockDistance;
+import net.prason.xaeronav.util.GameCompat;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
 import net.prason.xaeronav.xaero.XaeroHooks;
 import org.jspecify.annotations.Nullable;
@@ -62,7 +62,7 @@ final class DebugReport {
         }
         IntegratedServer server = mc.getSingleplayerServer();
         lines.add("world: " + (server == null ? "multiplayer" : "singleplayer") + ", dimension "
-                + dimensionId(level.dimension()) + ", seed "
+                + GameCompat.dimensionId(level.dimension()) + ", seed "
                 + (server == null ? "unknown (multiplayer)" : String.valueOf(server.overworld().getSeed()))
                 + ", render distance " + ClientCompat.renderDistance(mc.options) + " chunks");
         BlockPos at = player.blockPosition();
@@ -74,7 +74,7 @@ final class DebugReport {
         if (goal == null) {
             lines.add("goal: none");
         } else {
-            lines.add("goal: " + goal.toShortString() + " in " + dimensionId(debug.goalDimension())
+            lines.add("goal: " + goal.toShortString() + " in " + GameCompat.dimensionId(debug.goalDimension())
                     + (debug.unresolvedGoal() == null ? "" : " (requested " + debug.unresolvedGoal().toShortString()
                             + ", column not loaded yet)")
                     + ", horizontal " + Math.round(BlockDistance.horizontal(at, goal))
@@ -98,6 +98,7 @@ final class DebugReport {
                 + ", seam repair=" + orNone(debug.seamRepairRefusal())
                 + ", unstandable target=" + (debug.unstandableTarget() == null ? "none"
                         : debug.unstandableTarget().toShortString()));
+        lines.add(RailMemory.INSTANCE.debugLine());
         lines.add(hooksLine());
         lines.add(configLine());
         return lines;
@@ -145,20 +146,6 @@ final class DebugReport {
                 + ", lavaBridging=" + config.movementOptions().lavaBridgingEnabled()
                 + ", strictLimits=" + config.strictLimits() + ", maxExpandedNodes=" + config.maxExpandedNodes()
                 + ", searchMargin=" + config.searchHorizontalMargin() + ", flightRouting=" + config.flightRoutingEnabled();
-    }
-
-    /**
-     * {@code ResourceKey[minecraft:dimension / minecraft:overworld]}から{@code minecraft:overworld}だけを取り出す。
-     * 識別子の型は1.21.11で改名された（stonecutter.gradle.ktsの置換）ので、どの版にもある{@code toString}から
-     * 切り出す。
-     */
-    private static String dimensionId(@Nullable ResourceKey<Level> dimension) {
-        if (dimension == null) {
-            return "none";
-        }
-        String text = dimension.toString();
-        int slash = text.lastIndexOf(" / ");
-        return slash < 0 || !text.endsWith("]") ? text : text.substring(slash + 3, text.length() - 1);
     }
 
     private static String loader() {

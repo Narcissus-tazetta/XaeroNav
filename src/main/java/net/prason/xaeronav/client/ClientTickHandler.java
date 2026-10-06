@@ -36,6 +36,7 @@ public final class ClientTickHandler {
         TickLaps.measure("route state", () -> PathfindingState.INSTANCE.onClientTick());
         TickLaps.measure("pace sampling", () -> NavPace.INSTANCE.onClientTick());
         TickLaps.measure("Xaero hook check", () -> XaeroHookHealth.onClientTick());
+        TickLaps.measure("rail memory", () -> RailMemory.INSTANCE.onClientTick());
         // XaeroHookRuntimeProbeはXaero型を直接参照するため、通常起動ではクラス自体をloadしない。
         if (RUNTIME_HOOK_PROBE) {
             XaeroHookRuntimeProbe.onClientTick();
@@ -62,6 +63,7 @@ public final class ClientTickHandler {
      */
     public void onLoggingOut() {
         PathfindingState.INSTANCE.clear();
+        RailMemory.INSTANCE.onLoggingOut();
     }
 
     public void onLoggingIn(LocalPlayer player) {

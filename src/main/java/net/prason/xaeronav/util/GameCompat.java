@@ -2,6 +2,7 @@ package net.prason.xaeronav.util;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -14,6 +15,7 @@ import net.minecraft.world.level.LevelHeightAccessor;
 /*import net.minecraft.world.attribute.EnvironmentAttributes;
 *///?}
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 /** Minecraft 1.16と新しい版とで呼び方だけが違うvanilla API。クライアント専用のものは{@code client.ClientCompat}にある。 */
 public final class GameCompat {
@@ -121,5 +123,19 @@ public final class GameCompat {
         //?} else {
         /*return new BlockPos(pos);
         *///?}
+    }
+
+    /**
+     * {@code ResourceKey[minecraft:dimension / minecraft:overworld]}から{@code minecraft:overworld}だけを取り出す。
+     * 識別子の型は1.21.11で改名された（stonecutter.gradle.ktsの置換）ので、どの版にもある{@code toString}から
+     * 切り出す。
+     */
+    public static String dimensionId(@Nullable ResourceKey<Level> dimension) {
+        if (dimension == null) {
+            return "none";
+        }
+        String text = dimension.toString();
+        int slash = text.lastIndexOf(" / ");
+        return slash < 0 || !text.endsWith("]") ? text : text.substring(slash + 3, text.length() - 1);
     }
 }
