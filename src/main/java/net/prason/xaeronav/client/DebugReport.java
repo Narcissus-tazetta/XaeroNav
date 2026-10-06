@@ -153,7 +153,7 @@ final class DebugReport {
         if (ModPresence.isLoaded("forge")) {
             return "forge " + ModPresence.version("forge");
         }
-        return "fabric " + ModPresence.version("fabricloader");
+        return "fabric " + ModPresence.version("fabricloader") + " + fabric-api " + versionOrMissing("fabric-api");
     }
 
     private static String versionOrMissing(String modId) {

@@ -11,35 +11,19 @@ body:
         mountain), use **Route problem** instead — it asks for the coordinates and diagnostics
         needed to reproduce a search.
 
-  - type: input
-    id: version
+  - type: textarea
+    id: debug
     attributes:
-      label: XaeroNav version
-      description: Run `/xaeronav version` in game and paste the whole line. Development builds carry a commit hash, which tells us exactly what you are running.
-      placeholder: "0.1.0+f118060"
-    validations:
-      required: true
-
-  - type: input
-    id: loader
-    attributes:
-      label: Minecraft and loader version
+      label: /xaeronav debug output
       description: |
-        Whichever loader you are on. On Fabric, include the Fabric API version too — it is a hard
-        dependency, and which build of it you have changes what XaeroNav sees.
+        Run `/xaeronav debug` in game and paste the output (it is copied to your clipboard). It contains the
+        XaeroNav, Minecraft, loader and Xaero versions we need. It also contains your coordinates and the
+        world seed — remove them if you would rather not share them.
 
-        - `Minecraft 1.21.1 / NeoForge 21.1.228`
-        - `Minecraft 1.21.1 / Fabric Loader 0.16.9 + Fabric API 0.116.7+1.21.1`
-      placeholder: "Minecraft 1.21.1 / NeoForge 21.1.228"
-    validations:
-      required: true
-
-  - type: input
-    id: xaero
-    attributes:
-      label: Xaero's World Map / Minimap version
-      description: Write "not installed" for either one you do not have. Map integration is optional, and knowing which half is present narrows most rendering reports down immediately.
-      placeholder: "World Map 1.46.0 / Minimap not installed"
+        If the game crashes before you can run it, write the versions instead:
+        `XaeroNav 0.3.4 / Minecraft 1.21.1 / NeoForge 21.1.228 / World Map 1.46.0 / Minimap not installed`
+        (on Fabric, add the Fabric API version).
+      render: text
     validations:
       required: true
 
