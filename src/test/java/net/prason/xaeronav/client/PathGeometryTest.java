@@ -2,7 +2,14 @@ package net.prason.xaeronav.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
+
+import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.astar.MovementType;
+import net.prason.xaeronav.pathfinding.astar.PathRisk;
+import net.prason.xaeronav.pathfinding.astar.PathStep;
 
 /**
  * 描画用に焼き固めた経路の幾何。
@@ -32,5 +39,46 @@ class PathGeometryTest {
         PathGeometry.projectOntoSegment(-5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, out);
 
         assertEquals(0.0, out[0], 1.0e-9, "区間の手前へは出さない（前の区間へ食い込む）");
+    }
+
+    @Test
+    void theBoatOutlineSitsOneStepPastBoarding() {
+        // 岸(0,64,0)から東へ漕ぎ出し、4マス先で岸へ上がる
+        List<PathStep> steps = List.of(
+                step(1, 63, 0, MovementType.BOAT),
+                step(2, 63, 0, MovementType.BOAT),
+                step(3, 63, 0, MovementType.BOAT),
+                step(4, 64, 0, MovementType.TRAVERSE));
+
+        PathGeometry.BoatLaunch[] launches = PathGeometry.boatLaunches(steps, new BlockPos(0, 64, 0));
+
+        assertEquals(1, launches.length);
+        assertEquals(1, launches[0].step(), "乗り込む手の1つ先");
+        assertEquals(2.5, launches[0].x(), 1.0e-9);
+        assertEquals(1.0, launches[0].forwardX(), 1.0e-9, "東を向く");
+        assertEquals(0.0, launches[0].forwardZ(), 1.0e-9);
+    }
+
+    @Test
+    void aOneStepBoatRideKeepsItsOutlineOnTheBoardingStep() {
+        List<PathStep> steps = List.of(
+                step(1, 64, 0, MovementType.TRAVERSE),
+                step(2, 63, 0, MovementType.BOAT),
+                step(3, 64, 0, MovementType.TRAVERSE),
+                step(4, 63, 1, MovementType.BOAT),
+                step(5, 63, 2, MovementType.BOAT));
+
+        PathGeometry.BoatLaunch[] launches = PathGeometry.boatLaunches(steps, new BlockPos(0, 64, 0));
+
+        assertEquals(2, launches.length, "ボートの区間ごとに1つ");
+        assertEquals(1, launches[0].step());
+        assertEquals(4, launches[1].step());
+        double diagonal = Math.sqrt(0.5);
+        assertEquals(diagonal, launches[1].forwardX(), 1.0e-9, "斜めに入ってくるなら斜めを向く");
+        assertEquals(diagonal, launches[1].forwardZ(), 1.0e-9);
+    }
+
+    private static PathStep step(int x, int y, int z, MovementType movement) {
+        return new PathStep(new BlockPos(x, y, z), movement, 1.0, List.of(), List.of(), PathRisk.NONE, null);
     }
 }

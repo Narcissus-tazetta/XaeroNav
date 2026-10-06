@@ -44,6 +44,15 @@ final class PathGeometry {
      */
     private static final double SWIM_LINE_DEPTH = 1.25;
 
+    /**
+     * 水面のセルの下端から、浮いたボートの原点（底）までの高さ。
+     *
+     * <p>{@code AbstractBoat#floatBoat}の浮力は「水面−底」を当たり判定の高さ0.5625で割った値に比例し、
+     * 重力0.04と釣り合うのはその比が0.65のとき。水源の水面はセルの8/9の高さなので、
+     * 8/9 − 0.65×0.5625 ≈ 0.523。
+     */
+    private static final double BOAT_FLOAT_HEIGHT = 8.0 / 9.0 - 0.65 * 0.5625;
+
     /** 2区間を一直線とみなす外積の大きさの上限。区間長が約1ブロックなので、この値なら実質的に厳密一致。 */
     private static final double COLLINEAR_EPSILON = 1.0e-6;
 
@@ -121,6 +130,8 @@ final class PathGeometry {
      * セルが{@code replaceable}のまま＝背後に青い枠が残り続ける。
      */
     final int[] highlightStep;
+    /** ボートを出す場所の枠。ボートの区間ごとに1つ、経路の順に並ぶ。 */
+    final BoatLaunch[] boatLaunches;
     /** この区間から先は打ち切られた末端。手前から順に薄くしていく。到達済みの経路では区間数と同じ。 */
     final int fadeFromSegment;
 
@@ -128,7 +139,8 @@ final class PathGeometry {
                          int[] segmentEndStep, boolean[] segmentSunk, boolean[] segmentInWater,
                          boolean[] segmentDashed,
                          int[] highlightX, int[] highlightY, int[] highlightZ, float[] highlightColor,
-                         boolean[] highlightPlacement, int[] highlightStep, int fadeFromSegment) {
+                         boolean[] highlightPlacement, int[] highlightStep, BoatLaunch[] boatLaunches,
+                         int fadeFromSegment) {
         this.pointX = pointX;
         this.pointY = pointY;
         this.pointZ = pointZ;
@@ -143,7 +155,16 @@ final class PathGeometry {
         this.highlightColor = highlightColor;
         this.highlightPlacement = highlightPlacement;
         this.highlightStep = highlightStep;
+        this.boatLaunches = boatLaunches;
         this.fadeFromSegment = fadeFromSegment;
+    }
+
+    /**
+     * ボートの枠1つ。座標は浮いたボートの原点（底の中心）で、向きは水平の単位ベクトル。
+     *
+     * @param step 枠を置いたステップの添字。通り過ぎた枠を描かないために要る
+     */
+    record BoatLaunch(int step, double x, double y, double z, double forwardX, double forwardZ) {
     }
 
     /** ハイライトの添字範囲 {@code [from, to)}。{@link #from} と {@link #to} が等しければ空。 */
@@ -373,7 +394,60 @@ final class PathGeometry {
                 Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
                 flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentInWater,
                 flatSegmentDashed,
-                hx, hy, hz, hColor, hPlacement, hStep, Math.min(fadeFromSegment, segments));
+                hx, hy, hz, hColor, hPlacement, hStep, boatLaunches(steps, start),
+                Math.min(fadeFromSegment, segments));
+    }
+
+    /**
+     * ボートの区間ごとに、枠を置く場所を1つ決める。
+     *
+     * <p>置くのは乗り込む手（区間の最初の手）の<b>1つ先</b>。区間が1手しかなければ乗り込む手に置く。
+     *
+     * <p>向きは枠へ入ってくる手の向き。手は8方向なので斜めにもなる。
+     */
+    static BoatLaunch[] boatLaunches(List<PathStep> steps, BlockPos start) {
+        int count = steps.size();
+        int launches = 0;
+        for (int i = 0; i < count; i++) {
+            if (boatEntry(steps, i)) {
+                launches++;
+            }
+        }
+        BoatLaunch[] out = new BoatLaunch[launches];
+        int filled = 0;
+        for (int i = 0; i < count; i++) {
+            if (!boatEntry(steps, i)) {
+                continue;
+            }
+            int at = i + 1 < count && steps.get(i + 1).boating() ? i + 1 : i;
+            BlockPos here = steps.get(at).pos();
+            BlockPos before = at > 0 ? steps.get(at - 1).pos() : start;
+            double dx = here.getX() - before.getX();
+            double dz = here.getZ() - before.getZ();
+            if (dx == 0.0 && dz == 0.0 && at + 1 < count) {
+                BlockPos after = steps.get(at + 1).pos();
+                dx = after.getX() - here.getX();
+                dz = after.getZ() - here.getZ();
+            }
+            double length = Math.sqrt(dx * dx + dz * dz);
+            if (length == 0.0) {
+                dx = 0.0;
+                dz = 1.0;
+                length = 1.0;
+            }
+            out[filled++] = new BoatLaunch(at, here.getX() + 0.5, here.getY() + BOAT_FLOAT_HEIGHT,
+                    here.getZ() + 0.5, dx / length, dz / length);
+        }
+        return out;
+    }
+
+    /**
+     * ボートの区間の最初の手か。先頭の手がボートなのは、岸に立って探索を始めて最初に乗り込む場合と、
+     * 乗ったまま探索を始めた場合の2通りがある。後者は乗っている間ずっと枠を出さない（描画側が見る）ので、
+     * ここでは区別しない。
+     */
+    private static boolean boatEntry(List<PathStep> steps, int index) {
+        return steps.get(index).boating() && (index == 0 || !steps.get(index - 1).boating());
     }
 
     /**
