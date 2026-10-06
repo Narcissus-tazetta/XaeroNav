@@ -8,31 +8,9 @@ body:
         English or 日本語, whichever you prefer.
 
         A route depends on the terrain it was solved over, so a description alone is rarely
-        enough to reproduce one. The coordinates and the `/xaeronav debug` output below are what
-        make a report actionable.
-
-  - type: input
-    id: version
-    attributes:
-      label: XaeroNav version
-      description: Run `/xaeronav version` and paste the whole line.
-      placeholder: "0.1.0+f118060"
-    validations:
-      required: true
-
-  - type: input
-    id: loader
-    attributes:
-      label: Minecraft and loader version
-      description: |
-        Whichever loader you are on. On Fabric, include the Fabric API version too — it is a hard
-        dependency, and which build of it you have changes what XaeroNav sees.
-
-        - `Minecraft 1.21.1 / NeoForge 21.1.228`
-        - `Minecraft 1.21.1 / Fabric Loader 0.16.9 + Fabric API 0.116.7+1.21.1`
-      placeholder: "Minecraft 1.21.1 / NeoForge 21.1.228"
-    validations:
-      required: true
+        enough to reproduce one. The `/xaeronav debug` and `/xaeronav debug probe` output below —
+        versions, dimension, where you stood, the destination, and what the search did — is what
+        makes a report actionable.
 
   - type: dropdown
     id: symptom
@@ -45,23 +23,6 @@ body:
         - The route goes somewhere I cannot actually follow
         - The route keeps redrawing itself
         - Something else
-    validations:
-      required: true
-
-  - type: input
-    id: dimension
-    attributes:
-      label: Dimension
-      placeholder: "overworld / the_nether / the_end"
-    validations:
-      required: true
-
-  - type: input
-    id: coords
-    attributes:
-      label: Start and destination coordinates
-      description: Where you were standing, and the destination you set. Without both, the search cannot be re-run.
-      placeholder: "from 120 68 -340 to 1450 72 -2100"
     validations:
       required: true
 
@@ -90,12 +51,12 @@ body:
     attributes:
       label: Diagnostics
       description: |
-        Stand where the problem happens and run the commands that match, then paste the chat output:
+        Stand where the problem happens with the destination still set, run these two commands, then paste the output:
 
-        - `/xaeronav debug probe <x> <y> <z>` — what the detailed search reached and why it stopped (start here for almost everything)
-        - `/xaeronav debug route <x> <y> <z>` and `/xaeronav debug corridor <x> <y> <z>` — the long-distance waypoint chain, for destinations beyond render distance
-        - `/xaeronav debug flight <x> <y> <z>` — the aerial route, for elytra problems
-        - `/xaeronav debug mapdata` — how much of Xaero's map data exists around you, if no long-distance route appears at all
+        - `/xaeronav debug` — versions, dimension, your position, the destination and the current route (it is also copied to your clipboard)
+        - `/xaeronav debug probe` — map data around you, the long-distance route, and what the detailed search reached and why it stopped
+
+        The output includes your coordinates and the world seed. A route cannot be re-run without the coordinates, but you may remove the seed.
       render: text
     validations:
       required: true

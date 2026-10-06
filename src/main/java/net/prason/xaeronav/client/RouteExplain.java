@@ -75,10 +75,10 @@ final class RouteExplain {
         String repro = repro(level, start, target, goal, window, view, options, renderRadius);
         List<String> digging = diggingDetails(level, view, start, result);
         NavGraphGuide.logOffThread(() -> {
-            LOGGER.debug("XaeroNav: 経路の内訳 ({})", summary(kind, start, target, goal, result, guide, window));
-            digging.forEach(detail -> LOGGER.debug("XaeroNav: 掘削の判定 ({})", detail));
+            LOGGER.debug("XaeroNav: route breakdown ({})", summary(kind, start, target, goal, result, guide, window));
+            digging.forEach(detail -> LOGGER.debug("XaeroNav: dig decision ({})", detail));
             if (reproGate.changed(repro)) {
-                LOGGER.debug("XaeroNav: 経路の再現用 ({})", repro);
+                LOGGER.debug("XaeroNav: route repro ({})", repro);
             }
         });
     }
@@ -103,7 +103,8 @@ final class RouteExplain {
                         view.cell(from.getX(), from.getY() - 1, from.getZ()));
                 boolean targetFloor = CellData.standable(
                         view.cell(step.pos().getX(), step.pos().getY() - 1, step.pos().getZ()));
-                details.add("始点=%s, 終点=%s, 移動=%s, 始点の頭が水=%s, 始点の足場=%s, 終点の足場=%s, 素の掘削=%.3ftick, 移動込み=%.3ftick, 対象=[%s]"
+                details.add(("from=%s, to=%s, move=%s, head in water at start=%s, footing at start=%s, footing at end=%s, "
+                        + "raw dig=%.3f ticks, with move=%.3f ticks, blocks=[%s]")
                         .formatted(from.toShortString(), step.pos().toShortString(), step.movement(), sourceWater,
                                 sourceFloor, targetFloor, raw, step.cost(), blocks));
                 if (details.size() == 8) {
@@ -168,20 +169,21 @@ final class RouteExplain {
         double straight = Math.hypot(end.getX() - start.getX(), end.getZ() - start.getZ());
 
         StringJoiner kinds = new StringJoiner(" ");
-        byKind.forEach((action, tally) -> kinds.add("%s%d手/%d".formatted(action, (int) tally[0], Math.round(tally[1]))));
+        byKind.forEach((action, tally) -> kinds.add("%s %d moves/%d".formatted(action, (int) tally[0], Math.round(tally[1]))));
         // 歩きの塊は長いだけで理由にならない。見たいのは「ここで高い手を払った」所
         StringJoiner costly = new StringJoiner(" ");
-        runs.stream().filter(r -> !r.action.equals("歩く")).sorted(Comparator.comparingDouble((Run r) -> r.cost).reversed())
+        runs.stream().filter(r -> !r.action.equals("walk")).sorted(Comparator.comparingDouble((Run r) -> r.cost).reversed())
                 .limit(COSTLY_RUNS)
                 .forEach(r -> costly.add("%s%d@%s(%d)".formatted(r.action, r.steps, r.from.toShortString(),
                         Math.round(r.cost))));
 
         return String.format(Locale.ROOT,
-                "%s, 始点=%s, 末端=%s, 狙い=%s, 目的地=%s, %s, 到達=%s, 展開=%d, %dステップ, 値段=%dtick, 内訳=[%s], "
-                        + "高い手=[%s], 登り%d 降り%d y%d〜%d, 直線%d→歩く長さ%d(%.2f倍), 狙いへの直線から最大%d@%s, %s",
+                "%s, start=%s, end=%s, aim=%s, goal=%s, %s, reached=%s, expanded=%d, %d steps, cost=%d ticks, by kind=[%s], "
+                        + "costly moves=[%s], up %d down %d y %d..%d, straight %d -> walked %d (x%.2f), "
+                        + "max %d off the straight line to aim @%s, %s",
                 kind, start.toShortString(), end.toShortString(), target.toShortString(), goal.toShortString(),
                 result.termination(), result.complete(), result.expandedNodes(), steps.size(), Math.round(cost),
-                kinds, costly.length() == 0 ? "無し" : costly, up, down, minY, maxY, Math.round(straight),
+                kinds, costly.length() == 0 ? "none" : costly, up, down, minY, maxY, Math.round(straight),
                 Math.round(walked), straight < 1.0 ? 0.0 : walked / straight, Math.round(deviation),
                 deviationAt.toShortString(), guideVerdict(guide, window, start, end, cost));
     }
@@ -192,34 +194,34 @@ final class RouteExplain {
      */
     private static String guideVerdict(@Nullable CostToGo guide, @Nullable CostToGo window, BlockPos start,
                                        BlockPos end, double cost) {
-        String measured = guide == null ? "ガイド=無し" : "ガイド%s 始点の残り%d 払った%d+末端の残り%d".formatted(
-                guide == window ? "" : "(狙いまで)", Math.round(guide.estimate(start.getX(), start.getY(), start.getZ())),
+        String measured = guide == null ? "guide=none" : "guide%s remaining at start %d, paid %d + remaining at end %d".formatted(
+                guide == window ? "" : " (to aim)", Math.round(guide.estimate(start.getX(), start.getY(), start.getZ())),
                 Math.round(cost), Math.round(guide.estimate(end.getX(), end.getY(), end.getZ())));
         if (!(window instanceof WindowField field)) {
             return measured;
         }
-        return "%s, 窓の中心=%d,%d 半径%d, 始点の値の出どころ=%s, 末端の値の出どころ=%s".formatted(measured,
+        return "%s, window center=%d,%d radius %d, value origin at start=%s, at end=%s".formatted(measured,
                 field.centerX(), field.centerZ(), field.radius(), NavGraphGuide.origin(field, start),
                 NavGraphGuide.origin(field, end));
     }
 
     private static String action(PathStep step) {
         if (step.bridging()) {
-            return step.movement() == MovementType.ASCEND ? "積む" : "橋";
+            return step.movement() == MovementType.ASCEND ? "pillar" : "bridge";
         }
         if (step.digging()) {
-            return "掘る";
+            return "dig";
         }
         return switch (step.movement()) {
-            case TRAVERSE -> "歩く";
-            case ASCEND -> "登る";
-            case DESCEND -> "降りる";
-            case JUMP -> "跳ぶ";
-            case FALL_DAMAGE -> "落ちる(ダメージ)";
-            case FALL_MLG -> "落ちる(水バケツ)";
-            case SWIM -> "泳ぐ";
-            case BOAT -> "ボート";
-            case CLIMB -> "梯子";
+            case TRAVERSE -> "walk";
+            case ASCEND -> "ascend";
+            case DESCEND -> "descend";
+            case JUMP -> "jump";
+            case FALL_DAMAGE -> "fall (damage)";
+            case FALL_MLG -> "fall (water bucket)";
+            case SWIM -> "swim";
+            case BOAT -> "boat";
+            case CLIMB -> "climb";
         };
     }
 
@@ -248,15 +250,15 @@ final class RouteExplain {
         // ネザーは天井の岩盤より上（y128〜）を書き出しても、屋根の上を歩く経路しか増えない
         int bandTop = level.dimensionType().hasCeiling() ? 127 : GameCompat.maxBuildHeight(level) - 1;
         return String.format(Locale.ROOT,
-                "目的地=%s, 狙い=%s, 窓=%d, 掘る=%s, 設定=%s, 書き出し=python3 tools/dump_terrain_columns.py "
-                        + "saves/<ワールド>/%s %d %d %d %d --band %d,%d --out <名前>.txt.gz%s",
+                "goal=%s, aim=%s, window=%d, dig=%s, settings=%s, dump=python3 tools/dump_terrain_columns.py "
+                        + "saves/<world>/%s %d %d %d %d --band %d,%d --out <name>.txt.gz%s",
                 goal.toShortString(), target.toShortString(), window, options.diggingEnabled(), settings,
                 regionDir(level), Math.floorDiv(minX, DUMP_GRID_BLOCKS) * DUMP_GRID_BLOCKS,
                 Math.floorDiv(minZ, DUMP_GRID_BLOCKS) * DUMP_GRID_BLOCKS,
                 Math.floorDiv(maxX, DUMP_GRID_BLOCKS) * DUMP_GRID_BLOCKS + DUMP_GRID_BLOCKS - 1,
                 Math.floorDiv(maxZ, DUMP_GRID_BLOCKS) * DUMP_GRID_BLOCKS + DUMP_GRID_BLOCKS - 1,
                 GameCompat.minBuildHeight(level), bandTop,
-                clipped ? " (目的地が遠いので始点の近くだけ。窓の外の推定は実機と違う)" : "");
+                clipped ? " (goal is far, so only near the start; the outside-window estimate differs from the game)" : "");
     }
 
     private static String regionDir(Level level) {
@@ -269,7 +271,7 @@ final class RouteExplain {
         if (level.dimension() == Level.OVERWORLD) {
             return "region";
         }
-        return "dimensions/<名前空間>/<次元>/region";
+        return "dimensions/<namespace>/<dimension>/region";
     }
 
     private static final class Run {

@@ -125,7 +125,7 @@ public final class XaeroNavKeys {
             GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.goal_walk",
                     resolved.toShortString()), true);
         }
-        XaeroNav.LOGGER.debug("XaeroNav: 見ているブロックへ経路探索 {}", blockHit.getBlockPos());
+        XaeroNav.LOGGER.debug("XaeroNav: routing to the targeted block {}", blockHit.getBlockPos());
     }
 
     /** タイトル/ロード画面で押されたworld依存キーを、次の参加時へ持ち越さない。 */

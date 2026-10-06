@@ -418,6 +418,6 @@ color means.
 The design contracts — the invariants that must not break and the tests that guard them — are in the
 [architecture decision records](architecture/README.md).
 
-If you find a route that goes wrong, run `/xaeronav debug probe <x> <y> <z>` where it happens and
+If you find a route that goes wrong, run `/xaeronav debug` and `/xaeronav debug probe` where it happens and
 [open an issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) with the output. It
 shows how far the search got and why it stopped.

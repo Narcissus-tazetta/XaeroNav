@@ -211,12 +211,7 @@ final class SeamRepair {
      * @return 解き直しを投げたか（投げたなら、結果は非同期で反映される）
      */
     boolean tryRepair(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius) {
-        long lap = TickLaps.start();
-        try {
-            return tryRepairNow(level, player, shown, renderRadius);
-        } finally {
-            TickLaps.add("繋ぎ目の解き直し", lap);
-        }
+        return TickLaps.measure("seam repair", () -> tryRepairNow(level, player, shown, renderRadius));
     }
 
     private boolean tryRepairNow(Level level, Player player, PathfindingState.DisplayedPath shown, int renderRadius) {
@@ -234,7 +229,7 @@ final class SeamRepair {
         int seamIndex = stepIndexOf(steps, seam, walkedTo);
         if (seamIndex < 0) {
             // 合流や迂回でその繋ぎ目ごと消えていた。直すものが無い
-            noteSeamRepairRefused("繋ぎ目が経路上に無い");
+            noteSeamRepairRefused("seam is not on the path");
             return false;
         }
         // 足元は残す。ここを削ると「歩いているだけで案内が変わる」に戻る
@@ -253,12 +248,12 @@ final class SeamRepair {
         }
         if (from < 1 || from >= seamIndex || to <= seamIndex || to - from < MIN_STEPS) {
             // 繋ぎ目の両側が揃っていない（経路の端か、足元に寄りすぎている）
-            noteSeamRepairRefused("繋ぎ目の両側が揃っていない (手前=" + (seamIndex - from)
-                    + "ステップ, 先=" + (to - seamIndex) + "ステップ)");
+            noteSeamRepairRefused("not enough steps on both sides of the seam (before=" + (seamIndex - from)
+                    + ", after=" + (to - seamIndex) + ")");
             return false;
         }
 
-        solve(level, player, shown, renderRadius, from, to, first, "繋ぎ目=" + seam.toShortString());
+        solve(level, player, shown, renderRadius, from, to, first, "seam=" + seam.toShortString());
         return true;
     }
 
@@ -276,15 +271,15 @@ final class SeamRepair {
         int rejoin = entry < 0 ? -1 : stepIndexOf(steps, loop.rejoin(), entry + 1);
         if (rejoin < 0) {
             // 通り過ぎたか、合流や引き直しで輪ごと消えていた
-            noteSeamRepairRefused("輪が経路上に無い");
+            noteSeamRepairRefused("loop is not on the path");
             return false;
         }
         if (PathLoops.laterStepsDependOn(steps, entry + 1, rejoin)) {
-            noteSeamRepairRefused("輪の先が輪の中の設置・掘削を前提にしている");
+            noteSeamRepairRefused("the path after the loop depends on placing/digging inside the loop");
             return false;
         }
         solve(level, player, shown, renderRadius, entry + 1, rejoin, walkedTo + 1,
-                "輪=" + loop.entry().toShortString() + "→" + loop.rejoin().toShortString());
+                "loop=" + loop.entry().toShortString() + "->" + loop.rejoin().toShortString());
         return true;
     }
 
@@ -305,9 +300,8 @@ final class SeamRepair {
         SearchBounds bounds = SearchBounds.around(level, fromPos, toPos,
                 tuning.searchHorizontalMargin(), PathfindingState.verticalSearchMargin(level, false),
                 renderRadius);
-        long captureLap = TickLaps.start();
-        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
-        TickLaps.add("チャンク集め", captureLap);
+        ChunkView view = TickLaps.measure("chunk capture",
+                () -> ChunkView.capture(level, player, bounds, tuning.movementOptions()));
         SearchLimits full = tuning.searchLimits();
         // 予算は1区間と同じ。<b>頭打ちにしてはいけない</b>——6万で切ったところ、実機ログに
         // 「解き直しが繋ぎ目の先へ届かなかった (NODE_BUDGET)」が出て、ネザーの橋だらけの繋ぎ目が
@@ -332,12 +326,12 @@ final class SeamRepair {
         CompletableFuture<PathResult> repairFuture = executor.submit(
                 AvoidedCellSource.wrap(repairTerrain, recentFailures.avoided()),
                 fromPos, toPos, limits, false, 0, carried);
-        generationGate.whenStillCurrent(repairFuture, myGeneration, TickLaps.timed("受け取り/繋ぎ目", (repaired, error) -> {
+        generationGate.whenStillCurrent(repairFuture, myGeneration, TickLaps.timed("receive/seam", (repaired, error) -> {
             try {
                 host.setComputing(false);
                 if (error != null) {
                     if (!(error instanceof CancellationException)) {
-                        LOGGER.error("XaeroNav: 繋ぎ目の解き直しに失敗しました", error);
+                        LOGGER.error("XaeroNav: seam repair failed", error);
                     }
                     return;
                 }
@@ -346,20 +340,19 @@ final class SeamRepair {
                 }
                 if (!repaired.complete() || repaired.steps().isEmpty()
                         || !PathfindingState.endOf(repaired, fromPos).equals(toPos)) {
-                    noteSeamRepairRefused("解き直しが繋ぎ目の先へ届かなかった (" + repaired.termination() + ")");
+                    noteSeamRepairRefused("repair did not reach past the seam (" + repaired.termination() + ")");
                     return;
                 }
                 double replacement = stepsCost(repaired.steps(), 0, repaired.steps().size() - 1);
                 if (replacement >= current * MIN_GAIN) {
-                    noteSeamRepairRefused("解き直しても安くならない (" + Math.round(current) + "→"
+                    noteSeamRepairRefused("repair is not cheaper (" + Math.round(current) + "->"
                             + Math.round(replacement) + "tick)");
                     return;
                 }
                 refusalGate.reset();
-                long replaceLap = TickLaps.start();
-                host.setDisplayed(withSection(shown, repaired.steps(), sectionFrom, sectionTo));
-                TickLaps.add("解き直しの差し替え", replaceLap);
-                LOGGER.debug("XaeroNav: 繋ぎ目を解き直しました ({}, {}→{}tick, {}→{}ステップ, 展開ノード数={})",
+                TickLaps.measure("seam repair swap",
+                        () -> host.setDisplayed(withSection(shown, repaired.steps(), sectionFrom, sectionTo)));
+                LOGGER.debug("XaeroNav: repaired seam ({}, {}->{} ticks, {}->{} steps, expanded={})",
                         label, Math.round(current), Math.round(replacement),
                         sectionTo - sectionFrom + 1, repaired.steps().size(), repaired.expandedNodes());
             } finally {
@@ -377,7 +370,7 @@ final class SeamRepair {
         if (!refusalGate.changed(reason)) {
             return;
         }
-        LOGGER.debug("XaeroNav: 繋ぎ目の解き直しを見送りました ({})", reason);
+        LOGGER.debug("XaeroNav: skipped seam repair ({})", reason);
     }
 
     /** {@code from}以降で、この座標を踏んでいるステップの添字。無ければ{@code -1}。 */

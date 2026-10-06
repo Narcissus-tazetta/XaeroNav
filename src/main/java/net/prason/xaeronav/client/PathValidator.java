@@ -13,6 +13,7 @@ import net.minecraft.world.level.Level;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.world.CellData;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * 提示中の経路が今のワールドでもまだ成立するかを確認する。
@@ -99,7 +100,7 @@ final class PathValidator {
                 }
                 continue;
             }
-            if (near != null && horizonSq > 0 && horizontalDistSq(near, step.pos()) > horizonSq) {
+            if (near != null && horizonSq > 0 && BlockDistance.horizontalSq(near, step.pos()) > horizonSq) {
                 // 経路は手前から順に遠ざかるとは限らない（岬を回り込む・戻る）ので、ここで打ち切らず
                 // 先のステップも見る。近傍へ戻ってくる経路ならそこは検証される
                 if (step.placedBlockPos() != null) {
@@ -118,7 +119,7 @@ final class PathValidator {
                 int placedAt = laterPlacement(steps, i, failure.unusableCell());
                 return new Failure(i, failure.unusableCell(), failure.reason()
                         + plannedPlacementNote(failure.unusableCell(), plannedPlacements, fromIndex)
-                        + (placedAt < 0 ? "" : ", 後のステップ%dで置く予定の位置".formatted(placedAt)),
+                        + (placedAt < 0 ? "" : ", block planned for later step %d".formatted(placedAt)),
                         placedAt >= 0);
             }
             // 自分の設置は自分の足場の判定より後に数える。このステップで置くブロックはこのステップの前提ではない
@@ -165,8 +166,8 @@ final class PathValidator {
         if (placedAt == null) {
             return "";
         }
-        return ", 手前のステップ%dで置く予定の橋の位置(%s)".formatted(placedAt,
-                placedAt < fromIndex ? "通過済み" : "これから置く");
+        return ", bridge block planned for earlier step %d (%s)".formatted(placedAt,
+                placedAt < fromIndex ? "already passed" : "not placed yet");
     }
 
     /**
@@ -200,11 +201,6 @@ final class PathValidator {
         return level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4) != null;
     }
 
-    private static double horizontalDistSq(BlockPos a, BlockPos b) {
-        double dx = a.getX() - b.getX();
-        double dz = a.getZ() - b.getZ();
-        return dx * dx + dz * dz;
-    }
 
     /**
      * 身体が通るセルが今は通れないか。
@@ -234,13 +230,13 @@ final class PathValidator {
         if (step.swimming() || step.boating()) {
             // 泳ぐ区間もボートの区間も、足場ではなく水そのものが前提
             if (!CellData.water(CellData.flagsOf(level.getBlockState(pos)))) {
-                return new CellFailure(pos, "ステップ%d(%s) 泳ぐ/ボート前提の水が無い pos=%s"
+                return new CellFailure(pos, "step %d (%s): no water for swimming/boating pos=%s"
                         .formatted(i, step.movement(), pos.toShortString()));
             }
         } else if (step.climbing()) {
             // 梯子・ツタの区間も足場ではなく掴めるもの自体が前提
             if (!CellData.climbable(CellData.flagsOf(level.getBlockState(pos)))) {
-                return new CellFailure(pos, "ステップ%d(%s) 掴める物が無い pos=%s"
+                return new CellFailure(pos, "step %d (%s): nothing to climb pos=%s"
                         .formatted(i, step.movement(), pos.toShortString()));
             }
         } else if (!step.bridging()) {
@@ -250,7 +246,7 @@ final class PathValidator {
                     && !CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))
                     && !pendingPlacement.test(cursor)) {
                 BlockPos footing = cursor.immutable();
-                return new CellFailure(footing, "ステップ%d(%s) 足場が無い pos=%s"
+                return new CellFailure(footing, "step %d (%s): no footing pos=%s"
                         .formatted(i, step.movement(), footing.toShortString()));
             }
         }
@@ -261,8 +257,10 @@ final class PathValidator {
             long flags = CellData.flagsOf(level.getBlockState(cell));
             boolean plannedDig = plannedDigs.contains(cell);
             if (bodyCellBlocked(flags, plannedDig)) {
-                String what = plannedDig ? "掘る前提のセルに溶岩・危険物が入った" : "身体が通るセルが塞がっている";
-                return new CellFailure(cell, "ステップ%d(%s, bridging=%s) %s cell=%s state=%s"
+                String what = plannedDig
+                        ? "lava or a hazard entered a cell planned for digging"
+                        : "a cell the body passes through is blocked";
+                return new CellFailure(cell, "step %d (%s, bridging=%s): %s cell=%s state=%s"
                         .formatted(i, step.movement(), step.bridging(), what, cell.toShortString(),
                                 level.getBlockState(cell)));
             }

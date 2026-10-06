@@ -1,13 +1,12 @@
 package net.prason.xaeronav.pathfinding.async;
 
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import net.prason.xaeronav.util.DaemonThreads;
 
 /**
  * {@code /xaeronav debug}診断コマンド専用の非同期実行基盤。
@@ -27,12 +26,7 @@ import java.util.function.Function;
  */
 public final class DiagnosticJobRunner {
 
-    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
-            new LinkedBlockingQueue<>(), runnable -> {
-                Thread thread = new Thread(runnable, "xaeronav-diagnostic");
-                thread.setDaemon(true);
-                return thread;
-            });
+    private final ThreadPoolExecutor executor = DaemonThreads.singleThread("xaeronav-diagnostic");
     private final AtomicLong generation = new AtomicLong();
     private final Consumer<Runnable> onMainThread;
 

@@ -48,9 +48,9 @@
 開発者向けの設計契約は[アーキテクチャ判断記録](docs/architecture/README.md)にまとめています。
 
 まだ 0.x 系で、いちばん試してほしいのは経路そのものです。遠回りする・途中で切れる・そもそも出ない・
-辿れない道を通される、といったことがあったら、その場で `/xaeronav debug probe <x> <y> <z>` を実行して、
-出力を添えて [Issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) を立ててください。
-詳細探索がどこまで到達して何で止まったかが出るので、たいていはこちらで同じ状況を再現できます。
+辿れない道を通される、といったことがあったら、その場で `/xaeronav debug` と `/xaeronav debug probe` を
+実行して、出力を添えて [Issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) を立ててください。
+いまの状態と、詳細探索がどこまで到達して何で止まったかが出るので、たいていはこちらで同じ状況を再現できます。
 
 ![Xaero's World Mapに描かれた経路](docs/images/map-image.png)
 
@@ -182,13 +182,11 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 | `/xaeronav goto <x> <y> <z>` | 目的地を設定 |
 | `/xaeronav clear` | 経路をクリア |
 | `/xaeronav version` | 動作中のビルドを表示（不具合報告に添えてください） |
+| `/xaeronav debug` | 不具合報告用に、いまの状態（版・次元・シード・現在地・目的地・経路・Xaero 連携・主な設定）を出す。チャットに加えてクリップボードと `latest.log` にも書き出す |
+| `/xaeronav debug probe` | いまの目的地に向けて計測する。周辺の Xaero の地図データ、長距離ルートの要約、詳細探索がどこまで届いてなぜ止まったか（滑空中は空中経路） |
 
-`/xaeronav debug ...` の下には、経路を引かずに数値をチャットへ出す計測用のコマンドがあります。
-`mapdata [radiusChunks]` は周辺で使える Xaero の地図データの量、`route` と `corridor` は粗い中間
-目標列とその区間ごとの精緻化、`probe` は詳細探索がどこまで届いてなぜ止まったか、`flight` は
-空中経路です。意図と違う経路が出た理由を調べるためのものなので、不具合報告にはこの出力を
-添えてください——ただし現在地・目的地・周辺の地形情報を含むので、公開の場に貼る前に
-内容を確認してください。
+どちらも経路を引き直さず、案内は変わりません。`/xaeronav debug` の出力は座標とワールドのシードを
+含むので、公開の場に貼る前に内容を確認してください。
 
 ### キーバインド
 

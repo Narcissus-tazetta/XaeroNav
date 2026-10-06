@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.util.ChangeGate;
@@ -50,6 +51,24 @@ final class TickLaps {
         return System.nanoTime();
     }
 
+    static void measure(String name, Runnable work) {
+        long lap = start();
+        try {
+            work.run();
+        } finally {
+            add(name, lap);
+        }
+    }
+
+    static <T> T measure(String name, Supplier<T> work) {
+        long lap = start();
+        try {
+            return work.get();
+        } finally {
+            add(name, lap);
+        }
+    }
+
     static void add(String name, long startNanos) {
         if (Thread.currentThread() != owner) {
             return;
@@ -86,12 +105,13 @@ final class TickLaps {
             try {
                 task.run();
             } finally {
-                add("結果の受け取り", lap);
+                add("receive result", lap);
                 long millis = (System.nanoTime() - lap) / 1_000_000L;
                 long now = MonotonicTime.millis();
                 if (!nested && millis > SLOW_TASK_MILLIS
                         && slowTaskGate.changed(true, now, SLOW_TASK_LOG_INTERVAL_MILLIS)) {
-                    XaeroNav.LOGGER.warn("XaeroNav: tickの外の結果の受け取りが遅い ({}ms, 内訳={})", millis, summary());
+                    XaeroNav.LOGGER.warn("XaeroNav: slow result handling outside the tick ({}ms, breakdown={})", millis,
+                            summary());
                 }
                 if (!nested) {
                     end();
@@ -116,7 +136,7 @@ final class TickLaps {
     private static final long SLOW_TASK_LOG_INTERVAL_MILLIS = 5_000L;
     private static final ChangeGate<Boolean> slowTaskGate = new ChangeGate<>();
 
-    /** 下限以上の処理を、かかった順に。無ければ{@code "内訳なし"}。 */
+    /** 下限以上の処理を、かかった順に。無ければ{@code "no breakdown"}。 */
     static String summary() {
         List<Integer> shown = new ArrayList<>();
         for (int i = 0; i < size; i++) {
@@ -127,7 +147,7 @@ final class TickLaps {
         // 止まっていた間のGC。処理そのものではなく、その最中に入ったGCの停止で遅く見えることがある
         long gc = gcPauseMillis() - gcAtBegin;
         if (shown.isEmpty()) {
-            return gc > 0 ? "内訳なし, GC=" + gc + "ms" : "内訳なし";
+            return gc > 0 ? "no breakdown, GC=" + gc + "ms" : "no breakdown";
         }
         shown.sort((a, b) -> Long.compare(NANOS[b], NANOS[a]));
         StringBuilder text = new StringBuilder();

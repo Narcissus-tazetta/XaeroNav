@@ -198,9 +198,9 @@ public final class CoarseMap {
      */
     public String kindBreakdown() {
         int[] counts = kindCounts();
-        return "陸=" + counts[LAND] + ", 奈落=" + counts[VOID] + ", 水=" + counts[WATER]
-                + ", 溶岩=" + (counts[LAVA] + counts[LAVA_MIXED])
-                + ", データ無し=" + counts[NO_DATA];
+        return "land=" + counts[LAND] + ", void=" + counts[VOID] + ", water=" + counts[WATER]
+                + ", lava=" + (counts[LAVA] + counts[LAVA_MIXED])
+                + ", no data=" + counts[NO_DATA];
     }
 
     /**

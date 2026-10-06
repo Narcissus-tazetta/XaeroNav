@@ -430,5 +430,5 @@ Minecraftを動かす。Gradle自体はどのノードでもJava 21で動く。
 3 つ目が要るのは、`xaeronav-xaero.mixins.json` が `required=false` だからです。注入先が変わっても
 例外は出ず、ユーザーには「地図に線が出ない」としか見えません。ログにだけ出るので、CI が読みます。
 
-実行中の状態は `/xaeronav debug hooks` で確認できます。世界地図を開いている間に描画の注入点を
+実行中の状態は `/xaeronav debug` の `xaero hooks` の行で確認できます。世界地図を開いている間に描画の注入点を
 一度も通らなかった場合は、HUD にも警告が出ます。

@@ -176,12 +176,7 @@ final class Splice {
      *                     先へ合流しないと同じ場所へ戻ってしまうので、その次を渡す
      */
     boolean trySplice(Level level, Player player, PathfindingState.DisplayedPath shown, int minJoinIndex) {
-        long lap = TickLaps.start();
-        try {
-            return trySpliceNow(level, player, shown, minJoinIndex);
-        } finally {
-            TickLaps.add("合流", lap);
-        }
+        return TickLaps.measure("splice", () -> trySpliceNow(level, player, shown, minJoinIndex));
     }
 
     private boolean trySpliceNow(Level level, Player player, PathfindingState.DisplayedPath shown, int minJoinIndex) {
@@ -206,13 +201,13 @@ final class Splice {
         if (joinIndex < 0) {
             // 黙って引き直しへ落ちると、なぜ局所修正できなかったのかがどこにも残らない。
             // 「合流できる素のステップが1つも無い」＝経路が丸ごと橋か、全部塞がっている
-            noteSpliceRefused("合流できるステップが無い", result.steps().size(), minJoinIndex, -1);
+            noteSpliceRefused("no step to join", result.steps().size(), minJoinIndex, -1);
             return false;
         }
         BlockPos joinPos = result.steps().get(joinIndex).pos();
         double joinDistance = PathfindingState.distanceTo(player.position(), joinPos);
         if (joinDistance > joinDistanceLimit(renderRadius)) {
-            noteSpliceRefused("合流点が遠すぎる (" + Math.round(joinDistance) + "ブロック)",
+            noteSpliceRefused("join point too far (" + Math.round(joinDistance) + " blocks)",
                     result.steps().size(), minJoinIndex, joinIndex);
             return false;
         }
@@ -222,7 +217,7 @@ final class Splice {
         PathValidator.Failure failure = PathValidator.firstFailureFrom(level, result, joinIndex,
                 playerAt, renderRadius);
         if (failure != null) {
-            LOGGER.debug("XaeroNav: 経路上のセルが変化していたため合流を諦めました ({})", failure.reason());
+            LOGGER.debug("XaeroNav: gave up splicing because a cell on the path changed ({})", failure.reason());
             return false;
         }
 
@@ -230,9 +225,8 @@ final class Splice {
         SearchBounds bounds = SearchBounds.around(level, playerAt, joinPos,
                 tuning.searchHorizontalMargin(), PathfindingState.verticalSearchMargin(level, false),
                 renderRadius);
-        long captureLap = TickLaps.start();
-        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
-        TickLaps.add("チャンク集め", captureLap);
+        ChunkView view = TickLaps.measure("chunk capture",
+                () -> ChunkView.capture(level, player, bounds, tuning.movementOptions()));
         SearchLimits full = tuning.searchLimits();
         SearchLimits limits = new SearchLimits(Math.min(full.maxExpandedNodes(), SPLICE_MAX_EXPANDED_NODES),
                 full.timeLimitMillis(), full.heuristicWeight());
@@ -250,12 +244,12 @@ final class Splice {
         CompletableFuture<PathResult> spliceFuture = executor.submit(
                 AvoidedCellSource.wrap(view, recentFailures.avoided()), playerAt, joinPos, limits,
                 tuning.costToGoGuideEnabled(), 0, carried);
-        generationGate.whenStillCurrent(spliceFuture, myGeneration, TickLaps.timed("受け取り/合流", (splice, error) -> {
+        generationGate.whenStillCurrent(spliceFuture, myGeneration, TickLaps.timed("receive/splice", (splice, error) -> {
             try {
                 host.setComputing(false);
                 if (error != null) {
                     if (!(error instanceof CancellationException)) {
-                        LOGGER.error("XaeroNav: 経路への合流に失敗しました", error);
+                        LOGGER.error("XaeroNav: splicing into the path failed", error);
                     }
                     return;
                 }
@@ -264,7 +258,7 @@ final class Splice {
                 }
                 if (!splice.complete() || splice.steps().isEmpty()) {
                     blockedFrom = playerAt;
-                    LOGGER.debug("XaeroNav: 経路へ合流できませんでした ({}, 合流点={}, 展開ノード数={})",
+                    LOGGER.debug("XaeroNav: could not splice into the path ({}, join point={}, expanded={})",
                             splice.termination(), joinPos.toShortString(), splice.expandedNodes());
                     return;
                 }
@@ -278,22 +272,21 @@ final class Splice {
                     // 無く、ガイドが何を言って断ったのかが追えなかった。物差しの3項を並べておけば、
                     // 「ガイドが合流点を過大評価した」のか「本当に引き返しだった」のかが1行で割れる
                     blockedFrom = playerAt;
-                    LOGGER.debug("XaeroNav: 合流は引き返しになるので諦めました (合流点={}, 合流区間={}tick, "
-                                    + "残り 現在地={} 合流点={}, 経路の実残り={}tick, 物差し={})",
+                    LOGGER.debug("XaeroNav: gave up splicing because it would turn back (join point={}, splice leg={} ticks, "
+                                    + "remaining from player={} from join point={}, actual path remaining={} ticks, "
+                                    + "yardstick={})",
                             joinPos.toShortString(), Math.round(spliceCost),
                             remainingAt(playerAt, currentGoal, guide),
                             remainingAt(joinPos, currentGoal, guide),
                             Math.round(costAlong(result.steps(), joinIndex)),
-                            measuredInWindow(playerAt, joinPos, guide) ? "ガイド" : "幾何下限");
+                            measuredInWindow(playerAt, joinPos, guide) ? "guide" : "geometric lower bound");
                     return;
                 }
                 blockedFrom = null;
                 refusalGate.reset();
                 seamRepair.queue(joinPos);
-                long spliceLap = TickLaps.start();
-                host.setDisplayed(spliced(shown, splice, joinIndex));
-                TickLaps.add("合流の差し替え", spliceLap);
-                LOGGER.debug("XaeroNav: 経路へ合流しました (合流までの{}ステップ, 引き継いだ{}ステップ, 展開ノード数={})",
+                TickLaps.measure("splice swap", () -> host.setDisplayed(spliced(shown, splice, joinIndex)));
+                LOGGER.debug("XaeroNav: spliced into the path ({} steps to join, {} steps kept, expanded={})",
                         splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
             } finally {
                 onChanged.run();
@@ -323,7 +316,7 @@ final class Splice {
         if (!refusalGate.changed(reason)) {
             return;
         }
-        LOGGER.debug("XaeroNav: 経路への合流を諦めました ({}, 経路={}ステップ, 最小添字={}, 合流点添字={})",
+        LOGGER.debug("XaeroNav: gave up splicing ({}, path={} steps, min index={}, join index={})",
                 reason, steps, minJoinIndex, joinIndex);
     }
 
@@ -395,7 +388,7 @@ final class Splice {
             return Math.round(guide.estimate(at.getX(), at.getY(), at.getZ())) + "tick";
         }
         return Math.round(Heuristic.estimate(at.getX(), at.getY(), at.getZ(),
-                goal.getX(), goal.getY(), goal.getZ())) + "tick(幾何)";
+                goal.getX(), goal.getY(), goal.getZ())) + " ticks (geometric)";
     }
 
     /** 診断用。合流点から先を、いま引けている経路どおりに歩いたときの実費。 */

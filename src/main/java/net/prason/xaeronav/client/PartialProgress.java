@@ -5,6 +5,7 @@ import org.jspecify.annotations.Nullable;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * 途中までの経路2本の、末端から目的地までの残り。どちらが目的地の近くまで引けているかを比べる。
@@ -25,10 +26,10 @@ record PartialProgress(double oldLeft, double newLeft, String yardstick, boolean
                 && guide.measuredInWindow(newEnd.getX(), newEnd.getZ())) {
             double oldLeft = guide.estimate(oldEnd.getX(), oldEnd.getY(), oldEnd.getZ());
             double newLeft = guide.estimate(newEnd.getX(), newEnd.getY(), newEnd.getZ());
-            return new PartialProgress(oldLeft, newLeft, "ガイド", oldLeft < newLeft);
+            return new PartialProgress(oldLeft, newLeft, "guide", oldLeft < newLeft);
         }
-        double oldLeft = PathfindingState.horizontalDistance(oldEnd, goal);
-        double newLeft = PathfindingState.horizontalDistance(newEnd, goal);
-        return new PartialProgress(oldLeft, newLeft, "距離", oldLeft < newLeft);
+        double oldLeft = BlockDistance.horizontal(oldEnd, goal);
+        double newLeft = BlockDistance.horizontal(newEnd, goal);
+        return new PartialProgress(oldLeft, newLeft, "distance", oldLeft < newLeft);
     }
 }

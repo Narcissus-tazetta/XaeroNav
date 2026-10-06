@@ -13,7 +13,6 @@ import org.apache.logging.log4j.LogManager;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.config.XaeroNavConfig;
@@ -31,6 +30,7 @@ import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.PlannedCellSource;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * いま表示している経路を、その<b>末端から</b>次の区間ぶん伸ばす（プレイヤーからではない）継ぎ足し。
@@ -181,10 +181,10 @@ final class Extend {
         boolean streaming = pendingRegions > 0;
         if (heldForStreaming && !streaming) {
             heldForStreaming = false;
-            LOGGER.debug("XaeroNav: 地図が揃ったので通常の継ぎ足しに戻します");
+            LOGGER.debug("XaeroNav: map is complete, back to normal extension");
         }
         if (streaming
-                && PathfindingState.horizontalDistance(player.blockPosition(), end)
+                && BlockDistance.horizontal(player.blockPosition(), end)
                         > PathfindingState.detailHorizon(renderRadius)) {
             // goto直後、地図がまだストリーミングで届いている間は末端を1レグ先までに留める。
             // extendLeadは読み込み済みの余地しか見ないので、放っておくとチャンクが届くたびに継ぎ足しが
@@ -193,10 +193,10 @@ final class Extend {
             // 途切れない。pendingRegionsが0になれば通常の先読みへ戻る
             if (!heldForStreaming) {
                 heldForStreaming = true;
-                LOGGER.debug("XaeroNav: 地図の読み込み中は継ぎ足しの先を{}ブロックに留めます"
-                                + " (未読み込みリージョン={}, 末端まで{}ブロック, {}ステップ)",
+                LOGGER.debug("XaeroNav: limiting extension to {} blocks while the map loads"
+                                + " (pending regions={}, {} blocks to end, {} steps)",
                         PathfindingState.detailHorizon(renderRadius), pendingRegions,
-                        Math.round(PathfindingState.horizontalDistance(player.blockPosition(), end)), steps.size());
+                        Math.round(BlockDistance.horizontal(player.blockPosition(), end)), steps.size());
             }
             return false;
         }
@@ -216,29 +216,29 @@ final class Extend {
     String extendRefusal(Player player, PathfindingState.DisplayedPath shown, int renderRadius) {
         PathResult result = shown.result();
         if (!extendableTail(result)) {
-            return "打ち切り方が" + result.termination();
+            return "terminated by " + result.termination();
         }
         List<PathStep> steps = result.steps();
         BlockPos end = steps.get(steps.size() - 1).pos();
         BlockPos currentGoal = host.goal();
         if (end.equals(currentGoal)) {
-            return "末端が目的地そのもの";
+            return "the end is the goal itself";
         }
         if (extendBlocked(player, end)) {
-            return "直前の継ぎ足しが失敗した末端";
+            return "the previous extension failed at this end";
         }
         int pendingRegions = host.coarseRoutePendingRegions(currentGoal);
         if (pendingRegions > 0
-                && PathfindingState.horizontalDistance(player.blockPosition(), end)
+                && BlockDistance.horizontal(player.blockPosition(), end)
                         > PathfindingState.detailHorizon(renderRadius)) {
-            return "地図の読み込み待ち (未読み込みリージョン" + pendingRegions + ")";
+            return "waiting for map load (pending regions " + pendingRegions + ")";
         }
         if (XaeroNavConfig.INSTANCE.deepLookAheadEnabled()) {
-            return "読み込み済みの余地が足りない (残り" + extendLead(player, end, renderRadius)
-                    + "ブロック, 要" + PathfindingState.MIN_DETAIL_REACH_BLOCKS + ")";
+            return "not enough loaded room (left " + extendLead(player, end, renderRadius)
+                    + " blocks, need " + PathfindingState.MIN_DETAIL_REACH_BLOCKS + ")";
         }
-        return "末端まで" + Math.round(PathfindingState.distanceTo(player.position(), end)) + "ブロック (継ぎ足しは"
-                + Math.round(Math.min(PathfindingState.EXTEND_DISTANCE_BLOCKS, pathLength(steps))) + "ブロック手前から)";
+        return Math.round(PathfindingState.distanceTo(player.position(), end)) + " blocks to end (extends from "
+                + Math.round(Math.min(PathfindingState.EXTEND_DISTANCE_BLOCKS, pathLength(steps))) + " blocks before it)";
     }
 
     /**
@@ -271,7 +271,7 @@ final class Extend {
      * {@code EXHAUSTED}で終わり、{@code complete()}は決して真にならない。
      */
     private static int extendLead(Player player, BlockPos end, int renderRadius) {
-        return renderRadius - (int) Math.round(PathfindingState.horizontalDistance(player.blockPosition(), end));
+        return renderRadius - (int) Math.round(BlockDistance.horizontal(player.blockPosition(), end));
     }
 
     /**
@@ -313,12 +313,7 @@ final class Extend {
      * 同じ扱いで、合成後の{@code complete}がfalseになることで次からは自然に上のトリガーへ引き継がれる。
      */
     void extendPath(PathfindingState.DisplayedPath shown) {
-        long lap = TickLaps.start();
-        try {
-            extendPathNow(shown);
-        } finally {
-            TickLaps.add("継ぎ足し", lap);
-        }
+        TickLaps.measure("extend", () -> extendPathNow(shown));
     }
 
     private void extendPathNow(PathfindingState.DisplayedPath shown) {
@@ -333,9 +328,8 @@ final class Extend {
         BlockPos from = steps.get(steps.size() - 1).pos();
         boolean boatAvailable = ChunkView.boatAvailable(player);
         int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
-        // 継続はワーカースレッドで走るので、プレイヤー・次元はここで写し取ってから渡す
+        // 継続はワーカースレッドで走るので、プレイヤーの位置はここで写し取ってから渡す
         BlockPos playerAt = player.blockPosition();
-        ResourceKey<Level> searchDimension = level.dimension();
         boolean ceilingDimension = level.dimensionType().hasCeiling();
 
         // 末端基準の上限は、プレイヤー中心の読み込み済み正方形の「残り」で切る（extendLead参照）
@@ -363,7 +357,7 @@ final class Extend {
         boolean landing = goalGuide != null && goalGuide.landing() != null
                 && target.equals(goalGuide.landing().target());
         if (target.equals(from)
-                || (!aimingAtGoal && !landing && PathfindingState.horizontalDistance(from, target) > lead)) {
+                || (!aimingAtGoal && !landing && BlockDistance.horizontal(from, target) > lead)) {
             // これ以上伸ばす先が無いか、伸ばす先が読み込み済みチャンクの外（中間目標が1つも
             // 残りの中に無いとselectDetailTargetは本来の目的地へフォールバックする）。
             // 歯止めを立てないと、shouldExtendが毎tick真を返し続け、そのたびに
@@ -378,9 +372,8 @@ final class Extend {
                         tuning.searchHorizontalMargin(), landing, goalGuide.costToGo())
                 : SearchBounds.around(level, from, target, tuning.searchHorizontalMargin(),
                         PathfindingState.verticalSearchMargin(level, false), renderRadius);
-        long captureLap = TickLaps.start();
-        ChunkView view = ChunkView.capture(level, player, bounds, tuning.movementOptions());
-        TickLaps.add("チャンク集め", captureLap);
+        ChunkView view = TickLaps.measure("chunk capture",
+                () -> ChunkView.capture(level, player, bounds, tuning.movementOptions()));
         SearchLimits limits = navGraphGuided ? PathfindingState.navGraphLimits(tuning.searchLimits())
                 : tuning.searchLimits();
 
@@ -399,12 +392,12 @@ final class Extend {
         CompletableFuture<PathResult> extendFuture = executor.submit(
                 AvoidedCellSource.wrap(futureTerrain, recentFailures.avoided()), from, target, limits,
                 costToGoGuideEnabled, detail.goalRadius(), carried, prepared);
-        generationGate.whenStillCurrent(extendFuture, myGeneration, TickLaps.timed("受け取り/継ぎ足し", (result, error) -> {
+        generationGate.whenStillCurrent(extendFuture, myGeneration, TickLaps.timed("receive/extend", (result, error) -> {
             try {
                 host.setComputing(false);
                 if (error != null) {
                     if (!(error instanceof CancellationException)) {
-                        LOGGER.error("XaeroNav: 経路の延長に失敗しました", error);
+                        LOGGER.error("XaeroNav: failed to extend the path", error);
                     }
                     return;
                 }
@@ -429,7 +422,7 @@ final class Extend {
                     return;
                 }
                 if (!result.complete()
-                        && PathfindingState.horizontalDistance(from, tail.get(tail.size() - 1).pos())
+                        && BlockDistance.horizontal(from, tail.get(tail.size() - 1).pos())
                                 < PathfindingState.MIN_EXTEND_PROGRESS_BLOCKS) {
                     // 予算切れの末端からは伸ばしてよいが、ほとんど前へ出ていないならそれ以上は無駄。
                     // selectFallbackは「始点から5ブロック以上離れた最良点」を返すので、行き止まりの
@@ -444,23 +437,20 @@ final class Extend {
                 // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
                 // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
                 // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
-                long loopLap = TickLaps.start();
-                SeamRepair.Loop loop = noteLoop(steps, tail, PathProgress.INSTANCE.indexFor(current.result()) + 1,
-                        target, result, navGraphGuided);
-                TickLaps.add("輪の検出", loopLap);
-                long retreatLap = TickLaps.start();
-                noteRetreatingTail(from, tail.get(tail.size() - 1).pos(), currentGoal, target, result, goalGuide);
-                TickLaps.add("遠ざかりの点検", retreatLap);
+                SeamRepair.Loop loop = TickLaps.measure("loop detection",
+                        () -> noteLoop(steps, tail, PathProgress.INSTANCE.indexFor(current.result()) + 1,
+                                target, result, navGraphGuided));
+                TickLaps.measure("retreat check", () -> noteRetreatingTail(from, tail.get(tail.size() - 1).pos(),
+                        currentGoal, target, result, goalGuide));
                 seamRepair.queue(from);
                 if (loop != null) {
                     seamRepair.queueLoop(loop);
                 }
-                RouteExplain.log("継ぎ足し", level, from, target, currentGoal, result, prepared,
+                RouteExplain.log("extend", level, from, target, currentGoal, result, prepared,
                         goalGuide == null ? null : goalGuide.costToGo(), view,
                         tuning.movementOptions(), renderRadius);
-                long appendLap = TickLaps.start();
-                host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal));
-                TickLaps.add("継ぎ足しの連結", appendLap);
+                TickLaps.measure("extend append",
+                        () -> host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal)));
                 blockedAt = null;
                 blockedFrom = null;
             } finally {
@@ -481,23 +471,23 @@ final class Extend {
         if (!LOGGER.isDebugEnabled()) {
             return;
         }
-        double fromLeft = PathfindingState.horizontalDistance(from, currentGoal);
-        double endLeft = PathfindingState.horizontalDistance(end, currentGoal);
+        double fromLeft = BlockDistance.horizontal(from, currentGoal);
+        double endLeft = BlockDistance.horizontal(end, currentGoal);
         if (endLeft <= fromLeft + RETREATING_TAIL_LOG_BLOCKS) {
             return;
         }
         NavGraphGuide.logOffThread(() -> {
-            String guide = "無し";
+            String guide = "none";
             if (goalGuide != null) {
                 CostToGo costToGo = goalGuide.costToGo();
-                guide = "%s 継ぎ足す前=%d%s 継ぎ足し後=%d%s, 継ぎ足す前の値の出どころ=%s, 継ぎ足し後の値の出どころ=%s".formatted(
-                        goalGuide.navGraph() ? "航法グラフ" : "3D粗層など",
+                guide = "%s before=%d%s after=%d%s, value origin before=%s, value origin after=%s".formatted(
+                        goalGuide.navGraph() ? "nav graph" : "3D coarse layer etc.",
                         Math.round(costToGo.estimate(from.getX(), from.getY(), from.getZ())), windowNote(costToGo, from),
                         Math.round(costToGo.estimate(end.getX(), end.getY(), end.getZ())), windowNote(costToGo, end),
                         NavGraphGuide.origin(costToGo, from), NavGraphGuide.origin(costToGo, end));
             }
-            LOGGER.debug("XaeroNav: 継ぎ足しが目的地から遠ざかりました (継ぎ足す前の末端={}で目的地まで{}, 継ぎ足し後の末端={}で{}, "
-                            + "{}ステップ/{}, 狙った先={}, ガイド={})",
+            LOGGER.debug("XaeroNav: extension moved away from the goal (end before={} with {} to goal, end after={} with {}, "
+                            + "{} steps/{}, aimed at={}, guide={})",
                     from.toShortString(), Math.round(fromLeft), end.toShortString(), Math.round(endLeft),
                     result.steps().size(), result.termination(), target.toShortString(), guide);
         });
@@ -507,7 +497,7 @@ final class Extend {
         if (!(costToGo instanceof WindowField field)) {
             return "";
         }
-        return field.measuredInWindow(pos.getX(), pos.getZ()) ? "(窓の中)" : "(窓の外の推定)";
+        return field.measuredInWindow(pos.getX(), pos.getZ()) ? "(inside window)" : "(outside-window estimate)";
     }
 
     /**
@@ -526,8 +516,9 @@ final class Extend {
         if (found == null) {
             return null;
         }
-        LOGGER.debug("XaeroNav: 継ぎ足しが経路の手前へ戻ってきました (継ぎ足しの{}ステップ目={}, 経路の{}ステップ目={}の近く, "
-                        + "経路に沿って{}ステップの輪, 経路={}ステップ, 継ぎ足し={}ステップ/{}, 末端={}, 狙った先={}, 航法グラフ={})",
+        LOGGER.debug("XaeroNav: extension came back to an earlier part of the path (extension step {}={}, near path step {}={}, "
+                        + "loop of {} steps along the path, path={} steps, extension={} steps/{}, end={}, aimed at={}, "
+                        + "nav graph={})",
                 found.rejoin(), tail.get(found.rejoin()).pos().toShortString(), found.entry(),
                 route.get(found.entry()).pos().toShortString(), found.gap(), route.size(), tail.size(),
                 result.termination(), route.get(route.size() - 1).pos().toShortString(), target.toShortString(),

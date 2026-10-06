@@ -97,7 +97,7 @@ public final class NavGraph {
      */
     public void retarget(BlockPos goal) {
         if (goal.getX() != this.goal.getX() || goal.getZ() != this.goal.getZ()) {
-            throw new IllegalArgumentException("目的地の列が違う: " + this.goal.toShortString() + " → "
+            throw new IllegalArgumentException("Goal column differs: " + this.goal.toShortString() + " → "
                     + goal.toShortString());
         }
         this.goal = goal.immutable();

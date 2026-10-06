@@ -51,10 +51,10 @@ Contributor-facing design contracts are collected in the
 
 This is still a 0.x release, and routing is the part still worth stress-testing. If a route detours,
 stops short, never appears, or sends you somewhere you cannot follow, run
-`/xaeronav debug probe <x> <y> <z>` where it happens and
+`/xaeronav debug` and `/xaeronav debug probe` where it happens and
 [open an issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) with that output —
-it says what the search reached and why it stopped, which is usually enough to reproduce the
-problem here.
+it shows the current state and what the search reached and why it stopped, which is usually enough
+to reproduce the problem here.
 
 ![Route drawn on Xaero's World Map](docs/images/map-image.png)
 
@@ -210,13 +210,11 @@ Clear the route with `/xaeronav clear` or its keybind.
 | `/xaeronav goto <x> <y> <z>` | Set the destination |
 | `/xaeronav clear` | Clear the route |
 | `/xaeronav version` | Print the running build (include this in bug reports) |
+| `/xaeronav debug` | Print the current state for a bug report (versions, dimension, seed, position, destination, route, Xaero hooks, key settings); also copied to the clipboard and written to `latest.log` |
+| `/xaeronav debug probe` | Measure toward the current destination: Xaero map data around you, the long-distance route summary, and what the detailed search reached and why it stopped (the aerial route while gliding) |
 
-`/xaeronav debug ...` holds measurement commands that print numbers to chat without navigating
-anywhere: `mapdata [radiusChunks]` for how much of Xaero's map data is available around you,
-`route` and `corridor` for the coarse waypoint chain and its per-leg refinement, `probe` for what
-the detailed search reached and why it stopped, and `flight` for the aerial route. They are there
-to explain a route that came out wrong, so attach their output to a bug report — but review it
-first, since it includes your current position, destination, and nearby terrain.
+Neither replans the route, so navigation is unaffected. The `/xaeronav debug` output includes your
+coordinates and the world seed — review it before posting it publicly.
 
 ### Keybinds
 

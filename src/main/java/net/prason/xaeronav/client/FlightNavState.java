@@ -2,9 +2,7 @@ package net.prason.xaeronav.client;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.Nullable;
@@ -40,6 +38,7 @@ import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.util.GameCompat;
+import net.prason.xaeronav.util.DaemonThreads;
 
 /**
  * エリトラで滑空している間の案内。3D空中経路（太線）と、その先を繋ぐ中間目標の点線を持つ。
@@ -194,12 +193,7 @@ final class FlightNavState {
      * 滑空中の点線を曲げる計算専用。A*とはライフサイクルも打ち切り方も関係が無いので、
      * {@code PathfindingExecutor}（呼ぶたび前のジョブを打ち切る）ではなく素のスレッドを1本持つ。
      */
-    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
-            new LinkedBlockingQueue<>(), runnable -> {
-                Thread thread = new Thread(runnable, "xaeronav-flight-line");
-                thread.setDaemon(true);
-                return thread;
-            });
+    private final ThreadPoolExecutor executor = DaemonThreads.singleThread("xaeronav-flight-line");
 
     /** 空中経路（太線で描く本体）。引けなければ空。 */
     private volatile FlightRoute route = FlightRoute.NONE;
@@ -400,7 +394,7 @@ final class FlightNavState {
                     try {
                         computing = false;
                         if (error != null) {
-                            LOGGER.error("XaeroNav: 滑空中の経路の計算に失敗しました", error);
+                            LOGGER.error("XaeroNav: failed to compute the gliding route", error);
                             return;
                         }
                         if (result.coarse() != null) {
@@ -565,7 +559,7 @@ final class FlightNavState {
      * Xaeroの地図から空中の長距離ルートを1本解く。<b>メインスレッド専用</b>
      * （{@code XaeroMapReader.readSurface}がXaeroの書き込みスレッドと同じ構造を触るため）。
      *
-     * <p>診断コマンド（{@code /xaeronav debug flight}）もここを通すこと。範囲やマージンを別々に組むと、
+     * <p>診断コマンド（{@code /xaeronav debug probe}の滑空中）もここを通すこと。範囲やマージンを別々に組むと、
      * 測った数字が実際の案内と食い違う——実際に、診断側の独自実装はチャンク範囲が常に1つ狭く、
      * 目的地が地図の外に落ちると「中間目標0本」と報告していた（{@link #tuning()}を1箇所に
      * 置いてあるのと同じ理由）。
@@ -700,12 +694,12 @@ final class FlightNavState {
                     try {
                         computing = false;
                         if (error != null) {
-                            LOGGER.error("XaeroNav: 空中経路の継ぎ足しに失敗しました", error);
+                            LOGGER.error("XaeroNav: failed to extend the flight route", error);
                             return;
                         }
                         FlightRoute extension = result.route();
                         Vec3 grown = extension.tail();
-                        LOGGER.debug("XaeroNav: 空中経路の継ぎ足し ({}, 展開={}, {}ms, 伸び={}ブロック, 格子={})",
+                        LOGGER.debug("XaeroNav: extended the flight route ({}, expanded={}, {}ms, gained={} blocks, grid={})",
                                 extension.termination(), extension.expandedNodes(),
                                 (System.nanoTime() - startedAt) / 1_000_000L,
                                 grown == null ? 0 : Mth.floor(tail.distanceTo(grown)), extension.cellBlocks());
@@ -736,7 +730,7 @@ final class FlightNavState {
                                 ? spliced(source, result.segmentAtStart(), result.cut(), extension)
                                 : source.append(extension);
                         if (result.cut() != null) {
-                            LOGGER.debug("XaeroNav: 空中経路の継ぎ足しが手前へ戻ってきたので、行って戻る区間を切り落としました");
+                            LOGGER.debug("XaeroNav: flight route extension doubled back, trimmed the out-and-back section");
                         }
                         // 対応づけを引き継がないと、伸ばした瞬間だけ通過済みの区間が描き直される
                         FlightProgress.INSTANCE.carryOver(extended);
@@ -782,10 +776,10 @@ final class FlightNavState {
                     try {
                         computing = false;
                         if (error != null) {
-                            LOGGER.error("XaeroNav: 空中経路の引き直しに失敗しました", error);
+                            LOGGER.error("XaeroNav: failed to replan the flight route", error);
                             return;
                         }
-                        LOGGER.debug("XaeroNav: 空中経路を{}ブロック先から引き直し ({}, 展開={}, {}ms)",
+                        LOGGER.debug("XaeroNav: replanned the flight route from {} blocks ahead ({}, expanded={}, {}ms)",
                                 (int) REROUTE_KEEP_BLOCKS, solved.termination(), solved.expandedNodes(),
                                 (System.nanoTime() - startedAt) / 1_000_000L);
                         if (!current.stillFlyingTo(currentGoal, dimension) || route != source || solved.isEmpty()) {

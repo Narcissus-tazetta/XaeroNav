@@ -693,7 +693,7 @@ public final class WindowField implements CostToGo {
             y = ty;
             z = tz;
         }
-        throw new IllegalStateException("ガイドを下りきれない: " + x + ", " + y + ", " + z);
+        throw new IllegalStateException("Could not descend the guide to the end: " + x + ", " + y + ", " + z);
     }
 
     /**

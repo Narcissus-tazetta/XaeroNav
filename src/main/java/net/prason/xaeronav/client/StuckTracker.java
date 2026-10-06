@@ -3,6 +3,7 @@ package net.prason.xaeronav.client;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * 「目的地へ行けない」の判定。{@code PathfindingState}から詰み判定だけを切り出したもの
@@ -99,7 +100,8 @@ final class StuckTracker {
             reason = null;
             return;
         }
-        double approach = Math.min(horizontalDistance(start, currentGoal), horizontalDistance(planEnd, currentGoal));
+        double approach = Math.min(BlockDistance.horizontal(start, currentGoal),
+                BlockDistance.horizontal(planEnd, currentGoal));
         // 高水位がPROGRESS_BLOCKSを切ったら、そこから更にその幅ぶん近づいた探索は
         // 原理的に出せない（距離は0未満にならない）。一度でも目的地のそばまで届いた目的地では
         // 以後どんな探索も前進と認められず、未到達がSEARCH_STREAK回続くだけで「行けません」になる
@@ -126,7 +128,7 @@ final class StuckTracker {
         }
         reason = classify(result, routeUnmapped);
         pendingNotice = reason;
-        XaeroNav.LOGGER.info("XaeroNav: 目的地へ行けないと判断しました (理由={}, 最接近={}ブロック, 目的地={})",
+        XaeroNav.LOGGER.info("XaeroNav: concluded the goal is unreachable (reason={}, closest={} blocks, goal={})",
                 reason, Math.round(bestApproachBlocks), currentGoal.toShortString());
     }
 
@@ -147,13 +149,4 @@ final class StuckTracker {
                 : PathfindingState.StuckReason.NO_WAY_THROUGH;
     }
 
-    /**
-     * {@code PathfindingState#horizontalDistance}と同じ式を独立に持つ。詰み判定はyを見ない
-     * （地図上の距離だけで「近づいたか」を測る）という意味的な決定を、この式自体に閉じ込めるため。
-     */
-    private static double horizontalDistance(BlockPos a, BlockPos b) {
-        double dx = a.getX() - b.getX();
-        double dz = a.getZ() - b.getZ();
-        return Math.sqrt(dx * dx + dz * dz);
-    }
 }

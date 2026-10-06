@@ -49,8 +49,8 @@ public final class XaeroHookHealth {
         }
         if (++ticksWithMapOpen > GRACE_TICKS) {
             renderBroken = true;
-            XaeroNav.LOGGER.warn("XaeroNav: 世界地図のmixinは当たっているが、描画の注入点を一度も通っていない。"
-                    + "Xaeroの版が対応範囲の外にある可能性がある");
+            XaeroNav.LOGGER.warn("XaeroNav: world map mixin is applied but its render injection point was never reached."
+                    + " The installed Xaero version may be outside the supported range");
         }
     }
 

@@ -375,6 +375,6 @@ HUD は「道が無い」ではなく「上限の内側には道が無い」と�
 設計の約束事（変えてはいけない不変条件と、それを守るテスト）は
 [アーキテクチャ判断記録](architecture/README.md) にまとめています。
 
-うまくいかない経路を見つけたら、その場で `/xaeronav debug probe <x> <y> <z>` を実行し、出力を添えて
+うまくいかない経路を見つけたら、その場で `/xaeronav debug` と `/xaeronav debug probe` を実行し、出力を添えて
 [issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) を立ててください。
 探索がどこまで届き、なぜ止まったかが分かります。

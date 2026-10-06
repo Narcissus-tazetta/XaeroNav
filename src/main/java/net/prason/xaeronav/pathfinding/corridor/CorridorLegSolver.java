@@ -11,8 +11,7 @@ import net.prason.xaeronav.xaero.XaeroMapReader;
 
 /**
  * 長距離ルート層1のwaypoint線分1本を、層2（ブロック解像度のXaero地表データ）で解決する準備を行う。
- * {@code /xaeronav debug corridor}診断コマンドと{@link net.prason.xaeronav.client.PathfindingState}の
- * waypoint精緻化が共有するロジック。
+ * {@link net.prason.xaeronav.client.PathfindingState}のwaypoint精緻化が使う。
  *
  * <p><b>スレッド契約:</b> {@link #prepare}は{@link XaeroMapReader}経由でXaeroの地図データを読むため
  * メインスレッド専用（{@link XaeroMapReader}のクラスJavadoc参照）。結果の{@link PreparedLeg#view()}は

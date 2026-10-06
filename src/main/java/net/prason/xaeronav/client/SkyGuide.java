@@ -95,9 +95,9 @@ final class SkyGuide {
         }
         BlockPos chosen = descentPoint(goal, route, (x, z) -> surfaceY(level, map, x, z));
         if (!chosen.equals(pillar)) {
-            LOGGER.debug("XaeroNav: 光の柱の地点 ({}, {}, {}, 目的地={}, {}, {}, 中間目標{}本, 地図{})",
+            LOGGER.debug("XaeroNav: sky pillar at ({}, {}, {}, goal={}, {}, {}, {} waypoints, map {})",
                     chosen.getX(), chosen.getY(), chosen.getZ(), goal.getX(), goal.getY(), goal.getZ(),
-                    route.size(), map == null ? "なし" : "あり");
+                    route.size(), map == null ? "absent" : "present");
         }
         pillar = chosen;
         pillarGoal = goal;

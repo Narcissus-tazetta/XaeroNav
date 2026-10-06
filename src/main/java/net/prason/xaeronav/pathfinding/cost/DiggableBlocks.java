@@ -217,7 +217,7 @@ public final class DiggableBlocks {
             ResourceLocation location = ResourceLocation.tryParse(id);
             Block block = location == null ? null : BlockRegistryCompat.byId(location);
             if (block == null) {
-                LOGGER.warn("XaeroNav config: 未知のブロックIDを無視しました: {}", id);
+                LOGGER.warn("XaeroNav config: ignored unknown block ID: {}", id);
                 continue;
             }
             blocks.add(block);
