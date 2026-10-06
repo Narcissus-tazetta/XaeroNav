@@ -11,12 +11,16 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.world.CellData;
+import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.util.MathSupport;
 import net.prason.xaeronav.util.GameCompat;
 
@@ -103,6 +107,38 @@ public final class PathRenderer {
     /** 次に掘る1区間ぶんだけは、ほかの枠より濃くして見分けられるようにする。 */
     private static final float NEXT_DIG_FILL_ALPHA = 0.5f;
 
+    /**
+     * オークのボートの船体（底・後ろ・前・右・左の5つの箱）。並びは{minX, minY, minZ, maxX, maxY, maxZ}で、
+     * 原点はボートの底の中心、前が+Z。櫂は形を読む邪魔になるので入れない。
+     *
+     * <p>{@code BoatModel#addCommonParts}の箱を{@code BoatRenderer}と同じ変換（0.375上げる・
+     * scale(-1,-1,1)・Y軸90°）で写した値。どの部品も回転が90°の倍数なので、写した後も軸に沿った箱のまま。
+     */
+    private static final double[][] BOAT_HULL = {
+            {-0.5, 0.0, -0.875, 0.5, 0.1875, 0.875},
+            {-0.5625, 0.1875, -1.0, 0.5625, 0.5625, -0.875},
+            {-0.5, 0.1875, 0.875, 0.5, 0.5625, 1.0},
+            {-0.625, 0.1875, -0.875, -0.5, 0.5625, 0.875},
+            {0.5, 0.1875, -0.875, 0.625, 0.5625, 0.875},
+    };
+    /** 箱の8隅を{@code x | y<<1 | z<<2}で番号づけしたときの6面。 */
+    private static final int[][] BOX_FACES = {
+            {0, 2, 6, 4}, {1, 5, 7, 3}, {0, 4, 5, 1}, {2, 3, 7, 6}, {0, 1, 3, 2}, {4, 6, 7, 5},
+    };
+    /** 同じ番号づけでの12辺。 */
+    private static final int[][] BOX_EDGES = {
+            {0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7},
+    };
+    /**
+     * ボートの枠を「越えた」とみなす範囲（ブロック）。枠より先へ{@link #BOAT_CROSS_DEPTH}以内、
+     * 進む向きの左右に{@link #BOAT_CROSS_HALF_WIDTH}以内。範囲を切らないと、岸沿いに回り込んでから
+     * 水へ出る経路で、枠の手前にいるうちから越えた扱いになる。
+     */
+    private static final double BOAT_CROSS_DEPTH = 3.0;
+    private static final double BOAT_CROSS_HALF_WIDTH = 1.5;
+    /** 枠の近くにボートが置かれたとみなす範囲（ブロック）。ボートは置いた位置から少し流れる。 */
+    private static final double BOAT_PLACED_RADIUS = 2.0;
+
     /** 打ち切られた経路の末端の、いちばん先での濃さの割合。0にすると切れ目が見えなくなる。 */
     private static final float FADE_TAIL_MIN_RATIO = 0.15f;
 
@@ -128,6 +164,19 @@ public final class PathRenderer {
 
     // 通り過ぎた区間を切り詰めた描き始めの点（描画スレッド専用）。区間ごとに配列を作らない
     private final double[] segmentCut = new double[3];
+
+    // ボートの箱の8隅（描画スレッド専用）
+    private final double[] cornerX = new double[8];
+    private final double[] cornerY = new double[8];
+    private final double[] cornerZ = new double[8];
+    // ボートの枠ごとの今フレームの表示可否。面と辺の2回の走査で判定を揃えるために持つ（描画スレッド専用）
+    private boolean[] boatLaunchShown = new boolean[0];
+
+    /**
+     * ボートの枠を1つ越えたら、水から上がるまでボートの枠を出さない。ボートを使わずに泳いで渡る人には
+     * 枠が要らないうえ、泳いでいる間も経路は引き直され、そのたびに少し先へ新しい枠が出てしまう。
+     */
+    private boolean boatLaunchesDismissed;
 
     // 経路がまだ無いときに点線を引き始めるプレイヤーの足元（描画スレッド専用）。
     private double playerX;
@@ -454,8 +503,23 @@ public final class PathRenderer {
             drawHighlightBox(quadBuffer, pose, geometry, i,
                     nextDig.contains(i) ? NEXT_DIG_FILL_ALPHA : HIGHLIGHT_FILL_ALPHA);
         }
+        int visibleBoats = updateBoatLaunchesShown(geometry, matched, camera, cullRadiusSq);
+        for (int i = 0; i < geometry.boatLaunches.length; i++) {
+            if (boatLaunchShown[i]) {
+                drawBoatHull(quadBuffer, pose, geometry.boatLaunches[i], false);
+            }
+        }
         bufferSource.endBatch(NavRenderTypes.DEBUG_QUADS);
 
+        if (visibleBoats > 0) {
+            VertexConsumer lineBuffer = bufferSource.getBuffer(NavRenderTypes.LINES);
+            for (int i = 0; i < geometry.boatLaunches.length; i++) {
+                if (boatLaunchShown[i]) {
+                    drawBoatHull(lineBuffer, pose, geometry.boatLaunches[i], true);
+                }
+            }
+            bufferSource.endBatch(NavRenderTypes.LINES);
+        }
         if (visibleHighlights > 0) {
             VertexConsumer lineBuffer = bufferSource.getBuffer(NavRenderTypes.LINES);
             for (int i = 0; i < highlights; i++) {
@@ -632,6 +696,96 @@ public final class PathRenderer {
         return geometry.highlightPlacement[index]
                 ? placementPending(geometry, index)
                 : digPending(geometry, index);
+    }
+
+    /**
+     * ボートの枠ごとに今フレーム出すかを決め、出す数を返す。出さないのは、ボートに乗っている間・
+     * 枠を通り過ぎた後（線と同じ進捗で切る）・枠の近くにボートが置かれた後・枠を越えた後
+     * （{@link #boatLaunchesDismissed}）。
+     */
+    private int updateBoatLaunchesShown(PathGeometry geometry, int matched, Vec3 camera, double cullRadiusSq) {
+        PathGeometry.BoatLaunch[] launches = geometry.boatLaunches;
+        if (boatLaunchShown.length < launches.length) {
+            boatLaunchShown = new boolean[launches.length];
+        }
+        Arrays.fill(boatLaunchShown, false);
+        Minecraft mc = Minecraft.getInstance();
+        Player player = mc.player;
+        boolean riding = ChunkView.ridingBoat(player);
+        if (!riding && !player.isInWater()) {
+            boatLaunchesDismissed = false;
+        }
+        if (riding || boatLaunchesDismissed) {
+            return 0;
+        }
+        int shown = 0;
+        for (int i = 0; i < launches.length; i++) {
+            PathGeometry.BoatLaunch launch = launches[i];
+            double offX = player.getX() - launch.x();
+            double offZ = player.getZ() - launch.z();
+            double ahead = offX * launch.forwardX() + offZ * launch.forwardZ();
+            double aside = Math.abs(offX * launch.forwardZ() - offZ * launch.forwardX());
+            boolean crossed = ahead > 0.0 && ahead <= BOAT_CROSS_DEPTH && aside <= BOAT_CROSS_HALF_WIDTH;
+            // 進捗で通り過ぎた側も、水の中なら乗らずに泳いで越えたということ。進捗の判定だけで
+            // 済ませると越えた印が立たず、泳いでいる間に先へ新しい枠が出続ける
+            if (crossed || (launch.step() < matched && player.isInWater())) {
+                boatLaunchesDismissed = true;
+                Arrays.fill(boatLaunchShown, false);
+                return 0;
+            }
+            if (launch.step() < matched) {
+                continue;
+            }
+            double dx = launch.x() - camera.x;
+            double dy = launch.y() - camera.y;
+            double dz = launch.z() - camera.z;
+            if (dx * dx + dy * dy + dz * dz > cullRadiusSq) {
+                continue;
+            }
+            AABB around = new AABB(launch.x() - BOAT_PLACED_RADIUS, launch.y() - 1.0, launch.z() - BOAT_PLACED_RADIUS,
+                    launch.x() + BOAT_PLACED_RADIUS, launch.y() + 2.0, launch.z() + BOAT_PLACED_RADIUS);
+            if (!mc.level.getEntitiesOfClass(Boat.class, around).isEmpty()) {
+                continue;
+            }
+            boatLaunchShown[i] = true;
+            shown++;
+        }
+        return shown;
+    }
+
+    /** ボートの船体を、面（薄く塗る）か辺のどちらかで描く。 */
+    private void drawBoatHull(VertexConsumer buffer, PoseStack.Pose pose, PathGeometry.BoatLaunch launch,
+                              boolean edges) {
+        float[] color = PathColors.BOAT;
+        double forwardX = launch.forwardX();
+        double forwardZ = launch.forwardZ();
+        for (double[] box : BOAT_HULL) {
+            for (int corner = 0; corner < 8; corner++) {
+                double localX = (corner & 1) == 0 ? box[0] : box[3];
+                double localY = (corner & 2) == 0 ? box[1] : box[4];
+                double localZ = (corner & 4) == 0 ? box[2] : box[5];
+                cornerX[corner] = launch.x() + localX * forwardZ + localZ * forwardX;
+                cornerY[corner] = launch.y() + localY;
+                cornerZ[corner] = launch.z() - localX * forwardX + localZ * forwardZ;
+            }
+            if (edges) {
+                for (int[] edge : BOX_EDGES) {
+                    line(buffer, pose,
+                            (float) cornerX[edge[0]], (float) cornerY[edge[0]], (float) cornerZ[edge[0]],
+                            (float) cornerX[edge[1]], (float) cornerY[edge[1]], (float) cornerZ[edge[1]],
+                            color[0], color[1], color[2]);
+                }
+                continue;
+            }
+            for (int[] face : BOX_FACES) {
+                quad(buffer, pose,
+                        cornerX[face[0]], cornerY[face[0]], cornerZ[face[0]],
+                        cornerX[face[1]], cornerY[face[1]], cornerZ[face[1]],
+                        cornerX[face[2]], cornerY[face[2]], cornerZ[face[2]],
+                        cornerX[face[3]], cornerY[face[3]], cornerZ[face[3]],
+                        color[0], color[1], color[2], HIGHLIGHT_FILL_ALPHA);
+            }
+        }
     }
 
     /**
