@@ -149,8 +149,8 @@ final class DebugReport {
 
     /**
      * {@code ResourceKey[minecraft:dimension / minecraft:overworld]}から{@code minecraft:overworld}だけを取り出す。
-     * 識別子を返すメソッドは版によって名前と型が違う（1.21.11で{@code ResourceLocation}が{@code Identifier}に
-     * なった）ので、どの版にもある{@code toString}から切り出す。
+     * 識別子の型は1.21.11で改名された（stonecutter.gradle.ktsの置換）ので、どの版にもある{@code toString}から
+     * 切り出す。
      */
     private static String dimensionId(@Nullable ResourceKey<Level> dimension) {
         if (dimension == null) {
