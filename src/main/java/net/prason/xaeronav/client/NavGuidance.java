@@ -3,7 +3,6 @@ package net.prason.xaeronav.client;
 import java.util.List;
 
 import net.minecraft.core.BlockPos;
-import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
@@ -123,8 +122,7 @@ final class NavGuidance {
             this.movementTicks = new double[size];
             this.movementBlocks = new double[size];
             this.actionTicks = new double[size];
-            this.endsMounted = size > 0 && (steps.get(size - 1).movement() == MovementType.MOUNT
-                    || steps.get(size - 1).movement() == MovementType.MOUNT_SWIM);
+            this.endsMounted = size > 0 && steps.get(size - 1).movement().rides();
 
             for (int i = 1; i < size; i++) {
                 PathStep step = steps.get(i);

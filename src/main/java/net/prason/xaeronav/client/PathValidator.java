@@ -260,7 +260,7 @@ final class PathValidator {
                 return new CellFailure(pos, "step %d (%s): nothing to climb pos=%s"
                         .formatted(i, step.movement(), pos.toShortString()));
             }
-        } else if (step.movement() == MovementType.MOUNT) {
+        } else if (step.movement().ridesOnLand()) {
             // 乗り物の足場は2×2で、4列のどれかに床があれば立てる
             if (!mountFooting(level, pos, cursor)) {
                 BlockPos footing = pos.below();

@@ -27,8 +27,20 @@ public enum MovementType {
      * {@code (x+1, z+1)}にある。
      */
     MOUNT,
+    /** {@link #MOUNT}のうち、ジャンプキーを溜めて段へ跳び上がる・隙間を跳び越える手。乗り手の操作が要る。 */
+    MOUNT_JUMP,
     /** オウムガイに乗ったまま水中を進む区間。{@link PathStep#pos}はオウムガイのいる水のセルで、乗り手はその上2マス。 */
     MOUNT_SWIM,
     /** 乗り物を降りて置いていく。{@link PathStep#pos}は降りて立つセルで、この先は歩く。 */
-    DISMOUNT
+    DISMOUNT;
+
+    /** 馬の仲間・ラクダに乗ったまま地上を進む区間か。{@link PathStep#pos}が2×2の足場の角になる。 */
+    public boolean ridesOnLand() {
+        return this == MOUNT || this == MOUNT_JUMP;
+    }
+
+    /** 乗り物に乗ったまま進む区間か。 */
+    public boolean rides() {
+        return ridesOnLand() || this == MOUNT_SWIM;
+    }
 }

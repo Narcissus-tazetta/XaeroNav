@@ -4,7 +4,6 @@ import java.util.List;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
-import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 
@@ -151,6 +150,6 @@ final class PathProgress {
 
     /** ステップの中心のセル内の位置。乗り物の区間のセルは2×2の足場の角で、中心はセルの境目にある。 */
     private static double center(PathStep step) {
-        return step.movement() == MovementType.MOUNT ? 1.0 : 0.5;
+        return step.movement().ridesOnLand() ? 1.0 : 0.5;
     }
 }

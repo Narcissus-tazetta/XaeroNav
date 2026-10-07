@@ -62,7 +62,7 @@ class MountRoutesTest {
     }
 
     private static boolean ridesAllTheWay(PathResult result) {
-        return result.complete() && result.steps().stream().allMatch(step -> step.movement() == MovementType.MOUNT);
+        return result.complete() && result.steps().stream().allMatch(step -> step.movement().ridesOnLand());
     }
 
     /** 着くまでに1回だけ、{@code x}より手前で降りる。 */
@@ -91,7 +91,7 @@ class MountRoutesTest {
         assertTrue(horse.complete());
         assertFalse(passesCell(horse, 10, 0), "馬は1マス幅を通れない");
         assertTrue(passesCell(horse, 10, 6) && passesCell(horse, 10, 7));
-        assertTrue(horse.steps().stream().allMatch(step -> step.movement() == MovementType.MOUNT));
+        assertTrue(horse.steps().stream().allMatch(step -> step.movement().ridesOnLand()));
     }
 
     @Test
@@ -149,6 +149,7 @@ class MountRoutesTest {
                 .search(new BlockPos(0, Y, 0), new BlockPos(20, Y + 1, 0), () -> false);
 
         assertTrue(result.complete());
+        assertTrue(result.steps().stream().noneMatch(step -> step.movement() == MovementType.MOUNT_JUMP));
     }
 
     /** {@code x}から手前を{@code drop}段高い台地にして、そこから降りる。 */
@@ -196,7 +197,7 @@ class MountRoutesTest {
             PathResult result = search(cells, 0, 25);
             assertTrue(getsOffBefore(result, 10), "浅瀬も、跳べば越えられる川も、乗ったままは渡らない");
             for (PathStep step : result.steps()) {
-                if (step.movement() == MovementType.MOUNT) {
+                if (step.movement().ridesOnLand()) {
                     assertTrue(step.bodyCells().stream().noneMatch(cell -> CellData.water(
                             cells.cell(cell.getX(), cell.getY() - 1, cell.getZ()))), step.pos().toString());
                 }
@@ -269,7 +270,7 @@ class MountRoutesTest {
 
         assertTrue(result.complete());
         assertTrue(result.steps().get(0).movement() == MovementType.DISMOUNT, "まず降りると言う");
-        assertTrue(result.steps().stream().skip(1).noneMatch(step -> step.movement() == MovementType.MOUNT
+        assertTrue(result.steps().stream().skip(1).noneMatch(step -> step.movement().ridesOnLand()
                 || step.movement() == MovementType.DISMOUNT));
     }
 
@@ -291,6 +292,8 @@ class MountRoutesTest {
 
         assertTrue(result.complete());
         assertTrue(result.steps().stream().allMatch(step -> step.pos().getY() == Y), "谷へ降りずに跳び越える");
+        assertEquals(1, result.steps().stream().filter(step -> step.movement() == MovementType.MOUNT_JUMP).count(),
+                "跳ぶ手だけが跳躍として出る（HUDが跳ぶ所を知らせる）");
     }
 
     @Test

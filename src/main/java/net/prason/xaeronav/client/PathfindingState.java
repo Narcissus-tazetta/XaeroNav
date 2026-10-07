@@ -428,6 +428,9 @@ public final class PathfindingState {
      * 手前の経路ごと引き直したときだけ立てる。逸脱は自分で外れただけなので対象にしない。
      */
     private volatile int rerouteNoticeTicks;
+    /** 乗り物が変わって引き直した、その変わった後の乗り物。HUDが理由を出す間だけ残す。 */
+    private volatile @Nullable MountState mountNotice;
+    private volatile int mountNoticeTicks;
 
     /**
      * HUD・地図/ワールド描画が読む、地上ナビ関連stateの1フレーム分の合成snapshot。
@@ -593,6 +596,7 @@ public final class PathfindingState {
     private void publishNavigationView() {
         navigationView = new NavigationView(goal, flying, arrived, computing || awaitingNavGraph, stuckTracker.reason(), displayed,
                 coarseRoute, refinedRoute, passedWaypoints, rerouteNoticeTicks > 0,
+                mountNoticeTicks > 0 ? mountNotice : null,
                 flying ? flight.route() : FlightRoute.NONE, skyPillar());
     }
 
@@ -619,10 +623,10 @@ public final class PathfindingState {
     public record NavigationView(BlockPos goal, boolean flying, boolean arrived, boolean computing,
                                   StuckReason stuckReason, DisplayedPath displayed, CoarseRoute coarseRoute,
                                   RefinedRoute refinedRoute, int passedWaypoints, boolean rerouted,
-                                  FlightRoute flightRoute, @Nullable BlockPos skyPillar) {
+                                  @Nullable MountState mountChange, FlightRoute flightRoute, @Nullable BlockPos skyPillar) {
 
         private static NavigationView empty() {
-            return new NavigationView(null, false, false, false, null, null, null, null, 0, false,
+            return new NavigationView(null, false, false, false, null, null, null, null, 0, false, null,
                     FlightRoute.NONE, null);
         }
 
@@ -858,6 +862,7 @@ public final class PathfindingState {
         this.mapGrowth.reset();
         this.extend.clear();
         this.rerouteNoticeTicks = 0;
+        this.mountNoticeTicks = 0;
         this.flying = false;
         this.flight.reset();
         this.sky.reset();
@@ -1066,6 +1071,10 @@ public final class PathfindingState {
         try {
             if (rerouteNoticeTicks > 0) {
                 rerouteNoticeTicks--;
+            }
+            // 引き直しが終わるまでは数えない。探索の間に消えると、理由が出ないまま線だけ変わる
+            if (mountNoticeTicks > 0 && !computing) {
+                mountNoticeTicks--;
             }
             BlockPos currentGoal = goal;
             if (currentGoal == null) {
@@ -1303,10 +1312,12 @@ public final class PathfindingState {
             // 飛行モードの出入りはこの後のtickFlightModeが引き直す。ここでも引くと二重になる
             LOGGER.info("XaeroNav: mount changed {} -> {}, switching flight mode", mount, now);
             mount = now;
+            noticeMountChange(now);
             return false;
         }
         LOGGER.info("XaeroNav: mount changed {} -> {}, replanning", mount, now);
         mount = now;
+        noticeMountChange(now);
         generation.incrementAndGet();
         executor.cancelAll();
         computing = false;
@@ -1315,6 +1326,11 @@ public final class PathfindingState {
         stuckTracker.reset();
         recalculate("mount changed");
         return true;
+    }
+
+    private void noticeMountChange(MountState now) {
+        mountNotice = now;
+        mountNoticeTicks = REROUTE_NOTICE_TICKS;
     }
 
     private static boolean flies(MountState mount) {

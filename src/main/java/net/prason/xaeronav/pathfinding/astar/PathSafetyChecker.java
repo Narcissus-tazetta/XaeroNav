@@ -89,7 +89,7 @@ public final class PathSafetyChecker {
 
     private static boolean headUnderwater(CellSource view, PathStep step) {
         // 馬の目が浸かる足場はそもそも経路に入らず、オウムガイは乗り手に息の効果を付け続ける
-        if (step.movement() == MovementType.MOUNT || step.movement() == MovementType.MOUNT_SWIM) {
+        if (step.movement().rides()) {
             return false;
         }
         BlockPos pos = step.pos();

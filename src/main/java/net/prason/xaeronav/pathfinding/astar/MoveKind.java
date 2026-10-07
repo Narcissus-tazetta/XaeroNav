@@ -50,7 +50,7 @@ enum MoveKind {
     /** 乗り物で歩く・1段上がる・1段下りる（{@link MountMoves}）。体の通るセルは{@link MountMoves#bodyCells}が出す。 */
     MOUNT_WALK(MovementType.MOUNT),
     /** 乗り物で跳んで段を上がる・隙間を跳び越える。 */
-    MOUNT_JUMP(MovementType.MOUNT),
+    MOUNT_JUMP(MovementType.MOUNT_JUMP),
     /** 乗り物で2マス以上落ちる。 */
     MOUNT_FALL(MovementType.MOUNT),
     /** オウムガイに乗ったまま水中を進む（{@link NautilusMoves}）。 */

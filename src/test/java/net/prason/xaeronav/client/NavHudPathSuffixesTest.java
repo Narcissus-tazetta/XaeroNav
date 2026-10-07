@@ -35,6 +35,23 @@ class NavHudPathSuffixesTest {
     }
 
     @Test
+    void mountedJumpIsAnActionAndRidingEndsAtTheDismount() {
+        PathResult path = new PathResult(List.of(
+                step(0, MovementType.MOUNT, PathRisk.NONE, false),
+                step(1, MovementType.MOUNT_JUMP, PathRisk.NONE, false),
+                step(2, MovementType.MOUNT, PathRisk.NONE, false),
+                step(3, MovementType.DISMOUNT, PathRisk.NONE, false),
+                step(4, MovementType.TRAVERSE, PathRisk.NONE, false)),
+                PathResult.Termination.REACHED_GOAL, 5, 5);
+        NavHud.PathSuffixes suffixes = new NavHud.PathSuffixes(path);
+
+        assertEquals(NavHud.PathSuffixes.Action.MOUNT_JUMP, suffixes.nextAction(0));
+        assertEquals(NavHud.PathSuffixes.Action.DISMOUNT, suffixes.nextAction(2));
+        assertTrue(suffixes.rides(2));
+        assertFalse(suffixes.rides(3));
+    }
+
+    @Test
     void warningsAndPlacementsDisappearAfterTheirStepWasPassed() {
         PathResult path = new PathResult(List.of(
                 step(1, MovementType.TRAVERSE, PathRisk.DROWNING, true),
