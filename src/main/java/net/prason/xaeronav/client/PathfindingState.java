@@ -41,6 +41,10 @@ import net.prason.xaeronav.pathfinding.corridor.CorridorWaypoints;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
+import net.prason.xaeronav.pathfinding.coarse.CoarseRides;
+import net.prason.xaeronav.pathfinding.navgraph.WindowRides;
+import net.prason.xaeronav.pathfinding.world.MinecartState;
+import net.prason.xaeronav.rail.RailNetwork;
 import net.prason.xaeronav.pathfinding.navgraph.RouteReview;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
@@ -2365,13 +2369,15 @@ public final class PathfindingState {
                 far = new NavGraphGuide.Far("straight line x" + String.format(Locale.ROOT, "%.1f", scale),
                         map == null ? currentGoal : map, () -> FarField.straightLineTo(currentGoal, scale), true);
             } else {
+                CoarseRides rides = longRouteRides();
                 far = map == null ? null
-                        : new NavGraphGuide.Far("layer 1", map, () -> layer1Far(map, currentGoal), false);
+                        : new NavGraphGuide.Far("layer 1", layer1Source(map, rides),
+                                () -> layer1Far(map, currentGoal, rides), false);
             }
         }
         WindowField field = TickLaps.measure("nav graph start",
                 () -> navGraphGuide.forGoal(level, player, currentGoal, renderRadius,
-                        XaeroNavConfig.INSTANCE.movementOptions(), far));
+                        XaeroNavConfig.INSTANCE.movementOptions(), far, windowRides(level, player, renderRadius)));
         // 窓の中の目的地が殻に繋がっていない回は使わない。窓全体の値が縁の外の推定だけから来る
         if (field != null && field.reachesGoal()) {
             return new GoalGuide(field, true, level.dimension() == Level.END ? landing(level, field, from) : null);
@@ -2384,9 +2390,52 @@ public final class PathfindingState {
      * 「窓を出て戻る」方が窓の中の本当の道（地中のトンネルなど）より安く見えて、窓が動くたびに向きが入れ替わる
      * （保存ワールドのランダムな100本で、未到達8本が到達・2%超の悪化2本・改善10本）。
      */
-    private static FarField layer1Far(CoarseMap map, BlockPos goal) {
-        return FarField.byGoal(FarField.of(CoarseRouter.farEstimate(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE)),
+    private static FarField layer1Far(CoarseMap map, BlockPos goal, CoarseRides rides) {
+        return FarField.byGoal(FarField.of(
+                        CoarseRouter.farEstimate(map, goal, false, CoarseRouter.BridgePolicy.BRIDGE, rides)),
                 FarField.UNKNOWN);
+    }
+
+    /** 窓の外の推定の出どころ。地図も線路も同じ間は同じものを返す（違うと推定を地図全体で解き直す）。 */
+    private Object layer1Source(CoarseMap map, CoarseRides rides) {
+        Layer1Source current = layer1Source;
+        if (current == null || current.map() != map || current.rides() != rides) {
+            current = new Layer1Source(map, rides);
+            layer1Source = current;
+        }
+        return current;
+    }
+
+    private record Layer1Source(CoarseMap map, CoarseRides rides) {
+    }
+
+    private @Nullable Layer1Source layer1Source;
+
+    /**
+     * 長距離ルートと窓の外の推定に足す乗車。持っている（乗っている）ときだけ——遠くの線路に置いてあるトロッコは
+     * 見えないので、持っていなければ遠くの線路には乗れない。
+     */
+    private static CoarseRides longRouteRides() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || mc.player == null || ChunkView.experimentalMinecarts(mc.level)
+                || !ChunkView.carryingMinecart(mc.player) && !ChunkView.ridingMinecart(mc.player)) {
+            return CoarseRides.EMPTY;
+        }
+        return RailMemory.INSTANCE.coarseRides();
+    }
+
+    /** 窓のガイドに足す乗車。窓の中なら、持っていなくても線路上に置いてあるトロッコには乗れる。 */
+    private static WindowRides windowRides(Level level, Player player, int renderRadius) {
+        RailNetwork network = RailMemory.INSTANCE.network();
+        if (network.isEmpty()) {
+            return WindowRides.NONE;
+        }
+        int window = NavGraphGuide.window(renderRadius);
+        BlockPos at = player.blockPosition();
+        MinecartState cart = ChunkView.minecart(level, player, new SearchBounds(at.getX() - window,
+                GameCompat.minBuildHeight(level), at.getZ() - window, at.getX() + window,
+                GameCompat.maxBuildHeight(level), at.getZ() + window));
+        return cart.available() ? new WindowRides(network, cart.carrying(), cart.parked()) : WindowRides.NONE;
     }
 
     /**
@@ -2720,8 +2769,9 @@ public final class PathfindingState {
 
     private List<BlockPos> freshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
                                        boolean ceilingDimension) {
+        CoarseRides rides = longRouteRides();
         CoarseAttempt attempt = TickLaps.measure("long route",
-                () -> solveCoarseRoute(readCoarseMapFor(start, currentGoal), start, currentGoal, boatAvailable));
+                () -> solveCoarseRoute(readCoarseMapFor(start, currentGoal), start, currentGoal, boatAvailable, rides));
         // 裏で解いている要求より、いま同期で引いた方が新しい
         solvingCoarse = null;
         return adoptCoarseRoute(start, currentGoal, attempt, ceilingDimension).waypoints();
@@ -2740,7 +2790,9 @@ public final class PathfindingState {
         CoarseRead read = TickLaps.measure("long route map read", () -> readCoarseMapFor(start, currentGoal));
         CoarseSolve solve = new CoarseSolve(currentGoal);
         solvingCoarse = solve;
-        CompletableFuture.supplyAsync(() -> solveCoarseRoute(read, start, currentGoal, boatAvailable), coarseExecutor)
+        CoarseRides rides = longRouteRides();
+        CompletableFuture.supplyAsync(() -> solveCoarseRoute(read, start, currentGoal, boatAvailable, rides),
+                        coarseExecutor)
                 .whenComplete((attempt, error) -> onMainThread.accept(() -> {
                     if (solvingCoarse != solve) {
                         return;
@@ -3118,13 +3170,13 @@ public final class PathfindingState {
      * 床として揃い、梯子は不要になった。
      */
     private static CoarseAttempt solveCoarseRoute(CoarseRead read, BlockPos start, BlockPos goal,
-                                                  boolean boatAvailable) {
+                                                  boolean boatAvailable, CoarseRides rides) {
         CoarseMap map = read.map();
         if (map == null) {
             return new CoarseAttempt(new CoarseRouter.Route(List.of(), false), 0);
         }
         CoarseRouter.Route avoided = CoarseRouter.findRoute(map, start, goal, boatAvailable,
-                CoarseRouter.BridgePolicy.AVOID);
+                CoarseRouter.BridgePolicy.AVOID, rides);
         if (avoided.reachedGoal()) {
             return new CoarseAttempt(avoided, read.pendingRegions());
         }
@@ -3136,14 +3188,14 @@ public final class PathfindingState {
         // 奈落でAVOIDが失敗するので<b>常にBRIDGE</b>で走っており、ネザーでも「奈落や溶岩混じりを
         // 避けきれない」だけで溶岩の海を突っ切るルートまで一緒に開いていた
         CoarseRouter.Route allowed = CoarseRouter.findRoute(map, start, goal, boatAvailable,
-                CoarseRouter.BridgePolicy.ALLOW);
+                CoarseRouter.BridgePolicy.ALLOW, rides);
         if (allowed.reachedGoal()) {
             LOGGER.info("XaeroNav: no route avoids void/lava-mixed cells, switched to a long route through them");
             return new CoarseAttempt(allowed, read.pendingRegions());
         }
 
         CoarseRouter.Route bridged = CoarseRouter.findRoute(map, start, goal, boatAvailable,
-                CoarseRouter.BridgePolicy.BRIDGE);
+                CoarseRouter.BridgePolicy.BRIDGE, rides);
         if (bridged.reachedGoal()) {
             LOGGER.info("XaeroNav: no route avoids lava, switched to a long route that bridges over it");
             return new CoarseAttempt(bridged, read.pendingRegions());

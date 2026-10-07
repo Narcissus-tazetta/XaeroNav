@@ -140,4 +140,41 @@ class CartRidePathTest {
         assertTrue(result.complete());
         assertEquals(0, rideSteps(result));
     }
+
+    @Test
+    void keepsTheRideWhenTheGoalIsBeyondTheSearchBox() {
+        // 目的地は探索範囲（x≦290）のずっと先。打ち切った探索の終点選びが、乗車を歩きの近場へ差し替えないこと
+        FakeCells cells = line(250, 8).minecart(MinecartState.carryingOne());
+
+        PathResult result = new AStarPathfinder(cells).search(new BlockPos(0, Y, 0), new BlockPos(2000, Y, 0),
+                () -> false);
+
+        assertTrue(rideSteps(result) > 200, "ride steps " + rideSteps(result) + " of " + result.steps().size());
+    }
+
+    @Test
+    void ridesOnPastTheEdgeOfTheSearchAndTheNextSearchContinuesRiding() {
+        // 線路は探索の範囲（x≦250）の外まで続く。範囲の端では降りずに乗り続ける
+        FakeCells cells = line(600, 8).minecart(MinecartState.carryingOne());
+        cells.bounds(new SearchBounds(-40, Y - 16, -8, 250, Y + 16, 8));
+
+        PathResult first = new AStarPathfinder(cells).search(new BlockPos(0, Y, 0), new BlockPos(590, Y, 0),
+                () -> false);
+
+        PathStep last = first.steps().get(first.steps().size() - 1);
+        assertEquals(MovementType.CART, last.movement());
+        assertTrue(last.cost() < ActionCosts.CART_STOW_TICKS, "範囲の端では降りる手間を払わない: " + last.cost());
+        Carryover.Ride ride = Carryover.trailingRide(first.steps());
+        assertTrue(ride.riding());
+        assertEquals(1, ride.dirX());
+
+        // 続きの探索は、乗る手間なしに引き継いだ速さで走り出す
+        FakeCells rest = line(600, 8).minecart(MinecartState.carryingOne());
+        PathResult second = new AStarPathfinder(rest).search(last.pos(), new BlockPos(590, Y, 0), () -> false,
+                Carryover.after(first.steps()), 0);
+        assertTrue(second.complete());
+        assertEquals(MovementType.CART, second.steps().get(0).movement());
+        assertTrue(second.steps().get(0).cost() < ActionCosts.CART_BOARD_TICKS,
+                "first " + second.steps().get(0).cost());
+    }
 }

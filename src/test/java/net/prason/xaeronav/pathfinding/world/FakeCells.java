@@ -468,7 +468,8 @@ public final class FakeCells implements CellSource {
 
     @Override
     public int track(int x, int y, int z) {
-        return tracks.get(BlockPos.asLong(x, y, z));
+        // ChunkViewと同じく、範囲の外のレールは読めない
+        return bounds.contains(x, y, z) ? tracks.get(BlockPos.asLong(x, y, z)) : CartRide.NONE;
     }
 
     @Override

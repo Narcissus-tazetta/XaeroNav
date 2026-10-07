@@ -312,7 +312,8 @@ final class SeamRepair {
         // 差し替えない区間で置くと決まっているぶんは、この区間には使えない
         Carryover carried = new Carryover(Carryover.trailingBridgeRun(steps.subList(0, sectionFrom)),
                 Carryover.placements(steps.subList(0, sectionFrom), first)
-                        + Carryover.placements(steps, sectionTo + 1));
+                        + Carryover.placements(steps, sectionTo + 1),
+                Carryover.trailingRide(steps.subList(0, sectionFrom)));
 
         BlockPos currentGoal = host.goal();
         long myGeneration = generation.incrementAndGet();

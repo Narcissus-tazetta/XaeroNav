@@ -2,14 +2,18 @@ package net.prason.xaeronav.pathfinding.navgraph;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 import org.jspecify.annotations.Nullable;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -18,6 +22,9 @@ import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.Heuristic;
 import net.prason.xaeronav.pathfinding.astar.SectionMoves;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
+import net.prason.xaeronav.rail.CartRide;
+import net.prason.xaeronav.rail.RailNetwork;
 import net.prason.xaeronav.util.MonotonicTime;
 
 /**
@@ -82,9 +89,13 @@ public final class WindowField implements CostToGo {
     private final int centerX;
     private final int centerZ;
     private final int radius;
+    /** トロッコに乗ると値が下がったノードと、その乗車。{@link #descend}が辿る。 */
+    private final Int2ObjectMap<Ride> rides;
 
     private WindowField(BlockPos goal, FarField far, Index index, MoveTable.View moves, double[] distance, int edges,
-                        long buildMillis, boolean goalCut, int centerX, int centerZ, int radius) {
+                        long buildMillis, boolean goalCut, int centerX, int centerZ, int radius,
+                        Int2ObjectMap<Ride> rides) {
+        this.rides = rides;
         this.moves = moves;
         this.centerX = centerX;
         this.centerZ = centerZ;
@@ -129,7 +140,11 @@ public final class WindowField implements CostToGo {
 
     /** 組み立て後も覚えている配列のおおよそのバイト数。 */
     public long bytes() {
-        return 8L * distance.length + index.bytes();
+        long rideBytes = 0;
+        for (Ride ride : rides.values()) {
+            rideBytes += 8L * ride.cells().length + 32;
+        }
+        return 8L * distance.length + index.bytes() + rideBytes;
     }
 
     /**
@@ -246,7 +261,8 @@ public final class WindowField implements CostToGo {
     }
 
     static @Nullable WindowField build(NavGraph graph, Buffers buffers, int centerX, int centerZ, int radius,
-                                       FarField givenFar, Parallel parallel, BooleanSupplier cancelled) {
+                                       FarField givenFar, WindowRides windowRides, Parallel parallel,
+                                       BooleanSupplier cancelled) {
         long began = MonotonicTime.millis();
         BlockPos goal = graph.goal();
         // 縁の近くの目的地は窓の外として扱う。縁のセクションは周りが読めないまま仮に組むので、目的地へ入る辺が生成されず、
@@ -412,6 +428,7 @@ public final class WindowField implements CostToGo {
             }
         }
         BitSet settled = new BitSet(n);
+        Int2ObjectOpenHashMap<Ride> rides = new Int2ObjectOpenHashMap<>();
         if (Double.isFinite(base)) {
             // 振った移動の値段はどれもこの幅以上なので、バケットを前から空にするだけで確定順になる。
             // 窓の外のセクションの移動も含む最小値だが、幅が狭いぶんには正しさは変わらない
@@ -426,9 +443,157 @@ public final class WindowField implements CostToGo {
                     cancelled)) {
                 return null;
             }
+            if (windowRides.usable()) {
+                // 乗車は1手で何百ブロックも跳ぶので、窓の辺と同じ表には載せない。確定した値で乗る点の値を下げ、
+                // 下がったノードから解き直すのを、乗り継ぎ（乗って歩いてまた乗る）が出尽くすまで繰り返す
+                List<Boarding> boardings = boardings(windowRides, index, centerX, centerZ, radius);
+                for (int pass = 0; pass < MAX_RIDE_PASSES && !boardings.isEmpty(); pass++) {
+                    IntArrayList lowered = lowerByRides(boardings, distance, far, rides);
+                    if (lowered.isEmpty()) {
+                        break;
+                    }
+                    for (int i = 0; i < lowered.size(); i++) {
+                        int node = lowered.getInt(i);
+                        settled.clear(node);
+                        queue.push(Math.max(0, (int) ((distance[node] - base) / width)), node);
+                    }
+                    if (!settle(queue, settled, distance, position, start, inMove, index, moves, base, width,
+                            parallel, cancelled)) {
+                        return null;
+                    }
+                }
+            }
         }
         return new WindowField(goal, far, index, moves, distance, m + insideEdges, MonotonicTime.millis() - began,
-                goalInWindow && !goalEntered.get(), centerX, centerZ, radius);
+                goalInWindow && !goalEntered.get(), centerX, centerZ, radius, rides);
+    }
+
+    /** 乗り継ぎを解き直す回数の上限。乗って歩いてまた乗る、の段数。 */
+    private static final int MAX_RIDE_PASSES = 4;
+
+    /** 1回の乗車で模擬する長さ（tick）。{@code CartMoves}と同じ。 */
+    private static final int MAX_RIDE_TICKS = 2400;
+
+    /** 一直線に走るよりこれ以上遅い乗車は使わない（{@code CartMoves}と同じ）。 */
+    private static final double MAX_DETOUR_FACTOR = 2.0;
+
+    /**
+     * 乗る点1つ。向き2つぶんの走りを1回ずつ模擬して覚えておく（値を下げる回をまたいで変わらない）。
+     *
+     * @param cells   向きごとの、通るレール（乗る点の次から）
+     * @param ticks   各セルへ着くtick
+     * @param targets 各セルで降りたときのノード。窓の外なら{@link #OUTSIDE}、降りられないなら{@link #NOT_A_NODE}
+     */
+    private record Boarding(int node, double enter, double stow, long[][] cells, int[][] ticks, int[][] targets) {
+    }
+
+    /**
+     * ノードの値を作った乗車。{@code cells[0..alight]}を走って{@code cells[alight]}で降りる。
+     *
+     * @param cost 乗る手間・走り・降りる手間の和
+     */
+    private record Ride(long[] cells, int alight, double cost) {
+    }
+
+    private static List<Boarding> boardings(WindowRides windowRides, Index index, int centerX, int centerZ,
+                                            int radius) {
+        RailNetwork network = windowRides.network();
+        List<Boarding> boardings = new ArrayList<>();
+        network.forEachIn(centerX - radius, centerZ - radius, centerX + radius, centerZ + radius, (x, y, z, cell) -> {
+            boolean parked = windowRides.parked().contains(BlockPos.asLong(x, y, z));
+            if (!parked && !windowRides.carrying()) {
+                return;
+            }
+            int node = index.resolveAbsolute(x, y, z);
+            if (node < 0) {
+                return;
+            }
+            // 置いてあったトロッコは乗るだけで、降りたらそのまま残して行く
+            double enter = parked ? ActionCosts.CART_ENTER_TICKS : ActionCosts.CART_BOARD_TICKS;
+            double stow = parked ? 0.0 : ActionCosts.CART_STOW_TICKS;
+            long[][] cells = new long[2][];
+            int[][] ticks = new int[2][];
+            int[][] targets = new int[2][];
+            for (int exit = 0; exit < 2; exit++) {
+                LongArrayList path = new LongArrayList();
+                IntArrayList arrivals = new IntArrayList();
+                IntArrayList nodes = new IntArrayList();
+                CartRide.ride(network::track, x, y, z, exit, 0.0, true, MAX_RIDE_TICKS,
+                        (rx, ry, rz, tick, forcedExit) -> {
+                            path.add(BlockPos.asLong(rx, ry, rz));
+                            arrivals.add(tick);
+                            double total = enter + tick + stow;
+                            double dx = rx - x;
+                            double dz = rz - z;
+                            boolean worth = total <= MAX_DETOUR_FACTOR * Math.sqrt(dx * dx + dz * dz)
+                                    * ActionCosts.SPRINT_ONE_BLOCK;
+                            nodes.add(worth ? index.resolveAbsolute(rx, ry, rz) : NOT_A_NODE);
+                            return true;
+                        });
+                cells[exit] = path.toLongArray();
+                ticks[exit] = arrivals.toIntArray();
+                targets[exit] = nodes.toIntArray();
+            }
+            boardings.add(new Boarding(node, enter, stow, cells, ticks, targets));
+        });
+        return boardings;
+    }
+
+    /** 乗ると安くなる乗る点の値を下げる。下げたノードを返す。 */
+    private static IntArrayList lowerByRides(List<Boarding> boardings, double[] distance, FarField far,
+                                             Int2ObjectOpenHashMap<Ride> rides) {
+        IntArrayList lowered = new IntArrayList();
+        for (Boarding boarding : boardings) {
+            double best = distance[boarding.node()];
+            int bestExit = -1;
+            int bestIndex = -1;
+            for (int exit = 0; exit < 2; exit++) {
+                int[] targets = boarding.targets()[exit];
+                for (int k = 0; k < targets.length; k++) {
+                    double after = valueAfterAlighting(targets[k], boarding.cells()[exit][k], distance, far);
+                    double candidate = rideCost(boarding, exit, k) + after;
+                    if (candidate < best) {
+                        best = candidate;
+                        bestExit = exit;
+                        bestIndex = k;
+                    }
+                }
+            }
+            if (bestExit >= 0) {
+                distance[boarding.node()] = best;
+                rides.put(boarding.node(), new Ride(boarding.cells()[bestExit], bestIndex,
+                        rideCost(boarding, bestExit, bestIndex)));
+                lowered.add(boarding.node());
+            }
+        }
+        return lowered;
+    }
+
+    private boolean explains(Ride ride, double value) {
+        long cell = ride.cells()[ride.alight()];
+        double after = valueAfterAlighting(
+                index.resolveAbsolute(BlockPos.getX(cell), BlockPos.getY(cell), BlockPos.getZ(cell)), cell, distance, far);
+        return Math.abs(ride.cost() + after - value) <= 1e-6 * Math.max(1.0, value);
+    }
+
+    /**
+     * 乗る手間・走り・降りる手間の和。窓の外へ出たところでは降りる手間を数えない——線路はその先へ続いていて
+     * そこで降りるとは限らず、外の推定（層1の乗車）がもう一度乗り降りを数える。
+     */
+    private static double rideCost(Boarding boarding, int exit, int k) {
+        double stow = boarding.targets()[exit][k] == OUTSIDE ? 0.0 : boarding.stow();
+        return boarding.enter() + boarding.ticks()[exit][k] + stow;
+    }
+
+    /** {@code cell}で降りた後の値。窓の外なら外の推定、降りられないなら無限大。 */
+    private static double valueAfterAlighting(int target, long cell, double[] distance, FarField far) {
+        if (target >= 0) {
+            return distance[target];
+        }
+        if (target == OUTSIDE) {
+            return far.at(BlockPos.getX(cell), BlockPos.getY(cell), BlockPos.getZ(cell));
+        }
+        return Double.POSITIVE_INFINITY;
     }
 
     /**
@@ -648,6 +813,28 @@ public final class WindowField implements CostToGo {
             int lz = z & 15;
             SectionEdges section = index.sections[slot];
             int node = section.nodeOf(lx | lz << 4 | ly << 8);
+            int here = index.offsets[slot] + node;
+            Ride ride = rides.get(here);
+            // 乗車を記録した後の回で、歩いた方が安くなっていることがある。値を作ったのが乗車のときだけ辿る
+            if (ride != null && explains(ride, distance[here])) {
+                for (int k = 0; k < ride.alight(); k++) {
+                    if (trail != null) {
+                        trail.visit(BlockPos.getX(ride.cells()[k]), BlockPos.getY(ride.cells()[k]),
+                                BlockPos.getZ(ride.cells()[k]));
+                    }
+                }
+                long cell = ride.cells()[ride.alight()];
+                inside += ride.cost();
+                int target = index.resolveAbsolute(BlockPos.getX(cell), BlockPos.getY(cell), BlockPos.getZ(cell));
+                if (target < 0) {
+                    BlockPos exit = BlockPos.of(cell);
+                    return new Descent(exit, inside, far.at(exit.getX(), exit.getY(), exit.getZ()), false);
+                }
+                x = BlockPos.getX(cell);
+                y = BlockPos.getY(cell);
+                z = BlockPos.getZ(cell);
+                continue;
+            }
             double best = Double.POSITIVE_INFINITY;
             int bestMove = -1;
             int bestTarget = OUTSIDE;

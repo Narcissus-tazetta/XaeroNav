@@ -24,7 +24,9 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.storage.LevelResource;
 import net.prason.xaeronav.XaeroNav;
+import net.prason.xaeronav.pathfinding.coarse.CoarseRides;
 import net.prason.xaeronav.rail.RailBlocks;
+import net.prason.xaeronav.rail.RailNetwork;
 import net.prason.xaeronav.rail.RailStore;
 import net.prason.xaeronav.util.DaemonThreads;
 import net.prason.xaeronav.util.GameCompat;
@@ -52,6 +54,11 @@ public final class RailMemory {
     private static final int RESCAN_TICKS = 600;
     /** 1回に調べるチャンクの上限。ワールドへ入った直後に数百チャンクを一度に抱えないため。 */
     private static final int MAX_CHUNKS_PER_PASS = 64;
+    /**
+     * 経路に使う写しを作り直す最短の間隔（ミリ秒）。長い線路に沿って走っている間は見るたびにレールが増えるが、
+     * 層1の乗車の辺は線路の長さに比例する模擬を乗る点の数だけ回す（2万ブロックの線路で約0.5秒）。
+     */
+    private static final long PUBLISH_INTERVAL_MILLIS = 10_000L;
     /** 変わったリージョンを書き出す間隔（ミリ秒）。 */
     private static final long FLUSH_INTERVAL_MILLIS = 30_000L;
 
@@ -71,6 +78,13 @@ public final class RailMemory {
 
     // /xaeronav debug 用にワーカーが書く
     private volatile String status = "not started";
+    /** 経路に使う写し。ワーカーが組み、どのスレッドから読んでもよい。 */
+    private volatile RailNetwork network = RailNetwork.EMPTY;
+    /** {@link #network}から組んだ層1の乗車。線路網と同じ写しから組むので、必ず組で入れ替える。 */
+    private volatile CoarseRides coarseRides = CoarseRides.EMPTY;
+    private long networkChanges = -1;
+    private long networkVersion;
+    private long lastPublishMillis;
 
     private RailMemory() {
     }
@@ -174,10 +188,28 @@ public final class RailMemory {
         return "rail memory: " + status;
     }
 
+    /**
+     * いまのワールド・次元で見たことのあるレール。<b>メインスレッドから呼ぶこと。</b>次元を移った直後はワーカーが
+     * 切り替え終えるまで前の次元の写しが残っているので、見分けが合わなければ空を返す。
+     */
+    public RailNetwork network() {
+        RailNetwork current = network;
+        return current.key().equals(currentKey) ? current : RailNetwork.EMPTY;
+    }
+
+    /** {@link #network}と同じく、いまのワールド・次元の層1の乗車。<b>メインスレッドから呼ぶこと。</b> */
+    public CoarseRides coarseRides() {
+        CoarseRides current = coarseRides;
+        return current.network().key().equals(currentKey) ? current : CoarseRides.EMPTY;
+    }
+
     private void switchTo(@Nullable Path dir, String key) {
         flush();
         store = null;
         storeKey = key;
+        network = RailNetwork.EMPTY;
+        coarseRides = CoarseRides.EMPTY;
+        networkChanges = -1;
         if (dir == null) {
             updateStatus();
             return;
@@ -185,6 +217,8 @@ public final class RailMemory {
         try {
             store = RailStore.open(dir);
             lastFlushMillis = System.currentTimeMillis();
+            // 前に来たときに覚えた線路を、このワールドへ入った直後から使えるようにする
+            publishNetwork(true);
             updateStatus();
         } catch (IOException e) {
             // 読めないなら覚えない。覚えるのは経路の質を上げるためだけなので、ゲームは続けられる
@@ -201,10 +235,27 @@ public final class RailMemory {
         for (Job job : jobs) {
             current.putChunk(job.chunkX(), job.chunkZ(), railsIn(job.chunk(), minSection));
         }
+        publishNetwork(false);
         if (System.currentTimeMillis() - lastFlushMillis >= FLUSH_INTERVAL_MILLIS) {
             flush();
         }
         updateStatus();
+    }
+
+    /** 中身が変わっていれば写しを作り直す。全レールを写すので、変わったときだけ。 */
+    private void publishNetwork(boolean now) {
+        RailStore current = store;
+        if (current == null || current.changes() == networkChanges
+                || !now && System.currentTimeMillis() - lastPublishMillis < PUBLISH_INTERVAL_MILLIS) {
+            return;
+        }
+        lastPublishMillis = System.currentTimeMillis();
+        networkChanges = current.changes();
+        RailNetwork built = new RailNetwork(storeKey, ++networkVersion, current.chunks());
+        // 乗車の辺を先に組んでから2つを出す。片方だけ新しい間に読まれると、地図の線とガイドが違う線路を見る
+        CoarseRides rides = CoarseRides.of(built);
+        network = built;
+        coarseRides = rides;
     }
 
     private void flush() {
@@ -225,6 +276,7 @@ public final class RailMemory {
         RailStore current = store;
         status = current == null ? storeKey
                 : current.railCount() + " rails in " + current.chunkCount() + " chunks for " + storeKey
+                        + ", " + coarseRides.size() + " long-distance ride edges"
                         + (current.dirty() ? " (unsaved changes)" : "");
     }
 
