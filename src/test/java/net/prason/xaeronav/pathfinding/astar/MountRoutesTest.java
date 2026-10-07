@@ -175,14 +175,13 @@ class MountRoutesTest {
     }
 
     @Test
-    void avoidsWaterThatWouldDismountTheRider() {
-        FakeCells deep = river(10, 10, 3, false).jumpGapEnabled(false).mount(HORSE);
-        FakeCells forded = river(10, 10, 3, true).jumpGapEnabled(false).mount(HORSE);
+    void staysOutOfWaterEvenAtAFord() {
+        FakeCells forded = river(10, 10, 3, true).jumpGapEnabled(false);
+        FakeCells narrow = river(10, 3, 3, false);
 
-        assertFalse(search(deep, 0, 25).complete());
-        PathResult result = search(forded, 0, 25);
-        assertTrue(result.complete());
-        assertTrue(passesCell(result, 14, 6), "浅瀬を渡る");
+        assertTrue(search(forded, 0, 25).complete(), "徒歩は泳いで渡る");
+        assertFalse(search(forded.mount(HORSE), 0, 25).complete(), "馬は浅瀬も渡らない");
+        assertFalse(search(narrow.mount(HORSE), 0, 25).complete(), "跳び損ねると水に落ちて降ろされるので、川は跳ばない");
     }
 
     /** {@code x}から{@code width}列の深い谷（底まで10マス）。 */

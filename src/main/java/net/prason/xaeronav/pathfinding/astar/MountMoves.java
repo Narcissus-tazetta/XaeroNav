@@ -32,7 +32,7 @@ final class MountMoves {
     private static final double FALL_DAMAGE_MULTIPLIER = 0.5;
     /** 歩いて上がれる段。馬は{@code STEP_HEIGHT 1.0}、ラクダは1.5だがセル単位では同じ1マス。 */
     private static final int STEP_RISE = 1;
-    /** 着地を探して下へ辿る深さ。水へ落ちる手は深さを問わないので、徒歩の柱の走査と同じく打ち切りを置くだけ。 */
+    /** 着地を探して下へ辿る深さ。落下ダメージの許容を緩めたときの深い落下まで届くよう、徒歩の柱の走査と同じく打ち切りだけ置く。 */
     private static final int MAX_FALL_SCAN = 64;
     /** 跳び越える隙間を探す列数。 */
     private static final int MAX_GAP_ROWS = 8;
@@ -46,8 +46,6 @@ final class MountMoves {
     private final MountPhysics physics;
     /** 足場から乗り手の目のセルまでを含む体の高さ。 */
     private final int height;
-    /** 乗り物の目のセル（足場から）。ここが水に浸かると乗り手が降ろされる（{@code dismounts_underwater}）。 */
-    private final int eye;
     /** 当たり判定の幅の半分。隙間を跳ぶ距離から引く。 */
     private final double halfWidth;
     private final int maxRise;
@@ -57,7 +55,6 @@ final class MountMoves {
         this.physics = new MountPhysics(mount);
         boolean camel = mount.kind() == MountState.Kind.CAMEL;
         this.height = camel ? 4 : 3;
-        this.eye = camel ? 2 : 1;
         this.halfWidth = camel ? 0.85 : 0.7;
         this.maxRise = Math.max(STEP_RISE, physics.maxRise());
     }
@@ -101,7 +98,7 @@ final class MountMoves {
     }
 
     private boolean stance(int x, int y, int z) {
-        return !Double.isInfinite(bodyCost(x, z, y, y + height - 1)) && supported(x, z, y) && eyeDry(x, z, y);
+        return !Double.isInfinite(bodyCost(x, z, y, y + height - 1)) && supported(x, z, y) && dry(x, z, y);
     }
 
     private void addStep(PathNode from, int dx, int dz) {
@@ -114,7 +111,7 @@ final class MountMoves {
             return;
         }
         if (supported(x, z, y)) {
-            if (eyeDry(x, z, y)) {
+            if (dry(x, z, y)) {
                 owner.relaxMounted(from, x, y, z, walkCost(x, z, y) + body, MoveKind.MOUNT_WALK);
             }
             return;
@@ -136,7 +133,7 @@ final class MountMoves {
             if (Double.isInfinite(body)) {
                 continue;
             }
-            if (!supported(x, z, top) || !eyeDry(x, z, top)) {
+            if (!supported(x, z, top) || !dry(x, z, top)) {
                 return;
             }
             if (rise <= STEP_RISE) {
@@ -174,7 +171,7 @@ final class MountMoves {
             }
             level--;
         }
-        if (!eyeDry(x, z, level)) {
+        if (!dry(x, z, level)) {
             return;
         }
         int drop = y - level;
@@ -184,8 +181,7 @@ final class MountMoves {
             cost = ActionCosts.descendOneBlock(1.0);
             kind = MoveKind.MOUNT_WALK;
         } else {
-            // 着水は落下距離が消える（水の中にいる間は{@code Entity#fallDistance}が0に戻る）
-            int damage = feetInWater(x, z, level) ? 0 : fallDamage(drop);
+            int damage = fallDamage(drop);
             if (damage > owner.maxFallDamagePoints) {
                 owner.markFallDamageCapBlocked(true);
                 return;
@@ -223,7 +219,7 @@ final class MountMoves {
         } else {
             return;
         }
-        if (!eyeDry(x, z, level)) {
+        if (!dry(x, z, level)) {
             return;
         }
         int high = Math.max(y, level);
@@ -268,7 +264,8 @@ final class MountMoves {
             for (int lane = 0; lane < 2; lane++) {
                 int cx = rowX(from, dx, dz, row, lane);
                 int cz = rowZ(from, dx, dz, row, lane);
-                if (!clearWithoutDigging(cx, cz, y, y + height - 1) || owner.scans.lavaOrUnknownBelow(cx, y, cz)) {
+                if (!clearWithoutDigging(cx, cz, y, y + height - 1) || owner.scans.lavaOrUnknownBelow(cx, y, cz)
+                        || waterBelow(cx, y, cz)) {
                     return;
                 }
                 int equivalentDrop = missDropAsWalker(cx, y, cz);
@@ -288,7 +285,7 @@ final class MountMoves {
         int x = from.x + dx * shift;
         int z = from.z + dz * shift;
         double body = bodyCost(x, z, y, y + height - 1);
-        if (Double.isInfinite(body) || !eyeDry(x, z, y)) {
+        if (Double.isInfinite(body) || !dry(x, z, y)) {
             return;
         }
         double flight = gap - 2.0 * halfWidth + JUMP_MARGIN_BLOCKS;
@@ -319,6 +316,13 @@ final class MountMoves {
         owner.relaxMounted(from, x, y, z, cost + body, MoveKind.MOUNT_JUMP);
     }
 
+    /** 跳び損ねたら水に落ちるか。徒歩なら無傷で済むが、乗り物は深い水で乗り手を降ろす。 */
+    private boolean waterBelow(int x, int y, int z) {
+        int obstacleY = owner.scans.firstNonAirBelow(x, y - 1, z);
+        return obstacleY != ColumnScans.NOTHING_BELOW && obstacleY != ColumnScans.UNREADABLE_BELOW
+                && CellData.water(owner.view.cell(x, obstacleY, z));
+    }
+
     /**
      * 跳び損ねたときの落差を、徒歩の落差に直した値（ダメージが同じになる落差）。
      * 徒歩の割増の表（{@link ActionCosts#dropRiskPenalty}）と死ぬ落差の判定をそのまま使うため。
@@ -327,9 +331,6 @@ final class MountMoves {
         int obstacleY = owner.scans.firstNonAirBelow(x, y - 1, z);
         if (obstacleY == ColumnScans.NOTHING_BELOW || obstacleY == ColumnScans.UNREADABLE_BELOW) {
             return owner.view.fatalFallBlocks();
-        }
-        if (CellData.water(owner.view.cell(x, obstacleY, z))) {
-            return 0;
         }
         int damage = fallDamage(y - obstacleY - 1);
         return damage == 0 ? 0 : ActionCosts.SAFE_FALL_BLOCKS + damage;
@@ -410,29 +411,25 @@ final class MountMoves {
         return standing;
     }
 
-    private boolean eyeDry(int x, int z, int y) {
+    /**
+     * 足場の4列のどこにも水が無いか。体の高さに加えて足場の1つ下も見る——水の上に張り出した列があると、
+     * 足場どうしの境目を進む乗り物は少し逸れただけで深みに入り、目が浸かると乗り手が降ろされる
+     * （{@code dismounts_underwater}）。浅瀬も渡らない: 岸のなだらかな湖では浅瀬の縁がすぐ深みになる。
+     */
+    private boolean dry(int x, int z, int y) {
         for (int cx = x; cx <= x + 1; cx++) {
             for (int cz = z; cz <= z + 1; cz++) {
-                if (CellData.water(owner.view.cell(cx, y + eye, cz))) {
-                    return false;
+                for (int cy = y - 1; cy < y + height; cy++) {
+                    if (CellData.water(owner.view.cell(cx, cy, cz))) {
+                        return false;
+                    }
                 }
             }
         }
         return true;
     }
 
-    private boolean feetInWater(int x, int z, int y) {
-        for (int cx = x; cx <= x + 1; cx++) {
-            for (int cz = z; cz <= z + 1; cz++) {
-                if (CellData.water(owner.view.cell(cx, y, cz))) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /** 足場の4列で一番遅い進み方（浅瀬・蜘蛛の巣・ソウルサンド）。 */
+    /** 足場の4列で一番遅い進み方（蜘蛛の巣・ソウルサンド）。 */
     private double walkCost(int x, int z, int y) {
         double slowest = 0.0;
         for (int cx = x; cx <= x + 1; cx++) {
