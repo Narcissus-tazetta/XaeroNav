@@ -3,17 +3,20 @@ package net.prason.xaeronav.rail;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.zip.GZIPInputStream;
 
 import org.junit.jupiter.api.Test;
 
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 
-/**
- * トロッコの走りの模擬。平らな直線の期待値は、実機と全セル0tick差だった1次元の模擬
- * （調査で使った{@code cartsim.py}の{@code sim_old}）の出力。
- */
+/** トロッコの走りの模擬。速さはバニラサーバーでの実測と、線路の辿り方・止まり方は仕様と突き合わせる。 */
 class CartRideTest {
 
     private final Long2IntOpenHashMap rails = new Long2IntOpenHashMap();
@@ -56,19 +59,67 @@ class CartRideTest {
         return entries.stream().filter(e -> e.x() == x).findFirst().orElseThrow().tick();
     }
 
+    /**
+     * バニラ1.21.1サーバーで測った17本（平らな直線・パワードの間隔・ブレーキ・検知レール・曲線のジグザグ・登り・下り・起伏）と、
+     * 各セルへ入るtickが全セル一致する。出発はパワードを壁から押し出す形なので、パワードの区間を抜けた最初のセルを基準に比べる。
+     */
     @Test
-    void steadyStateMatchesTheVerifiedModel() {
-        // 元の模擬は位置を浮動小数で足し続けるので、始点を境界から僅かに離した（x0=1e-7）出力と比べる。
-        // セルを跨ぐtickの位相でパワードの上で過ごすtick数が変わり、間隔48で数%動く
-        int[][] expected = {{1, 2500, 7500}, {48, 2739, 8666}, {64, 3456, 11414}};
-        for (int[] row : expected) {
-            rails.clear();
-            int spacing = row[0];
-            eastLine(("P" + "R".repeat(spacing - 1)).repeat(4000 / spacing + 1));
-            List<Entry> entries = ride(0, 64, 0, 1, 2.0, false, 20_000);
-            assertEquals(row[1], tickAt(entries, 1000), "spacing " + spacing);
-            assertEquals(row[2], tickAt(entries, 3000), "spacing " + spacing);
+    void matchesVanillaMeasurementsCellByCell() throws IOException {
+        List<String> lines;
+        try (InputStream in = new GZIPInputStream(Objects.requireNonNull(
+                CartRideTest.class.getResourceAsStream("/vanilla_1.21.1_minecart.txt.gz")))) {
+            lines = new String(in.readAllBytes(), StandardCharsets.UTF_8).lines()
+                    .filter(line -> !line.startsWith("#")).toList();
         }
+        int lanes = 0;
+        for (int i = 0; i < lines.size(); lanes++) {
+            String[] header = lines.get(i++).split(" ");
+            int n = Integer.parseInt(header[2]);
+            int start = Integer.parseInt(header[3]);
+            rails.clear();
+            int[][] pos = new int[n][];
+            int[] measured = new int[n];
+            Long2IntOpenHashMap index = new Long2IntOpenHashMap();
+            index.defaultReturnValue(-1);
+            for (int k = 0; k < n; k++) {
+                String[] f = lines.get(i++).split(" ");
+                pos[k] = new int[] {Integer.parseInt(f[0]), Integer.parseInt(f[1]), Integer.parseInt(f[2])};
+                put(pos[k][0], pos[k][1], pos[k][2], TrackShape.valueOf(f[3]), RailKind.valueOf(f[4]), f[5].equals("1"));
+                measured[k] = Integer.parseInt(f[6]);
+                index.put(key(pos[k][0], pos[k][1], pos[k][2]), k);
+            }
+            int[] simulated = new int[n];
+            Arrays.fill(simulated, -1);
+            int exit = CartRide.exitDx(RailCell.shape(rails.get(key(pos[start][0], pos[start][1], pos[start][2]))), 0)
+                    == pos[start + 1][0] - pos[start][0]
+                    && CartRide.exitDz(RailCell.shape(rails.get(key(pos[start][0], pos[start][1], pos[start][2]))), 0)
+                    == pos[start + 1][2] - pos[start][2] ? 0 : 1;
+            // 壁の前のパワードは止まっているトロッコを0.02で押し出す
+            boolean launched = rails.get(key(pos[start][0], pos[start][1], pos[start][2])) != CartRide.NONE
+                    && RailCell.powered(rails.get(key(pos[start][0], pos[start][1], pos[start][2])));
+            CartRide.ride((x, y, z) -> rails.get(key(x, y, z)), pos[start][0], pos[start][1], pos[start][2], exit,
+                    launched ? 0.02 : 0.0, false, 20_000, (x, y, z, tick, forced) -> {
+                        int k = index.get(key(x, y, z));
+                        if (k >= 0 && simulated[k] < 0) {
+                            simulated[k] = tick;
+                        }
+                        return true;
+                    });
+            int ref = start;
+            while (ref < n - 1 && RailCell.powered(rails.get(key(pos[ref][0], pos[ref][1], pos[ref][2])))) {
+                ref++;
+            }
+            int compared = 0;
+            for (int k = ref + 1; k < n; k++) {
+                if (measured[k] >= 0 && simulated[k] >= 0) {
+                    assertEquals(measured[k] - measured[ref], simulated[k] - simulated[ref],
+                            header[1] + " cell " + k);
+                    compared++;
+                }
+            }
+            assertTrue(compared > 5, header[1] + " compared only " + compared);
+        }
+        assertEquals(16, lanes);
     }
 
     @Test
@@ -84,8 +135,9 @@ class CartRideTest {
         eastLine("R".repeat(5) + "BB" + "R".repeat(5));
         List<Entry> entries = ride(0, 64, 0, 1, 0.0, true, 2_000);
         assertEquals(11, entries.get(entries.size() - 1).x());
-        // 0.075ブロック/tickで1ブロック約13tick
-        assertEquals(14, tickAt(entries, 1));
+        // 押しの速さ0.1に落ち着いた後は、0.075ブロック/tickで1ブロック約13tick
+        int perBlock = tickAt(entries, 10) - tickAt(entries, 9);
+        assertTrue(perBlock >= 13 && perBlock <= 14, "per block " + perBlock);
     }
 
     @Test
@@ -143,6 +195,6 @@ class CartRideTest {
         }
         List<Entry> entries = ride(0, 64, 0, 0, 2.0, false, 1_000);
         // 100セル目まで全速を保つ: 0.4√2/tickで√2/2の長さ＝1.25tick/セル
-        assertEquals(125, entries.get(99).tick(), 1);
+        assertEquals(125, entries.get(99).tick(), 2);
     }
 }

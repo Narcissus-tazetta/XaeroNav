@@ -445,6 +445,12 @@ public final class ActionCosts {
     public static final double CART_ENTER_TICKS = 4.0;
 
     /**
+     * トロッコで1ブロック（直線距離）進むのにかかる最短の時間。最速は曲線のジグザグの斜めで、軸ごとに0.4/tick＝
+     * 直線距離で0.4√2/tick（{@code CartRide}、実測と一致）。乗れる探索の残りコストの下限はこれで測る。
+     */
+    public static final double CART_MIN_TICKS_PER_BLOCK = 1.0 / (0.4 * Math.sqrt(2.0));
+
+    /**
      * 降りたトロッコを壊して拾うまでの手間。トロッコもボートと同じ{@code VehicleEntity}なので、素手で叩く回数も
      * 拾えるまでの遅れも{@link #BOAT_STOW_TICKS}と同じ。
      *

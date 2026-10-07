@@ -473,7 +473,14 @@ public final class AStarPathfinder {
         this.heuristicWeight = limits.heuristicWeight();
         this.costToGo = costToGo;
         this.scans = new ColumnScans(this.view);
+        // トロッコは疾走より速い。疾走のままの下限は乗れば早く着く所で実際より高くなり、ガイドが乗車を数えていても
+        // 大きい方を取る所で打ち消され、探索は線路のセルを1度も展開せずに歩きで閉じる（実機で確認）
+        this.horizontalPerBlock = view.minecart().ridesPossible() ? ActionCosts.CART_MIN_TICKS_PER_BLOCK
+                : ActionCosts.SPRINT_ONE_BLOCK;
     }
+
+    /** 残りコストの下限で使う1ブロックの値段。 */
+    private final double horizontalPerBlock;
 
     /**
      * この探索が、連続する橋の長さの上限を理由に移動を捨てたか。捨てていない場合、
@@ -946,11 +953,11 @@ public final class AStarPathfinder {
             // ボートに乗っているノードは水平の下限が漕ぎ速度まで下がる。疾走のまま見積もると
             // ボートの枝に対して非許容になり、乗り込む1手の一時コストと相まって一度も展開されない
             heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock,
-                    boating ? ActionCosts.PADDLE_ONE_BLOCK : ActionCosts.SPRINT_ONE_BLOCK);
+                    boating ? ActionCosts.PADDLE_ONE_BLOCK : horizontalPerBlock);
             // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
             // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
             // 「あと何マス上がるか」だけの下限へ書き換えているのと同じ考え方）
-            double radiusAllowance = goalRadius * ActionCosts.SPRINT_ONE_BLOCK;
+            double radiusAllowance = goalRadius * horizontalPerBlock;
             heuristic = Math.max(0.0, heuristic - radiusAllowance);
             if (costToGo != null) {
                 // 両者の大きい方を使う。Heuristicは幾何学的な下限、costToGoは層1が壁や溶岩の海を

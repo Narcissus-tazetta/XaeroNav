@@ -224,18 +224,45 @@ public final class ChunkView implements CellSource {
             return MinecartState.UNAVAILABLE;
         }
         LongSet parked = parkedMinecarts(level, bounds);
-        if (ridingMinecart(player)) {
+        boolean riding = ridingMinecart(player);
+        boolean carrying = riding || carryingMinecart(player);
+        if (!carrying && parked.isEmpty()) {
+            return MinecartState.UNAVAILABLE;
+        }
+        boolean railsInView = !parked.isEmpty() || anyRail(level, bounds);
+        if (riding) {
             AbstractMinecart cart = (AbstractMinecart) player.getVehicle();
             BlockPos rail = railUnder(level, cart);
             if (rail != null) {
                 Vec3 motion = cart.getDeltaMovement();
                 double speed = Math.sqrt(motion.x * motion.x + motion.z * motion.z);
                 return new MinecartState(true, true, rail.getX(), rail.getY(), rail.getZ(), speed,
-                        speed > 0.0 ? motion.x / speed : 0.0, speed > 0.0 ? motion.z / speed : 0.0, parked);
+                        speed > 0.0 ? motion.x / speed : 0.0, speed > 0.0 ? motion.z / speed : 0.0, parked, true);
             }
-            return new MinecartState(true, false, 0, 0, 0, 0.0, 0.0, 0.0, parked);
         }
-        return new MinecartState(carryingMinecart(player), false, 0, 0, 0, 0.0, 0.0, 0.0, parked);
+        return new MinecartState(carrying, false, 0, 0, 0, 0.0, 0.0, 0.0, parked, railsInView);
+    }
+
+    /**
+     * 範囲の読み込み済みチャンクにレールが1本でもあるか。区画のパレットを見るだけなので、レールの無い区画は中を読まない
+     * （{@code RailMemory}と同じ読み方）。
+     */
+    private static boolean anyRail(Level level, SearchBounds bounds) {
+        for (int chunkX = bounds.minX() >> 4; chunkX <= bounds.maxX() >> 4; chunkX++) {
+            for (int chunkZ = bounds.minZ() >> 4; chunkZ <= bounds.maxZ() >> 4; chunkZ++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
+                if (chunk == null) {
+                    continue;
+                }
+                for (LevelChunkSection section : chunk.getSections()) {
+                    // 1.17以前は空のセクションをnullで持つ
+                    if (section != null && section.maybeHas(RailBlocks::isRail)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
