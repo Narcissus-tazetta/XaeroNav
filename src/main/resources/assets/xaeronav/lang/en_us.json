@@ -45,6 +45,7 @@
   "hud.xaeronav.drowning": "Long dive ahead — watch your air",
   "hud.xaeronav.boat_ahead": "Water crossing by boat ahead — place a boat at the shore",
   "hud.xaeronav.cart_ahead": "Minecart ahead — place it on the rail, get in, hold forward",
+  "hud.xaeronav.cart_ahead_parked": "Minecart ahead — get in the one on the rail, hold forward",
   "hud.xaeronav.blocks_short": "Not enough blocks: the route places %1$s, you have %2$s",
   "hud.xaeronav.fall_damage": "Drop ahead that deals fall damage",
   "hud.xaeronav.sneak_over_magma": "Magma blocks ahead — sneak across them",

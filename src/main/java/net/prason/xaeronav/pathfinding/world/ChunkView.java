@@ -3,6 +3,8 @@ package net.prason.xaeronav.pathfinding.world;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.Reference2LongOpenHashMap;
 
 import net.minecraft.core.BlockPos;
@@ -19,6 +21,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.entity.vehicle.Boat;
+import net.minecraft.world.entity.vehicle.Minecart;
 //? if >=1.21.2 {
 /*import net.minecraft.world.flag.FeatureFlags;
 *///?}
@@ -35,6 +38,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.rail.CartRide;
 import net.prason.xaeronav.rail.RailBlocks;
@@ -43,6 +47,8 @@ import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.cost.DigCost;
 
 import java.util.function.Predicate;
+
+import org.jspecify.annotations.Nullable;
 
 /**
  * 探索範囲のブロックを読むためのビュー。
@@ -202,32 +208,57 @@ public final class ChunkView implements CellSource {
         return player.getVehicle() instanceof AbstractMinecart;
     }
 
+    /** 持ち物にトロッコがあるか。 */
+    public static boolean carryingMinecart(Player player) {
+        return hasItem(GameCompat.inventory(player), stack -> stack.getItem() == Items.MINECART);
+    }
+
     /**
      * 探索から見たトロッコの状態。メインスレッド専用。
      *
-     * <p>乗っている間はトロッコがアイテムではなくエンティティになるので、乗っていれば持っている扱いにする
-     * （{@link #boatAvailable}と同じ理由）。
+     * <p>乗っているトロッコは降りたら壊して拾う前提なので、乗っていれば持っている扱いにする
+     * （{@link #boatAvailable}と同じ理由）。{@code bounds}の中の線路上にある空のトロッコも拾う。
      */
-    public static MinecartState minecart(Level level, Player player) {
+    public static MinecartState minecart(Level level, Player player, SearchBounds bounds) {
         if (experimentalMinecarts(level)) {
             return MinecartState.UNAVAILABLE;
         }
+        LongSet parked = parkedMinecarts(level, bounds);
         if (ridingMinecart(player)) {
             AbstractMinecart cart = (AbstractMinecart) player.getVehicle();
-            BlockPos at = cart.blockPosition();
-            // トロッコの高さはレールより僅かに上で、坂の上ではレールのセルの1つ上になる
-            BlockPos rail = RailBlocks.isRail(level.getBlockState(at)) ? at
-                    : RailBlocks.isRail(level.getBlockState(at.below())) ? at.below() : null;
-            if (rail == null) {
-                return MinecartState.carrying();
+            BlockPos rail = railUnder(level, cart);
+            if (rail != null) {
+                Vec3 motion = cart.getDeltaMovement();
+                double speed = Math.sqrt(motion.x * motion.x + motion.z * motion.z);
+                return new MinecartState(true, true, rail.getX(), rail.getY(), rail.getZ(), speed,
+                        speed > 0.0 ? motion.x / speed : 0.0, speed > 0.0 ? motion.z / speed : 0.0, parked);
             }
-            Vec3 motion = cart.getDeltaMovement();
-            double speed = Math.sqrt(motion.x * motion.x + motion.z * motion.z);
-            return new MinecartState(true, true, rail.getX(), rail.getY(), rail.getZ(), speed,
-                    speed > 0.0 ? motion.x / speed : 0.0, speed > 0.0 ? motion.z / speed : 0.0);
+            return new MinecartState(true, false, 0, 0, 0, 0.0, 0.0, 0.0, parked);
         }
-        return hasItem(GameCompat.inventory(player), stack -> stack.getItem() == Items.MINECART)
-                ? MinecartState.carrying() : MinecartState.UNAVAILABLE;
+        return new MinecartState(carryingMinecart(player), false, 0, 0, 0, 0.0, 0.0, 0.0, parked);
+    }
+
+    /**
+     * 線路上で誰も乗っていない、人が乗れるトロッコのレール。チェスト付き・かまど付き等は乗れないので数えない。
+     */
+    private static LongSet parkedMinecarts(Level level, SearchBounds bounds) {
+        AABB box = new AABB(bounds.minX(), bounds.minY(), bounds.minZ(),
+                bounds.maxX() + 1, bounds.maxY() + 1, bounds.maxZ() + 1);
+        LongSet parked = new LongOpenHashSet();
+        for (Minecart cart : level.getEntitiesOfClass(Minecart.class, box, cart -> !cart.isVehicle())) {
+            BlockPos rail = railUnder(level, cart);
+            if (rail != null) {
+                parked.add(rail.asLong());
+            }
+        }
+        return parked;
+    }
+
+    /** トロッコの高さはレールより僅かに上で、坂の上ではレールのセルの1つ上になる。 */
+    private static @Nullable BlockPos railUnder(Level level, AbstractMinecart cart) {
+        BlockPos at = cart.blockPosition();
+        return RailBlocks.isRail(level.getBlockState(at)) ? at
+                : RailBlocks.isRail(level.getBlockState(at.below())) ? at.below() : null;
     }
 
     /**
@@ -367,7 +398,7 @@ public final class ChunkView implements CellSource {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
                 canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
-                minecart(level, player), deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
+                minecart(level, player, bounds), deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
                 GameCompat.maxBuildHeight(level), GameCompat.minSection(level), true);
     }
 

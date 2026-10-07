@@ -45,6 +45,7 @@
   "hud.xaeronav.drowning": "この先に長い潜水区間があります（息に注意）",
   "hud.xaeronav.boat_ahead": "この先は水面をボートで渡ります（岸でボートを出してください）",
   "hud.xaeronav.cart_ahead": "この先はトロッコで走ります（レールに置いて乗り、前進キーで押し出す）",
+  "hud.xaeronav.cart_ahead_parked": "この先は線路上のトロッコで走ります（乗って前進キーで押し出す）",
   "hud.xaeronav.blocks_short": "ブロックが足りません：設置に%1$s個必要で、手持ちは%2$s個です",
   "hud.xaeronav.fall_damage": "この先に落下ダメージを受ける降下があります",
   "hud.xaeronav.sneak_over_magma": "この先でマグマブロックを渡ります（スニークしてください）",

@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
+
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
@@ -45,7 +48,7 @@ class CartRidePathTest {
 
     @Test
     void ridesAPoweredLineWhenCarryingAMinecart() {
-        PathResult result = search(line(250, 8).minecart(MinecartState.carrying()), 0, 249);
+        PathResult result = search(line(250, 8).minecart(MinecartState.carryingOne()), 0, 249);
 
         assertTrue(result.complete());
         assertEquals(249, rideSteps(result), "乗る点の次から終点まで走る");
@@ -64,7 +67,7 @@ class CartRidePathTest {
 
     @Test
     void walksAShortLineBecauseBoardingCostsMoreThanItSaves() {
-        PathResult result = search(line(20, 8).minecart(MinecartState.carrying()), 0, 19);
+        PathResult result = search(line(20, 8).minecart(MinecartState.carryingOne()), 0, 19);
 
         assertTrue(result.complete());
         assertEquals(0, rideSteps(result));
@@ -72,7 +75,7 @@ class CartRidePathTest {
 
     @Test
     void walksAlongAnUnpoweredLineThatCanOnlyBePushed() {
-        PathResult result = search(line(250, 0).minecart(MinecartState.carrying()), 0, 249);
+        PathResult result = search(line(250, 0).minecart(MinecartState.carryingOne()), 0, 249);
 
         assertTrue(result.complete());
         assertEquals(0, rideSteps(result));
@@ -80,7 +83,7 @@ class CartRidePathTest {
 
     @Test
     void ridesOnWithoutBoardingAgainWhenAlreadyInACart() {
-        FakeCells cells = line(250, 8).minecart(new MinecartState(true, true, 100, Y, 0, 2.0, 1.0, 0.0));
+        FakeCells cells = line(250, 8).minecart(new MinecartState(true, true, 100, Y, 0, 2.0, 1.0, 0.0, LongSets.EMPTY_SET));
 
         PathResult result = search(cells, 100, 249);
 
@@ -91,7 +94,7 @@ class CartRidePathTest {
 
     @Test
     void getsOffWhereTheGoalIsBesideTheLine() {
-        FakeCells cells = line(250, 8).minecart(MinecartState.carrying());
+        FakeCells cells = line(250, 8).minecart(MinecartState.carryingOne());
         for (int z = 1; z <= 3; z++) {
             cells.set(150, Y - 1, z, FakeCells.STONE);
         }
@@ -109,5 +112,32 @@ class CartRidePathTest {
         // 降りた先から斜めに踏み出せるので、真横の1つ手前で降りてもよい
         BlockPos alight = result.steps().get(lastRide).pos();
         assertTrue(alight.getZ() == 0 && Math.abs(alight.getX() - 150) <= 1, "alight " + alight);
+    }
+
+    @Test
+    void walksToAMinecartParkedOnTheLineAndRidesItWithoutCarryingOne() {
+        LongOpenHashSet parked = new LongOpenHashSet();
+        parked.add(BlockPos.asLong(60, Y, 0));
+        FakeCells cells = line(250, 8).minecart(MinecartState.parkedAt(parked));
+
+        PathResult result = search(cells, 0, 249);
+
+        assertTrue(result.complete());
+        PathStep firstRide = result.steps().stream().filter(step -> step.movement() == MovementType.CART)
+                .findFirst().orElseThrow();
+        assertEquals(new BlockPos(61, Y, 0), firstRide.pos(), "置いてあるトロッコの所まで歩いてから乗る");
+        assertEquals(249 - 60, rideSteps(result));
+    }
+
+    @Test
+    void doesNotRideWhereNoMinecartIsParkedWithoutCarryingOne() {
+        LongOpenHashSet parked = new LongOpenHashSet();
+        parked.add(BlockPos.asLong(60, Y, 5));
+        FakeCells cells = line(250, 8).minecart(MinecartState.parkedAt(parked));
+
+        PathResult result = search(cells, 0, 249);
+
+        assertTrue(result.complete());
+        assertEquals(0, rideSteps(result));
     }
 }

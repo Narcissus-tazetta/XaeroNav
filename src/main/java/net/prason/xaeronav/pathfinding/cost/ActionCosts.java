@@ -434,9 +434,15 @@ public final class ActionCosts {
      * レールにトロッコを置いて乗るまでの手間。乗る点で1度だけ払う。
      *
      * <p>内訳: レールを狙って置く（{@link #PLACE_BLOCK_AIM_TICKS}）＋乗る（置いたトロッコは照準の先にあるので
-     * 右クリックの間隔4tick）。乗ってから前進キーで押し出す遅さは{@code CartRide}が走りの中で数える。
+     * 右クリックの間隔4tick、{@link #CART_ENTER_TICKS}）。乗ってから前進キーで押し出す遅さは{@code CartRide}が走りの中で数える。
      */
     public static final double CART_BOARD_TICKS = PLACE_BLOCK_AIM_TICKS + 4.0;
+
+    /**
+     * 線路上に置いてあるトロッコに乗るだけの手間（右クリックの間隔4tick）。置く手間も、降りてから壊して拾う手間も
+     * 掛からない——置いてあったトロッコはそのまま残して行く。
+     */
+    public static final double CART_ENTER_TICKS = 4.0;
 
     /**
      * 降りたトロッコを壊して拾うまでの手間。トロッコもボートと同じ{@code VehicleEntity}なので、素手で叩く回数も
