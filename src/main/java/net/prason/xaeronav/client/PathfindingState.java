@@ -2385,6 +2385,11 @@ public final class PathfindingState {
         if (shown.mode() == PathMode.TO_SURFACE) {
             return false;
         }
+        // ガイドは徒歩の道と値段しか知らない。乗ったままの線は水を避けて回り込み、置いていく割増も払うので、
+        // 比べると最短の線まで遠回りに見えて同じ経路を引き直すだけになる（実機で2回）
+        if (mount.walks()) {
+            return false;
+        }
         WindowField field = navGraphGuide.latest(currentGoal);
         if (field == null || field == reviewedField || !field.reachesGoal()) {
             return false;
