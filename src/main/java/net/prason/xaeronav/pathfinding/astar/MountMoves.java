@@ -206,6 +206,9 @@ final class MountMoves implements RiddenMoves {
                 owner.relaxMounted(from, x, top, z, stepUpOrDown(x, z, top, 1.0) + body, MoveKind.MOUNT_WALK);
                 return;
             }
+            if (weakTakeoff(from)) {
+                return;
+            }
             // 跳ぶ。頂点まで頭上が空いていること
             int charge = weakestChargeReaching(rise);
             int headroom = (int) Math.ceil(physics.apex(charge));
@@ -213,7 +216,8 @@ final class MountMoves implements RiddenMoves {
                     || Double.isInfinite(bodyCost(x, z, top + height, y + headroom + height - 1))) {
                 return;
             }
-            double jump = Math.max(physics.chargeTicks(charge) + physics.airTicks(charge), physics.ticksPerBlock());
+            // 溜めている間も乗り物は前へ進む（{@code AbstractHorse#getRiddenInput}）ので、溜めの時間は手前の手に重なる
+            double jump = Math.max(physics.airTicks(charge), physics.ticksPerBlock());
             owner.relaxMounted(from, x, top, z, jump + body, MoveKind.MOUNT_JUMP);
             return;
         }
@@ -309,7 +313,7 @@ final class MountMoves implements RiddenMoves {
      * 距離は{@code 隙間 - 幅}。隙間1列は足場のどこかが支えているので歩いて渡る（{@link #addStep}）。
      */
     private void addGapJump(PathNode from, int dx, int dz) {
-        if (!owner.view.jumpGapEnabled()) {
+        if (!owner.view.jumpGapEnabled() || weakTakeoff(from)) {
             return;
         }
         int y = from.y;
@@ -379,7 +383,7 @@ final class MountMoves implements RiddenMoves {
             }
         }
         // 遠い跳躍ほど踏み切りの位置合わせを外しやすいので、徒歩の隙間跳びと同じ割増を列ごとに足す
-        double cost = Math.max(physics.chargeTicks(charge) + physics.airTicks(charge), shift * physics.ticksPerBlock())
+        double cost = Math.max(physics.airTicks(charge), shift * physics.ticksPerBlock())
                 + (gap - 1) * ActionCosts.JUMP_REACH_PENALTY + dropRisk;
         owner.relaxMounted(from, x, y, z, cost + body, MoveKind.MOUNT_JUMP);
     }
@@ -459,6 +463,18 @@ final class MountMoves implements RiddenMoves {
             }
         }
         return true;
+    }
+
+    /** 足場の床に蜂蜜ブロックがあるか。乗り物の跳躍は半分になり、届くかは乗り物の中心の真下の床次第で読めない。 */
+    private boolean weakTakeoff(PathNode from) {
+        for (int cx = from.x; cx <= from.x + 1; cx++) {
+            for (int cz = from.z; cz <= from.z + 1; cz++) {
+                if (CellData.lowJump(owner.view.cell(cx, from.y - 1, cz))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

@@ -82,6 +82,8 @@ public final class CellData {
      * 普通のツタ({@code vine})だけはreplaceableなので置ける。
      */
     static final long REPLACEABLE = 1L << 12;
+    /** 上から跳ぶと跳躍が弱まる床（{@code Block#getJumpFactor}が1未満。バニラでは蜂蜜ブロックの0.5だけ）。 */
+    static final long LOW_JUMP = 1L << 13;
 
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
 
@@ -188,6 +190,9 @@ public final class CellData {
         }
         if (state.getBlock() instanceof MagmaBlock) {
             flags |= SNEAK_REQUIRED;
+        }
+        if (state.getBlock().getJumpFactor() < 1.0f) {
+            flags |= LOW_JUMP;
         }
         if (
                 //? if >=1.20 {
@@ -391,6 +396,10 @@ public final class CellData {
     }
 
     /** その上を進むにはスニークが要る床か（マグマブロック）。 */
+    public static boolean lowJump(long cell) {
+        return (cell & LOW_JUMP) != 0;
+    }
+
     public static boolean sneakRequired(long cell) {
         return (cell & SNEAK_REQUIRED) != 0;
     }

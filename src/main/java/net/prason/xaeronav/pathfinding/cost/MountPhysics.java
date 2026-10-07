@@ -12,6 +12,10 @@ import net.prason.xaeronav.pathfinding.world.MountState;
  *
  * <p>ラクダの速さは乗り手が疾走していると+0.1（{@code Camel#getRiddenSpeed}、跳躍の冷却中は無し）。疾走せずに
  * 乗ると歩きより遅いので、疾走して乗る前提で数える。馬の仲間は疾走しても変わらない。
+ *
+ * <p>跳躍力は{@link #JUMP_STRENGTH_MARGIN}だけ割り引く。溜め切り（1.0）はゲージが満ちてからの3tickに離したときだけで
+ * （{@code LocalPlayer#aiStep}、押し続けると約0.8へ戻る）、取り損ねても届かない跳躍を案内しないため。
+ * 跳躍力上昇の効果は読まない（一時的なうえ、読まなければ低めに数える側に倒れる）。
  */
 public final class MountPhysics {
 
@@ -31,8 +35,7 @@ public final class MountPhysics {
      */
     private static final double[] CHARGES = {0.4, 0.5, 0.6, 0.7, 0.8, 1.0};
     private static final int MAX_AIR_TICKS = 200;
-    /** {@code LocalPlayer}の{@code jumpRidingTicks}は1tickで溜めが0.1ずつ増え、10tickで1.0になる。 */
-    private static final double CHARGE_TICKS_PER_UNIT = 10.0;
+    private static final double JUMP_STRENGTH_MARGIN = 0.9;
     private static final double CAMEL_RUNNING_SPEED_BONUS = 0.1;
 
     private final double[] apex = new double[CHARGES.length];
@@ -49,7 +52,8 @@ public final class MountPhysics {
         double airAccel = speed * 0.1 * FORWARD_INPUT;
         for (int i = 0; i < CHARGES.length; i++) {
             double charge = CHARGES[i];
-            double vy = camel ? CAMEL_VERTICAL_MOMENTUM * charge * mount.jumpStrength() : mount.jumpStrength() * charge;
+            double strength = mount.jumpStrength() * JUMP_STRENGTH_MARGIN;
+            double vy = camel ? CAMEL_VERTICAL_MOMENTUM * charge * strength : strength * charge;
             // 踏み切りの直前の速度は、地上の定常の歩みから最後の減衰を戻した値
             double vx = groundStep * GROUND_DRAG
                     + (camel ? CAMEL_HORIZONTAL_MOMENTUM * charge * speed : HORSE_FORWARD_IMPULSE * charge);
@@ -93,11 +97,6 @@ public final class MountPhysics {
     /** 溜め{@code charge}番で跳んでから踏み切りの高さへ戻るまでのtick。 */
     public int airTicks(int charge) {
         return airTicks[charge];
-    }
-
-    /** 溜め{@code charge}番まで溜めるのにジャンプキーを押し続けるtick。溜める間は前へ進まない。 */
-    public double chargeTicks(int charge) {
-        return CHARGES[charge] * CHARGE_TICKS_PER_UNIT;
     }
 
     /** 平地を進み続けたときの1ブロックの時間（tick）。 */

@@ -144,6 +144,21 @@ class MountRoutesTest {
     }
 
     @Test
+    void doesNotJumpOffHoney() {
+        FakeCells cells = ledge(10, 3).mount(JUMPER);
+        for (int x = MIN_X; x < 10; x++) {
+            for (int z = MIN_Z; z <= MAX_Z; z++) {
+                cells.set(x, Y - 1, z, FakeCells.HONEY);
+            }
+        }
+
+        PathResult result = new AStarPathfinder(cells).search(new BlockPos(0, Y, 0), new BlockPos(20, Y + 3, 0), () -> false);
+
+        assertTrue(result.steps().stream().noneMatch(step -> step.movement() == MovementType.MOUNT_JUMP),
+                "蜂蜜の上では跳躍が半分になり届かない");
+    }
+
+    @Test
     void stepsUpOneBlockWithoutJumping() {
         PathResult result = new AStarPathfinder(ledge(10, 1).mount(HORSE))
                 .search(new BlockPos(0, Y, 0), new BlockPos(20, Y + 1, 0), () -> false);

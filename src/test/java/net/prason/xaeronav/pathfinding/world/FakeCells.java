@@ -52,6 +52,8 @@ public final class FakeCells implements CellSource {
     public static final char SOUL_SAND = 'S';
     /** マグマブロック。足場だが、上を通るにはスニークが要る（走って踏むと燃える）。 */
     public static final char MAGMA = 'M';
+    /** 蜂蜜ブロック。ソウルサンドと同じく減速し、上から跳ぶと跳躍が半分になる。 */
+    public static final char HONEY = 'Y';
     /** 普通のツタ。掴まって登れて、replaceableなのでブロックを置ける。 */
     public static final char VINE = 'V';
     /** ネザーのしだれツタ・ねじれツタ。掴まって登れるが<b>replaceableではない</b>ので置けない。 */
@@ -303,7 +305,7 @@ public final class FakeCells implements CellSource {
     private static final long[] FLAGS = new long[128];
 
     static {
-        for (char c : new char[] {AIR, STONE, SOFT, BEDROCK, WATER, LAVA, SOUL_SAND, MAGMA, VINE, NETHER_VINE, LADDER,
+        for (char c : new char[] {AIR, STONE, SOFT, BEDROCK, WATER, LAVA, SOUL_SAND, MAGMA, HONEY, VINE, NETHER_VINE, LADDER,
                 COBWEB, ABSENT}) {
             FLAGS[c] = flagsFor(c);
         }
@@ -321,6 +323,9 @@ public final class FakeCells implements CellSource {
             case LAVA -> CellData.withDigTicks(CellData.PRESENT | CellData.LAVA, Double.POSITIVE_INFINITY);
             case SOUL_SAND -> CellData.withSpeedFactor(
                     CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE, STONE_DIG_TICKS),
+                    SOUL_SAND_SPEED_FACTOR);
+            case HONEY -> CellData.withSpeedFactor(
+                    CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE | CellData.LOW_JUMP, SOFT_DIG_TICKS),
                     SOUL_SAND_SPEED_FACTOR);
             case MAGMA -> CellData.withSpeedFactor(
                     CellData.withDigTicks(
