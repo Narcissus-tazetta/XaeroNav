@@ -1,7 +1,9 @@
 pluginManagement {
     repositories {
-        gradlePluginPortal()
+        // Plugin PortalはMaven Centralの中身も中継して返す。先に置くとプラグインが引くライブラリ（gson・asm等）まで
+        // 中継から取り、CIでjarだけ取れずに落ちることがあった。Centralにあるものは直接取る
         mavenCentral()
+        gradlePluginPortal()
         maven("https://maven.neoforged.net/releases") { name = "NeoForged" }
         maven("https://maven.fabricmc.net/") { name = "FabricMC" }
         maven("https://maven.kikugie.dev/releases") { name = "KikuGie" }
