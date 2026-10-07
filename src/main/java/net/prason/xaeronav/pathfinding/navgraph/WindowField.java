@@ -915,6 +915,36 @@ public final class WindowField implements CostToGo {
         return Math.abs(x - centerX) <= limit && Math.abs(z - centerZ) <= limit;
     }
 
+    /** {@link #forEachLatticeValue}が渡す、値を持つノード。 */
+    @FunctionalInterface
+    public interface NodeValue {
+        void visit(int x, int y, int z, double value);
+    }
+
+    /** 値を持つノードのうち、xとzが{@code step}の倍数のものを渡す。 */
+    public void forEachLatticeValue(int step, NodeValue visitor) {
+        int[] local = new int[SectionMoves.SIZE * SectionMoves.SIZE * SectionMoves.SIZE];
+        for (int s = 0; s < index.sections.length; s++) {
+            SectionEdges section = index.sections[s];
+            long key = index.keys[s];
+            int baseX = BlockPos.getX(key) * SectionMoves.SIZE;
+            int baseY = BlockPos.getY(key) * SectionMoves.SIZE;
+            int baseZ = BlockPos.getZ(key) * SectionMoves.SIZE;
+            section.positions(local, 0);
+            for (int i = 0; i < section.nodes; i++) {
+                int x = baseX + (local[i] & 15);
+                int z = baseZ + (local[i] >> 4 & 15);
+                if (Math.floorMod(x, step) != 0 || Math.floorMod(z, step) != 0) {
+                    continue;
+                }
+                double value = distance[index.offsets[s] + i];
+                if (Double.isFinite(value)) {
+                    visitor.visit(x, baseY + (local[i] >> 8 & 15), z, value);
+                }
+            }
+        }
+    }
+
     /** グラフのノードから直接引ける値。ノードでないか、目的地へ繋がらなければ{@link Double#NaN}。 */
     public double exact(int x, int y, int z) {
         int id = index.resolveAbsolute(x, y, z);

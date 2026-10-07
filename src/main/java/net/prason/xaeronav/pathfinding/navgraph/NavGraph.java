@@ -39,8 +39,9 @@ public final class NavGraph {
      * <p><b>縁を組まずに空けておいてはいけない。</b>空けた帯ではガイドが外の値（無ければ幾何下限）へ落ち、
      * 内側の正確な値より低くなって探索と部分経路の終点選びを吸い寄せる（実測: エンド1.009→1.068倍）。
      *
-     * <p><b>「完全に読めるまで組み直さない」でもいけない。</b>窓が近づいて半分読めるようになったセクションが、
-     * 端の数列しか読めなかった頃の辺のまま残り、目的地の周りに穴が空く（実測: 本物48に対して1308）。
+     * <p><b>読める列が増えたら、少しでも組み直す。</b>古い辺のまま残すと、縁の帯を通る細い通路がそこで切れ、窓が8ブロック動いただけで
+     * ガイドの値が跳ねる（実測: 同じ窓をまっさらに組むと3747のところが5806）。跳ねたガイドで継ぎ足した区間は、後の正しいガイドでは
+     * 引き直されない（ネザー長距離で2.660→1.095倍）。読める列が4分の1増えるまで待つと、組み直しの98回中16回で値が食い違う。
      */
     private final ConcurrentHashMap<Long, Integer> provisional = new ConcurrentHashMap<>();
 
@@ -123,9 +124,7 @@ public final class NavGraph {
             if (readable == null) {
                 return;
             }
-            int now = readableColumns(sx, sz, loaded);
-            // 読める列が少し増えるたびに組み直すと、窓が動くたびに縁の帯を丸ごと組み直すことになる
-            if (now >= FULLY_READABLE || now - readable >= FULLY_READABLE / REBUILD_STEPS) {
+            if (readableColumns(sx, sz, loaded) > readable) {
                 missing.add(key);
             }
         });
@@ -138,9 +137,6 @@ public final class NavGraph {
                 (sectionX + 1) * SectionMoves.SIZE - 1 + READ_MARGIN, sectionZ * SectionMoves.SIZE - READ_MARGIN,
                 (sectionZ + 1) * SectionMoves.SIZE - 1 + READ_MARGIN);
     }
-
-    /** 仮のセクションを組み直す刻み。読める列がこの割合ぶん増えるか、全部読めるようになったら組み直す。 */
-    private static final int REBUILD_STEPS = 4;
 
     static final int FULLY_READABLE = (SectionMoves.SIZE + 2 * READ_MARGIN) * (SectionMoves.SIZE + 2 * READ_MARGIN);
 

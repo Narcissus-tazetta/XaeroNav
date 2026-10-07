@@ -27,6 +27,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.coarse.LiveCoarseSampler;
 import net.prason.xaeronav.pathfinding.coarse.XaeroMapModel;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
+import net.prason.xaeronav.pathfinding.navgraph.LearnedFar;
 import net.prason.xaeronav.pathfinding.navgraph.LoadedArea;
 import net.prason.xaeronav.pathfinding.navgraph.NavGraph;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
@@ -45,10 +46,12 @@ public class RandomSweepBenchTest {
     private static final int WINDOW = Integer.getInteger("xaeronav.window", 224);
     /** 箱全体を1つの窓で覆った航法グラフを真値にして、損を「どのガイドが引いた手か」で分ける。 */
     private static final boolean TRUTH = Boolean.getBoolean("xaeronav.sweepTruth");
-    /** 0より大きければ、窓の値をこの間隔の格子で覚えて窓の外の推定の下限にする（{@link Learned}）。 */
     /** 窓の外の推定を真値そのものにする（窓の外を完璧に知っていたらの上界）。{@code sweepTruth}と一緒に使う。 */
     private static final boolean PERFECT_FAR = Boolean.getBoolean("xaeronav.sweepPerfectFar");
-    private static final int LEARN = Integer.getInteger("xaeronav.sweepLearn", 0);
+    /** 組み直しの集計（組んだセクション数・組む時間ms・組み直し全体ms・回数・覚える時間ms・覚えた点）。ルートごとに0へ戻す。 */
+    private static final long[] BUILD_STATS = new long[6];
+    /** 窓の値を覚えて窓の外の推定の下限にする（{@link LearnedFar}、本番はネザーで有効）。 */
+    private static final boolean LEARN = Boolean.parseBoolean(System.getProperty("xaeronav.sweepLearn", "true"));
     /** ネザーの窓の外の推定（3D粗層）に掛ける倍率。本番は{@code NavGraphGuide.VOXEL_FAR_SCALE}。 */
     private static final double FAR_SCALE = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
     private static final int ROUTES = Integer.getInteger("xaeronav.routes", 8);
@@ -153,6 +156,7 @@ public class RandomSweepBenchTest {
                 int[] unguided = {0};
                 long began = System.currentTimeMillis();
                 ProgressiveWalk.UNGUIDED_LEGS.set(0);
+                java.util.Arrays.fill(BUILD_STATS, 0);
                 ProgressiveWalk.Trace trace;
                 try {
                     trace = ProgressiveWalk.trace(cells, start, goal, WINDOW, ProgressiveWalk.Mode.REPAIR,
@@ -188,6 +192,8 @@ public class RandomSweepBenchTest {
                         steps.stream().filter(s -> s.placedBlockPos() != null).count(),
                         steps.stream().filter(PathStep::digging).count(), edge, cost - edge * ActionCosts.EDGE_HAZARD_PENALTY_TICKS,
                         secs, trace.stopped()));
+                log(out, String.format(Locale.ROOT, "  組み直し%d回 組んだセクション%d 組む%dms 全体%dms 覚える%dms 覚えた点%d",
+                        BUILD_STATS[3], BUILD_STATS[0], BUILD_STATS[1], BUILD_STATS[2], BUILD_STATS[4], BUILD_STATS[5]));
                 if (book != null && !steps.isEmpty()) {
                     log(out, book.report(start, steps));
                 }
@@ -236,12 +242,35 @@ public class RandomSweepBenchTest {
             }
             current = g;
             exits.add(d == null ? null : d.exit());
+            String edge = "";
+            if (g instanceof WindowField f && Boolean.getBoolean("xaeronav.navGraphVerbose")) {
+                // 窓の縁の帯のノードのうち、真値のグラフで値が無いもの（辺ごと: 北・南・西・東）
+                int[] nodes = new int[4];
+                int[] missing = new int[4];
+                int r = f.radius() - 1;
+                for (int t = -r; t <= r; t++) {
+                    int[][] at = {{f.centerX() + t, f.centerZ() - r}, {f.centerX() + t, f.centerZ() + r},
+                            {f.centerX() - r, f.centerZ() + t}, {f.centerX() + r, f.centerZ() + t}};
+                    for (int side = 0; side < 4; side++) {
+                        for (int y = 0; y < 128; y++) {
+                            if (Double.isFinite(f.exact(at[side][0], y, at[side][1]))) {
+                                nodes[side]++;
+                                if (!Double.isFinite(truth.exact(at[side][0], y, at[side][1]))) {
+                                    missing[side]++;
+                                }
+                            }
+                        }
+                    }
+                }
+                edge = String.format(Locale.ROOT, " 縁の真値欠け 北%d/%d 南%d/%d 西%d/%d 東%d/%d",
+                        missing[0], nodes[0], missing[1], nodes[1], missing[2], nodes[2], missing[3], nodes[3]);
+            }
             refreshes.add(String.format(Locale.ROOT, "%s 真%.0f 推%.0f 出口%s(中%.0f+外%.0f→出口の真%.0f)",
                     player.toShortString(), truth.exact(player.getX(), player.getY(), player.getZ()),
                     g.estimate(player.getX(), player.getY(), player.getZ()),
                     d == null ? "-" : d.exit().toShortString(), d == null ? Double.NaN : d.inside(),
                     d == null ? Double.NaN : d.outside(),
-                    d == null ? Double.NaN : truth.exact(d.exit().getX(), d.exit().getY(), d.exit().getZ())));
+                    d == null ? Double.NaN : truth.exact(d.exit().getX(), d.exit().getY(), d.exit().getZ())) + edge);
         }
 
         String report(BlockPos start, List<PathStep> steps) {
@@ -311,7 +340,7 @@ public class RandomSweepBenchTest {
         BlockPos[] voxelAt = {null};
         BlockPos[] last = {null};
         CostToGo[] cached = {null};
-        Learned learned = LEARN > 0 ? new Learned() : null;
+        LearnedFar learned = LEARN && dim == Dim.NETHER ? new LearnedFar() : null;
         return player -> {
             if (last[0] != null && Math.max(Math.abs(player.getX() - last[0].getX()),
                     Math.abs(player.getZ() - last[0].getZ())) < 8) {
@@ -324,8 +353,18 @@ public class RandomSweepBenchTest {
                     voxelAt[0] = player;
                 }
                 CostToGo current = voxel[0];
-                far = perfect != null ? FarField.of(perfect) : learned == null ? FarField.of((x, y, z) -> FAR_SCALE * current.estimate(x, y, z))
-                        : learnedFar(current, learned.values);
+                // 真値はノードの上でだけ使う（estimateは真値の窓の外・ノードでない点で0を返し、穴になる）
+                far = perfect instanceof WindowField truth ? FarField.of((x, y, z) -> {
+                    // 真値の窓の中で値が無い点は目的地へ繋がらない（＝無限）。推定で埋めると安い穴になる
+                    if (Math.abs(x - truth.centerX()) < truth.radius() - 2 && Math.abs(z - truth.centerZ()) < truth.radius() - 2) {
+                        double exact = truth.exact(x, y, z);
+                        return Double.isFinite(exact) ? exact : Double.POSITIVE_INFINITY;
+                    }
+                    return FAR_SCALE * current.estimate(x, y, z);
+                }) : FarField.of((x, y, z) -> FAR_SCALE * current.estimate(x, y, z));
+                if (learned != null && perfect == null) {
+                    far = learned.over(far);
+                }
             } else if (dim == Dim.OVERWORLD) {
                 graph.floorBelow(player.getY());
             }
@@ -333,68 +372,36 @@ public class RandomSweepBenchTest {
                 far = FarField.forwardOf(far, player.getX(), player.getY(), player.getZ());
             }
             WindowedCells window = new WindowedCells(cells, player, WINDOW);
-            WindowField field = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
+            long began = System.nanoTime();
+            NavGraph.Refreshed refreshed = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
                     LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
-                    Runtime.getRuntime().availableProcessors(), () -> false).field();
+                    Runtime.getRuntime().availableProcessors(), () -> false);
+            WindowField field = refreshed.field();
+            BUILD_STATS[0] += refreshed.sectionsBuilt();
+            BUILD_STATS[1] += refreshed.buildMillis();
+            BUILD_STATS[2] += (System.nanoTime() - began) / 1_000_000;
+            BUILD_STATS[3]++;
+            if (Boolean.getBoolean("xaeronav.checkFresh")) {
+                // 使い回したグラフと、同じ窓をまっさらなグラフで組んだものを、プレイヤーの値で突き合わせる
+                WindowField fresh = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY()).refresh(() -> window,
+                        player.getX(), player.getZ(), WINDOW, LoadedArea.square(player.getX(), player.getZ(), WINDOW), far,
+                        ForkJoinPool.commonPool(), Runtime.getRuntime().availableProcessors(), () -> false).field();
+                double reused = field.estimate(player.getX(), player.getY(), player.getZ());
+                double clean = fresh.estimate(player.getX(), player.getY(), player.getZ());
+                System.out.printf(Locale.ROOT, "  使い回し確認 %s 使い回し%.0f まっさら%.0f ノード%d/%d 辺%d/%d%s%n",
+                        player.toShortString(), reused, clean, field.nodes(), fresh.nodes(), field.edges(), fresh.edges(),
+                        Math.abs(reused - clean) > 1 ? " ★食い違い" : "");
+            }
             if (learned != null) {
-                learned.record(field, player.getX(), player.getZ(), WINDOW);
+                long recordBegan = System.nanoTime();
+                learned.record(field);
+                BUILD_STATS[4] += (System.nanoTime() - recordBegan) / 1_000_000;
+                BUILD_STATS[5] = learned.size();
             }
             cached[0] = field;
             last[0] = player;
             return field;
         };
-    }
-
-    private static FarField learnedFar(CostToGo voxel, java.util.Map<Long, Float> frozen) {
-        return FarField.of((x, y, z) -> Math.max(FAR_SCALE * voxel.estimate(x, y, z), Learned.at(frozen, x, y, z)));
-    }
-
-    /**
-     * 窓が組んだ値を、窓を出たあとも覚えておく（LSS-LRTA*の学習を窓全体・ノードの解像度で）。窓の外の推定はこれと3D粗層の大きい方。
-     * 窓の値は「中を歩いた実費＋縁の外の推定」なので、推定が真値以下なら真値以下に留まる。
-     */
-    private static final class Learned {
-        /** 組んだ窓の外の推定が後から変わると値と辺が食い違って下れなくなるので、書くたびに作り直して古い方は凍らせる。 */
-        private java.util.HashMap<Long, Float> values = new java.util.HashMap<>();
-
-        private static long key(int x, int y, int z) {
-            return ((long) (x + (1 << 20)) << 28) | ((long) (z + (1 << 20)) << 7) | (y & 127);
-        }
-
-        void record(WindowField field, int cx, int cz, int radius) {
-            java.util.HashMap<Long, Float> next = new java.util.HashMap<>(values);
-            int step = LEARN;
-            for (int x = Math.floorDiv(cx - radius, step) * step; x <= cx + radius; x += step) {
-                for (int z = Math.floorDiv(cz - radius, step) * step; z <= cz + radius; z += step) {
-                    for (int y = 0; y < 128; y++) {
-                        double v = field.exact(x, y, z);
-                        if (Double.isFinite(v)) {
-                            next.merge(key(x, y, z), (float) v, Math::max);
-                        }
-                    }
-                }
-            }
-            values = next;
-        }
-
-        /** 近くの格子点（水平に1目、上下2以内）で覚えた値のうち小さい方。無ければ0。 */
-        static double at(java.util.Map<Long, Float> values, int x, int y, int z) {
-            int step = LEARN;
-            double best = Double.POSITIVE_INFINITY;
-            int bx = Math.floorDiv(x, step) * step;
-            int bz = Math.floorDiv(z, step) * step;
-            for (int gx = bx; gx <= bx + step; gx += step) {
-                for (int gz = bz; gz <= bz + step; gz += step) {
-                    for (int gy = Math.max(0, y - 2); gy <= Math.min(127, y + 2); gy++) {
-                        Float v = values.get(key(gx, gy, gz));
-                        if (v != null) {
-                            best = Math.min(best, v);
-                        }
-                    }
-                }
-            }
-            return Double.isFinite(best) ? best : 0;
-        }
     }
 
     /** 箱の中央±{@link #SPREAD}に始点・目的地を置く。周り48ブロックに書き出されていない列（未生成のチャンク）がある点は使わない。 */

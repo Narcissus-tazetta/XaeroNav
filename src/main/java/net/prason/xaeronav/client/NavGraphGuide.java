@@ -17,6 +17,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
+import net.prason.xaeronav.pathfinding.navgraph.LearnedFar;
 import net.prason.xaeronav.pathfinding.navgraph.LoadedArea;
 import net.prason.xaeronav.pathfinding.navgraph.NavGraph;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
@@ -190,8 +191,9 @@ final class NavGraphGuide {
      * @param name ログに出す名前
      * @param make 段取りの1本で呼ぶ
      * @param forwardOnly 組み直すたびに、窓の中心より推定の上で目的地から遠い縁を種から外す（{@link FarField#forwardOf}）
+     * @param learns 組んだ窓の値を覚えて、後の窓の外の推定の下限にする（{@link LearnedFar}）。推定が過小なネザーの3D粗層だけ
      */
-    record Far(String name, Object source, Supplier<FarField> make, boolean forwardOnly) {
+    record Far(String name, Object source, Supplier<FarField> make, boolean forwardOnly, boolean learns) {
     }
 
     /**
@@ -222,6 +224,8 @@ final class NavGraphGuide {
     private @Nullable Key graphKey;
     private @Nullable Object farSource;
     private FarField far = FarField.UNKNOWN;
+    /** 段取りの1本だけが触る。目的地とグラフの条件が同じ間だけ覚える。 */
+    private final LearnedFar learned = new LearnedFar();
 
     /**
      * 今の目的地のガイド。無ければ組み始めて{@code null}を返す。<b>メインスレッドから呼ぶこと。</b>
@@ -378,6 +382,9 @@ final class NavGraphGuide {
                     load.record(began, MonotonicTime.millis(), captureMillis, refreshed);
                     if (refreshed != null) {
                         farScale.observe(refreshed.field(), at);
+                        if (farMap != null && farMap.learns()) {
+                            learned.record(refreshed.field());
+                        }
                     }
                     return refreshed;
                 }, coordinator)
@@ -401,13 +408,13 @@ final class NavGraphGuide {
                         NavGraph current = graph;
                         LOGGER.debug("XaeroNav: nav graph (sections built={}, build {}ms, guide {}ms, edges={}, nodes={}, "
                                         + "graph {}MB, guide {}MB, window {} (max heap {}MB), workers {}, outside window={}, "
-                                        + "outside-window scale by arrival time={}, value origin at center {}={})",
+                                        + "outside-window scale by arrival time={}, learned points={}, value origin at center {}={})",
                                 refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
                                 refreshed.field().edges(), refreshed.field().nodes(),
                                 current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
                                 key.window(), Runtime.getRuntime().maxMemory() >> 20, workers,
                                 farMap == null ? "straight line" : farMap.name(), "%.2f".formatted(farScale.scale()),
-                                at.toShortString(), origin(refreshed.field(), at));
+                                learned.size(), at.toShortString(), origin(refreshed.field(), at));
                     }
                 });
     }
@@ -432,6 +439,7 @@ final class NavGraphGuide {
         graphKey = null;
         farSource = null;
         far = FarField.UNKNOWN;
+        learned.clear();
     }
 
     /** 段取りの1本で走る。 */
@@ -445,14 +453,16 @@ final class NavGraphGuide {
             graph = current;
             graphKey = key;
             farScale.reset();
-            // 外の推定も目的地に対するもの
+            // 外の推定も覚えた値も目的地に対するもの
             far = FarField.UNKNOWN;
             farSource = null;
+            learned.clear();
         } else if (!key.equals(graphKey)) {
             current.retarget(key.goal());
             graphKey = key;
             far = FarField.UNKNOWN;
             farSource = null;
+            learned.clear();
         }
         if (invalidateAround) {
             int chunkX = at.getX() >> 4;
@@ -474,6 +484,9 @@ final class NavGraphGuide {
         }
         FarField seeds = farMap != null && farMap.forwardOnly() ? FarField.forwardOf(far, at.getX(), at.getY(), at.getZ())
                 : far;
+        if (farMap != null && farMap.learns()) {
+            seeds = learned.over(seeds);
+        }
         return current.refresh(view::forGraphBuild, at.getX(), at.getZ(), window,
                 LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), seeds, key.rides(), pool, workers,
                 cancelled);
