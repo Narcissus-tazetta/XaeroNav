@@ -19,7 +19,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.Vec3;
@@ -36,6 +35,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightGuide;
+import net.prason.xaeronav.pathfinding.flight.FlightModel;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.pathfinding.world.BlockRegistryCompat;
 import net.prason.xaeronav.pathfinding.world.CellData;
@@ -44,7 +44,6 @@ import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
-import net.prason.xaeronav.util.GameCompat;
 import net.prason.xaeronav.util.BlockDistance;
 
 /**
@@ -376,15 +375,14 @@ public final class XaeroNavCommands {
         SearchBounds bounds = SearchBounds.around(level, playerPos, goal,
                 renderRadius, FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, MovementOptions.NONE);
-        boolean rockets = ChunkView.hasItem(GameCompat.inventory(player),
-                stack -> stack.getItem() instanceof FireworkRocketItem);
+        FlightModel model = FlightNavState.flightModel(player);
         Vec3 start = player.position();
         Vec3 target = Vec3.atCenterOf(goal);
 
         out.success(TextCompat.translatable("commands.xaeronav.debug_running"));
         long startedAt = System.nanoTime();
         DIAGNOSTIC.submit(generation,
-                cancelled -> FlightRouter.route(view, start, target, rockets, FlightNavState.tuning(),
+                cancelled -> FlightRouter.route(view, start, target, model, FlightNavState.tuning(model),
                         FlightNavState.loadedHorizon(start, renderRadius), FlightGuide.NONE, cancelled),
                 (route, error) -> {
                     if (error != null) {
@@ -395,7 +393,7 @@ public final class XaeroNavCommands {
                     Vec3 tail = route.tail();
                     out.success(TextCompat.translatable("commands.xaeronav.flight_result",
                             route.points().size(), route.termination().name(), route.expandedNodes(), elapsedMillis,
-                            route.cellBlocks(), rockets ? 1 : 0));
+                            route.cellBlocks(), model.toString()));
                     if (tail != null) {
                         out.success(TextCompat.translatable("commands.xaeronav.flight_tail",
                                 Mth.floor(tail.x), Mth.floor(tail.y), Mth.floor(tail.z),
@@ -405,7 +403,7 @@ public final class XaeroNavCommands {
                         // 描画距離の外は粗い層（Xaeroの地図由来）が担当する。中間目標が0本なら、
                         // その方向のデータが地図に無い＝未訪問ということ。Xaeroを読むためメインスレッド
                         // 専用（FlightNavStateのクラスJavadoc参照）——ここは既にメインスレッドへ戻った後
-                        CoarseRouter.Route coarse = FlightNavState.solveCoarseRoute(level, playerPos, goal, rockets);
+                        CoarseRouter.Route coarse = FlightNavState.solveCoarseRoute(level, playerPos, goal, model);
                         out.success(TextCompat.translatable("commands.xaeronav.flight_coarse",
                                 coarse.waypoints().size(), coarse.reachedGoal() ? 1 : 0));
                     }

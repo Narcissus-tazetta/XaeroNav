@@ -12,7 +12,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
-import net.prason.xaeronav.pathfinding.cost.FlightCosts;
 import net.prason.xaeronav.util.MonotonicTime;
 
 /**
@@ -64,7 +63,7 @@ public final class FlightPathfinder {
     private static final long SMOOTHING_ALLOWANCE_MILLIS = 400L;
 
     private final AirGrid grid;
-    private final boolean rockets;
+    private final FlightModel model;
     private final SearchLimits limits;
     private final double clearancePenaltyTicks;
 
@@ -95,9 +94,9 @@ public final class FlightPathfinder {
      * @param clearancePenaltyTicks 26近傍が完全に塞がったセルへ入るときの割増（tick）。0で無効。
      *                              最短でも狭い所は通したくない、という要求をここで表す
      */
-    public FlightPathfinder(AirGrid grid, boolean rockets, SearchLimits limits, double clearancePenaltyTicks) {
+    public FlightPathfinder(AirGrid grid, FlightModel model, SearchLimits limits, double clearancePenaltyTicks) {
         this.grid = grid;
-        this.rockets = rockets;
+        this.model = model;
         this.limits = limits;
         this.clearancePenaltyTicks = clearancePenaltyTicks;
         this.ids.defaultReturnValue(-1);
@@ -264,7 +263,7 @@ public final class FlightPathfinder {
         int cells = grid.cellBlocks();
         double horizontal = Math.sqrt(dx * dx + dz * dz) * cells;
         double vertical = dy * (double) cells;
-        double tentative = cost[current] + FlightCosts.segmentTicks(horizontal, vertical, rockets)
+        double tentative = cost[current] + model.segmentTicks(horizontal, vertical)
                 + Clearance.cell(grid, x, y, z, clearancePenaltyTicks);
         if (tentative >= cost[neighbor]) {
             return;
@@ -306,8 +305,7 @@ public final class FlightPathfinder {
         double horizontal = Math.max(0.0, Math.sqrt(dx * dx + dz * dz) - goalRadius);
         double verticalTolerance = Math.max(goalRadius, GOAL_VERTICAL_TOLERANCE_BLOCKS);
         double dy = goal.y - center.y;
-        double lowerBound = FlightCosts.lowerBoundTicks(horizontal, dy - verticalTolerance, dy + verticalTolerance,
-                rockets);
+        double lowerBound = model.lowerBoundTicks(horizontal, dy - verticalTolerance, dy + verticalTolerance);
         double guided = guide.estimate(center.x, center.y, center.z);
         return Double.isNaN(guided) ? lowerBound : Math.max(lowerBound, guided);
     }
@@ -328,7 +326,7 @@ public final class FlightPathfinder {
         // 先頭はプレイヤーがいるセルの中心なので、実際の位置へ差し替える。ここを中心のままにすると
         // 線が自分の横から生えて見える
         reversed.set(0, start);
-        List<Vec3> smoothed = FlightSmoother.smooth(reversed, grid, rockets, clearancePenaltyTicks,
+        List<Vec3> smoothed = FlightSmoother.smooth(reversed, grid, model, clearancePenaltyTicks,
                 deadline + SMOOTHING_ALLOWANCE_MILLIS);
         return new FlightRoute(List.copyOf(smoothed), termination, expanded, grid.cellBlocks());
     }

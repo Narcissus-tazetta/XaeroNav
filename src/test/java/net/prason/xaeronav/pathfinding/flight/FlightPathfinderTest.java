@@ -25,7 +25,7 @@ class FlightPathfinderTest {
 
     private static FlightRoute route(FakeCells cells, Vec3 start, Vec3 goal, boolean rockets,
                                       double clearancePenaltyTicks) {
-        return new FlightPathfinder(new AirGrid(cells, CELL), rockets, SearchLimits.DEFAULT,
+        return new FlightPathfinder(new AirGrid(cells, CELL), FlightModel.elytra(rockets), SearchLimits.DEFAULT,
                 clearancePenaltyTicks).search(start, goal, GOAL_RADIUS);
     }
 
@@ -165,7 +165,7 @@ class FlightPathfinderTest {
     void reusingOneInstanceForASecondGoalDoesNotKeepTheOldEstimates() {
         // 見積もりはノード生成時にゴールから計算する。表を持ち越すと2回目は前のゴールへ引き寄せられる
         FlightPathfinder pathfinder = new FlightPathfinder(
-                new AirGrid(FakeCells.empty(BOUNDS), CELL), false, SearchLimits.DEFAULT, 0.0);
+                new AirGrid(FakeCells.empty(BOUNDS), CELL), FlightModel.elytra(false), SearchLimits.DEFAULT, 0.0);
         Vec3 start = new Vec3(0.0, 64.0, 0.0);
 
         pathfinder.search(start, new Vec3(120.0, 64.0, 0.0), GOAL_RADIUS);

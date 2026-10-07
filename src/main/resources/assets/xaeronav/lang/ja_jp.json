@@ -10,7 +10,7 @@
   "commands.xaeronav.probe_no_goal": "XaeroNav: 目的地が設定されていません。先に /xaeronav goto で設定し、経路がおかしい場所で実行してください",
   "commands.xaeronav.probe_target_goal": "XaeroNav: 目的地 %s に向けて計測します",
   "commands.xaeronav.probe_target_path_end": "XaeroNav: 目的地が描画距離の外なので、いまの経路の末端 %s に向けて計測します",
-  "commands.xaeronav.flight_result": "XaeroNav: 空中経路 点%1$d / %2$s / 展開%3$d / %4$dms / 格子%5$dブロック / ロケット%6$d",
+  "commands.xaeronav.flight_result": "XaeroNav: 空中経路 点%1$d / %2$s / 展開%3$d / %4$dms / 格子%5$dブロック / 飛び方 %6$s",
   "commands.xaeronav.flight_tail": "XaeroNav: 末端 (%1$d, %2$d, %3$d) — 目的地まで残り%4$dブロック",
   "commands.xaeronav.flight_coarse": "XaeroNav: 長距離ルート 中間目標%1$d本 / 目的地まで到達%2$d",
   "commands.xaeronav.cleared": "XaeroNav: 案内を終了しました",

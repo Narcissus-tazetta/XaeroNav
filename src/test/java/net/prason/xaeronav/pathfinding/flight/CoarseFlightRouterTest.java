@@ -44,7 +44,7 @@ class CoarseFlightRouterTest {
     }
 
     private static CoarseRouter.Route route(CoarseMapBuilder builder, BlockPos start, BlockPos goal) {
-        return CoarseFlightRouter.findRoute(air(builder), start, goal, true);
+        return CoarseFlightRouter.findRoute(air(builder), start, goal, FlightModel.elytra(true));
     }
 
     @Test
@@ -106,7 +106,7 @@ class CoarseFlightRouterTest {
         assertFalse(map.blocked(0, 8), "壁でない列まで塞がっている");
 
         CoarseRouter.Route route = CoarseFlightRouter.findRoute(map,
-                new BlockPos(-300, 110, 0), new BlockPos(300, 110, 0), true);
+                new BlockPos(-300, 110, 0), new BlockPos(300, 110, 0), FlightModel.elytra(true));
 
         assertTrue(route.reachedGoal(), "壁を回り込めていない");
         assertTrue(route.waypoints().stream().anyMatch(point -> point.getZ() > 70),
@@ -139,7 +139,7 @@ class CoarseFlightRouterTest {
         assertEquals(2, map.bandCount(0, 0), "2層の床から帯が2つできていない");
 
         CoarseRouter.Route route = CoarseFlightRouter.findRoute(map,
-                new BlockPos(-300, 40, 0), new BlockPos(300, 40, 0), true);
+                new BlockPos(-300, 40, 0), new BlockPos(300, 40, 0), FlightModel.elytra(true));
 
         assertTrue(route.reachedGoal());
         assertTrue(route.waypoints().stream().allMatch(point -> point.getY() < 80),

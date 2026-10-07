@@ -43,7 +43,7 @@ class FlightAltitudeBenchTest {
                         Vec3 start = new Vec3(3, 96, 3);
                         double component = diagonal ? distance / Math.sqrt(2) : distance;
                         Vec3 goal = new Vec3(3 + component, goalY, diagonal ? 3 + component : 3);
-                        FlightRoute route = FlightRouter.route(cells, start, goal, rockets, tuning, () -> false);
+                        FlightRoute route = FlightRouter.route(cells, start, goal, FlightModel.elytra(rockets), tuning, () -> false);
                         double ascent = 0;
                         double descent = 0;
                         double cost = 0;

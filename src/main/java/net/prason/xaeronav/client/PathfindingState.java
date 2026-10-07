@@ -1296,6 +1296,12 @@ public final class PathfindingState {
             mount = now;
             return false;
         }
+        if (flies(mount) != flies(now)) {
+            // 飛行モードの出入りはこの後のtickFlightModeが引き直す。ここでも引くと二重になる
+            LOGGER.info("XaeroNav: mount changed {} -> {}, switching flight mode", mount, now);
+            mount = now;
+            return false;
+        }
         LOGGER.info("XaeroNav: mount changed {} -> {}, replanning", mount, now);
         mount = now;
         generation.incrementAndGet();
@@ -1306,6 +1312,10 @@ public final class PathfindingState {
         stuckTracker.reset();
         recalculate("mount changed");
         return true;
+    }
+
+    private static boolean flies(MountState mount) {
+        return mount.kind() == MountState.Kind.HAPPY_GHAST;
     }
 
     /** 表示中の経路に、プレイヤーのすぐ近くで乗り物を降りる段があるか。 */
@@ -1703,12 +1713,15 @@ public final class PathfindingState {
      * 常にtrueへ固定するので、これ一つで飛行モード全部を捉えられる。<b>こちらには高さを課さない</b>
      * ——本当に立てないので、猶予を置くと足元に床の無い始点で探索を投げ続けることになる。
      *
+     * <p>ハーネスを付けたハッピーガストに乗っている間もエリトラと同じ空中経路にする。地上に浮いていても
+     * 乗ったまま飛べるので、高さも継続時間も問わない。
+     *
      * <p>エリトラ（{@code isFallFlying}）だけは判定を鈍らせる。切り替えの代償が大きい
      * （{@code generation}を進めて走っている探索ごと捨て、着地時には表示中の経路を消して引き直す）
      * ので、鈍らせるのは{@link ElytraTrigger}の責務にまとめてある。
      */
     private boolean airborne(Level level, Player player) {
-        if (GameCompat.abilities(player).flying) {
+        if (GameCompat.abilities(player).flying || flies(ChunkView.mount(player))) {
             elytraTrigger.reset();
             return true;
         }

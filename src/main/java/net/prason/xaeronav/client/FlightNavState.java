@@ -23,18 +23,19 @@ import net.prason.xaeronav.pathfinding.astar.AStarPathfinder;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
-import net.prason.xaeronav.pathfinding.cost.FlightCosts;
 import net.prason.xaeronav.pathfinding.flight.AirGrid;
 import net.prason.xaeronav.pathfinding.flight.CoarseAirMap;
 import net.prason.xaeronav.pathfinding.flight.CoarseFlightField;
 import net.prason.xaeronav.pathfinding.flight.CoarseFlightRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightHorizon;
 import net.prason.xaeronav.pathfinding.flight.FlightLineRouter;
+import net.prason.xaeronav.pathfinding.flight.FlightModel;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.flight.FlightRouter;
 import net.prason.xaeronav.pathfinding.flight.FlightTuning;
 import net.prason.xaeronav.pathfinding.flight.TurnBack;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.MountState;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.util.GameCompat;
@@ -347,9 +348,9 @@ final class FlightNavState {
         BlockPos from = player.blockPosition();
         Vec3 goalVec = Vec3.atCenterOf(currentGoal);
         ResourceKey<Level> dimension = level.dimension();
-        boolean rockets = hasRockets(player);
+        FlightModel model = flightModel(player);
         boolean routing = XaeroNavConfig.INSTANCE.flightRoutingEnabled();
-        FlightTuning tuning = tuning();
+        FlightTuning tuning = tuning(model);
         int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
         // 水平マージンを描画距離に揃えて、読み込み済みの正方形をまるごと探索範囲に入れる。
         // 壁を回り込む経路は始点と目的地を結ぶ帯の外へ出るので、狭いマージンでは回り込めない
@@ -370,14 +371,14 @@ final class FlightNavState {
         CompletableFuture
                 .supplyAsync(() -> {
                     CoarseSolution fresh = coarseRequest.fresh()
-                            ? solveCoarse(coarseRequest.map(), minAirY, maxAirY, from, currentGoal, rockets)
+                            ? solveCoarse(coarseRequest.map(), minAirY, maxAirY, from, currentGoal, model)
                             : null;
                     CoarseFlightField field = fresh != null ? fresh.field() : coarseRequest.field();
                     // 狙うのは目的地そのもの。読める範囲の外にあっても縁（horizon）で打ち切られ、どの縁から
                     // 出るかは粗い地図の残りコストの場が回り道ごと見積もる。手前の中間目標を狙う形は、
                     // 目標の点が岩の中に落ちるたびに予算を焼き、引き直しと組み合わせると往復した
                     FlightRoute solved = routing
-                            ? FlightRouter.route(view, start, goalVec, rockets, tuning, horizon, field,
+                            ? FlightRouter.route(view, start, goalVec, model, tuning, horizon, field,
                                     () -> jobGeneration != myJob)
                             : FlightRoute.NONE;
                     // 曲がり点線は経路が引けなかったときだけ要る。引けているときに重ねると、
@@ -460,14 +461,14 @@ final class FlightNavState {
      * 設定から空中経路の調整値を組む。診断コマンドが本番とまったく同じ条件で測れるように、
      * 組み立てはここ1箇所に置く（別々に組むと、測った数字が実際の案内と食い違う）。
      */
-    static FlightTuning tuning() {
-        return tuning(XaeroNavConfig.INSTANCE.flightMaxExpandedNodes());
+    static FlightTuning tuning(FlightModel model) {
+        return tuning(XaeroNavConfig.INSTANCE.flightMaxExpandedNodes(), model);
     }
 
-    private static FlightTuning tuning(int maxExpandedNodes) {
+    private static FlightTuning tuning(int maxExpandedNodes, FlightModel model) {
         XaeroNavConfig config = XaeroNavConfig.INSTANCE;
         return new FlightTuning(config.flightCellBlocks(),
-                config.flightClearanceDetourBlocks() * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK,
+                config.flightClearanceDetourBlocks() * model.horizontalTicksPerBlock(),
                 new SearchLimits(maxExpandedNodes, AStarPathfinder.DEFAULT_TIME_LIMIT_MILLIS,
                         config.flightHeuristicWeight()));
     }
@@ -564,9 +565,9 @@ final class FlightNavState {
      * 目的地が地図の外に落ちると「中間目標0本」と報告していた（{@link #tuning()}を1箇所に
      * 置いてあるのと同じ理由）。
      */
-    static CoarseRouter.Route solveCoarseRoute(Level level, BlockPos from, BlockPos goal, boolean rockets) {
+    static CoarseRouter.Route solveCoarseRoute(Level level, BlockPos from, BlockPos goal, FlightModel model) {
         return solveCoarseRoute(readCoarseMap(from, goal), GameCompat.minBuildHeight(level) + CEILING_MARGIN_BLOCKS,
-                GameCompat.maxBuildHeight(level) - 1 - CEILING_MARGIN_BLOCKS, from, goal, rockets);
+                GameCompat.maxBuildHeight(level) - 1 - CEILING_MARGIN_BLOCKS, from, goal, model);
     }
 
     /** 長距離ルートの地図を読む。<b>メインスレッド専用</b>。Xaeroの地図が無ければnull。 */
@@ -576,22 +577,22 @@ final class FlightNavState {
 
     /** 読んだ地図から長距離ルートを解く。Minecraft・Xaeroの状態を読まないので、どのスレッドからでも呼べる。 */
     private static CoarseRouter.Route solveCoarseRoute(@Nullable CoarseMap map, int minAirY, int maxAirY,
-                                                       BlockPos from, BlockPos goal, boolean rockets) {
+                                                       BlockPos from, BlockPos goal, FlightModel model) {
         if (map == null) {
             return new CoarseRouter.Route(List.of(), false);
         }
-        return CoarseFlightRouter.findRoute(CoarseAirMap.from(map, minAirY, maxAirY), from, goal, rockets);
+        return CoarseFlightRouter.findRoute(CoarseAirMap.from(map, minAirY, maxAirY), from, goal, model);
     }
 
     /** {@link #solveCoarseRoute}に加えて、同じ地図から目的地までの残りコストの場も作る。どのスレッドからでも呼べる。 */
     private static CoarseSolution solveCoarse(@Nullable CoarseMap map, int minAirY, int maxAirY, BlockPos from,
-                                              BlockPos goal, boolean rockets) {
+                                              BlockPos goal, FlightModel model) {
         if (map == null) {
             return CoarseSolution.NONE;
         }
         CoarseAirMap air = CoarseAirMap.from(map, minAirY, maxAirY);
-        return new CoarseSolution(CoarseFlightRouter.findRoute(air, from, goal, rockets).waypoints(),
-                CoarseFlightField.toward(air, goal, rockets));
+        return new CoarseSolution(CoarseFlightRouter.findRoute(air, from, goal, model).waypoints(),
+                CoarseFlightField.toward(air, goal, model));
     }
 
     /**
@@ -655,7 +656,7 @@ final class FlightNavState {
             return;
         }
 
-        boolean rockets = hasRockets(player);
+        FlightModel model = flightModel(player);
         // 箱はプレイヤー中心。末端を始点にしたまま末端中心の箱を作ると、上と同じ理由で外へはみ出す
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), new BlockPos(
                         Mth.floor(target.x), Mth.floor(target.y), Mth.floor(target.z)),
@@ -663,7 +664,7 @@ final class FlightNavState {
         ChunkView view = ChunkView.capture(level, player, bounds, MovementOptions.NONE);
         // 継ぎ足しは短い区間を何度も繋ぐので、1回の予算を絞って回数で稼ぐ。満額を許すと
         // 地形が詰まったときに毎回2秒かけて少ししか伸びず、飛ぶ速度に追いつかない
-        FlightTuning tuning = tuning(XaeroNavConfig.INSTANCE.flightExtendMaxExpandedNodes());
+        FlightTuning tuning = tuning(XaeroNavConfig.INSTANCE.flightExtendMaxExpandedNodes(), model);
         BlockPos from = player.blockPosition();
         ResourceKey<Level> dimension = level.dimension();
         ticksSinceRecalc = 0;
@@ -679,13 +680,13 @@ final class FlightNavState {
         List<Vec3> ahead = ahead(source, segmentAtStart, player.position());
         CompletableFuture
                 .supplyAsync(() -> {
-                    FlightRoute grown = FlightRouter.route(view, tail, target, rockets, tuning, horizon, field,
+                    FlightRoute grown = FlightRouter.route(view, tail, target, model, tuning, horizon, field,
                             () -> jobGeneration != myJob);
                     if (grown.isEmpty()) {
                         return new Extension(grown, segmentAtStart, null);
                     }
                     return new Extension(grown, segmentAtStart, TurnBack.cut(ahead, grown.points(),
-                            new AirGrid(view, grown.cellBlocks())::clearLine));
+                            new AirGrid(view, grown.cellBlocks(), model.body())::clearLine));
                 }, executor)
                 .whenComplete((result, error) -> Minecraft.getInstance().execute(() -> {
                     if (jobGeneration != myJob) {
@@ -752,11 +753,11 @@ final class FlightNavState {
         List<Vec3> kept = keptAhead(source, segment, player.position(), REROUTE_KEEP_BLOCKS);
         Vec3 start = kept.get(kept.size() - 1);
         Vec3 goalVec = Vec3.atCenterOf(currentGoal);
-        boolean rockets = hasRockets(player);
+        FlightModel model = flightModel(player);
         SearchBounds bounds = SearchBounds.around(level, player.blockPosition(), currentGoal, renderRadius,
                 FlightLineRouter.VERTICAL_MARGIN_BLOCKS, renderRadius);
         ChunkView view = ChunkView.capture(level, player, bounds, MovementOptions.NONE);
-        FlightTuning tuning = tuning();
+        FlightTuning tuning = tuning(model);
         FlightHorizon horizon = loadedHorizon(player.position(), renderRadius);
         CoarseRoute existing = coarseRoute;
         CoarseFlightField field = existing != null && existing.goal().equals(currentGoal) ? existing.field() : null;
@@ -767,7 +768,7 @@ final class FlightNavState {
         computing = true;
         long startedAt = System.nanoTime();
         CompletableFuture
-                .supplyAsync(() -> FlightRouter.route(view, start, goalVec, rockets, tuning, horizon, field,
+                .supplyAsync(() -> FlightRouter.route(view, start, goalVec, model, tuning, horizon, field,
                         () -> jobGeneration != myJob), executor)
                 .whenComplete((solved, error) -> Minecraft.getInstance().execute(() -> {
                     if (jobGeneration != myJob) {
@@ -863,15 +864,21 @@ final class FlightNavState {
     }
 
     /**
-     * ロケット花火を持っているか。上昇コストがこれで切り替わる（ボートの有無で水のコストが
-     * 変わるのと同じ形）。
+     * 何で飛んでいるか。ハーネスを付けたハッピーガストに乗っていればガスト、そうでなければエリトラ。
      *
-     * <p>持っていないエリトラは定常状態で高度を保てない＝水平飛行そのものが「登り」になるので、
+     * <p>エリトラはロケット花火の所持で上昇コストが切り替わる（ボートの有無で水のコストが変わるのと同じ形）。
+     * 持っていないエリトラは定常状態で高度を保てない＝水平飛行そのものが「登り」になるので、
      * ここの真偽で経路の高度の取り方がはっきり変わる。
      */
-    private static boolean hasRockets(Player player) {
-        return ChunkView.hasItem(GameCompat.inventory(player), stack -> stack.getItem() instanceof FireworkRocketItem);
+    static FlightModel flightModel(Player player) {
+        MountState mount = ChunkView.mount(player);
+        if (mount.kind() == MountState.Kind.HAPPY_GHAST) {
+            return FlightModel.happyGhast(mount.movementSpeed());
+        }
+        return FlightModel.elytra(ChunkView.hasItem(GameCompat.inventory(player),
+                stack -> stack.getItem() instanceof FireworkRocketItem));
     }
+
     private static double centerDistanceSq(BlockPos pos, Vec3 point) {
         double x = pos.getX() + 0.5 - point.x;
         double y = pos.getY() + 0.5 - point.y;

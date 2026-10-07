@@ -192,7 +192,8 @@ and the HUD work as usual.
 Taking off with an elytra switches the guidance on its own. Under a roof or in the Nether it
 computes a terrain-avoiding aerial path and shows it as a light-blue line; under open sky it puts a
 light beam where you should land. As soon as you touch down it goes back to walking navigation
-toward the same destination.
+toward the same destination. Riding a harnessed happy ghast (1.21.6 and later) gives the same
+guidance, with aerial paths kept to gaps wide enough for the ghast.
 
 However you set it, the destination is marked on Xaero's maps, so you can tell where you are
 headed without following the line to its end. With Xaero's Minimap installed it is registered as a

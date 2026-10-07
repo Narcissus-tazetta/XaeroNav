@@ -233,7 +233,7 @@ public final class ChunkView implements CellSource {
         //? if >=1.21.6 {
         /*if (vehicle instanceof HappyGhast ghast) {
             return ghast.isWearingBodyArmor()
-                    ? new MountState(MountState.Kind.HAPPY_GHAST, ghast.getAttributeBaseValue(Attributes.MOVEMENT_SPEED), 0.0)
+                    ? new MountState(MountState.Kind.HAPPY_GHAST, ghast.getAttributeBaseValue(Attributes.FLYING_SPEED), 0.0)
                     : MountState.NONE;
         }
         *///?}
