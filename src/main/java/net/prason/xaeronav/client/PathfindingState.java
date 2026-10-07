@@ -1099,7 +1099,7 @@ public final class PathfindingState {
             // 残り続ける——逸脱の判定・案内・描画がまとめてその値を読む。地図を開いたまま経路が
             // 出来上がるのは一番ありがちな操作（下のコメント参照）で、そこが一番当たりやすい
             TickLaps.measure("progress mapping",
-                    () -> PathProgress.INSTANCE.update(shown == null ? null : shown.result(), mc.player.position()));
+                    () -> PathProgress.INSTANCE.update(shown == null ? null : shown.result(), trackedPosition(mc.player)));
             // 画面を開いている間の早期returnより先に置く。ここから下で止まるのはプレイヤーが
             // 動けない状況だけなので、後退の観測を落としても取りこぼしは無いが、順序を変えると
             // 「滑空中は数えない」のような穴が生まれる
@@ -1250,6 +1250,15 @@ public final class PathfindingState {
         } finally {
             TickLaps.measure("view publish", () -> publishNavigationView());
         }
+    }
+
+    /**
+     * 経路と比べる位置。乗り物に乗っていれば乗り物の足元——経路の高さは乗り物が立つ高さで、
+     * 乗り手の足はその上にある。
+     */
+    private static Vec3 trackedPosition(Player player) {
+        Entity vehicle = player.getVehicle();
+        return vehicle != null && ChunkView.mount(player).walks() ? vehicle.position() : player.position();
     }
 
     /**
@@ -2139,6 +2148,11 @@ public final class PathfindingState {
     private static double offPathDistance(Level level, Player player, PathResult result) {
         double distance = PathProgress.INSTANCE.distance();
         double horizontal = PathProgress.INSTANCE.horizontalDistance();
+        // 乗り物が跳んでいる間は経路の高さから離れて当然（溜め切ると4マスを超えて浮く）。縦で測ると跳ぶたびに外れる
+        Entity vehicle = player.getVehicle();
+        if (vehicle != null && !GameCompat.onGround(vehicle) && ChunkView.mount(player).walks()) {
+            return horizontal;
+        }
         // 縦のずれが無い＝どちらで測っても同じ。水を舐めるまでもない
         if (distance - horizontal < 1.0e-6) {
             return distance;

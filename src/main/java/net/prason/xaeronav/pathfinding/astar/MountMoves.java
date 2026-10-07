@@ -444,8 +444,10 @@ final class MountMoves {
     }
 
     /**
-     * 移動で体が通るセル。着いた足場と、元の足場との外接矩形のうち元の足場の外の列を、着いた高さから
-     * 高い方の頭まで。落下の縦穴・跳び越える隙間・斜めの角の列がこれで入る。
+     * 移動で体が通るセル。着いた足場は着いた高さから、元の足場との外接矩形のうち2つの足場の外の列
+     * （斜めの角・跳び越える隙間）は高い方の段から、どちらも高い方の頭まで。斜めに下りる手の角の列は
+     * 元の段の高さでしか空きを確かめていない（{@link #addDiagonal}）ので、下りた先の高さを含めると塞がった
+     * セルが混ざる。
      */
     List<BlockPos> bodyCells(PathNode from, PathNode to) {
         int minX = Math.min(from.x, to.x);
@@ -461,7 +463,7 @@ final class MountMoves {
                 if (origin && !target) {
                     continue;
                 }
-                for (int y = to.y; y <= top; y++) {
+                for (int y = target ? to.y : Math.max(from.y, to.y); y <= top; y++) {
                     cells.add(new BlockPos(x, y, z));
                 }
             }

@@ -3,9 +3,12 @@ package net.prason.xaeronav.pathfinding.astar;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Random;
+
 import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.FakeCells;
 import net.prason.xaeronav.pathfinding.world.MountState;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -207,5 +210,61 @@ class MountRoutesTest {
         PathResult result = search(ravine(10, 3).jumpGapEnabled(false).mount(HORSE), 0, 20);
 
         assertFalse(result.complete(), "底まで10マスはダメージ2で降りられず、跳ぶほかに渡れない");
+    }
+
+    /** 起伏のある地形を歩いた経路の体のセルが、どれも掘らずに通れる（掘らない・置かないので、塞がっていたら経路が嘘）。 */
+    @Test
+    void bodyCellsOfRoutesOverRollingHillsAreAllOpen() {
+        int checkedSteps = 0;
+        for (int seed = 1; seed <= 20; seed++) {
+            FakeCells cells = FakeCells.empty(new SearchBounds(MIN_X, Y - 20, MIN_Z, MAX_X, Y + 20, MAX_Z));
+            Random random = new Random(seed);
+            for (int x = MIN_X; x <= MAX_X; x++) {
+                for (int z = MIN_Z; z <= MAX_Z; z++) {
+                    int top = Y - 1 + random.nextInt(2);
+                    for (int y = Y - 3; y <= top; y++) {
+                        cells.set(x, y, z, FakeCells.BEDROCK);
+                    }
+                }
+            }
+            cells.mount(JUMPER);
+
+            PathResult result = new AStarPathfinder(cells)
+                    .search(new BlockPos(0, Y + 1, 0), new BlockPos(20, Y, 6), () -> false);
+
+            for (PathStep step : result.steps()) {
+                checkedSteps++;
+                for (BlockPos cell : step.bodyCells()) {
+                    assertTrue(CellData.occupiableWithoutDigging(cells.cell(cell.getX(), cell.getY(), cell.getZ())),
+                            "seed " + seed + " step " + step.pos() + " cell " + cell);
+                }
+            }
+        }
+        assertTrue(checkedSteps > 100);
+    }
+
+    /**
+     * 斜めに1段下りる手。角の2列は下りた先の高さでは塞がっていてよい（体はまだ上の段にいる）——
+     * そこを体のセルに数えると、経路の検証が「地形が変わった」と取り違えて経路を捨てる。
+     */
+    @Test
+    void diagonalDescentDoesNotClaimTheLowCornersAsBodyCells() {
+        FakeCells cells = flat();
+        for (int x = MIN_X; x <= MAX_X; x++) {
+            for (int z = MIN_Z; z <= MAX_Z; z++) {
+                if (x <= 0 || z <= 0) {
+                    cells.set(x, Y, z, FakeCells.BEDROCK);
+                }
+            }
+        }
+        cells.mount(HORSE);
+
+        PathResult result = new AStarPathfinder(cells).search(new BlockPos(0, Y + 1, 0), new BlockPos(2, Y, 2), () -> false);
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().size() == 1, "斜めに1手で下りる");
+        for (BlockPos cell : result.steps().get(0).bodyCells()) {
+            assertTrue(CellData.occupiableWithoutDigging(cells.cell(cell.getX(), cell.getY(), cell.getZ())), cell.toString());
+        }
     }
 }

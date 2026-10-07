@@ -3,6 +3,7 @@ package net.prason.xaeronav.util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -56,6 +57,14 @@ public final class GameCompat {
         return player.getYRot();
         //?} else {
         /*return player.yRot;
+        *///?}
+    }
+
+    public static boolean onGround(Entity entity) {
+        //? if >=1.20 {
+        return entity.onGround();
+        //?} else {
+        /*return entity.isOnGround();
         *///?}
     }
 
