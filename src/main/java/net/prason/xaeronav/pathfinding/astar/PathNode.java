@@ -118,6 +118,12 @@ final class PathNode {
      */
     byte edgeHazard;
 
+    /**
+     * ここまでのうちトロッコで走った手の値段の和。終点選びの賭けの上限（{@code AStarPathfinder#FALLBACK_BUDGET_TICKS}）からは
+     * 除く——上限はガイドの見積もりを当てにして遠くへ賭けすぎないためのもので、乗車は線路を模擬した確かな手だから。
+     */
+    double rideCost;
+
     PathNode(int x, int y, int z, boolean boating, double estimatedCostToGoal) {
         this(x, y, z, boating, estimatedCostToGoal, false);
     }

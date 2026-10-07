@@ -261,6 +261,13 @@ public final class NavGraph {
     public @Nullable Refreshed refresh(Supplier<CellSource> views, int centerX, int centerZ, int radius,
                                        LoadedArea loaded, FarField far, @Nullable Executor pool, int workers,
                                        BooleanSupplier cancelled) {
+        return refresh(views, centerX, centerZ, radius, loaded, far, WindowRides.NONE, pool, workers, cancelled);
+    }
+
+    /** {@code rides}の線路をトロッコで走る手もガイドに入れる版。 */
+    public @Nullable Refreshed refresh(Supplier<CellSource> views, int centerX, int centerZ, int radius,
+                                       LoadedArea loaded, FarField far, WindowRides rides, @Nullable Executor pool,
+                                       int workers, BooleanSupplier cancelled) {
         long began = MonotonicTime.millis();
         naturals.forgetIncomplete();
         retainWithin(centerX, centerZ, radius + RETAIN_MARGIN);
@@ -272,7 +279,7 @@ public final class NavGraph {
             return null;
         }
         long buildMillis = MonotonicTime.millis() - began;
-        WindowField field = field(centerX, centerZ, radius, far, parallel, cancelled);
+        WindowField field = field(centerX, centerZ, radius, far, rides, parallel, cancelled);
         return field == null ? null : new Refreshed(field, missing.length, buildMillis);
     }
 
@@ -283,12 +290,18 @@ public final class NavGraph {
      */
     public @Nullable WindowField field(int centerX, int centerZ, int radius, FarField far,
                                        BooleanSupplier cancelled) {
-        return field(centerX, centerZ, radius, far, Parallel.INLINE, cancelled);
+        return field(centerX, centerZ, radius, far, WindowRides.NONE, cancelled);
+    }
+
+    /** {@code rides}の線路をトロッコで走る手もガイドに入れる版。 */
+    public @Nullable WindowField field(int centerX, int centerZ, int radius, FarField far, WindowRides rides,
+                                       BooleanSupplier cancelled) {
+        return field(centerX, centerZ, radius, far, rides, Parallel.INLINE, cancelled);
     }
 
     private synchronized @Nullable WindowField field(int centerX, int centerZ, int radius, FarField far,
-                                                     Parallel parallel, BooleanSupplier cancelled) {
-        return WindowField.build(this, fieldBuffers, centerX, centerZ, radius, far, parallel, cancelled);
+                                                     WindowRides rides, Parallel parallel, BooleanSupplier cancelled) {
+        return WindowField.build(this, fieldBuffers, centerX, centerZ, radius, far, rides, parallel, cancelled);
     }
 
     /** {@link #field}の組み立て用の配列。{@code field}は同期しているので1組でよい。 */

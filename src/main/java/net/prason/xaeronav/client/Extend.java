@@ -385,7 +385,8 @@ final class Extend {
         // 手前の経路がこれから使うぶんを差し引いた資源で続きを解く。数えるのは<b>いる場所から先</b>
         // だけ——通り過ぎたぶんは既に置き終わっていて、手持ちの枚数からも減っている
         Carryover carried = new Carryover(Carryover.trailingBridgeRun(steps),
-                Carryover.placements(steps, PathProgress.INSTANCE.indexFor(shown.result()) + 1));
+                Carryover.placements(steps, PathProgress.INSTANCE.indexFor(shown.result()) + 1),
+                Carryover.trailingRide(steps));
         PlannedCellSource futureTerrain = new PlannedCellSource(view, steps,
                 PathProgress.INSTANCE.indexFor(shown.result()) + 1);
         CostToGo prepared = PathfindingState.preparedGuide(goalGuide, currentGoal, target);

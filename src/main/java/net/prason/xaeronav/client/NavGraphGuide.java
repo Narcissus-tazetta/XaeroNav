@@ -20,6 +20,7 @@ import net.prason.xaeronav.pathfinding.navgraph.FarField;
 import net.prason.xaeronav.pathfinding.navgraph.LoadedArea;
 import net.prason.xaeronav.pathfinding.navgraph.NavGraph;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
+import net.prason.xaeronav.pathfinding.navgraph.WindowRides;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
@@ -165,8 +166,11 @@ final class NavGraphGuide {
      * （{@link ChunkView}が移動生成に渡す）、奈落の上の橋は目的地へ向かう向きにしか張られない。
      */
     /** @param floored 航法グラフの下端をプレイヤーと目的地の高さで切るか（{@link NavGraph#floorBelow}） */
+    /**
+     * @param rides トロッコの手の材料。辺には効かない（{@link #sameEdges}）が、変わったらガイドを組み直す
+     */
     private record Key(ResourceKey<Level> dimension, BlockPos goal, MovementOptions options, boolean canPlaceBlocks,
-                       int window, int minY, int maxY, boolean floored) {
+                       int window, int minY, int maxY, boolean floored, WindowRides rides) {
 
         /** 辺が同じになるか。目的地の高さは辺に効かない（{@link NavGraph#retarget}）。 */
         boolean sameEdges(@Nullable Key other) {
@@ -226,7 +230,7 @@ final class NavGraphGuide {
      * @return 組み直し中でも、同じ条件の古いガイドがあればそれ
      */
     @Nullable WindowField forGoal(Level level, Player player, BlockPos goal, int renderRadius, MovementOptions options,
-                                  @Nullable Far far) {
+                                  @Nullable Far far, WindowRides rides) {
         BlockPos at = player.blockPosition();
         int window = window(renderRadius);
         int minY = GameCompat.minBuildHeight(level);
@@ -240,7 +244,7 @@ final class NavGraphGuide {
         // ネザーは通路が縦に積まれていて下の層を通る経路が普通にある。エンドはもともと島だけでノードが少ない
         boolean floored = !level.dimensionType().hasCeiling() && level.dimension() != Level.END;
         Key key = new Key(level.dimension(), goal, options, canPlaceBlocks(player, options), window, minY, maxY,
-                floored);
+                floored, rides);
         Built current = built;
         boolean usable = current != null && current.key().equals(key);
         boolean moved = !usable || Math.max(Math.abs(at.getX() - current.center().getX()),
@@ -471,7 +475,8 @@ final class NavGraphGuide {
         FarField seeds = farMap != null && farMap.forwardOnly() ? FarField.forwardOf(far, at.getX(), at.getY(), at.getZ())
                 : far;
         return current.refresh(view::forGraphBuild, at.getX(), at.getZ(), window,
-                LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), seeds, pool, workers, cancelled);
+                LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), seeds, key.rides(), pool, workers,
+                cancelled);
     }
 
     /**

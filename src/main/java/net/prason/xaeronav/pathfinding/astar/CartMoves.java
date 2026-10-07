@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.CellData;
@@ -50,19 +51,47 @@ final class CartMoves {
             return;
         }
         for (int exit : boarding.exits) {
+            LongArrayList cells = new LongArrayList();
+            IntArrayList ticks = new IntArrayList();
             CartRide.ride(owner.view::track, boarding.x, boarding.y, boarding.z, exit, boarding.speed, true,
                     MAX_RIDE_TICKS, (x, y, z, tick, forcedExit) -> {
-                        relaxAlighting(from, boarding, x, y, z, tick);
+                        cells.add(BlockPos.asLong(x, y, z));
+                        ticks.add(tick);
                         return true;
                     });
+            for (int i = 0; i < cells.size(); i++) {
+                long cell = cells.getLong(i);
+                boolean frontier = i == cells.size() - 1 && runsOffTheView(cell);
+                relaxAlighting(from, boarding, BlockPos.getX(cell), BlockPos.getY(cell), BlockPos.getZ(cell),
+                        ticks.getInt(i), frontier);
+            }
         }
     }
 
-    private void relaxAlighting(PathNode from, Boarding boarding, int x, int y, int z, int tick) {
+    /**
+     * 走りが読めない所（探索の範囲の外・読み込まれていないチャンク）の手前で打ち切られたか。線路はその先へ続いているかもしれず、
+     * そこで降りるとは限らないので、降りる手間を払わない（{@link Carryover#trailingRide}が続きを乗ったまま解く）。
+     * 払うと、範囲の端まで乗る経路が端まで歩く経路と同じくらいの値段に見え、乗らない方を選ぶ（実機で確認）。
+     */
+    private boolean runsOffTheView(long cell) {
+        int x = BlockPos.getX(cell);
+        int y = BlockPos.getY(cell);
+        int z = BlockPos.getZ(cell);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if ((dx != 0 || dz != 0) && !CellData.present(owner.view.cell(x + dx, y, z + dz))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void relaxAlighting(PathNode from, Boarding boarding, int x, int y, int z, int tick, boolean frontier) {
         if (x == from.x && y == from.y && z == from.z) {
             return;
         }
-        double cost = boarding.cost + tick + boarding.stowCost;
+        double cost = boarding.cost + tick + (frontier ? 0.0 : boarding.stowCost);
         double dx = x - from.x;
         double dz = z - from.z;
         if (cost > MAX_DETOUR_FACTOR * Math.sqrt(dx * dx + dz * dz) * ActionCosts.SPRINT_ONE_BLOCK) {
@@ -122,8 +151,10 @@ final class CartMoves {
 
     private Boarding boarding(PathNode from) {
         MinecartState cart = owner.view.minecart();
-        // 始点だけは前の手を持たない。乗っているなら、乗っているトロッコのレールから今の速さで走り出す
-        if (from.previous == null && cart.riding()) {
+        // 始点だけは前の手を持たない。乗っているなら、乗っているトロッコのレールから今の速さで走り出す。
+        // 始点がトロッコから離れている（表示中の経路の末端から継ぎ足す探索）なら、そのトロッコの話ではない
+        if (from.previous == null && cart.riding() && Math.abs(from.x - cart.railX()) <= 2
+                && Math.abs(from.y - cart.railY()) <= 2 && Math.abs(from.z - cart.railZ()) <= 2) {
             int track = owner.view.track(cart.railX(), cart.railY(), cart.railZ());
             if (track == CartRide.NONE) {
                 return null;
@@ -138,8 +169,18 @@ final class CartMoves {
             return new Boarding(cart.railX(), cart.railY(), cart.railZ(), exits, cart.speed(), 0.0,
                     ActionCosts.CART_STOW_TICKS);
         }
-        if (owner.view.track(from.x, from.y, from.z) == CartRide.NONE) {
+        int track = owner.view.track(from.x, from.y, from.z);
+        if (track == CartRide.NONE) {
             return null;
+        }
+        Carryover.Ride carried = owner.carried().ride();
+        if (from.previous == null && carried.riding()) {
+            // 手前の区間は乗ったまま範囲の端を越えた。降りずにその速さで走り続ける
+            TrackShape shape = RailCell.shape(track);
+            double ahead0 = CartRide.exitDx(shape, 0) * carried.dirX() + CartRide.exitDz(shape, 0) * carried.dirZ();
+            double ahead1 = CartRide.exitDx(shape, 1) * carried.dirX() + CartRide.exitDz(shape, 1) * carried.dirZ();
+            return new Boarding(from.x, from.y, from.z, new int[] {ahead0 >= ahead1 ? 0 : 1}, carried.speed(), 0.0,
+                    cart.carrying() ? ActionCosts.CART_STOW_TICKS : 0.0);
         }
         if (cart.parked().contains(BlockPos.asLong(from.x, from.y, from.z))) {
             return new Boarding(from.x, from.y, from.z, BOTH_EXITS, 0.0, ActionCosts.CART_ENTER_TICKS, 0.0);

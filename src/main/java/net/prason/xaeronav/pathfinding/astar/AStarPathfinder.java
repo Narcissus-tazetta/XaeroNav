@@ -310,6 +310,11 @@ public final class AStarPathfinder {
     /** 手前の区間から引き継ぐ累積（橋の連続長・設置数）。 */
     private Carryover carried = Carryover.NONE;
 
+    /** 手前の区間から引き継いだ累積（{@link CartMoves}が乗車の続きを読む）。 */
+    Carryover carried() {
+        return carried;
+    }
+
     /** ゴールを領域として扱う半径（ブロック）。0なら座標の完全一致。 */
     /**
      * 領域ゴールの垂直方向の許容幅（ブロック）。水平の{@code goalRadius}とは別に、広めに固定する。
@@ -722,7 +727,7 @@ public final class AStarPathfinder {
     private PathNode selectFallback(PathNode startNode) {
         PathNode ladder = selectByLadder(startNode);
         // 現行の選ぶ点が予算内なら、そこは賭けすぎていない＝触る理由が無い
-        if (!fallbackBudgetEnabled || ladder.cost <= FALLBACK_BUDGET_TICKS) {
+        if (!fallbackBudgetEnabled || ladder.cost - ladder.rideCost <= FALLBACK_BUDGET_TICKS) {
             return ladder;
         }
         // 賭けすぎているときだけ上限を効かせる。予算内の梯子から、継ぎ足しが成立するだけ
@@ -1274,13 +1279,14 @@ public final class AStarPathfinder {
         // 置いた枚数は種類から導ける（引数を増やすと呼び出し全てに0を書き足すことになる）
         neighbor.placedTotal = from.placedTotal + (kind == MoveKind.BRIDGE || kind == MoveKind.PILLAR ? 1 : 0);
         neighbor.submergedTicks = submergedTicks;
+        neighbor.rideCost = from.rideCost + (kind == MoveKind.CART_RIDE ? tentativeCost - from.cost : 0.0);
         if (neighbor.isOpen()) {
             open.update(neighbor);
         } else {
             open.insert(neighbor);
         }
 
-        boolean withinBudget = neighbor.cost <= FALLBACK_BUDGET_TICKS;
+        boolean withinBudget = neighbor.cost - neighbor.rideCost <= FALLBACK_BUDGET_TICKS;
         for (int i = 0; i < COEFFICIENTS.length; i++) {
             double heuristic = neighbor.estimatedCostToGoal + neighbor.cost / COEFFICIENTS[i];
             if (withinBudget && bestHeuristic[i] - heuristic > MIN_IMPROVEMENT) {

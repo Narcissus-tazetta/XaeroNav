@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.PriorityQueue;
 
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
@@ -241,6 +242,12 @@ public final class CoarseRouter {
      */
     private static final double MIN_DIST_CELLS = 1.0;
 
+    /**
+     * 乗車の辺があるときの{@link #heuristic}の倍率。トロッコの最速は曲線のジグザグの斜め8√2m/s
+     * （{@code CartRide}）で、疾走（5.61m/s）の約0.5倍の時間で進む。
+     */
+    private static final double RIDE_HEURISTIC_MULTIPLIER = 0.5;
+
     private CoarseRouter() {
     }
 
@@ -283,6 +290,12 @@ public final class CoarseRouter {
 
     public static Route findRoute(CoarseMap map, BlockPos start, BlockPos goal, boolean boatAvailable,
                                    BridgePolicy bridgePolicy) {
+        return findRoute(map, start, goal, boatAvailable, bridgePolicy, CoarseRides.EMPTY);
+    }
+
+    /** {@code rides}の線路をトロッコで走る辺も使う版。持っていない（乗れない）なら{@link CoarseRides#EMPTY}を渡す。 */
+    public static Route findRoute(CoarseMap map, BlockPos start, BlockPos goal, boolean boatAvailable,
+                                   BridgePolicy bridgePolicy, CoarseRides rides) {
         int startX = start.getX() >> 4;
         int startZ = start.getZ() >> 4;
         int goalX = goal.getX() >> 4;
@@ -292,6 +305,10 @@ public final class CoarseRouter {
         }
         double waterMultiplier = boatAvailable ? BOAT_MULTIPLIER : WATER_MULTIPLIER;
         double unknownMultiplier = calibratedUnknownMultiplier(map, bridgePolicy);
+        // トロッコは歩くより速い。歩きの速さのままの下限では、線路へ寄り道する手前の状態が過大に見積もられ、
+        // 取り出される前に歩きの経路でゴールを閉じてしまう
+        double heuristicMultiplier = rides.size() > 0 ? Math.min(waterMultiplier, RIDE_HEURISTIC_MULTIPLIER)
+                : waterMultiplier;
 
         int cells = map.chunksX() * map.chunksZ();
         int states = cells * CoarseMap.MAX_FLOORS;
@@ -309,12 +326,12 @@ public final class CoarseRouter {
 
         PriorityQueue<Candidate> open =
                 new PriorityQueue<>(Comparator.comparingDouble(Candidate::estimatedTotal));
-        open.add(new Candidate(startIndex, heuristic(map, startX, startZ, goalX, goalZ, waterMultiplier)));
+        open.add(new Candidate(startIndex, heuristic(map, startX, startZ, goalX, goalZ, heuristicMultiplier)));
 
         int[] bestSoFar = new int[COEFFICIENTS.length];
         double[] bestHeuristic = new double[COEFFICIENTS.length];
         Arrays.fill(bestSoFar, startIndex);
-        Arrays.fill(bestHeuristic, heuristic(map, startX, startZ, goalX, goalZ, waterMultiplier));
+        Arrays.fill(bestHeuristic, heuristic(map, startX, startZ, goalX, goalZ, heuristicMultiplier));
 
         while (!open.isEmpty()) {
             Candidate current = open.poll();
@@ -324,7 +341,7 @@ public final class CoarseRouter {
             }
             closed[current.index()] = true;
             if (current.index() == goalIndex) {
-                return buildRoute(map, previous, goalIndex, startIndex, true, start.getY());
+                return buildRoute(map, previous, goalIndex, startIndex, true, start.getY(), rides);
             }
 
             int x = stateChunkX(map, current.index());
@@ -337,15 +354,18 @@ public final class CoarseRouter {
                         continue;
                     }
                     relaxHorizontal(map, cost, previous, closed, open, x, z, floor, dx, dz, goalX, goalZ,
-                            bestSoFar, bestHeuristic, waterMultiplier, unknownMultiplier, bridgePolicy);
+                            bestSoFar, bestHeuristic, waterMultiplier, heuristicMultiplier, unknownMultiplier,
+                            bridgePolicy);
                 }
             }
             relaxVertical(map, cost, previous, closed, open, x, z, floor, goalX, goalZ,
-                    bestSoFar, bestHeuristic, waterMultiplier);
+                    bestSoFar, bestHeuristic, heuristicMultiplier);
+            relaxRides(map, rides, cost, previous, closed, open, x, z, floor, goalX, goalZ, bestSoFar, bestHeuristic,
+                    heuristicMultiplier);
         }
 
         return buildRoute(map, previous, selectFallback(map, bestSoFar, startIndex), startIndex, false,
-                start.getY());
+                start.getY(), rides);
     }
 
     /**
@@ -413,7 +433,7 @@ public final class CoarseRouter {
      * </pre>
      */
     public static CostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy) {
-        return costToGo(map, goal, boatAvailable, bridgePolicy, false);
+        return costToGo(map, goal, boatAvailable, bridgePolicy, false, CoarseRides.EMPTY);
     }
 
     /**
@@ -426,12 +446,19 @@ public final class CoarseRouter {
      * 窓の外の推定は下限である必要が無い（ネザーの3D粗層も1.3倍して使う）。
      */
     public static CostToGo farEstimate(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy) {
-        CoarseCostToGo table = costToGo(map, goal, boatAvailable, bridgePolicy, true);
+        return farEstimate(map, goal, boatAvailable, bridgePolicy, CoarseRides.EMPTY);
+    }
+
+    /** {@code rides}の線路をトロッコで走る辺も使う版。 */
+    public static CostToGo farEstimate(CoarseMap map, BlockPos goal, boolean boatAvailable, BridgePolicy bridgePolicy,
+                                       CoarseRides rides) {
+        CoarseCostToGo table = costToGo(map, goal, boatAvailable, bridgePolicy, true, rides);
         return new CoarseCostToGo(table.map(), table.cost(), table.goalOffset(), true, true);
     }
 
     private static CoarseCostToGo costToGo(CoarseMap map, BlockPos goal, boolean boatAvailable,
-                                           BridgePolicy bridgePolicy, boolean chargeClimbFromBelow) {
+                                           BridgePolicy bridgePolicy, boolean chargeClimbFromBelow,
+                                           CoarseRides rides) {
         int goalX = goal.getX() >> 4;
         int goalZ = goal.getZ() >> 4;
         int states = map.chunksX() * map.chunksZ() * CoarseMap.MAX_FLOORS;
@@ -473,6 +500,7 @@ public final class CoarseRouter {
                 }
             }
             relaxBackwardVertical(map, cost, closed, open, x, z, floor);
+            relaxBackwardRides(map, rides, cost, closed, open, x, z, floor);
         }
         return new CoarseCostToGo(map, cost, goalOffset, chargeClimbFromBelow, false);
     }
@@ -608,6 +636,26 @@ public final class CoarseRouter {
         }
     }
 
+    /** {@code (x, z, floor)}で降りる乗車を逆に辿り、乗る点の状態へ値を渡す。 */
+    private static void relaxBackwardRides(CoarseMap map, CoarseRides rides, double[] cost, boolean[] closed,
+                                           PriorityQueue<Candidate> open, int x, int z, int floor) {
+        IntArrayList edges = rides.alightingIn(x, z);
+        for (int i = 0; i < edges.size(); i++) {
+            int edge = edges.getInt(i);
+            if (resolveFloor(map, x, z, BlockPos.getY(rides.alight(edge))) != floor) {
+                continue;
+            }
+            long board = rides.board(edge);
+            int boardX = BlockPos.getX(board) >> 4;
+            int boardZ = BlockPos.getZ(board) >> 4;
+            if (!map.containsChunk(boardX, boardZ)) {
+                continue;
+            }
+            offerBackward(map, cost, closed, open, x, z, floor, boardX, boardZ,
+                    resolveFloor(map, boardX, boardZ, BlockPos.getY(board)), rides.cost(edge));
+        }
+    }
+
     private static void offerBackward(CoarseMap map, double[] cost, boolean[] closed,
                                       PriorityQueue<Candidate> open, int fromX, int fromZ, int fromFloor,
                                       int toX, int toZ, int toFloor, double step) {
@@ -644,7 +692,7 @@ public final class CoarseRouter {
     private static void relaxHorizontal(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
                                         PriorityQueue<Candidate> open, int x, int z, int floor, int dx, int dz,
                                         int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
-                                        double waterMultiplier, double unknownMultiplier,
+                                        double waterMultiplier, double heuristicMultiplier, double unknownMultiplier,
                                         BridgePolicy bridgePolicy) {
         int nextX = x + dx;
         int nextZ = z + dz;
@@ -659,7 +707,7 @@ public final class CoarseRouter {
             return;
         }
         offer(map, cost, previous, closed, open, x, z, floor, nextX, nextZ, nextFloor, step, goalX, goalZ,
-                bestSoFar, bestHeuristic, waterMultiplier);
+                bestSoFar, bestHeuristic, heuristicMultiplier);
     }
 
     /** 隣接セルのうち、今の床の高さに最も近い床。相手が未知セルなら唯一の状態（floor=0）。 */
@@ -682,7 +730,7 @@ public final class CoarseRouter {
     private static void relaxVertical(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
                                       PriorityQueue<Candidate> open, int x, int z, int floor,
                                       int goalX, int goalZ, int[] bestSoFar, double[] bestHeuristic,
-                                      double waterMultiplier) {
+                                      double heuristicMultiplier) {
         int floorCount = map.floorCount(x, z);
         if (floorCount == 0) {
             return;
@@ -695,14 +743,61 @@ public final class CoarseRouter {
                     Math.abs(map.heightAtFloor(x, z, nextFloor) - map.heightAtFloor(x, z, floor));
             double step = deltaHeight * HEIGHT_COST_PER_BLOCK * LAYER_TRANSITION_PENALTY;
             offer(map, cost, previous, closed, open, x, z, floor, x, z, nextFloor, step, goalX, goalZ,
-                    bestSoFar, bestHeuristic, waterMultiplier);
+                    bestSoFar, bestHeuristic, heuristicMultiplier);
         }
+    }
+
+    /**
+     * {@code (x, z, floor)}で乗る乗車。乗る点のチャンクから降りる点のチャンクへ跳ぶので、{@link #buildRoute}は
+     * 隣でないチャンクへの遷移を乗車として線路の点を挟む。
+     */
+    private static void relaxRides(CoarseMap map, CoarseRides rides, double[] cost, int[] previous, boolean[] closed,
+                                   PriorityQueue<Candidate> open, int x, int z, int floor, int goalX, int goalZ,
+                                   int[] bestSoFar, double[] bestHeuristic, double heuristicMultiplier) {
+        IntArrayList edges = rides.boardingIn(x, z);
+        for (int i = 0; i < edges.size(); i++) {
+            int edge = edges.getInt(i);
+            if (resolveFloor(map, x, z, BlockPos.getY(rides.board(edge))) != floor) {
+                continue;
+            }
+            long alight = rides.alight(edge);
+            int alightX = BlockPos.getX(alight) >> 4;
+            int alightZ = BlockPos.getZ(alight) >> 4;
+            if (!map.containsChunk(alightX, alightZ)) {
+                continue;
+            }
+            offer(map, cost, previous, closed, open, x, z, floor, alightX, alightZ,
+                    resolveFloor(map, alightX, alightZ, BlockPos.getY(alight)), rides.cost(edge), goalX, goalZ,
+                    bestSoFar, bestHeuristic, heuristicMultiplier);
+        }
+    }
+
+    /** {@code from}→{@code to}の遷移を作った乗車のうち最も安いもの。無ければ-1。 */
+    private static int rideBetween(CoarseMap map, CoarseRides rides, int from, int to) {
+        int fromX = stateChunkX(map, from);
+        int fromZ = stateChunkZ(map, from);
+        int toX = stateChunkX(map, to);
+        int toZ = stateChunkZ(map, to);
+        IntArrayList edges = rides.boardingIn(fromX, fromZ);
+        int best = -1;
+        for (int i = 0; i < edges.size(); i++) {
+            int edge = edges.getInt(i);
+            long board = rides.board(edge);
+            long alight = rides.alight(edge);
+            if (BlockPos.getX(alight) >> 4 == toX && BlockPos.getZ(alight) >> 4 == toZ
+                    && resolveFloor(map, fromX, fromZ, BlockPos.getY(board)) == stateFloor(from)
+                    && resolveFloor(map, toX, toZ, BlockPos.getY(alight)) == stateFloor(to)
+                    && (best < 0 || rides.cost(edge) < rides.cost(best))) {
+                best = edge;
+            }
+        }
+        return best;
     }
 
     private static void offer(CoarseMap map, double[] cost, int[] previous, boolean[] closed,
                               PriorityQueue<Candidate> open, int fromX, int fromZ, int fromFloor,
                               int toX, int toZ, int toFloor, double step, int goalX, int goalZ,
-                              int[] bestSoFar, double[] bestHeuristic, double waterMultiplier) {
+                              int[] bestSoFar, double[] bestHeuristic, double heuristicMultiplier) {
         int nextIndex = stateIndex(map, toX, toZ, toFloor);
         if (closed[nextIndex]) {
             return;
@@ -714,7 +809,7 @@ public final class CoarseRouter {
         }
         cost[nextIndex] = tentative;
         previous[nextIndex] = fromIndex;
-        double remaining = heuristic(map, toX, toZ, goalX, goalZ, waterMultiplier);
+        double remaining = heuristic(map, toX, toZ, goalX, goalZ, heuristicMultiplier);
         open.add(new Candidate(nextIndex, tentative + remaining));
 
         for (int i = 0; i < COEFFICIENTS.length; i++) {
@@ -906,15 +1001,16 @@ public final class CoarseRouter {
     /**
      * 残りコストの下限。XZ平面上の距離だけを見る——垂直方向（階層をまたぐコスト）を無視するのは
      * 過小評価にしかならないので、下限としての正しさ（admissibility）は保たれる。
-     * {@code waterMultiplier}(ボート所持時は{@link #BOAT_MULTIPLIER}<1.0)を掛けておかないと、
-     * 経路が丸ごとボート水域だった場合の実コストがこの下限を下回り非許容になる。
+     * {@code multiplier}(ボート所持時は{@link #BOAT_MULTIPLIER}<1.0、乗車の辺があれば
+     * {@link #RIDE_HEURISTIC_MULTIPLIER})を掛けておかないと、経路が丸ごとボート水域や線路だった場合の
+     * 実コストがこの下限を下回り非許容になる。
      */
-    private static double heuristic(CoarseMap map, int x, int z, int goalX, int goalZ, double waterMultiplier) {
+    private static double heuristic(CoarseMap map, int x, int z, int goalX, int goalZ, double scale) {
         int dx = Math.abs(goalX - x);
         int dz = Math.abs(goalZ - z);
         int diagonal = Math.min(dx, dz);
         int straight = Math.max(dx, dz) - diagonal;
-        double multiplier = Math.min(1.0, waterMultiplier);
+        double multiplier = Math.min(1.0, scale);
         return (diagonal * DIAGONAL_COST + straight * STRAIGHT_COST) * multiplier;
     }
 
@@ -924,7 +1020,7 @@ public final class CoarseRouter {
      * 階層を何段も登る区間は水平に進まないので、垂直側の間隔が無いと丸ごと1区間に潰れる。
      */
     private static Route buildRoute(CoarseMap map, int[] previous, int endIndex, int startIndex,
-                                    boolean reachedGoal, int startY) {
+                                    boolean reachedGoal, int startY, CoarseRides rides) {
         List<Integer> states = new ArrayList<>();
         for (int cursor = endIndex; cursor != -1; cursor = previous[cursor]) {
             states.add(cursor);
@@ -951,6 +1047,21 @@ public final class CoarseRouter {
             int z = stateChunkZ(map, state);
             int floor = stateFloor(state);
             boolean last = i == states.size() - 1;
+            int before = states.get(i - 1);
+            if (Math.max(Math.abs(x - stateChunkX(map, before)), Math.abs(z - stateChunkZ(map, before))) > 1) {
+                // 隣でないチャンクへ跳ぶのは乗車だけ。直線で結ぶと地図の線が線路を外れるので、線路の点を挟む
+                int edge = rideBetween(map, rides, before, state);
+                if (edge >= 0) {
+                    List<BlockPos> path = rides.path(edge, WAYPOINT_SPACING_CELLS * CELL_BLOCKS);
+                    waypoints.addAll(path);
+                    BlockPos alight = path.get(path.size() - 1);
+                    fallbackHeight = alight.getY();
+                    lastWaypointHeight = alight.getY();
+                    lastX = x;
+                    lastZ = z;
+                    continue;
+                }
+            }
             int spanX = Math.abs(x - lastX);
             int spanZ = Math.abs(z - lastZ);
             short height = stateHeight(map, x, z, floor);

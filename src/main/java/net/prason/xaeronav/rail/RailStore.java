@@ -19,6 +19,7 @@ import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.Nullable;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -44,6 +45,7 @@ public final class RailStore {
     private final Long2ObjectMap<int[]> chunks = new Long2ObjectOpenHashMap<>();
     private final LongSet dirtyRegions = new LongOpenHashSet();
     private int railCount;
+    private long changes;
 
     private RailStore(Path dir) {
         this.dir = dir;
@@ -122,6 +124,17 @@ public final class RailStore {
         }
         railCount += rails.length - (previous == null ? 0 : previous.length);
         dirtyRegions.add(chunkKey(chunkX >> 5, chunkZ >> 5));
+        changes++;
+    }
+
+    /** 中身が変わった回数。開いた後は0から数える。 */
+    public long changes() {
+        return changes;
+    }
+
+    /** 覚えている全チャンク。書き換えないこと。 */
+    public Long2ObjectMap<int[]> chunks() {
+        return Long2ObjectMaps.unmodifiable(chunks);
     }
 
     /** 覚えているチャンクのレール。無ければ{@code null}。 */
