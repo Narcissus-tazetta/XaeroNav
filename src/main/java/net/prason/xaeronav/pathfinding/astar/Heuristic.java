@@ -85,6 +85,25 @@ public final class Heuristic {
      */
     public static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ,
                                    double minDescentTicksPerBlock, double minHorizontalTicksPerBlock) {
+        return estimate(fromX, fromY, fromZ, toX, toY, toZ, minDescentTicksPerBlock, minHorizontalTicksPerBlock,
+                MIN_CARDINAL_ASCEND, MIN_DIAGONAL_ASCEND, MIN_PURE_ASCEND);
+    }
+
+    /**
+     * 馬の仲間・ラクダに乗っているノード。段差1.0の乗り物は1段を跳ばずに歩いて上がるので、昇りは水平の1歩と
+     * 同じ値段まで下がる（{@code MountMoves}）。純粋な昇りも往復の1歩ぶん。
+     *
+     * @param ticksPerBlock 乗っている間に生成されうる水平移動の1ブロックの下限
+     */
+    public static double estimateMounted(int fromX, int fromY, int fromZ, int toX, int toY, int toZ,
+                                          double minDescentTicksPerBlock, double ticksPerBlock) {
+        return estimate(fromX, fromY, fromZ, toX, toY, toZ, minDescentTicksPerBlock, ticksPerBlock,
+                ticksPerBlock, ticksPerBlock * ActionCosts.DIAGONAL_DISTANCE, ticksPerBlock);
+    }
+
+    private static double estimate(int fromX, int fromY, int fromZ, int toX, int toY, int toZ,
+                                   double minDescentTicksPerBlock, double minHorizontalTicksPerBlock,
+                                   double minCardinalAscend, double minDiagonalAscend, double minPureAscend) {
         double straight = minHorizontalTicksPerBlock;
         double diagonalStep = straight * ActionCosts.DIAGONAL_DISTANCE;
         int dx = Math.abs(toX - fromX);
@@ -110,11 +129,11 @@ public final class Heuristic {
         int ridableDescends = Math.min(down, diagonalSteps + cardinalSteps);
         int pureDescends = down - ridableDescends;
 
-        double horizontalAndAscend = diagonalAscends * MIN_DIAGONAL_ASCEND
+        double horizontalAndAscend = diagonalAscends * minDiagonalAscend
                 + (diagonalSteps - diagonalAscends) * diagonalStep
-                + cardinalAscends * MIN_CARDINAL_ASCEND
+                + cardinalAscends * minCardinalAscend
                 + (cardinalSteps - cardinalAscends) * straight
-                + pureAscends * MIN_PURE_ASCEND;
+                + pureAscends * minPureAscend;
         double descend = pureDescends * minDescentTicksPerBlock;
         return horizontalAndAscend + descend;
     }

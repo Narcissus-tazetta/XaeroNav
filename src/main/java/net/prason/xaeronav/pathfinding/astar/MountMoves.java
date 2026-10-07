@@ -24,8 +24,11 @@ import net.prason.xaeronav.pathfinding.world.StanceFinder;
  * 目が足場から2.46＝3マス目、ラクダは乗る位置2.0で目が3.0を超え4マス目。
  *
  * <p>掘らない・置かない・梯子を使わない。乗ったまま掘ると1/5の速さで1歩6セル以上になるので、
- * 掘る道は降りて歩く方に任せる。値段は徒歩と同じ表で、乗り物の速さはまだ数えていない
- * （ガイドと下限を徒歩のまま保てる）。
+ * 掘る道は降りて歩く方に任せる。
+ *
+ * <p>値段は乗り物の地上の速さ（{@link MountPhysics#ticksPerBlock}）で、床の速度倍率は徒歩の1歩との比で掛ける。
+ * 1段の昇り降りは跳ばずに歩いて越える（段差1.0）ので水平の1歩と同じ形。跳ぶ手は溜めと滞空の時間。
+ * 下限（{@link Heuristic}）とガイドは{@link AStarPathfinder}が乗っているノードだけこの速さまで下げる。
  */
 final class MountMoves {
 
@@ -54,6 +57,8 @@ final class MountMoves {
     /** 当たり判定の幅の半分。隙間を跳ぶ距離から引く。 */
     private final double halfWidth;
     private final int maxRise;
+    /** 徒歩の疾走1ブロックに対する、乗り物の1ブロックの時間の比。 */
+    private final double pace;
 
     MountMoves(AStarPathfinder owner, MountState mount) {
         this.owner = owner;
@@ -62,6 +67,12 @@ final class MountMoves {
         this.height = camel ? 4 : 3;
         this.halfWidth = camel ? 0.85 : 0.7;
         this.maxRise = Math.max(STEP_RISE, physics.maxRise());
+        this.pace = physics.ticksPerBlock() / ActionCosts.SPRINT_ONE_BLOCK;
+    }
+
+    /** 平地を進む1ブロックの時間。{@link AStarPathfinder}の下限はこれを割らないように置く。 */
+    double ticksPerBlock() {
+        return physics.ticksPerBlock();
     }
 
     void expand(PathNode from) {
@@ -154,7 +165,7 @@ final class MountMoves {
         }
         if (supported(x, z, y)) {
             if (dry(x, z, y)) {
-                owner.relaxMounted(from, x, y, z, walkCost(x, z, y) + body, MoveKind.MOUNT_WALK);
+                owner.relaxMounted(from, x, y, z, walkCost(x, z, y) * pace + body, MoveKind.MOUNT_WALK);
             }
             return;
         }
@@ -179,7 +190,7 @@ final class MountMoves {
                 return;
             }
             if (rise <= STEP_RISE) {
-                owner.relaxMounted(from, x, top, z, ActionCosts.ascendOneBlock(1.0) + body, MoveKind.MOUNT_WALK);
+                owner.relaxMounted(from, x, top, z, stepUpOrDown(x, z, top, 1.0) + body, MoveKind.MOUNT_WALK);
                 return;
             }
             // 跳ぶ。頂点まで頭上が空いていること
@@ -189,7 +200,8 @@ final class MountMoves {
                     || Double.isInfinite(bodyCost(x, z, top + height, y + headroom + height - 1))) {
                 return;
             }
-            owner.relaxMounted(from, x, top, z, rise * ActionCosts.ASCEND_ONE_BLOCK + body, MoveKind.MOUNT_JUMP);
+            double jump = Math.max(physics.chargeTicks(charge) + physics.airTicks(charge), physics.ticksPerBlock());
+            owner.relaxMounted(from, x, top, z, jump + body, MoveKind.MOUNT_JUMP);
             return;
         }
     }
@@ -220,7 +232,7 @@ final class MountMoves {
         double cost;
         MoveKind kind;
         if (drop == 1) {
-            cost = ActionCosts.descendOneBlock(1.0);
+            cost = stepUpOrDown(x, z, level, 1.0);
             kind = MoveKind.MOUNT_WALK;
         } else {
             int damage = fallDamage(drop);
@@ -271,9 +283,8 @@ final class MountMoves {
             return;
         }
         double body = bodyCost(x, z, level, level + height - 1);
-        double cost = level > y ? ActionCosts.diagonalAscendOneBlock(1.0)
-                : level < y ? ActionCosts.diagonalDescendOneBlock(1.0)
-                : walkCost(x, z, level) * ActionCosts.DIAGONAL_DISTANCE;
+        double cost = level != y ? stepUpOrDown(x, z, level, ActionCosts.DIAGONAL_DISTANCE)
+                : walkCost(x, z, level) * ActionCosts.DIAGONAL_DISTANCE * pace;
         owner.relaxMounted(from, x, level, z, cost + body, MoveKind.MOUNT_WALK);
     }
 
@@ -354,7 +365,9 @@ final class MountMoves {
                 }
             }
         }
-        double cost = Math.max(ActionCosts.jumpAcrossGap(gap), shift * ActionCosts.SPRINT_ONE_BLOCK) + dropRisk;
+        // 遠い跳躍ほど踏み切りの位置合わせを外しやすいので、徒歩の隙間跳びと同じ割増を列ごとに足す
+        double cost = Math.max(physics.chargeTicks(charge) + physics.airTicks(charge), shift * physics.ticksPerBlock())
+                + (gap - 1) * ActionCosts.JUMP_REACH_PENALTY + dropRisk;
         owner.relaxMounted(from, x, y, z, cost + body, MoveKind.MOUNT_JUMP);
     }
 
@@ -469,6 +482,14 @@ final class MountMoves {
             }
         }
         return true;
+    }
+
+    /**
+     * 1段上がるか下りる1歩。段差1.0の乗り物は跳ばずに歩いて越えるので、水平の1歩に徒歩と同じ段の切り替えの
+     * 手間を足しただけ。徒歩の昇り（{@link ActionCosts#ascendOneBlock}）は跳ぶ時間で決まるので使わない。
+     */
+    private double stepUpOrDown(int x, int z, int y, double distance) {
+        return (walkCost(x, z, y) * distance + ActionCosts.STEP_TRANSITION_TICKS) * pace;
     }
 
     /** 足場の4列で一番遅い進み方（蜘蛛の巣・ソウルサンド）。 */

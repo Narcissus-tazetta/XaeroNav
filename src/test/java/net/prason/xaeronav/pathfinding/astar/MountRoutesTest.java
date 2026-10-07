@@ -1,5 +1,6 @@
 package net.prason.xaeronav.pathfinding.astar;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -213,13 +214,51 @@ class MountRoutesTest {
 
     @Test
     void ridesAroundUnlessLeavingTheHorseIsFree() {
+        // 2つの壁の2マス幅の口を互い違いに置き、乗ったままだとジグザグに約45ブロック、歩けば1マス幅の口を抜けて20ブロック
         FakeCells cells = flat();
-        wallWithOpening(cells, 10, 0, 0, 3);
-        opening(cells, 10, 8, 9, 3);
+        wallWithOpening(cells, 8, 0, 0, 3);
+        opening(cells, 8, 8, 9, 3);
+        wallWithOpening(cells, 13, 0, 0, 3);
+        opening(cells, 13, -9, -8, 3);
 
         assertTrue(ridesAllTheWay(search(cells.mount(HORSE), 0, 20)), "既定の割増なら遠回りしても乗ったまま");
-        assertTrue(getsOffBefore(search(cells.mount(HORSE).mountLeaveBehindTicks(0), 0, 20), 10),
+        assertTrue(getsOffBefore(search(cells.mount(HORSE).mountLeaveBehindTicks(0), 0, 20), 8),
                 "割増0なら近い1マス幅の口を歩いて通る");
+    }
+
+    @Test
+    void ridingCostsTheHorsesOwnPace() {
+        double walking = totalCost(search(flat(), 0, 20));
+        PathResult ridden = search(flat().mount(HORSE), 0, 20);
+        double average = totalCost(ridden);
+        double fastest = totalCost(search(flat().mount(new MountState(MountState.Kind.HORSE, 0.3375, 0.5)), 0, 20));
+
+        // 定常の歩み0.225×0.98/0.454 b/t
+        assertTrue(ridesAllTheWay(ridden));
+        assertEquals(ridden.steps().size() * 0.454 / (0.225 * 0.98), average, 1e-6, "1歩1ブロックで直進");
+        assertTrue(fastest < average && average < walking, fastest + " < " + average + " < " + walking);
+    }
+
+    @Test
+    void ridesAroundAPondRatherThanSwimmingIt() {
+        // 幅5の池が床をほぼ塞ぎ、乗ったままだと端の乾いた帯まで回り込む
+        FakeCells cells = flat();
+        for (int x = 8; x <= 12; x++) {
+            for (int z = MIN_Z; z <= 5; z++) {
+                for (int y = Y - 4; y < Y; y++) {
+                    cells.set(x, y, z, FakeCells.WATER);
+                }
+                cells.set(x, Y - 5, z, FakeCells.BEDROCK);
+            }
+        }
+
+        assertTrue(ridesAllTheWay(search(cells.mount(HORSE).mountLeaveBehindTicks(0), 0, 20)),
+                "置いていく割増が無くても、回り込む方が降りて泳ぐより速い");
+    }
+
+    private static double totalCost(PathResult result) {
+        assertTrue(result.complete());
+        return result.steps().stream().mapToDouble(PathStep::cost).sum();
     }
 
     @Test

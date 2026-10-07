@@ -492,10 +492,15 @@ public final class AStarPathfinder {
         // 大きい方を取る所で打ち消され、探索は線路のセルを1度も展開せずに歩きで閉じる（実機で確認）
         this.horizontalPerBlock = view.minecart().ridesPossible() ? ActionCosts.CART_MIN_TICKS_PER_BLOCK
                 : ActionCosts.SPRINT_ONE_BLOCK;
+        // 乗っているノードは降りてトロッコに乗り継ぐこともできるので、両方の安い方
+        this.mountedPerBlock = mountMoves == null ? horizontalPerBlock
+                : Math.min(mountMoves.ticksPerBlock(), horizontalPerBlock);
     }
 
     /** 残りコストの下限で使う1ブロックの値段。 */
     private final double horizontalPerBlock;
+    /** 乗っているノードの残りコストの下限で使う1ブロックの値段。 */
+    private final double mountedPerBlock;
 
     /**
      * この探索が、連続する橋の長さの上限を理由に移動を捨てたか。捨てていない場合、
@@ -988,19 +993,25 @@ public final class AStarPathfinder {
         double heuristic;
         boolean guideHole = false;
         if (surfaceGoal) {
-            heuristic = Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
+            heuristic = mounted
+                    ? Heuristic.estimateMounted(x, y, z, x, Math.max(y, surfaceY), z,
+                            ActionCosts.FALL_ASYMPTOTIC_MIN_PER_BLOCK, mountedPerBlock)
+                    : Heuristic.estimate(x, y, z, x, Math.max(y, surfaceY), z);
         } else {
             // ボートに乗っているノードは水平の下限が漕ぎ速度まで下がる。疾走のまま見積もると
             // ボートの枝に対して非許容になり、乗り込む1手の一時コストと相まって一度も展開されない
             // 乗っている足場は4列あり、ゴールに一番近い列から測る（ゴール判定もその列で見る）
             int nearX = mounted ? MountMoves.nearest(x, goalX) : x;
             int nearZ = mounted ? MountMoves.nearest(z, goalZ) : z;
-            heuristic = Heuristic.estimate(nearX, y, nearZ, goalX, goalY, goalZ, minDescentPerBlock,
-                    boating ? ActionCosts.PADDLE_ONE_BLOCK : horizontalPerBlock);
+            heuristic = mounted
+                    ? Heuristic.estimateMounted(nearX, y, nearZ, goalX, goalY, goalZ, minDescentPerBlock,
+                            mountedPerBlock)
+                    : Heuristic.estimate(nearX, y, nearZ, goalX, goalY, goalZ, minDescentPerBlock,
+                            boating ? ActionCosts.PADDLE_ONE_BLOCK : horizontalPerBlock);
             // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
             // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
             // 「あと何マス上がるか」だけの下限へ書き換えているのと同じ考え方）
-            double radiusAllowance = goalRadius * horizontalPerBlock;
+            double radiusAllowance = goalRadius * (mounted ? mountedPerBlock : horizontalPerBlock);
             heuristic = Math.max(0.0, heuristic - radiusAllowance);
             if (costToGo != null) {
                 // 両者の大きい方を使う。Heuristicは幾何学的な下限、costToGoは層1が壁や溶岩の海を
@@ -1015,8 +1026,12 @@ public final class AStarPathfinder {
                 // hに16ブロック周期の鋸歯が乗り、経路がチャンク境界へ吸い寄せられて直角になる
                 double guide = mounted ? mountedGuide(x, y, z) : costToGo.searchEstimate(x, y, z);
                 guideHole = Double.isNaN(guide);
-                heuristic = Math.max(heuristic,
-                        (guideHole ? costToGo.estimate(nearX, y, nearZ) : guide) - radiusAllowance);
+                double estimate = guideHole ? costToGo.estimate(nearX, y, nearZ) : guide;
+                if (mounted) {
+                    // ガイドは徒歩の値段。乗ったまま同じ所を進めば疾走との速さの比だけ早く着く
+                    estimate *= mountedPerBlock / ActionCosts.SPRINT_ONE_BLOCK;
+                }
+                heuristic = Math.max(heuristic, estimate - radiusAllowance);
             }
         }
         PathNode created = new PathNode(x, y, z, boating, mounted, heuristic, guideHole);

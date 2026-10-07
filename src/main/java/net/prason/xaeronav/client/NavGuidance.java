@@ -3,6 +3,7 @@ package net.prason.xaeronav.client;
 import java.util.List;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
@@ -106,6 +107,7 @@ final class NavGuidance {
         private final double[] movementTicks;
         private final double[] movementBlocks;
         private final double[] actionTicks;
+        private final boolean endsMounted;
 
         // プレイヤーが1マス動くまで案内は変わらない。HUDは毎フレーム描かれるので、
         // 同じマスにいる間の問い合わせは作り直さない
@@ -121,6 +123,7 @@ final class NavGuidance {
             this.movementTicks = new double[size];
             this.movementBlocks = new double[size];
             this.actionTicks = new double[size];
+            this.endsMounted = size > 0 && steps.get(size - 1).movement() == MovementType.MOUNT;
 
             for (int i = 1; i < size; i++) {
                 PathStep step = steps.get(i);
@@ -157,7 +160,10 @@ final class NavGuidance {
             double action = actionTicks[last] - actionTicks[from];
             double moved = movementBlocks[last] - movementBlocks[from];
             double assumed = movement > 0.0 && moved > 0.0 ? moved / movement : 1.0 / ActionCosts.SPRINT_ONE_BLOCK;
-            return (movement + beyondTicks) * paceFactor(assumed) + action;
+            // 経路の先の見積もりは徒歩の値段。乗ったまま続くなら、乗り物の速さの経路と同じ倍率では縮まないので
+            // 疾走を基準に実測の速さへ割り直す
+            double beyondAssumed = endsMounted ? 1.0 / ActionCosts.SPRINT_ONE_BLOCK : assumed;
+            return movement * paceFactor(assumed) + beyondTicks * paceFactor(beyondAssumed) + action;
         }
     }
 }
