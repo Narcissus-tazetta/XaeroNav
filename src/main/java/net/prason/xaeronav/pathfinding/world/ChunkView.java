@@ -225,23 +225,25 @@ public final class ChunkView implements CellSource {
         return player.getVehicle() instanceof AbstractMinecart;
     }
 
-    /** いま乗っている乗り物。メインスレッド専用。 */
+    /** いま乗っている操れる乗り物（{@link MountState}参照）。メインスレッド専用。 */
     public static MountState mount(Player player) {
         Entity vehicle = player.getVehicle();
         //? if >=1.21.6 {
         /*if (vehicle instanceof HappyGhast ghast) {
-            return new MountState(MountState.Kind.HAPPY_GHAST, ghast.isWearingBodyArmor(),
-                    ghast.getAttributeBaseValue(Attributes.MOVEMENT_SPEED), 0.0);
+            return ghast.isWearingBodyArmor()
+                    ? new MountState(MountState.Kind.HAPPY_GHAST, ghast.getAttributeBaseValue(Attributes.MOVEMENT_SPEED), 0.0)
+                    : MountState.NONE;
         }
         *///?}
         //? if >=1.21.11 {
         /*if (vehicle instanceof AbstractNautilus nautilus) {
-            return new MountState(MountState.Kind.NAUTILUS, nautilus.isSaddled(),
-                    nautilus.getAttributeBaseValue(Attributes.MOVEMENT_SPEED), 0.0);
+            return nautilus.isSaddled()
+                    ? new MountState(MountState.Kind.NAUTILUS, nautilus.getAttributeBaseValue(Attributes.MOVEMENT_SPEED), 0.0)
+                    : MountState.NONE;
         }
         *///?}
         // ラマは鞍を付けられず操れない。ラクダも馬の仲間の子クラスなので先に分ける
-        if (!(vehicle instanceof AbstractHorse horse) || vehicle instanceof Llama) {
+        if (!(vehicle instanceof AbstractHorse horse) || vehicle instanceof Llama || !horse.isSaddled()) {
             return MountState.NONE;
         }
         MountState.Kind kind = MountState.Kind.HORSE;
@@ -250,7 +252,7 @@ public final class ChunkView implements CellSource {
             kind = MountState.Kind.CAMEL;
         }
         //?}
-        return new MountState(kind, horse.isSaddled(), horse.getAttributeBaseValue(Attributes.MOVEMENT_SPEED),
+        return new MountState(kind, horse.getAttributeBaseValue(Attributes.MOVEMENT_SPEED),
                 horse.getAttributeBaseValue(Attributes.JUMP_STRENGTH));
     }
 
