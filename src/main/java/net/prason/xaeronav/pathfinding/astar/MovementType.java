@@ -27,6 +27,8 @@ public enum MovementType {
      * {@code (x+1, z+1)}にある。
      */
     MOUNT,
+    /** オウムガイに乗ったまま水中を進む区間。{@link PathStep#pos}はオウムガイのいる水のセルで、乗り手はその上2マス。 */
+    MOUNT_SWIM,
     /** 乗り物を降りて置いていく。{@link PathStep#pos}は降りて立つセルで、この先は歩く。 */
     DISMOUNT
 }

@@ -242,8 +242,8 @@ final class PathValidator {
             // 先に降りておくと未読み込み区間を舐める間のブロック参照そのものが要らなくなる
             return null;
         }
-        if (step.swimming() || step.boating()) {
-            // 泳ぐ区間もボートの区間も、足場ではなく水そのものが前提
+        if (step.swimming() || step.boating() || step.movement() == MovementType.MOUNT_SWIM) {
+            // 泳ぐ区間もボート・オウムガイの区間も、足場ではなく水そのものが前提
             if (!CellData.water(CellData.flagsOf(level.getBlockState(pos)))) {
                 return new CellFailure(pos, "step %d (%s): no water for swimming/boating pos=%s"
                         .formatted(i, step.movement(), pos.toShortString()));

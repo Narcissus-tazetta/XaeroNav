@@ -20,6 +20,16 @@ public record MountState(Kind kind, double movementSpeed, double jumpStrength) {
         return kind == Kind.HORSE || kind == Kind.CAMEL;
     }
 
+    /** 水中を進む乗り物（オウムガイ）。探索は水のセルで乗ったまま進む。 */
+    public boolean swims() {
+        return kind == Kind.NAUTILUS;
+    }
+
+    /** 歩きの探索が乗ったままの手を持つ乗り物。ハッピーガストは空中経路が受け持つので入らない。 */
+    public boolean ridden() {
+        return walks() || swims();
+    }
+
     public enum Kind {
         NONE,
         /** 馬・ロバ・ラバ・スケルトンホース・ゾンビホース */

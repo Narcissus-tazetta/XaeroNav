@@ -59,6 +59,8 @@
   "hud.xaeronav.action_dismount_camel": "この先でラクダを降りて歩きます",
   "hud.xaeronav.dismount_ahead": "%sブロック先で馬を降ります",
   "hud.xaeronav.dismount_ahead_camel": "%sブロック先でラクダを降ります",
+  "hud.xaeronav.action_dismount_nautilus": "この先でオウムガイを降ります",
+  "hud.xaeronav.dismount_ahead_nautilus": "%sブロック先でオウムガイを降ります",
   "hud.xaeronav.remaining": "残り%1$sブロック · 約%2$s",
   "hud.xaeronav.path_remaining": "行ける所まで%1$sブロック · 約%2$s",
   "hud.xaeronav.path_remaining_eta": "計算済みの経路は残り%1$sブロック · 目的地まで約%2$s",

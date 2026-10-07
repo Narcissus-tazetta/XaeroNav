@@ -1264,15 +1264,18 @@ public final class PathfindingState {
      */
     private static Vec3 trackedPosition(Player player) {
         Entity vehicle = player.getVehicle();
-        return vehicle != null && ChunkView.mount(player).walks() ? vehicle.position() : player.position();
+        return vehicle != null && ChunkView.mount(player).ridden() ? vehicle.position() : player.position();
     }
 
     /**
      * 探索の始点。馬の仲間・ラクダに乗っていれば、乗り物の中心に一番近い2×2の足場の角
-     * （{@code MountMoves}がノードの座標にする角）。探索はこの角を最初に試す。
+     * （{@code MountMoves}がノードの座標にする角）。探索はこの角を最初に試す。オウムガイならオウムガイのいるセル。
      */
     private BlockPos searchStart(Player player) {
         Entity vehicle = player.getVehicle();
+        if (vehicle != null && mount.swims()) {
+            return vehicle.blockPosition();
+        }
         if (vehicle == null || !mount.walks()) {
             return player.blockPosition();
         }
@@ -1291,7 +1294,7 @@ public final class PathfindingState {
             return false;
         }
         // 経路が降りると言った所で降りたなら、その先の歩きの経路は降りた前提で引いてある
-        if (mount.walks() && !now.walks() && dismountPlannedNear(player)) {
+        if (mount.ridden() && !now.ridden() && dismountPlannedNear(player)) {
             LOGGER.info("XaeroNav: got off the mount where the path said to, keeping the path");
             mount = now;
             return false;
@@ -2400,7 +2403,7 @@ public final class PathfindingState {
         }
         // ガイドは徒歩の道と値段しか知らない。乗ったままの線は水を避けて回り込み、置いていく割増も払うので、
         // 比べると最短の線まで遠回りに見えて同じ経路を引き直すだけになる（実機で2回）
-        if (mount.walks()) {
+        if (mount.ridden()) {
             return false;
         }
         WindowField field = navGraphGuide.latest(currentGoal);

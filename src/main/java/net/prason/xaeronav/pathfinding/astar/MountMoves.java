@@ -30,7 +30,7 @@ import net.prason.xaeronav.pathfinding.world.StanceFinder;
  * 1段の昇り降りは跳ばずに歩いて越える（段差1.0）ので水平の1歩と同じ形。跳ぶ手は溜めと滞空の時間。
  * 下限（{@link Heuristic}）とガイドは{@link AStarPathfinder}が乗っているノードだけこの速さまで下げる。
  */
-final class MountMoves {
+final class MountMoves implements RiddenMoves {
 
     /** スニークして降りる手間（tick）。押してから降りるまでは数tickだが、降りた位置の向き直りを見込む。推定値 */
     private static final double DISMOUNT_TICKS = 10.0;
@@ -70,12 +70,29 @@ final class MountMoves {
         this.pace = physics.ticksPerBlock() / ActionCosts.SPRINT_ONE_BLOCK;
     }
 
-    /** 平地を進む1ブロックの時間。{@link AStarPathfinder}の下限はこれを割らないように置く。 */
-    double ticksPerBlock() {
+    @Override
+    public double ticksPerBlock() {
         return physics.ticksPerBlock();
     }
 
-    void expand(PathNode from) {
+    @Override
+    public int span() {
+        return 2;
+    }
+
+    /** 足場の高さは4列の床の一番高いもの。ゴールの列の床が隣より1段低いと、ぴったりの高さには立てない。 */
+    @Override
+    public boolean reachesGoalHeight(int nodeY, int goalY) {
+        return nodeY == goalY || nodeY == goalY + 1;
+    }
+
+    @Override
+    public int safeFallBlocks() {
+        return SAFE_FALL_BLOCKS;
+    }
+
+    @Override
+    public void expand(PathNode from) {
         for (int i = 0; i < AStarPathfinder.CARDINAL_DX.length; i++) {
             addStep(from, AStarPathfinder.CARDINAL_DX[i], AStarPathfinder.CARDINAL_DZ[i]);
         }
@@ -109,7 +126,8 @@ final class MountMoves {
      * （呼び出し側が角そのものを渡していればそれが最初に当たる）。高さは近い方から上下へ寄せる。
      * 乗ったままでは立てない（深い水の中など）なら{@code null}——歩きで始める。
      */
-    @Nullable BlockPos resolveStart(BlockPos start) {
+    @Override
+    public @Nullable BlockPos resolveStart(BlockPos start) {
         int[][] corners = {{0, 0}, {-1, 0}, {0, -1}, {-1, -1}};
         for (int dy = 0; dy <= 32; dy++) {
             for (int sign = 1; sign >= -1; sign -= 2) {
@@ -127,11 +145,6 @@ final class MountMoves {
             }
         }
         return null;
-    }
-
-    /** ゴールとの距離・ガイドを引くときに使う、足場の4列のうち{@code (targetX, targetZ)}に一番近い列。 */
-    static int nearest(int corner, int target) {
-        return Math.max(corner, Math.min(corner + 1, target));
     }
 
     /**
@@ -509,7 +522,8 @@ final class MountMoves {
      * 元の段の高さでしか空きを確かめていない（{@link #addDiagonal}）ので、下りた先の高さを含めると塞がった
      * セルが混ざる。
      */
-    List<BlockPos> bodyCells(PathNode from, PathNode to) {
+    @Override
+    public List<BlockPos> bodyCells(PathNode from, PathNode to) {
         int minX = Math.min(from.x, to.x);
         int maxX = Math.max(from.x, to.x) + 1;
         int minZ = Math.min(from.z, to.z);

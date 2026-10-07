@@ -123,7 +123,8 @@ final class NavGuidance {
             this.movementTicks = new double[size];
             this.movementBlocks = new double[size];
             this.actionTicks = new double[size];
-            this.endsMounted = size > 0 && steps.get(size - 1).movement() == MovementType.MOUNT;
+            this.endsMounted = size > 0 && (steps.get(size - 1).movement() == MovementType.MOUNT
+                    || steps.get(size - 1).movement() == MovementType.MOUNT_SWIM);
 
             for (int i = 1; i < size; i++) {
                 PathStep step = steps.get(i);

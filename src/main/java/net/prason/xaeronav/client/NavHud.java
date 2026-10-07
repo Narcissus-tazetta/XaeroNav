@@ -150,10 +150,13 @@ public final class NavHud {
             int from = PathProgress.INSTANCE.indexFor(result) + 1;
             PathSuffixes.Action next = ahead.nextAction(from);
             String endpoint = guidance.nearEnd ? endpointKey(climbing, endsAtDestination, stuck != null) : null;
-            boolean camel = ChunkView.mount(mc.player).kind() == MountState.Kind.CAMEL;
+            MountState mount = ChunkView.mount(mc.player);
             if (next != null && ahead.distanceToAction(from) <= ACTION_NOTICE_BLOCKS) {
-                add(TextCompat.translatable(next == PathSuffixes.Action.DISMOUNT && camel
-                        ? "hud.xaeronav.action_dismount_camel" : next.key()), PRIMARY_COLOR);
+                add(TextCompat.translatable(next == PathSuffixes.Action.DISMOUNT ? switch (mount.kind()) {
+                    case CAMEL -> "hud.xaeronav.action_dismount_camel";
+                    case NAUTILUS -> "hud.xaeronav.action_dismount_nautilus";
+                    default -> next.key();
+                } : next.key()), PRIMARY_COLOR);
                 endpoint = null;
             } else if (endpoint != null) {
                 add(TextCompat.translatable(endpoint), PRIMARY_COLOR);
@@ -165,9 +168,12 @@ public final class NavHud {
             // 乗っている間は出さない——すでに済んでいる支度を促し続けることになる
             // 降りるのは乗っていては通れない所の手前。近づいてからでは、そこまで乗って来た理由が分からない
             double toDismount = ahead.distanceToDismount(from);
-            if (Double.isFinite(toDismount) && toDismount > ACTION_NOTICE_BLOCKS && ChunkView.mount(mc.player).walks()) {
-                add(TextCompat.translatable(camel ? "hud.xaeronav.dismount_ahead_camel" : "hud.xaeronav.dismount_ahead",
-                        (int) Math.round(toDismount)), SECONDARY_COLOR);
+            if (Double.isFinite(toDismount) && toDismount > ACTION_NOTICE_BLOCKS && mount.ridden()) {
+                add(TextCompat.translatable(switch (mount.kind()) {
+                    case CAMEL -> "hud.xaeronav.dismount_ahead_camel";
+                    case NAUTILUS -> "hud.xaeronav.dismount_ahead_nautilus";
+                    default -> "hud.xaeronav.dismount_ahead";
+                }, (int) Math.round(toDismount)), SECONDARY_COLOR);
             }
             if (ahead.usesBoat(from) && !ChunkView.ridingBoat(mc.player)) {
                 add(TextCompat.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);

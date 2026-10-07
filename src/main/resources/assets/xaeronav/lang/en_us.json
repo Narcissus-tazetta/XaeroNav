@@ -59,6 +59,8 @@
   "hud.xaeronav.action_dismount_camel": "Get off the camel ahead and continue on foot",
   "hud.xaeronav.dismount_ahead": "Get off the horse in %s blocks",
   "hud.xaeronav.dismount_ahead_camel": "Get off the camel in %s blocks",
+  "hud.xaeronav.action_dismount_nautilus": "Get off the nautilus ahead",
+  "hud.xaeronav.dismount_ahead_nautilus": "Get off the nautilus in %s blocks",
   "hud.xaeronav.remaining": "%1$s blocks left · about %2$s",
   "hud.xaeronav.path_remaining": "%1$s blocks to where the route ends · about %2$s",
   "hud.xaeronav.path_remaining_eta": "%1$s blocks of computed route left · about %2$s to the destination",

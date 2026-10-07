@@ -53,7 +53,9 @@ enum MoveKind {
     MOUNT_JUMP(MovementType.MOUNT),
     /** 乗り物で2マス以上落ちる。 */
     MOUNT_FALL(MovementType.MOUNT),
-    /** 乗り物を降りる。乗っている足場から、その4列のうち立てるセルへ。 */
+    /** オウムガイに乗ったまま水中を進む（{@link NautilusMoves}）。 */
+    MOUNT_SWIM(MovementType.MOUNT_SWIM),
+    /** 乗り物を降りる。乗っている足場から、そこで立てる・泳げるセルへ。 */
     DISMOUNT(MovementType.DISMOUNT);
 
     private final MovementType movementType;

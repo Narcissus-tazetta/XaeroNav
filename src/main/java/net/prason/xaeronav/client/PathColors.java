@@ -103,7 +103,7 @@ final class PathColors {
             return DIGGING;
         }
         return switch (step.movement()) {
-            case SWIM -> SWIM;
+            case SWIM, MOUNT_SWIM -> SWIM;
             case BOAT -> BOAT;
             case CART -> CART;
             case JUMP -> JUMP;
