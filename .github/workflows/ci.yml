@@ -44,7 +44,7 @@ jobs:
 
       # ノード発見だけのジョブから専用キャッシュを書き出しても、後続ビルドには
       # ほぼ再利用できず保存・退避コストだけが増える。
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
         with:
           cache-read-only: true
 
@@ -117,7 +117,7 @@ jobs:
           distribution: temurin
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       # xaeronav.onlyNodesで、このジョブが使うノード（と正典ノード）だけを構成する（settings.gradle.kts参照）。
       # 経路探索テストは全ノードで同じなので正典ノードだけでコンパイル・実行する。
@@ -183,7 +183,7 @@ jobs:
 
       # build matrixが同じGradle依存をキャッシュする。runtime matrixからも各ノード分の
       # 類似キャッシュを書き出すと容量を圧迫するため、ここでは復元だけを行う。
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
         with:
           cache-read-only: true
 
@@ -427,7 +427,7 @@ jobs:
           # Gradle 9.8.0とStonecutter 0.9.8を動かすJVM（26.xのFabric用Loomが25を要求する）。1.20.1のmod自体はtoolchainでJava 17になる。
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
         with:
           cache-read-only: true
 
