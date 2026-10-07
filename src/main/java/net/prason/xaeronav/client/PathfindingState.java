@@ -44,6 +44,7 @@ import net.prason.xaeronav.pathfinding.navgraph.FarField;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRides;
 import net.prason.xaeronav.pathfinding.navgraph.WindowRides;
 import net.prason.xaeronav.pathfinding.world.MinecartState;
+import net.prason.xaeronav.pathfinding.world.MountState;
 import net.prason.xaeronav.rail.RailNetwork;
 import net.prason.xaeronav.pathfinding.navgraph.RouteReview;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
@@ -382,6 +383,10 @@ public final class PathfindingState {
     private volatile boolean flying;
     /** エリトラの滑空を飛行とみなすかの判定（時間と高さのヒステリシス）。 */
     private final ElytraTrigger elytraTrigger = new ElytraTrigger();
+    /** 直前のtickに乗っていた乗り物。クライアントスレッド専用 */
+    private MountState mount = MountState.NONE;
+    /** 乗り物が変わる前に引いた経路。乗り物が変わると歩けるという証明が通用しないので、残す候補にしない */
+    private @Nullable DisplayedPath plannedForOtherMount;
     /**
      * 通過済みとみなす中間目標の数。地図の点線をどこから描くかにだけ使う。
      *
@@ -682,6 +687,8 @@ public final class PathfindingState {
         // 滑空中に指定された目的地は、地上へ戻るまで歩行の経路を引かない
         // （引いても表示せず捨てるだけになる）
         this.flying = airborne(level, player);
+        // 目的地が無い間は乗り物を追っていない。ここで読まないと最初のtickで「乗った」と見なして二重に引き直す
+        this.mount = ChunkView.mount(player);
         GoalWaypoint.sync(this.goal);
         if (this.flying) {
             sky.begin(level, player);
@@ -838,6 +845,7 @@ public final class PathfindingState {
         this.seamRepair.clear();
         this.recentFailures.clear();
         this.stuckTracker.reset();
+        this.plannedForOtherMount = null;
         this.retreatWatcher.reset();
         stalledSearches.set(0);
         this.mapGrowth.reset();
@@ -1105,6 +1113,9 @@ public final class PathfindingState {
                 pendingEscalation(mc.player);
                 return;
             }
+            if (mountChanged(mc.player)) {
+                return;
+            }
             if (tickFlightMode(mc.level, mc.player, currentGoal)) {
                 return;
             }
@@ -1238,6 +1249,28 @@ public final class PathfindingState {
         } finally {
             TickLaps.measure("view publish", () -> publishNavigationView());
         }
+    }
+
+    /**
+     * 乗り物に乗った・降りた・鞍を付けた等で前提が変わったら全部引き直す。引き直したら{@code true}。
+     *
+     * <p>新しい経路が届くまでは古い線を出したままにする。消すと探索の間だけ案内が空になる。
+     */
+    private boolean mountChanged(Player player) {
+        MountState now = ChunkView.mount(player);
+        if (now.equals(mount)) {
+            return false;
+        }
+        LOGGER.info("XaeroNav: mount changed {} -> {}, replanning", mount, now);
+        mount = now;
+        generation.incrementAndGet();
+        executor.cancelAll();
+        computing = false;
+        plannedForOtherMount = displayed;
+        // 徒歩で行けないと判断した目的地でも、乗り物なら行けるかもしれない（逆も）
+        stuckTracker.reset();
+        recalculate("mount changed");
+        return true;
     }
 
     /**
@@ -2037,7 +2070,9 @@ public final class PathfindingState {
         // 「地形が変わった」は内訳まで出す。どのステップの何が不成立になったのかが分からないと、
         // 渡り切った直後に完走ルートが手放されるような症状の原因を追えない
         PathValidator.Failure validationFailure = null;
-        if (offPath > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
+        if (shown == plannedForOtherMount) {
+            dropped = "mount changed";
+        } else if (offPath > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
             dropped = "off path";
         } else if (reachedPathEnd(player, shown)) {
             dropped = "reached the end";

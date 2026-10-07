@@ -16,6 +16,23 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
 //?}
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+//? if >=1.21.11 {
+/*import net.minecraft.world.entity.animal.equine.AbstractHorse;
+import net.minecraft.world.entity.animal.equine.Llama;
+import net.minecraft.world.entity.animal.happyghast.HappyGhast;
+import net.minecraft.world.entity.animal.nautilus.AbstractNautilus;
+*///?} else {
+import net.minecraft.world.entity.animal.horse.AbstractHorse;
+import net.minecraft.world.entity.animal.horse.Llama;
+//?}
+//? if >=1.21.6 && <1.21.11 {
+/*import net.minecraft.world.entity.animal.HappyGhast;
+*///?}
+//? if >=1.20 {
+import net.minecraft.world.entity.animal.camel.Camel;
+//?}
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
@@ -206,6 +223,35 @@ public final class ChunkView implements CellSource {
     /** いまトロッコに乗っているか。 */
     public static boolean ridingMinecart(Player player) {
         return player.getVehicle() instanceof AbstractMinecart;
+    }
+
+    /** いま乗っている乗り物。メインスレッド専用。 */
+    public static MountState mount(Player player) {
+        Entity vehicle = player.getVehicle();
+        //? if >=1.21.6 {
+        /*if (vehicle instanceof HappyGhast ghast) {
+            return new MountState(MountState.Kind.HAPPY_GHAST, ghast.isWearingBodyArmor(),
+                    ghast.getAttributeBaseValue(Attributes.MOVEMENT_SPEED), 0.0);
+        }
+        *///?}
+        //? if >=1.21.11 {
+        /*if (vehicle instanceof AbstractNautilus nautilus) {
+            return new MountState(MountState.Kind.NAUTILUS, nautilus.isSaddled(),
+                    nautilus.getAttributeBaseValue(Attributes.MOVEMENT_SPEED), 0.0);
+        }
+        *///?}
+        // ラマは鞍を付けられず操れない。ラクダも馬の仲間の子クラスなので先に分ける
+        if (!(vehicle instanceof AbstractHorse horse) || vehicle instanceof Llama) {
+            return MountState.NONE;
+        }
+        MountState.Kind kind = MountState.Kind.HORSE;
+        //? if >=1.20 {
+        if (vehicle instanceof Camel) {
+            kind = MountState.Kind.CAMEL;
+        }
+        //?}
+        return new MountState(kind, horse.isSaddled(), horse.getAttributeBaseValue(Attributes.MOVEMENT_SPEED),
+                horse.getAttributeBaseValue(Attributes.JUMP_STRENGTH));
     }
 
     /** 持ち物にトロッコがあるか。 */
