@@ -163,8 +163,10 @@ public final class NavHud {
             if (ahead.usesBoat(from) && !ChunkView.ridingBoat(mc.player)) {
                 add(TextCompat.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
             }
+            // 持っていなければ、経路は線路上に置いてあるトロッコに乗るものしか無い
             if (ahead.usesCart(from) && !ChunkView.ridingMinecart(mc.player)) {
-                add(TextCompat.translatable("hud.xaeronav.cart_ahead"), SECONDARY_COLOR);
+                add(TextCompat.translatable(ChunkView.carryingMinecart(mc.player)
+                        ? "hud.xaeronav.cart_ahead" : "hud.xaeronav.cart_ahead_parked"), SECONDARY_COLOR);
             }
             // 持ち物で足りない経路は、予算を外した緩和の梯子を通って出てくる（他に道が無い場合）。
             // 足りているうちは黙っている——設置を含む経路はエンドではほぼ全てなので、常に出すと

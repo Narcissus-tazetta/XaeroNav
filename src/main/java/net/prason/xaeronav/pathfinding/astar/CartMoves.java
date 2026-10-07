@@ -62,7 +62,7 @@ final class CartMoves {
         if (x == from.x && y == from.y && z == from.z) {
             return;
         }
-        double cost = boarding.cost + tick + ActionCosts.CART_STOW_TICKS;
+        double cost = boarding.cost + tick + boarding.stowCost;
         double dx = x - from.x;
         double dz = z - from.z;
         if (cost > MAX_DETOUR_FACTOR * Math.sqrt(dx * dx + dz * dz) * ActionCosts.SPRINT_ONE_BLOCK) {
@@ -111,7 +111,11 @@ final class CartMoves {
         return boarding(from).cost;
     }
 
-    private record Boarding(int x, int y, int z, int[] exits, double speed, double cost) {
+    /**
+     * @param cost     乗るまでの手間
+     * @param stowCost 降りてからの手間。自分のトロッコは壊して拾うが、置いてあったものはそのまま残して行く
+     */
+    private record Boarding(int x, int y, int z, int[] exits, double speed, double cost, double stowCost) {
     }
 
     private static final int[] BOTH_EXITS = {0, 1};
@@ -131,11 +135,19 @@ final class CartMoves {
                 double ahead1 = CartRide.exitDx(shape, 1) * cart.dirX() + CartRide.exitDz(shape, 1) * cart.dirZ();
                 exits = new int[] {ahead0 >= ahead1 ? 0 : 1};
             }
-            return new Boarding(cart.railX(), cart.railY(), cart.railZ(), exits, cart.speed(), 0.0);
+            return new Boarding(cart.railX(), cart.railY(), cart.railZ(), exits, cart.speed(), 0.0,
+                    ActionCosts.CART_STOW_TICKS);
         }
         if (owner.view.track(from.x, from.y, from.z) == CartRide.NONE) {
             return null;
         }
-        return new Boarding(from.x, from.y, from.z, BOTH_EXITS, 0.0, ActionCosts.CART_BOARD_TICKS);
+        if (cart.parked().contains(BlockPos.asLong(from.x, from.y, from.z))) {
+            return new Boarding(from.x, from.y, from.z, BOTH_EXITS, 0.0, ActionCosts.CART_ENTER_TICKS, 0.0);
+        }
+        if (!cart.carrying()) {
+            return null;
+        }
+        return new Boarding(from.x, from.y, from.z, BOTH_EXITS, 0.0, ActionCosts.CART_BOARD_TICKS,
+                ActionCosts.CART_STOW_TICKS);
     }
 }
