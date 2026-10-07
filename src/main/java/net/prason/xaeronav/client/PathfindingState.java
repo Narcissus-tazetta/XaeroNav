@@ -2480,7 +2480,7 @@ public final class PathfindingState {
             // 窓の外が幾何下限だとネザーは3D粗層だけより悪い（実測1.257倍）。3D粗層が組み上がってから航法グラフを使う
             fallback = voxel;
             far = new NavGraphGuide.Far("3D coarse layer", voxel, () -> FarField.of(
-                    (x, y, z) -> NavGraphGuide.VOXEL_FAR_SCALE * voxel.estimate(x, y, z)), false);
+                    (x, y, z) -> NavGraphGuide.VOXEL_FAR_SCALE * voxel.estimate(x, y, z)), false, true);
         } else if (!navGraphEnabled) {
             return null;
         } else {
@@ -2494,12 +2494,12 @@ public final class PathfindingState {
                 // 推定の上で後ろになる縁は種にしない（NavGraphGuide.Far#forwardOnly）
                 double scale = map == null ? 1.0 : CoarseRouter.unknownMultiplier(map);
                 far = new NavGraphGuide.Far("straight line x" + String.format(Locale.ROOT, "%.1f", scale),
-                        map == null ? currentGoal : map, () -> FarField.straightLineTo(currentGoal, scale), true);
+                        map == null ? currentGoal : map, () -> FarField.straightLineTo(currentGoal, scale), true, false);
             } else {
                 CoarseRides rides = longRouteRides();
                 far = map == null ? null
                         : new NavGraphGuide.Far("layer 1", layer1Source(map, rides),
-                                () -> layer1Far(map, currentGoal, rides), false);
+                                () -> layer1Far(map, currentGoal, rides), false, false);
             }
         }
         WindowField field = TickLaps.measure("nav graph start",
