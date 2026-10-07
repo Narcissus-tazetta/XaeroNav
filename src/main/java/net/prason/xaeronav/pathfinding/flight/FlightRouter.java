@@ -51,28 +51,28 @@ public final class FlightRouter {
      * {@code start}から{@code goal}への空中経路。引けなければ{@link FlightRoute#NONE}を返す
      * （呼び出し側は従来どおり目的地への点線へ落とすこと）。
      */
-    public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
+    public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, FlightModel model,
                                      FlightTuning tuning, BooleanSupplier cancelled) {
-        return route(view, start, goal, rockets, tuning, FlightHorizon.NONE, FlightGuide.NONE, cancelled);
+        return route(view, start, goal, model, tuning, FlightHorizon.NONE, FlightGuide.NONE, cancelled);
     }
 
     /**
      * 粗い地図の残りコストの場で出口を選ぶ版。出口の見積もりは読める範囲の内側を通らない回り道で測り直す
      * （{@link HorizonGuide}参照）。{@code field}が{@code null}なら直線の見積もりだけで選ぶ。
      */
-    public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
+    public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, FlightModel model,
                                      FlightTuning tuning, FlightHorizon horizon, @Nullable CoarseFlightField field,
                                      BooleanSupplier cancelled) {
         if (field == null) {
-            return route(view, start, goal, rockets, tuning, horizon, FlightGuide.NONE, cancelled);
+            return route(view, start, goal, model, tuning, horizon, FlightGuide.NONE, cancelled);
         }
         // 塗り広げで判定したセルは、続く探索がほぼ同じ所を触るので、同じ格子を渡してmemoを使い回す
-        AirGrid grid = new AirGrid(view, tuning.cellBlocks());
-        HorizonGuide.Plan plan = HorizonGuide.plan(grid, start, goal, horizon, field, rockets);
+        AirGrid grid = new AirGrid(view, tuning.cellBlocks(), model.body());
+        HorizonGuide.Plan plan = HorizonGuide.plan(grid, start, goal, horizon, field, model);
         if (plan.enclosed()) {
-            return approach(grid, start, goal, rockets, tuning, plan.guide(), cancelled);
+            return approach(grid, start, goal, model, tuning, plan.guide(), cancelled);
         }
-        return route(view, grid, start, goal, rockets, tuning, plan.horizon(), plan.guide(), cancelled);
+        return route(view, grid, start, goal, model, tuning, plan.horizon(), plan.guide(), cancelled);
     }
 
     /**
@@ -83,7 +83,7 @@ public final class FlightRouter {
      * 小部屋の反対側から回れば寄れる場合でも手前の壁の前で止まる。半径の中を目的地にすれば、届く所が
      * あればA*がそこまで引き切る。
      */
-    private static FlightRoute approach(AirGrid grid, Vec3 start, Vec3 goal, boolean rockets, FlightTuning tuning,
+    private static FlightRoute approach(AirGrid grid, Vec3 start, Vec3 goal, FlightModel model, FlightTuning tuning,
                                         FlightGuide guide, BooleanSupplier cancelled) {
         SearchLimits limits = new SearchLimits(
                 Math.min(tuning.limits().maxExpandedNodes(), HorizonGuide.ENCLOSED_MAX_EXPANDED_NODES),
@@ -93,7 +93,7 @@ public final class FlightRouter {
             if (cancelled.getAsBoolean()) {
                 break;
             }
-            FlightRoute route = new FlightPathfinder(grid, rockets, limits, tuning.clearancePenaltyTicks())
+            FlightRoute route = new FlightPathfinder(grid, model, limits, tuning.clearancePenaltyTicks())
                     .search(start, goal, radius, FlightHorizon.NONE, guide, cancelled);
             if (route.complete()) {
                 return route;
@@ -106,15 +106,15 @@ public final class FlightRouter {
     }
 
     /** {@code horizon}の外へ出たところで打ち切ってよい版（{@link FlightHorizon}参照）。 */
-    public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, boolean rockets,
+    public static FlightRoute route(CellSource view, Vec3 start, Vec3 goal, FlightModel model,
                                      FlightTuning tuning, FlightHorizon horizon, FlightGuide guide,
                                      BooleanSupplier cancelled) {
-        return route(view, null, start, goal, rockets, tuning, horizon, guide, cancelled);
+        return route(view, null, start, goal, model, tuning, horizon, guide, cancelled);
     }
 
     /** {@code firstGrid}は最初の粒度で使う格子（{@code null}なら作る）。 */
     private static FlightRoute route(CellSource view, @Nullable AirGrid firstGrid, Vec3 start, Vec3 goal,
-                                     boolean rockets, FlightTuning tuning, FlightHorizon horizon, FlightGuide guide,
+                                     FlightModel model, FlightTuning tuning, FlightHorizon horizon, FlightGuide guide,
                                      BooleanSupplier cancelled) {
         FlightRoute best = FlightRoute.NONE;
         long deadline = MonotonicTime.millis() + tuning.limits().timeLimitMillis();
@@ -129,8 +129,8 @@ public final class FlightRouter {
             }
             SearchLimits limits = new SearchLimits(tuning.limits().maxExpandedNodes(),
                     Math.max(MIN_RETRY_BUDGET_MILLIS, remaining), tuning.limits().heuristicWeight());
-            AirGrid grid = firstGrid != null && firstGrid.cellBlocks() == cells ? firstGrid : new AirGrid(view, cells);
-            FlightRoute route = new FlightPathfinder(grid, rockets, limits,
+            AirGrid grid = firstGrid != null && firstGrid.cellBlocks() == cells ? firstGrid : new AirGrid(view, cells, model.body());
+            FlightRoute route = new FlightPathfinder(grid, model, limits,
                     tuning.clearancePenaltyTicks()).search(start, goal, cells * GOAL_RADIUS_CELLS, horizon,
                     guide, cancelled);
             if (route.complete()) {

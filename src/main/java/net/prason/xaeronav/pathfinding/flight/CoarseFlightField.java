@@ -7,7 +7,6 @@ import java.util.function.ToDoubleFunction;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
-import net.prason.xaeronav.pathfinding.cost.FlightCosts;
 
 /**
  * 粗い空中地図（{@link CoarseAirMap}）の上で、目的地まで飛ぶ残りコストを全ての（チャンク, 帯）について
@@ -36,24 +35,24 @@ public final class CoarseFlightField {
     private static final ChunkFilter NONE_EXCLUDED = (chunkX, chunkZ) -> false;
 
     private final CoarseAirMap map;
-    private final boolean rockets;
+    private final FlightModel model;
     private final double[] cost;
 
-    private CoarseFlightField(CoarseAirMap map, boolean rockets, double[] cost) {
+    private CoarseFlightField(CoarseAirMap map, FlightModel model, double[] cost) {
         this.map = map;
-        this.rockets = rockets;
+        this.model = model;
         this.cost = cost;
     }
 
     /** {@code goal}への場。目的地が地図の外か壁の中なら{@code null}。 */
-    public static CoarseFlightField toward(CoarseAirMap map, BlockPos goal, boolean rockets) {
+    public static CoarseFlightField toward(CoarseAirMap map, BlockPos goal, FlightModel model) {
         int goalX = goal.getX() >> 4;
         int goalZ = goal.getZ() >> 4;
         if (!map.containsChunk(goalX, goalZ) || map.blocked(goalX, goalZ)) {
             return null;
         }
         int goalState = state(map, goalX, goalZ, map.bandAt(goalX, goalZ, goal.getY()));
-        return new CoarseFlightField(map, rockets, solve(map, new int[] {goalState}, new double[] {0.0}, rockets,
+        return new CoarseFlightField(map, model, solve(map, new int[] {goalState}, new double[] {0.0}, model,
                 NONE_EXCLUDED));
     }
 
@@ -75,11 +74,11 @@ public final class CoarseFlightField {
             costs[count] = seedCost.applyAsDouble(seed);
             count++;
         }
-        return new CoarseFlightField(map, rockets, solve(map, Arrays.copyOf(states, count),
-                Arrays.copyOf(costs, count), rockets, excluded));
+        return new CoarseFlightField(map, model, solve(map, Arrays.copyOf(states, count),
+                Arrays.copyOf(costs, count), model, excluded));
     }
 
-    private static double[] solve(CoarseAirMap map, int[] seedStates, double[] seedCosts, boolean rockets,
+    private static double[] solve(CoarseAirMap map, int[] seedStates, double[] seedCosts, FlightModel model,
                                   ChunkFilter excluded) {
         double[] cost = new double[map.chunksX() * map.chunksZ() * CoarseAirMap.MAX_BANDS];
         Arrays.fill(cost, Double.POSITIVE_INFINITY);
@@ -122,7 +121,7 @@ public final class CoarseFlightField {
                         if (Math.abs(vertical) > BAND_LINK_GAP_BLOCKS) {
                             continue;
                         }
-                        double step = FlightCosts.segmentTicks(horizontal, vertical, rockets) * enterMultiplier;
+                        double step = model.segmentTicks(horizontal, vertical) * enterMultiplier;
                         int from = state(map, fromX, fromZ, fromBand);
                         double tentative = known + step;
                         if (tentative < cost[from]) {

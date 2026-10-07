@@ -8,7 +8,6 @@ import java.util.PriorityQueue;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
-import net.prason.xaeronav.pathfinding.cost.FlightCosts;
 
 /**
  * {@link CoarseAirMap}の上を解く、空中の長距離ルート（層1相当）。描画距離の外まで届く。
@@ -54,7 +53,7 @@ public final class CoarseFlightRouter {
      * 近づけた地点までを返す（{@link CoarseRouter.Route#reachedGoal()}がfalse）。
      */
     public static CoarseRouter.Route findRoute(CoarseAirMap map, BlockPos start, BlockPos goal,
-                                                boolean rockets) {
+                                                FlightModel model) {
         int startX = start.getX() >> 4;
         int startZ = start.getZ() >> 4;
         int goalX = goal.getX() >> 4;
@@ -80,9 +79,9 @@ public final class CoarseFlightRouter {
         cost[startState] = 0.0;
 
         PriorityQueue<Candidate> open = new PriorityQueue<>();
-        open.add(new Candidate(startState, heuristic(map, startState, goal, rockets)));
+        open.add(new Candidate(startState, heuristic(map, startState, goal, model)));
         int bestState = startState;
-        double bestHeuristic = heuristic(map, startState, goal, rockets);
+        double bestHeuristic = heuristic(map, startState, goal, model);
         boolean reachedGoal = false;
 
         while (!open.isEmpty()) {
@@ -96,19 +95,19 @@ public final class CoarseFlightRouter {
                 reachedGoal = true;
                 break;
             }
-            double estimate = heuristic(map, state, goal, rockets);
+            double estimate = heuristic(map, state, goal, model);
             if (estimate < bestHeuristic) {
                 bestHeuristic = estimate;
                 bestState = state;
             }
-            expand(map, state, goal, rockets, cost, previous, closed, open);
+            expand(map, state, goal, model, cost, previous, closed, open);
         }
 
         return buildRoute(map, reachedGoal ? goalState : bestState, startState, previous, start.getY(),
                 reachedGoal);
     }
 
-    private static void expand(CoarseAirMap map, int state, BlockPos goal, boolean rockets,
+    private static void expand(CoarseAirMap map, int state, BlockPos goal, FlightModel model,
                                 double[] cost, int[] previous, boolean[] closed,
                                 PriorityQueue<Candidate> open) {
         int chunkX = stateChunkX(map, state);
@@ -137,7 +136,7 @@ public final class CoarseFlightRouter {
                     if (Math.abs(vertical) > BAND_LINK_GAP_BLOCKS) {
                         continue;
                     }
-                    double step = FlightCosts.segmentTicks(horizontal, vertical, rockets);
+                    double step = model.segmentTicks(horizontal, vertical);
                     if (map.unknown(nextX, nextZ)) {
                         step *= UNKNOWN_MULTIPLIER;
                     }
@@ -152,7 +151,7 @@ public final class CoarseFlightRouter {
                     cost[nextState] = tentative;
                     previous[nextState] = state;
                     open.add(new Candidate(nextState,
-                            tentative + heuristic(map, nextState, goal, rockets)));
+                            tentative + heuristic(map, nextState, goal, model)));
                 }
             }
         }
@@ -172,14 +171,14 @@ public final class CoarseFlightRouter {
         return 0;
     }
 
-    private static double heuristic(CoarseAirMap map, int state, BlockPos goal, boolean rockets) {
+    private static double heuristic(CoarseAirMap map, int state, BlockPos goal, FlightModel model) {
         int chunkX = stateChunkX(map, state);
         int chunkZ = stateChunkZ(map, state);
         double dx = goal.getX() - (chunkX * CELL_BLOCKS + CELL_BLOCKS / 2.0);
         double dz = goal.getZ() - (chunkZ * CELL_BLOCKS + CELL_BLOCKS / 2.0);
         // 帯の中でゴールのYに最も近い高さから測る。帯は幅を持つので、中心から測ると過大になる
         int from = map.clampToBand(chunkX, chunkZ, stateBand(state), goal.getY());
-        return FlightCosts.heuristicTicks(Math.sqrt(dx * dx + dz * dz), goal.getY() - from, rockets);
+        return model.heuristicTicks(Math.sqrt(dx * dx + dz * dz), goal.getY() - from);
     }
 
     private static CoarseRouter.Route buildRoute(CoarseAirMap map, int endState, int startState,

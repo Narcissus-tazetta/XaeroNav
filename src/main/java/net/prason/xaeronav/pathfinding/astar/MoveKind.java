@@ -46,7 +46,17 @@ enum MoveKind {
     FALL_DAMAGE(MovementType.FALL_DAMAGE),
     /** 安全高さを超える落下を、着地寸前の水バケツ設置で無傷にする。 */
     FALL_MLG(MovementType.FALL_MLG),
-    JUMP(MovementType.JUMP);
+    JUMP(MovementType.JUMP),
+    /** 乗り物で歩く・1段上がる・1段下りる（{@link MountMoves}）。体の通るセルは{@link MountMoves#bodyCells}が出す。 */
+    MOUNT_WALK(MovementType.MOUNT),
+    /** 乗り物で跳んで段を上がる・隙間を跳び越える。 */
+    MOUNT_JUMP(MovementType.MOUNT_JUMP),
+    /** 乗り物で2マス以上落ちる。 */
+    MOUNT_FALL(MovementType.MOUNT),
+    /** オウムガイに乗ったまま水中を進む（{@link NautilusMoves}）。 */
+    MOUNT_SWIM(MovementType.MOUNT_SWIM),
+    /** 乗り物を降りる。乗っている足場から、そこで立てる・泳げるセルへ。 */
+    DISMOUNT(MovementType.DISMOUNT);
 
     private final MovementType movementType;
 

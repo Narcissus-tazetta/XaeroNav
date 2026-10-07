@@ -223,6 +223,10 @@ final class RouteExplain {
             case BOAT -> "boat";
             case CART -> "minecart";
             case CLIMB -> "climb";
+            case MOUNT -> "ride";
+            case MOUNT_JUMP -> "ride (jump)";
+            case MOUNT_SWIM -> "ride (swim)";
+            case DISMOUNT -> "dismount";
         };
     }
 

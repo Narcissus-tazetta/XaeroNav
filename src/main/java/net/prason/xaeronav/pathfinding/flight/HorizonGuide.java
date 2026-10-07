@@ -8,7 +8,6 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
-import net.prason.xaeronav.pathfinding.cost.FlightCosts;
 
 /**
  * 読める範囲の縁（{@link FlightHorizon}）から出る出口の見積もりを、<b>読める範囲の内側を通らない</b>
@@ -52,7 +51,7 @@ final class HorizonGuide {
     }
 
     static Plan plan(AirGrid grid, Vec3 start, Vec3 goal, FlightHorizon horizon, CoarseFlightField field,
-                     boolean rockets) {
+                     FlightModel model) {
         FlightGuide inside = field::estimate;
         if (horizon.radius() == Double.POSITIVE_INFINITY) {
             return new Plan(horizon, inside, false);
@@ -69,7 +68,7 @@ final class HorizonGuide {
             if (flood.entrances().isEmpty() && !flood.capped()) {
                 return new Plan(FlightHorizon.NONE, inside, true);
             }
-            outside = field.avoiding(flood.entrances(), seed -> lowerBound(seed, goal, grid, rockets), interior);
+            outside = field.avoiding(flood.entrances(), seed -> lowerBound(seed, goal, grid, model), interior);
         }
         return new Plan(horizon, (x, y, z) -> horizon.outside(x, z) ? outside.estimate(x, y, z)
                 : inside.estimate(x, y, z), false);
@@ -87,12 +86,12 @@ final class HorizonGuide {
         return true;
     }
 
-    private static double lowerBound(Vec3 from, Vec3 goal, AirGrid grid, boolean rockets) {
+    private static double lowerBound(Vec3 from, Vec3 goal, AirGrid grid, FlightModel model) {
         double radius = grid.cellBlocks() * FlightRouter.GOAL_RADIUS_CELLS;
         double horizontal = Math.max(0.0, Math.hypot(goal.x - from.x, goal.z - from.z) - radius);
         double tolerance = Math.max(radius, FlightPathfinder.GOAL_VERTICAL_TOLERANCE_BLOCKS);
         double dy = goal.y - from.y;
-        return FlightCosts.lowerBoundTicks(horizontal, dy - tolerance, dy + tolerance, rockets);
+        return model.lowerBoundTicks(horizontal, dy - tolerance, dy + tolerance);
     }
 
     /**

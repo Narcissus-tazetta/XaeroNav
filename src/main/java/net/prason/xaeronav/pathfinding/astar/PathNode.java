@@ -27,6 +27,12 @@ final class PathNode {
     final boolean boating;
 
     /**
+     * 乗り物に乗ったままか（{@link MountMoves}）。{@link #boating}と同じくノードの同一性の一部で、座標の意味も違う
+     * ——乗っているノードの座標は2×2の足場の角。
+     */
+    final boolean mounted;
+
+    /**
      * ゴールまでの推定コスト。生成時に1度だけ計算する。{@link #guideHole}のノードだけ、緩和のたびに親から引き継いで上がる。
      */
     double estimatedCostToGoal;
@@ -125,14 +131,15 @@ final class PathNode {
     double rideCost;
 
     PathNode(int x, int y, int z, boolean boating, double estimatedCostToGoal) {
-        this(x, y, z, boating, estimatedCostToGoal, false);
+        this(x, y, z, boating, false, estimatedCostToGoal, false);
     }
 
-    PathNode(int x, int y, int z, boolean boating, double estimatedCostToGoal, boolean guideHole) {
+    PathNode(int x, int y, int z, boolean boating, boolean mounted, double estimatedCostToGoal, boolean guideHole) {
         this.x = x;
         this.y = y;
         this.z = z;
         this.boating = boating;
+        this.mounted = mounted;
         this.estimatedCostToGoal = estimatedCostToGoal;
         this.guideHole = guideHole;
     }

@@ -168,6 +168,16 @@ public final class AvoidedCellSource implements CellSource {
     }
 
     @Override
+    public MountState mount() {
+        return source.mount();
+    }
+
+    @Override
+    public int mountLeaveBehindTicks() {
+        return source.mountLeaveBehindTicks();
+    }
+
+    @Override
     public int openSkyY(int x, int z) {
         return source.openSkyY(x, z);
     }

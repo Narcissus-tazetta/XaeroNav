@@ -51,13 +51,13 @@ final class PathProgress {
         int from = Math.max(0, index - WINDOW_BEHIND);
         int to = Math.min(steps.size() - 1, index + WINDOW_AHEAD);
         int best = nearest(steps, position, from, to);
-        if (horizontalDistanceSq(steps.get(best).pos(), position)
+        if (horizontalDistanceSq(steps.get(best), position)
                 > FULL_SCAN_DISTANCE * FULL_SCAN_DISTANCE) {
             best = nearest(steps, position, 0, steps.size() - 1);
         }
         index = best;
-        distance = Math.sqrt(distanceSq(steps.get(best).pos(), position));
-        horizontalDistance = Math.sqrt(horizontalDistanceSq(steps.get(best).pos(), position));
+        distance = Math.sqrt(distanceSq(steps.get(best), position));
+        horizontalDistance = Math.sqrt(horizontalDistanceSq(steps.get(best), position));
     }
 
     /**
@@ -112,7 +112,7 @@ final class PathProgress {
         int best = from;
         double bestDistance = Double.MAX_VALUE;
         for (int i = from; i <= to; i++) {
-            double distance = distanceSq(steps.get(i).pos(), position);
+            double distance = distanceSq(steps.get(i), position);
             if (distance < bestDistance) {
                 bestDistance = distance;
                 best = i;
@@ -122,10 +122,11 @@ final class PathProgress {
     }
 
     /** ステップはブロック座標、プレイヤーは連続座標。マスの中心とプレイヤーの足元で比べる。 */
-    private static double distanceSq(BlockPos step, Vec3 position) {
-        double dx = step.getX() + 0.5 - position.x;
-        double dy = step.getY() - position.y;
-        double dz = step.getZ() + 0.5 - position.z;
+    private static double distanceSq(PathStep step, Vec3 position) {
+        BlockPos pos = step.pos();
+        double dx = pos.getX() + center(step) - position.x;
+        double dy = pos.getY() - position.y;
+        double dz = pos.getZ() + center(step) - position.z;
         return dx * dx + dy * dy + dz * dz;
     }
 
@@ -140,9 +141,15 @@ final class PathProgress {
      * <p>{@link #nearest}の側はYを見たままにしてある。折り返し階段のように同じXZを高さ違いで
      * 通る経路では、Yが唯一の手がかりになる。
      */
-    private static double horizontalDistanceSq(BlockPos step, Vec3 position) {
-        double dx = step.getX() + 0.5 - position.x;
-        double dz = step.getZ() + 0.5 - position.z;
+    private static double horizontalDistanceSq(PathStep step, Vec3 position) {
+        BlockPos pos = step.pos();
+        double dx = pos.getX() + center(step) - position.x;
+        double dz = pos.getZ() + center(step) - position.z;
         return dx * dx + dz * dz;
+    }
+
+    /** ステップの中心のセル内の位置。乗り物の区間のセルは2×2の足場の角で、中心はセルの境目にある。 */
+    private static double center(PathStep step) {
+        return step.movement().ridesOnLand() ? 1.0 : 0.5;
     }
 }

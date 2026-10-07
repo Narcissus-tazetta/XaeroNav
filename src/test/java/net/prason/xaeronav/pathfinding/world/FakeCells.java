@@ -52,6 +52,8 @@ public final class FakeCells implements CellSource {
     public static final char SOUL_SAND = 'S';
     /** マグマブロック。足場だが、上を通るにはスニークが要る（走って踏むと燃える）。 */
     public static final char MAGMA = 'M';
+    /** 蜂蜜ブロック。ソウルサンドと同じく減速し、上から跳ぶと跳躍が半分になる。 */
+    public static final char HONEY = 'Y';
     /** 普通のツタ。掴まって登れて、replaceableなのでブロックを置ける。 */
     public static final char VINE = 'V';
     /** ネザーのしだれツタ・ねじれツタ。掴まって登れるが<b>replaceableではない</b>ので置けない。 */
@@ -119,6 +121,9 @@ public final class FakeCells implements CellSource {
     private boolean ridingBoat;
     private final Long2IntOpenHashMap tracks = new Long2IntOpenHashMap();
     private MinecartState minecart = MinecartState.UNAVAILABLE;
+    private MountState mount = MountState.NONE;
+    /** 設定の既定値に合わせて200。 */
+    private int mountLeaveBehindTicks = 200;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
     /**
@@ -282,6 +287,16 @@ public final class FakeCells implements CellSource {
         return this;
     }
 
+    public FakeCells mount(MountState value) {
+        this.mount = value;
+        return this;
+    }
+
+    public FakeCells mountLeaveBehindTicks(int value) {
+        this.mountLeaveBehindTicks = value;
+        return this;
+    }
+
     public FakeCells bounds(SearchBounds value) {
         this.bounds = value;
         return this;
@@ -290,7 +305,7 @@ public final class FakeCells implements CellSource {
     private static final long[] FLAGS = new long[128];
 
     static {
-        for (char c : new char[] {AIR, STONE, SOFT, BEDROCK, WATER, LAVA, SOUL_SAND, MAGMA, VINE, NETHER_VINE, LADDER,
+        for (char c : new char[] {AIR, STONE, SOFT, BEDROCK, WATER, LAVA, SOUL_SAND, MAGMA, HONEY, VINE, NETHER_VINE, LADDER,
                 COBWEB, ABSENT}) {
             FLAGS[c] = flagsFor(c);
         }
@@ -308,6 +323,9 @@ public final class FakeCells implements CellSource {
             case LAVA -> CellData.withDigTicks(CellData.PRESENT | CellData.LAVA, Double.POSITIVE_INFINITY);
             case SOUL_SAND -> CellData.withSpeedFactor(
                     CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE, STONE_DIG_TICKS),
+                    SOUL_SAND_SPEED_FACTOR);
+            case HONEY -> CellData.withSpeedFactor(
+                    CellData.withDigTicks(CellData.PRESENT | CellData.STANDABLE | CellData.LOW_JUMP, SOFT_DIG_TICKS),
                     SOUL_SAND_SPEED_FACTOR);
             case MAGMA -> CellData.withSpeedFactor(
                     CellData.withDigTicks(
@@ -475,6 +493,16 @@ public final class FakeCells implements CellSource {
     @Override
     public MinecartState minecart() {
         return minecart;
+    }
+
+    @Override
+    public MountState mount() {
+        return mount;
+    }
+
+    @Override
+    public int mountLeaveBehindTicks() {
+        return mountLeaveBehindTicks;
     }
 
     /**

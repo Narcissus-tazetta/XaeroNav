@@ -16,6 +16,23 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
 //?}
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+//? if >=1.21.11 {
+/*import net.minecraft.world.entity.animal.equine.AbstractHorse;
+import net.minecraft.world.entity.animal.equine.Llama;
+import net.minecraft.world.entity.animal.happyghast.HappyGhast;
+import net.minecraft.world.entity.animal.nautilus.AbstractNautilus;
+*///?} else {
+import net.minecraft.world.entity.animal.horse.AbstractHorse;
+import net.minecraft.world.entity.animal.horse.Llama;
+//?}
+//? if >=1.21.6 && <1.21.11 {
+/*import net.minecraft.world.entity.animal.HappyGhast;
+*///?}
+//? if >=1.20 {
+import net.minecraft.world.entity.animal.camel.Camel;
+//?}
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
@@ -128,6 +145,7 @@ public final class ChunkView implements CellSource {
     private final boolean boatAvailable;
     private final boolean ridingBoat;
     private final MinecartState minecart;
+    private final MountState mount;
     private final double minDescentTicksPerBlock;
 
     /**
@@ -158,7 +176,7 @@ public final class ChunkView implements CellSource {
                       ItemStack[] hotbar, int[] hotbarEfficiency, MovementOptions options, boolean canPlaceBlocks,
                       int placedBlockBudget, int maxFallDamagePoints, int fatalFallBlocks,
                       boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
-                      MinecartState minecart, boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
+                      MinecartState minecart, MountState mount, boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection, boolean cacheCells) {
         this.deepFallPossible = deepFallPossible;
         this.chunks = chunks;
@@ -175,6 +193,7 @@ public final class ChunkView implements CellSource {
         this.boatAvailable = boatAvailable;
         this.ridingBoat = ridingBoat;
         this.minecart = minecart;
+        this.mount = mount;
         this.minDescentTicksPerBlock = minDescentTicksPerBlock;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
@@ -206,6 +225,37 @@ public final class ChunkView implements CellSource {
     /** いまトロッコに乗っているか。 */
     public static boolean ridingMinecart(Player player) {
         return player.getVehicle() instanceof AbstractMinecart;
+    }
+
+    /** いま乗っている操れる乗り物（{@link MountState}参照）。メインスレッド専用。 */
+    public static MountState mount(Player player) {
+        Entity vehicle = player.getVehicle();
+        //? if >=1.21.6 {
+        /*if (vehicle instanceof HappyGhast ghast) {
+            return ghast.isWearingBodyArmor()
+                    ? new MountState(MountState.Kind.HAPPY_GHAST, ghast.getAttributeBaseValue(Attributes.FLYING_SPEED), 0.0)
+                    : MountState.NONE;
+        }
+        *///?}
+        //? if >=1.21.11 {
+        /*if (vehicle instanceof AbstractNautilus nautilus) {
+            return nautilus.isSaddled()
+                    ? new MountState(MountState.Kind.NAUTILUS, nautilus.getAttributeBaseValue(Attributes.MOVEMENT_SPEED), 0.0)
+                    : MountState.NONE;
+        }
+        *///?}
+        // ラマは鞍を付けられず操れない。ラクダも馬の仲間の子クラスなので先に分ける
+        if (!(vehicle instanceof AbstractHorse horse) || vehicle instanceof Llama || !horse.isSaddled()) {
+            return MountState.NONE;
+        }
+        MountState.Kind kind = MountState.Kind.HORSE;
+        //? if >=1.20 {
+        if (vehicle instanceof Camel) {
+            kind = MountState.Kind.CAMEL;
+        }
+        //?}
+        return new MountState(kind, horse.getAttributeBaseValue(Attributes.MOVEMENT_SPEED),
+                horse.getAttributeBaseValue(Attributes.JUMP_STRENGTH));
     }
 
     /** 持ち物にトロッコがあるか。 */
@@ -425,7 +475,7 @@ public final class ChunkView implements CellSource {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
                 canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
-                minecart(level, player, bounds), deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
+                minecart(level, player, bounds), mount(player), deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
                 GameCompat.maxBuildHeight(level), GameCompat.minSection(level), true);
     }
 
@@ -482,7 +532,7 @@ public final class ChunkView implements CellSource {
         }
         return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
                 options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, deepFallPossible, minDescentTicksPerBlock,
+                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, mount, deepFallPossible, minDescentTicksPerBlock,
                 minBuildHeight, maxBuildHeight, minSection, true);
     }
 
@@ -497,10 +547,11 @@ public final class ChunkView implements CellSource {
         for (int slot = 0; slot < hotbar.length; slot++) {
             copiedHotbar[slot] = hotbar[slot].copy();
         }
-        // 航法グラフは乗車を持たない（1手が{@code MoveTable}の相対座標の幅を超えるうえ、乗る点ごとの模擬が窓全体に掛かる）
+        // 航法グラフは乗車を持たない（1手が{@code MoveTable}の相対座標の幅を超えるうえ、乗る点ごとの模擬が窓全体に掛かる）。
+        // 乗り物も持たない——グラフは徒歩で組み、乗り物の分まで持つとメモリが倍になる
         return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
                 options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, MinecartState.UNAVAILABLE, deepFallPossible,
+                canMlgWaterBucket, boatAvailable, ridingBoat, MinecartState.UNAVAILABLE, MountState.NONE, deepFallPossible,
                 minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection, false);
     }
 
@@ -514,7 +565,7 @@ public final class ChunkView implements CellSource {
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency,
                 options.withoutDigging(), canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, deepFallPossible, minDescentTicksPerBlock,
+                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, mount, deepFallPossible, minDescentTicksPerBlock,
                 minBuildHeight, maxBuildHeight, minSection, true);
     }
 
@@ -627,6 +678,16 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean ridingBoat() {
         return ridingBoat;
+    }
+
+    @Override
+    public MountState mount() {
+        return mount;
+    }
+
+    @Override
+    public int mountLeaveBehindTicks() {
+        return options.mountLeaveBehindTicks();
     }
 
     @Override

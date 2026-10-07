@@ -21,5 +21,26 @@ public enum MovementType {
     /** 落下ダメージを受けて降りる区間（設定で許可した場合のみ）。実際に体力が減る。 */
     FALL_DAMAGE,
     /** 着地寸前に水バケツを置いて落下ダメージを消す区間。タイミング操作が要る。 */
-    FALL_MLG
+    FALL_MLG,
+    /**
+     * 馬の仲間・ラクダに乗ったまま進む区間。{@link PathStep#pos}は2×2の足場の角で、乗り物の中心は
+     * {@code (x+1, z+1)}にある。
+     */
+    MOUNT,
+    /** {@link #MOUNT}のうち、ジャンプキーを溜めて段へ跳び上がる・隙間を跳び越える手。乗り手の操作が要る。 */
+    MOUNT_JUMP,
+    /** オウムガイに乗ったまま水中を進む区間。{@link PathStep#pos}はオウムガイのいる水のセルで、乗り手はその上2マス。 */
+    MOUNT_SWIM,
+    /** 乗り物を降りて置いていく。{@link PathStep#pos}は降りて立つセルで、この先は歩く。 */
+    DISMOUNT;
+
+    /** 馬の仲間・ラクダに乗ったまま地上を進む区間か。{@link PathStep#pos}が2×2の足場の角になる。 */
+    public boolean ridesOnLand() {
+        return this == MOUNT || this == MOUNT_JUMP;
+    }
+
+    /** 乗り物に乗ったまま進む区間か。 */
+    public boolean rides() {
+        return ridesOnLand() || this == MOUNT_SWIM;
+    }
 }

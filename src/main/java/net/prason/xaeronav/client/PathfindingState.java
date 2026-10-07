@@ -20,6 +20,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -30,6 +31,7 @@ import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.NavigationTuning;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.GenerationGate;
@@ -44,6 +46,7 @@ import net.prason.xaeronav.pathfinding.navgraph.FarField;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRides;
 import net.prason.xaeronav.pathfinding.navgraph.WindowRides;
 import net.prason.xaeronav.pathfinding.world.MinecartState;
+import net.prason.xaeronav.pathfinding.world.MountState;
 import net.prason.xaeronav.rail.RailNetwork;
 import net.prason.xaeronav.pathfinding.navgraph.RouteReview;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
@@ -383,6 +386,15 @@ public final class PathfindingState {
     /** エリトラの滑空を飛行とみなすかの判定（時間と高さのヒステリシス）。 */
     private final ElytraTrigger elytraTrigger = new ElytraTrigger();
     /**
+     * 経路の降りる段からこの水平距離までで降りたなら、予定どおり降りたとみなす（ブロック）。バニラは乗り物の横の
+     * 空いた所へ降ろすので、降りる段そのものに立つとは限らない。
+     */
+    private static final double DISMOUNT_KEEP_BLOCKS = 4.0;
+    /** 直前のtickに乗っていた乗り物。クライアントスレッド専用 */
+    private MountState mount = MountState.NONE;
+    /** 乗り物が変わる前に引いた経路。乗り物が変わると歩けるという証明が通用しないので、残す候補にしない */
+    private @Nullable DisplayedPath plannedForOtherMount;
+    /**
      * 通過済みとみなす中間目標の数。地図の点線をどこから描くかにだけ使う。
      *
      * <p>経路の末端が向かっている添字まで<b>単調に</b>進める。表示中の経路が中間目標を向いていない
@@ -416,6 +428,9 @@ public final class PathfindingState {
      * 手前の経路ごと引き直したときだけ立てる。逸脱は自分で外れただけなので対象にしない。
      */
     private volatile int rerouteNoticeTicks;
+    /** 乗り物が変わって引き直した、その変わった後の乗り物。HUDが理由を出す間だけ残す。 */
+    private volatile @Nullable MountState mountNotice;
+    private volatile int mountNoticeTicks;
 
     /**
      * HUD・地図/ワールド描画が読む、地上ナビ関連stateの1フレーム分の合成snapshot。
@@ -581,6 +596,7 @@ public final class PathfindingState {
     private void publishNavigationView() {
         navigationView = new NavigationView(goal, flying, arrived, computing || awaitingNavGraph, stuckTracker.reason(), displayed,
                 coarseRoute, refinedRoute, passedWaypoints, rerouteNoticeTicks > 0,
+                mountNoticeTicks > 0 ? mountNotice : null,
                 flying ? flight.route() : FlightRoute.NONE, skyPillar());
     }
 
@@ -607,10 +623,10 @@ public final class PathfindingState {
     public record NavigationView(BlockPos goal, boolean flying, boolean arrived, boolean computing,
                                   StuckReason stuckReason, DisplayedPath displayed, CoarseRoute coarseRoute,
                                   RefinedRoute refinedRoute, int passedWaypoints, boolean rerouted,
-                                  FlightRoute flightRoute, @Nullable BlockPos skyPillar) {
+                                  @Nullable MountState mountChange, FlightRoute flightRoute, @Nullable BlockPos skyPillar) {
 
         private static NavigationView empty() {
-            return new NavigationView(null, false, false, false, null, null, null, null, 0, false,
+            return new NavigationView(null, false, false, false, null, null, null, null, 0, false, null,
                     FlightRoute.NONE, null);
         }
 
@@ -682,6 +698,8 @@ public final class PathfindingState {
         // 滑空中に指定された目的地は、地上へ戻るまで歩行の経路を引かない
         // （引いても表示せず捨てるだけになる）
         this.flying = airborne(level, player);
+        // 目的地が無い間は乗り物を追っていない。ここで読まないと最初のtickで「乗った」と見なして二重に引き直す
+        this.mount = ChunkView.mount(player);
         GoalWaypoint.sync(this.goal);
         if (this.flying) {
             sky.begin(level, player);
@@ -838,11 +856,13 @@ public final class PathfindingState {
         this.seamRepair.clear();
         this.recentFailures.clear();
         this.stuckTracker.reset();
+        this.plannedForOtherMount = null;
         this.retreatWatcher.reset();
         stalledSearches.set(0);
         this.mapGrowth.reset();
         this.extend.clear();
         this.rerouteNoticeTicks = 0;
+        this.mountNoticeTicks = 0;
         this.flying = false;
         this.flight.reset();
         this.sky.reset();
@@ -1052,6 +1072,10 @@ public final class PathfindingState {
             if (rerouteNoticeTicks > 0) {
                 rerouteNoticeTicks--;
             }
+            // 引き直しが終わるまでは数えない。探索の間に消えると、理由が出ないまま線だけ変わる
+            if (mountNoticeTicks > 0 && !computing) {
+                mountNoticeTicks--;
+            }
             BlockPos currentGoal = goal;
             if (currentGoal == null) {
                 warmUpWhenIdle();
@@ -1090,7 +1114,7 @@ public final class PathfindingState {
             // 残り続ける——逸脱の判定・案内・描画がまとめてその値を読む。地図を開いたまま経路が
             // 出来上がるのは一番ありがちな操作（下のコメント参照）で、そこが一番当たりやすい
             TickLaps.measure("progress mapping",
-                    () -> PathProgress.INSTANCE.update(shown == null ? null : shown.result(), mc.player.position()));
+                    () -> PathProgress.INSTANCE.update(shown == null ? null : shown.result(), trackedPosition(mc.player)));
             // 画面を開いている間の早期returnより先に置く。ここから下で止まるのはプレイヤーが
             // 動けない状況だけなので、後退の観測を落としても取りこぼしは無いが、順序を変えると
             // 「滑空中は数えない」のような穴が生まれる
@@ -1103,6 +1127,9 @@ public final class PathfindingState {
                 // 経路が地図を閉じるまで出てこない（他の再計算トリガーはどれもプレイヤーが動くことを
                 // 前提にしているので、画面を開いている間に走る心配がない）
                 pendingEscalation(mc.player);
+                return;
+            }
+            if (mountChanged(mc.player)) {
                 return;
             }
             if (tickFlightMode(mc.level, mc.player, currentGoal)) {
@@ -1238,6 +1265,91 @@ public final class PathfindingState {
         } finally {
             TickLaps.measure("view publish", () -> publishNavigationView());
         }
+    }
+
+    /**
+     * 経路と比べる位置。乗り物に乗っていれば乗り物の足元——経路の高さは乗り物が立つ高さで、
+     * 乗り手の足はその上にある。
+     */
+    private static Vec3 trackedPosition(Player player) {
+        Entity vehicle = player.getVehicle();
+        return vehicle != null && ChunkView.mount(player).ridden() ? vehicle.position() : player.position();
+    }
+
+    /**
+     * 探索の始点。馬の仲間・ラクダに乗っていれば、乗り物の中心に一番近い2×2の足場の角
+     * （{@code MountMoves}がノードの座標にする角）。探索はこの角を最初に試す。オウムガイならオウムガイのいるセル。
+     */
+    private BlockPos searchStart(Player player) {
+        Entity vehicle = player.getVehicle();
+        if (vehicle != null && mount.swims()) {
+            return vehicle.blockPosition();
+        }
+        if (vehicle == null || !mount.walks()) {
+            return player.blockPosition();
+        }
+        return new BlockPos((int) Math.round(vehicle.getX()) - 1, player.blockPosition().getY(),
+                (int) Math.round(vehicle.getZ()) - 1);
+    }
+
+    /**
+     * 乗り物に乗った・降りた・鞍を付けた等で前提が変わったら全部引き直す。引き直したら{@code true}。
+     *
+     * <p>新しい経路が届くまでは古い線を出したままにする。消すと探索の間だけ案内が空になる。
+     */
+    private boolean mountChanged(Player player) {
+        MountState now = ChunkView.mount(player);
+        if (now.equals(mount)) {
+            return false;
+        }
+        // 経路が降りると言った所で降りたなら、その先の歩きの経路は降りた前提で引いてある
+        if (mount.ridden() && !now.ridden() && dismountPlannedNear(player)) {
+            LOGGER.info("XaeroNav: got off the mount where the path said to, keeping the path");
+            mount = now;
+            return false;
+        }
+        if (flies(mount) != flies(now)) {
+            // 飛行モードの出入りはこの後のtickFlightModeが引き直す。ここでも引くと二重になる
+            LOGGER.info("XaeroNav: mount changed {} -> {}, switching flight mode", mount, now);
+            mount = now;
+            noticeMountChange(now);
+            return false;
+        }
+        LOGGER.info("XaeroNav: mount changed {} -> {}, replanning", mount, now);
+        mount = now;
+        noticeMountChange(now);
+        generation.incrementAndGet();
+        executor.cancelAll();
+        computing = false;
+        plannedForOtherMount = displayed;
+        // 徒歩で行けないと判断した目的地でも、乗り物なら行けるかもしれない（逆も）
+        stuckTracker.reset();
+        recalculate("mount changed");
+        return true;
+    }
+
+    private void noticeMountChange(MountState now) {
+        mountNotice = now;
+        mountNoticeTicks = REROUTE_NOTICE_TICKS;
+    }
+
+    private static boolean flies(MountState mount) {
+        return mount.kind() == MountState.Kind.HAPPY_GHAST;
+    }
+
+    /** 表示中の経路に、プレイヤーのすぐ近くで乗り物を降りる段があるか。 */
+    private boolean dismountPlannedNear(Player player) {
+        DisplayedPath shown = displayed;
+        if (shown == null) {
+            return false;
+        }
+        for (PathStep step : shown.result().steps()) {
+            if (step.movement() == MovementType.DISMOUNT
+                    && BlockDistance.horizontal(player.blockPosition(), step.pos()) <= DISMOUNT_KEEP_BLOCKS) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1620,12 +1732,15 @@ public final class PathfindingState {
      * 常にtrueへ固定するので、これ一つで飛行モード全部を捉えられる。<b>こちらには高さを課さない</b>
      * ——本当に立てないので、猶予を置くと足元に床の無い始点で探索を投げ続けることになる。
      *
+     * <p>ハーネスを付けたハッピーガストに乗っている間もエリトラと同じ空中経路にする。地上に浮いていても
+     * 乗ったまま飛べるので、高さも継続時間も問わない。
+     *
      * <p>エリトラ（{@code isFallFlying}）だけは判定を鈍らせる。切り替えの代償が大きい
      * （{@code generation}を進めて走っている探索ごと捨て、着地時には表示中の経路を消して引き直す）
      * ので、鈍らせるのは{@link ElytraTrigger}の責務にまとめてある。
      */
     private boolean airborne(Level level, Player player) {
-        if (GameCompat.abilities(player).flying) {
+        if (GameCompat.abilities(player).flying || flies(ChunkView.mount(player))) {
             elytraTrigger.reset();
             return true;
         }
@@ -1695,7 +1810,7 @@ public final class PathfindingState {
             return;
         }
 
-        BlockPos start = player.blockPosition();
+        BlockPos start = searchStart(player);
         lastStart = start;
         boolean boatAvailable = ChunkView.boatAvailable(player);
 
@@ -2037,7 +2152,9 @@ public final class PathfindingState {
         // 「地形が変わった」は内訳まで出す。どのステップの何が不成立になったのかが分からないと、
         // 渡り切った直後に完走ルートが手放されるような症状の原因を追えない
         PathValidator.Failure validationFailure = null;
-        if (offPath > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
+        if (shown == plannedForOtherMount) {
+            dropped = "mount changed";
+        } else if (offPath > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
             dropped = "off path";
         } else if (reachedPathEnd(player, shown)) {
             dropped = "reached the end";
@@ -2090,6 +2207,11 @@ public final class PathfindingState {
     private static double offPathDistance(Level level, Player player, PathResult result) {
         double distance = PathProgress.INSTANCE.distance();
         double horizontal = PathProgress.INSTANCE.horizontalDistance();
+        // 乗り物が跳んでいる間は経路の高さから離れて当然（溜め切ると4マスを超えて浮く）。縦で測ると跳ぶたびに外れる
+        Entity vehicle = player.getVehicle();
+        if (vehicle != null && !GameCompat.onGround(vehicle) && ChunkView.mount(player).walks()) {
+            return horizontal;
+        }
         // 縦のずれが無い＝どちらで測っても同じ。水を舐めるまでもない
         if (distance - horizontal < 1.0e-6) {
             return distance;
@@ -2293,6 +2415,11 @@ public final class PathfindingState {
         // 中間目標へ向かう経路（航法グラフを待ちきれずに引いたもの）も見直す。ガイドは最終目的地までの値なので、
         // 中間目標へ寄ること自体が遠回りならそれも遠回りとして測れる
         if (shown.mode() == PathMode.TO_SURFACE) {
+            return false;
+        }
+        // ガイドは徒歩の道と値段しか知らない。乗ったままの線は水を避けて回り込み、置いていく割増も払うので、
+        // 比べると最短の線まで遠回りに見えて同じ経路を引き直すだけになる（実機で2回）
+        if (mount.ridden()) {
             return false;
         }
         WindowField field = navGraphGuide.latest(currentGoal);

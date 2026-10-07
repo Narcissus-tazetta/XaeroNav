@@ -39,6 +39,15 @@ public final class StanceFinder {
      * 「このあと自分が立つ場所」から先の経路が出るようにするためのもの。
      */
     public static BlockPos resolveStart(CellSource view, BlockPos start) {
+        // 乗り物の足場は乗り物ごとの形で、1×2の立ち位置へ寄せると別の高さへずれる。探索が乗り物の足場で寄せ直す
+        if (view.mount().ridden()) {
+            return start;
+        }
+        return resolveStandingStart(view, start);
+    }
+
+    /** 歩いて立つ始点。乗っていても乗ったままでは立てないときに探索が使う。 */
+    public static BlockPos resolveStandingStart(CellSource view, BlockPos start) {
         int x = start.getX();
         int z = start.getZ();
         if (isStance(view, x, start.getY(), z)) {

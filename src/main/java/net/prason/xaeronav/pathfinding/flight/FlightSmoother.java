@@ -49,7 +49,7 @@ final class FlightSmoother {
     private FlightSmoother() {
     }
 
-    static List<Vec3> smooth(List<Vec3> points, AirGrid grid, boolean rockets,
+    static List<Vec3> smooth(List<Vec3> points, AirGrid grid, FlightModel model,
                               double clearancePenaltyTicks, long deadline) {
         if (points.size() < 3) {
             return points;
@@ -58,7 +58,7 @@ final class FlightSmoother {
         double[] prefix = new double[points.size()];
         for (int i = 1; i < points.size(); i++) {
             prefix[i] = prefix[i - 1]
-                    + segmentTicks(grid, points.get(i - 1), points.get(i), rockets, clearancePenaltyTicks);
+                    + segmentTicks(grid, points.get(i - 1), points.get(i), model, clearancePenaltyTicks);
         }
 
         List<Vec3> result = new ArrayList<>();
@@ -73,7 +73,7 @@ final class FlightSmoother {
                     if (!grid.clearLine(points.get(from), points.get(to))) {
                         continue;
                     }
-                    if (segmentTicks(grid, points.get(from), points.get(to), rockets, clearancePenaltyTicks)
+                    if (segmentTicks(grid, points.get(from), points.get(to), model, clearancePenaltyTicks)
                             > prefix[to] - prefix[from]) {
                         continue;
                     }
@@ -87,11 +87,11 @@ final class FlightSmoother {
         return result;
     }
 
-    private static double segmentTicks(AirGrid grid, Vec3 from, Vec3 to, boolean rockets,
+    private static double segmentTicks(AirGrid grid, Vec3 from, Vec3 to, FlightModel model,
                                         double clearancePenaltyTicks) {
         double dx = to.x - from.x;
         double dz = to.z - from.z;
-        return FlightCosts.segmentTicks(Math.sqrt(dx * dx + dz * dz), to.y - from.y, rockets)
+        return model.segmentTicks(Math.sqrt(dx * dx + dz * dz), to.y - from.y)
                 + Clearance.alongLine(grid, from, to, clearancePenaltyTicks);
     }
 }

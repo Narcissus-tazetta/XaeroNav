@@ -226,6 +226,16 @@ public interface CellSource {
         return MinecartState.UNAVAILABLE;
     }
 
+    /** いま乗っている操れる乗り物。探索の始点を乗ったままの状態にする（{@link MountState}）。 */
+    default MountState mount() {
+        return MountState.NONE;
+    }
+
+    /** 乗り物を降りて置いていく手に足す割増（tick）。 */
+    default int mountLeaveBehindTicks() {
+        return 0;
+    }
+
     /**
      * この列で頭上に何も無くなる最小のY。{@code y >= openSkyY(x, z)}なら、そのセルは空の下にある。
      *

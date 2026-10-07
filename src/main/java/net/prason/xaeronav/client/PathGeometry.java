@@ -609,8 +609,10 @@ final class PathGeometry {
      */
     private static boolean center(Level level, BlockPos pos, PathStep step,
                                   double[] outX, double[] outY, double[] outZ, int index) {
-        outX[index] = pos.getX() + 0.5;
-        outZ[index] = pos.getZ() + 0.5;
+        // 乗り物の区間のセルは2×2の足場の角で、乗り物の中心はセルの境目にある
+        double offset = step != null && step.movement().ridesOnLand() ? 1.0 : 0.5;
+        outX[index] = pos.getX() + offset;
+        outZ[index] = pos.getZ() + offset;
         if (!isWaterSurface(level, pos)) {
             outY[index] = pos.getY() + 0.55;
             return false;

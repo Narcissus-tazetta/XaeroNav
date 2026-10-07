@@ -103,7 +103,7 @@ final class PathColors {
             return DIGGING;
         }
         return switch (step.movement()) {
-            case SWIM -> SWIM;
+            case SWIM, MOUNT_SWIM -> SWIM;
             case BOAT -> BOAT;
             case CART -> CART;
             case JUMP -> JUMP;
@@ -113,7 +113,7 @@ final class PathColors {
             // riskのswitchで必ず先に拾われるので、ここへは落ちてこない
             case FALL_DAMAGE -> FALL_DAMAGE;
             case FALL_MLG -> MLG_REQUIRED;
-            case TRAVERSE -> WALK;
+            case TRAVERSE, MOUNT, MOUNT_JUMP, DISMOUNT -> WALK;
         };
     }
 }

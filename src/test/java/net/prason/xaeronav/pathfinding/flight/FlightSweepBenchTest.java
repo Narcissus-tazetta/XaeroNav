@@ -113,7 +113,7 @@ class FlightSweepBenchTest {
                 line.append(' ').append(shortVec(v));
             }
             log(out, line.toString());
-            FlightRoute best = new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), false,
+            FlightRoute best = new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), FlightModel.elytra(false),
                     new SearchLimits(4_000_000, 120_000, 1.0), 12 * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK)
                     .search(start, flight.end(), CELL_BLOCKS * 1.5);
             StringBuilder opt = new StringBuilder("  最適");
@@ -121,7 +121,7 @@ class FlightSweepBenchTest {
                 opt.append(' ').append(shortVec(v));
             }
             log(out, opt.toString());
-            FlightRoute toGoal = new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), false,
+            FlightRoute toGoal = new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), FlightModel.elytra(false),
                     new SearchLimits(4_000_000, 120_000, 1.0), 12 * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK)
                     .search(start, goal, CELL_BLOCKS * 1.5);
             log(out, String.format(Locale.ROOT, "  全視界で目的地まで %s 末端%s 水平の残り%.0f", toGoal.termination(),
@@ -229,9 +229,9 @@ class FlightSweepBenchTest {
     private static Flight fly(FakeCells cells, Dim dim, CoarseMap map, Vec3 start, Vec3 goal) {
         var coarse = map == null ? null : CoarseFlightRouter.findRoute(
                 CoarseAirMap.from(map, cells.bounds().minY() + 10, 117), BlockPos.containing(start),
-                BlockPos.containing(goal), false);
+                BlockPos.containing(goal), FlightModel.elytra(false));
         CoarseFlightField field = map == null ? null : CoarseFlightField.toward(
-                CoarseAirMap.from(map, cells.bounds().minY() + 10, 117), BlockPos.containing(goal), false);
+                CoarseAirMap.from(map, cells.bounds().minY() + 10, 117), BlockPos.containing(goal), FlightModel.elytra(false));
         if (TRACE) {
             System.out.println("  粗い経路 " + (coarse == null ? "なし" : coarse.waypoints().size() + "点 到達="
                     + coarse.reachedGoal() + " " + coarse.waypoints()));
@@ -249,7 +249,7 @@ class FlightSweepBenchTest {
         Vec3 aim = goal;
         FlightHorizon firstHorizon = new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN);
         long began = System.nanoTime();
-        FlightRoute route = FlightRouter.route(view(cells, player, aim), player, aim, false, tuning(150_000),
+        FlightRoute route = FlightRouter.route(view(cells, player, aim), player, aim, FlightModel.elytra(false), tuning(150_000),
                 firstHorizon, field, () -> false);
         double ms = (System.nanoTime() - began) / 1e6;
         searches++;
@@ -312,7 +312,7 @@ class FlightSweepBenchTest {
                 Vec3 from = pointAt(line, keepAlong);
                 began = System.nanoTime();
                 FlightRoute replanned = FlightRouter.route(view(cells, player, goal), from, goal,
-                        false, tuning(150_000), new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN),
+                        FlightModel.elytra(false), tuning(150_000), new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN),
                         field, () -> false);
                 ms = (System.nanoTime() - began) / 1e6;
                 searches++;
@@ -338,7 +338,7 @@ class FlightSweepBenchTest {
             }
             began = System.nanoTime();
             FlightHorizon horizon = new FlightHorizon(player.x, player.z, RENDER_RADIUS * LOADED_MARGIN);
-            FlightRoute extension = FlightRouter.route(view(cells, player, target), tail, target, false,
+            FlightRoute extension = FlightRouter.route(view(cells, player, target), tail, target, FlightModel.elytra(false),
                     tuning(60_000), horizon, field, () -> false);
             ms = (System.nanoTime() - began) / 1e6;
             searches++;
@@ -407,14 +407,14 @@ class FlightSweepBenchTest {
 
     /** 全視界で、始点から目的地の引き継ぎの距離（{@link #HANDOFF_BLOCKS}）まで空から寄れるか。 */
     private static boolean reachable(FakeCells cells, Vec3 start, Vec3 goal) {
-        return new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), false,
+        return new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), FlightModel.elytra(false),
                 new SearchLimits(4_000_000, 120_000, 1.0), 12 * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK)
                 .search(start, goal, HANDOFF_BLOCKS).complete();
     }
 
     /** 全視界・重み1で、同じ始点から空中経路が最後に届いた点までの最適。 */
     private static double optimal(FakeCells cells, Vec3 start, Vec3 end) {
-        FlightRoute best = new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), false,
+        FlightRoute best = new FlightPathfinder(new AirGrid(cells, CELL_BLOCKS), FlightModel.elytra(false),
                 new SearchLimits(4_000_000, 120_000, 1.0), 12 * FlightCosts.HORIZONTAL_TICKS_PER_BLOCK)
                 .search(start, end, CELL_BLOCKS * 1.5);
         return best.complete() ? cost(cells, best.points()) : Double.POSITIVE_INFINITY;

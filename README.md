@@ -192,7 +192,8 @@ and the HUD work as usual.
 Taking off with an elytra switches the guidance on its own. Under a roof or in the Nether it
 computes a terrain-avoiding aerial path and shows it as a light-blue line; under open sky it puts a
 light beam where you should land. As soon as you touch down it goes back to walking navigation
-toward the same destination.
+toward the same destination. Riding a harnessed happy ghast (1.21.6 and later) gives the same
+guidance, with aerial paths kept to gaps wide enough for the ghast.
 
 However you set it, the destination is marked on Xaero's maps, so you can tell where you are
 headed without following the line to its end. With Xaero's Minimap installed it is registered as a
@@ -283,6 +284,7 @@ Other markings:
 | `avoidRiskyJumps` | `true` | Avoid jumps over the void or a fatal drop (opened only when no way around exists at all) |
 | `blockBudgetEnabled` | `true` | Cap the total blocks a route may place at how many you carry (lifted when no route fits, with a shortage warning; never applied in creative) |
 | `blockBudgetReserve` | `0` | Blocks held back from that budget |
+| `mountLeaveBehindTicks` | `200` | While riding a horse or camel, extra cost (ticks, 20 per second) on routes that get off and leave it behind; detours up to this long stay mounted |
 | `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
 | `strictLimits` | `false` | Never loosen the limits on bridge length, time underwater, fall damage, risky jumps and carried blocks, even when there is no other way. `false` loosens them only when no route fits and shows the result with warnings; `true` shows no route and says no way exists within the limits |
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |

@@ -3,6 +3,7 @@ package net.prason.xaeronav.pathfinding.flight;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
@@ -31,12 +32,19 @@ public final class AirGrid {
 
     private final CellSource view;
     private final int cellBlocks;
+    private final FlightBody body;
     private final Long2ByteOpenHashMap known = new Long2ByteOpenHashMap();
     private final Long2ByteOpenHashMap blocked = new Long2ByteOpenHashMap();
 
     public AirGrid(CellSource view, int cellBlocks) {
+        this(view, cellBlocks, FlightBody.NONE);
+    }
+
+    /** @param body セルの中心に経路の点を置いたとき、その周りに空いていなければならない箱 */
+    public AirGrid(CellSource view, int cellBlocks, FlightBody body) {
         this.view = view;
         this.cellBlocks = cellBlocks;
+        this.body = body;
         this.known.defaultReturnValue(UNKNOWN);
         this.blocked.defaultReturnValue(NOT_COUNTED);
     }
@@ -82,9 +90,24 @@ public final class AirGrid {
         int fromX = cellX * cellBlocks;
         int fromY = cellY * cellBlocks;
         int fromZ = cellZ * cellBlocks;
-        for (int x = fromX; x < fromX + cellBlocks; x++) {
-            for (int y = fromY; y < fromY + cellBlocks; y++) {
-                for (int z = fromZ; z < fromZ + cellBlocks; z++) {
+        if (!empty(fromX, fromY, fromZ, fromX + cellBlocks, fromY + cellBlocks, fromZ + cellBlocks)) {
+            return false;
+        }
+        if (body.isNone()) {
+            return true;
+        }
+        // 格子を細かくして解き直す（FlightRouter）とセルが体より小さくなるので、体の箱は別に見る
+        Vec3 center = center(cellX, cellY, cellZ);
+        return empty(Mth.floor(center.x - body.halfWidth()), Mth.floor(center.y - body.below()),
+                Mth.floor(center.z - body.halfWidth()), Mth.ceil(center.x + body.halfWidth()),
+                Mth.ceil(center.y + body.above()), Mth.ceil(center.z + body.halfWidth()));
+    }
+
+    /** [from, to)のブロックがすべて読み込み済みで空いているか。 */
+    private boolean empty(int fromX, int fromY, int fromZ, int toX, int toY, int toZ) {
+        for (int x = fromX; x < toX; x++) {
+            for (int y = fromY; y < toY; y++) {
+                for (int z = fromZ; z < toZ; z++) {
                     long cell = view.cell(x, y, z);
                     if (!CellData.present(cell) || !CellData.passableEmpty(cell)) {
                         return false;
