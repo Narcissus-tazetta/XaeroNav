@@ -42,7 +42,15 @@ public class RandomSweepBenchTest {
 
     /** 書き出した箱（{@code <箱>.txt.gz}）を置いたディレクトリ。{@code -Pxaeronav.sweepDir=...}で渡す。 */
     private static final Path DIR = Path.of(System.getProperty("xaeronav.sweepDir", "."));
-    private static final int WINDOW = 224;
+    private static final int WINDOW = Integer.getInteger("xaeronav.window", 224);
+    /** 箱全体を1つの窓で覆った航法グラフを真値にして、損を「どのガイドが引いた手か」で分ける。 */
+    private static final boolean TRUTH = Boolean.getBoolean("xaeronav.sweepTruth");
+    /** 0より大きければ、窓の値をこの間隔の格子で覚えて窓の外の推定の下限にする（{@link Learned}）。 */
+    /** 窓の外の推定を真値そのものにする（窓の外を完璧に知っていたらの上界）。{@code sweepTruth}と一緒に使う。 */
+    private static final boolean PERFECT_FAR = Boolean.getBoolean("xaeronav.sweepPerfectFar");
+    private static final int LEARN = Integer.getInteger("xaeronav.sweepLearn", 0);
+    /** ネザーの窓の外の推定（3D粗層）に掛ける倍率。本番は{@code NavGraphGuide.VOXEL_FAR_SCALE}。 */
+    private static final double FAR_SCALE = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
     private static final int ROUTES = Integer.getInteger("xaeronav.routes", 8);
     private static final boolean UNKNOWN_MAP = Boolean.getBoolean("xaeronav.unknownMap");
     private static final int MIN_BLOCKS = Integer.getInteger("xaeronav.sweepMin", 100);
@@ -101,7 +109,7 @@ public class RandomSweepBenchTest {
                     goal.toShortString(), best, (System.currentTimeMillis() - began) / 1000));
             CoarseMap sampled = dim == Dim.NETHER ? null : LiveCoarseSampler.sample(cells, cells.bounds());
             ProgressiveWalk.Trace trace = ProgressiveWalk.trace(cells, start, goal, WINDOW, ProgressiveWalk.Mode.REPAIR,
-                    ProgressiveWalk.Aim.GOAL, guide(cells, dim, start, goal, sampled), 1.0);
+                    ProgressiveWalk.Aim.GOAL, guide(cells, dim, start, goal, sampled, null), 1.0);
             double cost = trace.steps().isEmpty() ? Double.POSITIVE_INFINITY : ProgressiveWalk.cost(trace.steps());
             log(out, String.format(Locale.ROOT, "  歩き通し 値段%.0f 最適比%.3f 後退%.0f 重複%d %s", cost, cost / best,
                     worstRetreat(trace.steps(), goal), ProgressiveWalk.selfOverlaps(trace.steps()), trace.stopped()));
@@ -130,10 +138,18 @@ public class RandomSweepBenchTest {
             List<BlockPos[]> routes = routes(cells, dim, box.hashCode() + SEED);
             log(out, String.format(Locale.ROOT, "# 箱%s %s ルート%d本 種%d", box, cells.bounds(), routes.size(), SEED));
             CoarseMap sampled = dim == Dim.NETHER ? null : LiveCoarseSampler.sample(cells, cells.bounds());
-            for (BlockPos[] route : routes) {
+            // 同じ組のうち一部だけ回す（{@code -Pxaeronav.sweepOnly=4,5,7}、0始まり）。重い条件で悪いルートだけ測り直す用
+            List<String> only = List.of(System.getProperty("xaeronav.sweepOnly", "").split(","));
+            for (int index = 0; index < routes.size(); index++) {
+                if (!only.get(0).isEmpty() && !only.contains(Integer.toString(index))) {
+                    continue;
+                }
+                BlockPos[] route = routes.get(index);
                 BlockPos start = StanceFinder.resolveStart(cells, route[0]);
                 BlockPos goal = StanceFinder.resolveGoal(cells, route[1]);
-                Function<BlockPos, CostToGo> guide = guide(cells, dim, start, goal, sampled);
+                LossBook book = TRUTH ? new LossBook(cells, start, goal) : null;
+                Function<BlockPos, CostToGo> guide = guide(cells, dim, start, goal, sampled,
+                        PERFECT_FAR && book != null ? book.truth : null);
                 int[] unguided = {0};
                 long began = System.currentTimeMillis();
                 ProgressiveWalk.UNGUIDED_LEGS.set(0);
@@ -142,14 +158,21 @@ public class RandomSweepBenchTest {
                     trace = ProgressiveWalk.trace(cells, start, goal, WINDOW, ProgressiveWalk.Mode.REPAIR,
                             ProgressiveWalk.Aim.GOAL, player -> {
                                 CostToGo g = guide.apply(player);
-                                if (g instanceof WindowField f && f.descend(player.getX(), player.getY(), player.getZ()) == null) {
+                                WindowField.Descent d = g instanceof WindowField f
+                                        ? f.descend(player.getX(), player.getY(), player.getZ()) : null;
+                                if (g instanceof WindowField && d == null) {
                                     unguided[0]++;
+                                }
+                                if (book != null) {
+                                    book.guide(g, player, d);
                                 }
                                 return g;
                             }, 1.0);
                 } catch (RuntimeException | OutOfMemoryError e) {
                     log(out, String.format(Locale.ROOT, "%s→%s 例外 %s", start.toShortString(), goal.toShortString(), e));
                     continue;
+                } finally {
+                    ProgressiveWalk.LEG_LISTENER = steps -> { };
                 }
                 long secs = (System.currentTimeMillis() - began) / 1000;
                 List<PathStep> steps = trace.steps();
@@ -165,7 +188,103 @@ public class RandomSweepBenchTest {
                         steps.stream().filter(s -> s.placedBlockPos() != null).count(),
                         steps.stream().filter(PathStep::digging).count(), edge, cost - edge * ActionCosts.EDGE_HAZARD_PENALTY_TICKS,
                         secs, trace.stopped()));
+                if (book != null && !steps.isEmpty()) {
+                    log(out, book.report(start, steps));
+                }
             }
+        }
+    }
+
+    /**
+     * 歩いた経路の損（値段 − 真値の減り）を、その手を引いたときのガイド（何回目の組み直しか）ごとに分ける。
+     * 0回目のガイドが引いた手の損が「最初の計画の出口選び」、それ以降が「窓が動いてからの選び直し」。
+     */
+    private static final class LossBook {
+        final WindowField truth;
+        private final java.util.IdentityHashMap<PathStep, Integer> plannedBy = new java.util.IdentityHashMap<>();
+        private final List<String> refreshes = new ArrayList<>();
+        private final List<BlockPos> exits = new ArrayList<>();
+        private CostToGo current;
+
+        LossBook(FakeCells cells, BlockPos start, BlockPos goal) {
+            SearchBounds world = cells.bounds();
+            int centerX = (world.minX() + world.maxX()) / 2;
+            int centerZ = (world.minZ() + world.maxZ()) / 2;
+            int radius = Math.max(world.maxX() - world.minX(), world.maxZ() - world.minZ()) / 2 + 40;
+            // 長距離の箱は全体を覆うと重すぎるので、始点・目的地の外接箱に回り込みの余白を足した窓にする
+            int fit = Math.max(Math.abs(start.getX() - goal.getX()), Math.abs(start.getZ() - goal.getZ())) / 2
+                    + Integer.getInteger("xaeronav.truthMargin", 240);
+            if (fit < radius) {
+                radius = fit;
+                centerX = (start.getX() + goal.getX()) / 2;
+                centerZ = (start.getZ() + goal.getZ()) / 2;
+            }
+            WindowedCells window = new WindowedCells(cells, new BlockPos(centerX, 64, centerZ), radius);
+            truth = new NavGraph(goal, world.minY(), world.maxY()).refresh(() -> window, centerX, centerZ,
+                    radius, LoadedArea.square(centerX, centerZ, radius), FarField.of((x, y, z) -> 0.0),
+                    ForkJoinPool.commonPool(), Runtime.getRuntime().availableProcessors(), () -> false).field();
+            ProgressiveWalk.LEG_LISTENER = steps -> {
+                for (PathStep step : steps) {
+                    plannedBy.put(step, refreshes.size() - 1);
+                }
+            };
+        }
+
+        void guide(CostToGo g, BlockPos player, WindowField.Descent d) {
+            if (g == current) {
+                return;
+            }
+            current = g;
+            exits.add(d == null ? null : d.exit());
+            refreshes.add(String.format(Locale.ROOT, "%s 真%.0f 推%.0f 出口%s(中%.0f+外%.0f→出口の真%.0f)",
+                    player.toShortString(), truth.exact(player.getX(), player.getY(), player.getZ()),
+                    g.estimate(player.getX(), player.getY(), player.getZ()),
+                    d == null ? "-" : d.exit().toShortString(), d == null ? Double.NaN : d.inside(),
+                    d == null ? Double.NaN : d.outside(),
+                    d == null ? Double.NaN : truth.exact(d.exit().getX(), d.exit().getY(), d.exit().getZ())));
+        }
+
+        String report(BlockPos start, List<PathStep> steps) {
+            double best = truth.exact(start.getX(), start.getY(), start.getZ());
+            java.util.TreeMap<Integer, Double> lossBy = new java.util.TreeMap<>();
+            // 真値はノードの上でしか引けないので、引ける点から次の引ける点までをまとめて1区間にする
+            double lastValue = best;
+            double spent = 0;
+            int pending = -1;
+            for (PathStep step : steps) {
+                spent += step.cost();
+                Integer by = plannedBy.getOrDefault(step, -1);
+                pending = Math.max(pending, by);
+                double value = truth.exact(step.pos().getX(), step.pos().getY(), step.pos().getZ());
+                if (Double.isFinite(value)) {
+                    lossBy.merge(pending, spent - (lastValue - value), Double::sum);
+                    lastValue = value;
+                    spent = 0;
+                    pending = -1;
+                }
+            }
+            double cost = ProgressiveWalk.cost(steps);
+            double first = lossBy.getOrDefault(0, 0.0);
+            int flips = 0;
+            for (int i = 1; i < exits.size(); i++) {
+                BlockPos a = exits.get(i - 1);
+                BlockPos b = exits.get(i);
+                if (a != null && b != null && ProgressiveWalk.horizontal(a, b) > 64) {
+                    flips++;
+                }
+            }
+            StringBuilder s = new StringBuilder(String.format(Locale.ROOT,
+                    "  真値%.0f 真値比%.3f 損%.0f 初回の計画%.0f 以後%.0f 組み直し%d 出口の跳び%d",
+                    best, cost / best, cost - best, first, cost - best - first, refreshes.size(), flips));
+            lossBy.entrySet().stream().filter(e -> Math.abs(e.getValue()) >= 40).forEach(e -> s.append(String.format(
+                    Locale.ROOT, "%n    損%.0f ガイド%d %s", e.getValue(), e.getKey(),
+                    e.getKey() >= 0 ? refreshes.get(e.getKey()) : "(修復・不明)")));
+            if (Boolean.getBoolean("xaeronav.navGraphVerbose")) {
+                for (int i = 0; i < refreshes.size(); i++) {
+                    s.append(String.format(Locale.ROOT, "%n      g%d %s", i, refreshes.get(i)));
+                }
+            }
+            return s.toString();
         }
     }
 
@@ -179,7 +298,7 @@ public class RandomSweepBenchTest {
 
     /** 本番の{@code PathfindingState#goalGuide}と同じ窓の外の推定で、8ブロック動くごとに組み直す。 */
     private static Function<BlockPos, CostToGo> guide(FakeCells cells, Dim dim, BlockPos start, BlockPos goal,
-                                                      CoarseMap sampled) {
+                                                      CoarseMap sampled, CostToGo perfect) {
         NavGraph graph = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
         CoarseMap map = UNKNOWN_MAP && sampled != null ? new CoarseMapBuilder(sampled.minChunkX(), sampled.minChunkZ(),
                 sampled.chunksX(), sampled.chunksZ()).build() : sampled;
@@ -192,6 +311,7 @@ public class RandomSweepBenchTest {
         BlockPos[] voxelAt = {null};
         BlockPos[] last = {null};
         CostToGo[] cached = {null};
+        Learned learned = LEARN > 0 ? new Learned() : null;
         return player -> {
             if (last[0] != null && Math.max(Math.abs(player.getX() - last[0].getX()),
                     Math.abs(player.getZ() - last[0].getZ())) < 8) {
@@ -204,7 +324,8 @@ public class RandomSweepBenchTest {
                     voxelAt[0] = player;
                 }
                 CostToGo current = voxel[0];
-                far = FarField.of((x, y, z) -> 1.3 * current.estimate(x, y, z));
+                far = perfect != null ? FarField.of(perfect) : learned == null ? FarField.of((x, y, z) -> FAR_SCALE * current.estimate(x, y, z))
+                        : learnedFar(current, learned.values);
             } else if (dim == Dim.OVERWORLD) {
                 graph.floorBelow(player.getY());
             }
@@ -215,10 +336,65 @@ public class RandomSweepBenchTest {
             WindowField field = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
                     LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
                     Runtime.getRuntime().availableProcessors(), () -> false).field();
+            if (learned != null) {
+                learned.record(field, player.getX(), player.getZ(), WINDOW);
+            }
             cached[0] = field;
             last[0] = player;
             return field;
         };
+    }
+
+    private static FarField learnedFar(CostToGo voxel, java.util.Map<Long, Float> frozen) {
+        return FarField.of((x, y, z) -> Math.max(FAR_SCALE * voxel.estimate(x, y, z), Learned.at(frozen, x, y, z)));
+    }
+
+    /**
+     * 窓が組んだ値を、窓を出たあとも覚えておく（LSS-LRTA*の学習を窓全体・ノードの解像度で）。窓の外の推定はこれと3D粗層の大きい方。
+     * 窓の値は「中を歩いた実費＋縁の外の推定」なので、推定が真値以下なら真値以下に留まる。
+     */
+    private static final class Learned {
+        /** 組んだ窓の外の推定が後から変わると値と辺が食い違って下れなくなるので、書くたびに作り直して古い方は凍らせる。 */
+        private java.util.HashMap<Long, Float> values = new java.util.HashMap<>();
+
+        private static long key(int x, int y, int z) {
+            return ((long) (x + (1 << 20)) << 28) | ((long) (z + (1 << 20)) << 7) | (y & 127);
+        }
+
+        void record(WindowField field, int cx, int cz, int radius) {
+            java.util.HashMap<Long, Float> next = new java.util.HashMap<>(values);
+            int step = LEARN;
+            for (int x = Math.floorDiv(cx - radius, step) * step; x <= cx + radius; x += step) {
+                for (int z = Math.floorDiv(cz - radius, step) * step; z <= cz + radius; z += step) {
+                    for (int y = 0; y < 128; y++) {
+                        double v = field.exact(x, y, z);
+                        if (Double.isFinite(v)) {
+                            next.merge(key(x, y, z), (float) v, Math::max);
+                        }
+                    }
+                }
+            }
+            values = next;
+        }
+
+        /** 近くの格子点（水平に1目、上下2以内）で覚えた値のうち小さい方。無ければ0。 */
+        static double at(java.util.Map<Long, Float> values, int x, int y, int z) {
+            int step = LEARN;
+            double best = Double.POSITIVE_INFINITY;
+            int bx = Math.floorDiv(x, step) * step;
+            int bz = Math.floorDiv(z, step) * step;
+            for (int gx = bx; gx <= bx + step; gx += step) {
+                for (int gz = bz; gz <= bz + step; gz += step) {
+                    for (int gy = Math.max(0, y - 2); gy <= Math.min(127, y + 2); gy++) {
+                        Float v = values.get(key(gx, gy, gz));
+                        if (v != null) {
+                            best = Math.min(best, v);
+                        }
+                    }
+                }
+            }
+            return Double.isFinite(best) ? best : 0;
+        }
     }
 
     /** 箱の中央±{@link #SPREAD}に始点・目的地を置く。周り48ブロックに書き出されていない列（未生成のチャンク）がある点は使わない。 */

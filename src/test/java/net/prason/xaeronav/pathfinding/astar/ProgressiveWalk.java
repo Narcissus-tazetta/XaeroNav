@@ -290,6 +290,9 @@ final class ProgressiveWalk {
     /** 航法グラフが始点に届かず、従来の区間で解いた数（計測用）。 */
     static final java.util.concurrent.atomic.AtomicInteger UNGUIDED_LEGS = new java.util.concurrent.atomic.AtomicInteger();
 
+    /** 区間を引いた（継ぎ足し・修復の差し替えを含む）たびに、足した手を渡す（計測用）。 */
+    static java.util.function.Consumer<List<PathStep>> LEG_LISTENER = steps -> { };
+
     /** {@link #walk}のコストだけを見る版。届かなければ{@link Double#POSITIVE_INFINITY}。 */
     static double walkToGoal(CellSource all, BlockPos start, BlockPos goal, int radius,
                              boolean extending) {
@@ -583,6 +586,7 @@ final class ProgressiveWalk {
                     plannedJoints.add(seam);
                 }
                 planned.addAll(result.steps());
+                LEG_LISTENER.accept(result.steps());
                 BlockPos next = planned.get(planned.size() - 1).pos();
                 if (mode == Mode.REPAIR && seam > 0) {
                     RepairAttempt attempt = repairSeam(
@@ -592,7 +596,9 @@ final class ProgressiveWalk {
                     repairNodes += attempt.expandedNodes();
                     if (attempt.repair() != null) {
                         repairsTaken++;
-                        planned = attempt.repair().steps();
+                        Repair r = attempt.repair();
+                        LEG_LISTENER.accept(r.steps().subList(r.from(), r.from() + r.length()));
+                        planned = r.steps();
                         plannedJoints = shifted(plannedJoints, attempt.repair());
                     }
                 }
