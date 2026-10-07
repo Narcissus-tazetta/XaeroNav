@@ -51,6 +51,7 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue jumpGapEnabled;
     private final NavConfigSpec.BoolValue blockBudgetEnabled;
     private final NavConfigSpec.IntValue blockBudgetReserve;
+    private final NavConfigSpec.IntValue mountLeaveBehindTicks;
     private final NavConfigSpec.BoolValue lavaBridgingEnabled;
     private final NavConfigSpec.BoolValue deepLookAheadEnabled;
     private final NavConfigSpec.BoolValue costToGoGuideEnabled;
@@ -126,6 +127,12 @@ public final class XaeroNavConfig {
                         "経路がぴったり使い切る設計だと、置き損ないや寄り道で1個でも減ると足りなくなる",
                         "増やすほど余裕を持った経路になるが、そのぶん橋を架けられる場面が減る")
                 .defineInRange("blockBudgetReserve", 0, 0, 512);
+
+        mountLeaveBehindTicks = spec
+                .comment("馬・ラクダに乗っているとき、降りて乗り物を置いていく経路に足す割増（tick、20で1秒）",
+                        "この時間ぶんの遠回りまでは乗ったまま行く。0なら少しでも早ければ降りる",
+                        "乗ったままでは通れない場所（1マス幅の通路・水など）の手前で降りる案内が出る")
+                .defineInRange("mountLeaveBehindTicks", 200, 0, 6000);
 
         jumpGapEnabled = spec
                 .comment("隙間を飛び越える移動を経路に含めることを許可するか（最大3マスの隙間まで）",
@@ -583,7 +590,7 @@ public final class XaeroNavConfig {
         return new MovementOptions(diggingEnabled(), bridgingEnabled(), jumpGapEnabled(), lavaBridgingEnabled(),
                 maxBridgeRunBlocks(), maxLavaBridgeRunBlocks(), maxVoidBridgeRunBlocks(), maxSubmergedTicks(),
                 fallDamageToleranceEnabled(), avoidRiskyJumps(), blockBudgetEnabled(), blockBudgetReserve(),
-                strictLimits());
+                strictLimits(), mountLeaveBehindTicks.get());
     }
 
     public boolean blockBudgetEnabled() {

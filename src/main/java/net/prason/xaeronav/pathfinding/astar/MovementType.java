@@ -26,5 +26,7 @@ public enum MovementType {
      * 馬の仲間・ラクダに乗ったまま進む区間。{@link PathStep#pos}は2×2の足場の角で、乗り物の中心は
      * {@code (x+1, z+1)}にある。
      */
-    MOUNT
+    MOUNT,
+    /** 乗り物を降りて置いていく。{@link PathStep#pos}は降りて立つセルで、この先は歩く。 */
+    DISMOUNT
 }

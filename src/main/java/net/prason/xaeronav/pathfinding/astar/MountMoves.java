@@ -3,11 +3,14 @@ package net.prason.xaeronav.pathfinding.astar;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.cost.MountPhysics;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.MountState;
+import net.prason.xaeronav.pathfinding.world.StanceFinder;
 
 /**
  * 馬の仲間・ラクダに乗ったままの移動候補。
@@ -26,6 +29,8 @@ import net.prason.xaeronav.pathfinding.world.MountState;
  */
 final class MountMoves {
 
+    /** スニークして降りる手間（tick）。押してから降りるまでは数tickだが、降りた位置の向き直りを見込む。推定値 */
+    private static final double DISMOUNT_TICKS = 10.0;
     /** 落下ダメージの無い落差（{@code AbstractHorse}の{@code SAFE_FALL_DISTANCE 6}）。 */
     static final int SAFE_FALL_BLOCKS = 6;
     /** ダメージ＝{@code ceil((落差 - 6) × 0.5)}（{@code FALL_DAMAGE_MULTIPLIER 0.5}）。 */
@@ -66,13 +71,34 @@ final class MountMoves {
         for (int i = 0; i < AStarPathfinder.DIAGONAL_DX.length; i++) {
             addDiagonal(from, AStarPathfinder.DIAGONAL_DX[i], AStarPathfinder.DIAGONAL_DZ[i]);
         }
+        addDismount(from);
+    }
+
+    /**
+     * 降りて、ここから先は歩く。乗り直しは無い（歩きのノードは乗っている手を作らない）——降りた後に乗り物が
+     * 付いて来る保証は無いので、置いていく前提で割増（{@code mountLeaveBehindTicks}）を払う。
+     *
+     * <p>降りて立つのは足場の4列のうち人が立てるセル。バニラは乗り物の横の空いた所へ降ろす
+     * （{@code AbstractHorse#getDismountLocationForPassenger}）ので1マスほどずれうるが、そこから先は歩きの経路の
+     * 逸脱の幅に収まる。
+     */
+    private void addDismount(PathNode from) {
+        double cost = DISMOUNT_TICKS + owner.view.mountLeaveBehindTicks();
+        for (int x = from.x; x <= from.x + 1; x++) {
+            for (int z = from.z; z <= from.z + 1; z++) {
+                if (StanceFinder.isStance(owner.view, x, from.y, z)) {
+                    owner.relax(from, x, from.y, z, cost, MoveKind.DISMOUNT);
+                }
+            }
+        }
     }
 
     /**
      * 乗っている始点。{@code start}はプレイヤーのいるセルなので、乗り物の中心がどの角かは近くの4つを試して決める
      * （呼び出し側が角そのものを渡していればそれが最初に当たる）。高さは近い方から上下へ寄せる。
+     * 乗ったままでは立てない（深い水の中など）なら{@code null}——歩きで始める。
      */
-    BlockPos resolveStart(BlockPos start) {
+    @Nullable BlockPos resolveStart(BlockPos start) {
         int[][] corners = {{0, 0}, {-1, 0}, {0, -1}, {-1, -1}};
         for (int dy = 0; dy <= 32; dy++) {
             for (int sign = 1; sign >= -1; sign -= 2) {
@@ -89,7 +115,7 @@ final class MountMoves {
                 }
             }
         }
-        return start;
+        return null;
     }
 
     /** ゴールとの距離・ガイドを引くときに使う、足場の4列のうち{@code (targetX, targetZ)}に一番近い列。 */
@@ -97,8 +123,24 @@ final class MountMoves {
         return Math.max(corner, Math.min(corner + 1, target));
     }
 
+    /**
+     * 始点に立てるか。水は体の高さだけ見て、足場の下の水は許す——水際に立っている乗り物から引くとき、
+     * {@link #dry}のままだと乗ったままの始点が見つからず、降りる経路しか出なくなる。
+     */
     private boolean stance(int x, int y, int z) {
-        return !Double.isInfinite(bodyCost(x, z, y, y + height - 1)) && supported(x, z, y) && dry(x, z, y);
+        if (Double.isInfinite(bodyCost(x, z, y, y + height - 1)) || !supported(x, z, y)) {
+            return false;
+        }
+        for (int cx = x; cx <= x + 1; cx++) {
+            for (int cz = z; cz <= z + 1; cz++) {
+                for (int cy = y; cy < y + height; cy++) {
+                    if (CellData.water(owner.view.cell(cx, cy, cz))) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     private void addStep(PathNode from, int dx, int dz) {

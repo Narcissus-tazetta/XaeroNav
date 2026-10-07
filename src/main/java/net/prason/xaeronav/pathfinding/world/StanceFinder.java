@@ -43,6 +43,11 @@ public final class StanceFinder {
         if (view.mount().walks()) {
             return start;
         }
+        return resolveStandingStart(view, start);
+    }
+
+    /** 歩いて立つ始点。乗っていても乗ったままでは立てないときに探索が使う。 */
+    public static BlockPos resolveStandingStart(CellSource view, BlockPos start) {
         int x = start.getX();
         int z = start.getZ();
         if (isStance(view, x, start.getY(), z)) {

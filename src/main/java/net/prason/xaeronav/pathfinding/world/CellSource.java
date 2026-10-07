@@ -231,6 +231,11 @@ public interface CellSource {
         return MountState.NONE;
     }
 
+    /** 乗り物を降りて置いていく手に足す割増（tick）。 */
+    default int mountLeaveBehindTicks() {
+        return 0;
+    }
+
     /**
      * この列で頭上に何も無くなる最小のY。{@code y >= openSkyY(x, z)}なら、そのセルは空の下にある。
      *

@@ -3,6 +3,7 @@ package net.prason.xaeronav.pathfinding.astar;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Random;
 
 import org.junit.jupiter.api.Test;
@@ -59,6 +60,17 @@ class MountRoutesTest {
         return new AStarPathfinder(cells).search(new BlockPos(fromX, Y, 0), new BlockPos(toX, Y, 0), () -> false);
     }
 
+    private static boolean ridesAllTheWay(PathResult result) {
+        return result.complete() && result.steps().stream().allMatch(step -> step.movement() == MovementType.MOUNT);
+    }
+
+    /** 着くまでに1回だけ、{@code x}より手前で降りる。 */
+    private static boolean getsOffBefore(PathResult result, int x) {
+        List<PathStep> dismounts = result.steps().stream()
+                .filter(step -> step.movement() == MovementType.DISMOUNT).toList();
+        return result.complete() && dismounts.size() == 1 && dismounts.get(0).pos().getX() < x;
+    }
+
     private static boolean passesCell(PathResult result, int x, int z) {
         return result.steps().stream().flatMap(step -> step.bodyCells().stream())
                 .anyMatch(cell -> cell.getX() == x && cell.getZ() == z);
@@ -89,8 +101,8 @@ class MountRoutesTest {
         wallWithOpening(high, 10, -1, 0, 3);
 
         assertTrue(search(low, 0, 20).complete(), "徒歩は高さ2で通れる");
-        assertFalse(search(low.mount(HORSE), 0, 20).complete(), "乗り手の目が天井に入る");
-        assertTrue(search(high.mount(HORSE), 0, 20).complete());
+        assertTrue(getsOffBefore(search(low.mount(HORSE), 0, 20), 10), "乗り手の目が天井に入るので手前で降りる");
+        assertTrue(ridesAllTheWay(search(high.mount(HORSE), 0, 20)));
     }
 
     @Test
@@ -100,8 +112,8 @@ class MountRoutesTest {
         FakeCells four = flat();
         wallWithOpening(four, 10, -1, 0, 4);
 
-        assertFalse(search(three.mount(CAMEL), 0, 20).complete());
-        assertTrue(search(four.mount(CAMEL), 0, 20).complete());
+        assertTrue(getsOffBefore(search(three.mount(CAMEL), 0, 20), 10));
+        assertTrue(ridesAllTheWay(search(four.mount(CAMEL), 0, 20)));
     }
 
     /** {@code x}から先を{@code rise}段高い台地にする。 */
@@ -175,13 +187,51 @@ class MountRoutesTest {
     }
 
     @Test
-    void staysOutOfWaterEvenAtAFord() {
-        FakeCells forded = river(10, 10, 3, true).jumpGapEnabled(false);
-        FakeCells narrow = river(10, 3, 3, false);
+    void getsOffBeforeWaterEvenAtAFord() {
+        FakeCells forded = river(10, 10, 3, true).jumpGapEnabled(false).mount(HORSE);
+        FakeCells narrow = river(10, 3, 3, false).mount(HORSE);
 
-        assertTrue(search(forded, 0, 25).complete(), "徒歩は泳いで渡る");
-        assertFalse(search(forded.mount(HORSE), 0, 25).complete(), "馬は浅瀬も渡らない");
-        assertFalse(search(narrow.mount(HORSE), 0, 25).complete(), "跳び損ねると水に落ちて降ろされるので、川は跳ばない");
+        for (FakeCells cells : List.of(forded, narrow)) {
+            PathResult result = search(cells, 0, 25);
+            assertTrue(getsOffBefore(result, 10), "浅瀬も、跳べば越えられる川も、乗ったままは渡らない");
+            for (PathStep step : result.steps()) {
+                if (step.movement() == MovementType.MOUNT) {
+                    assertTrue(step.bodyCells().stream().noneMatch(cell -> CellData.water(
+                            cells.cell(cell.getX(), cell.getY() - 1, cell.getZ()))), step.pos().toString());
+                }
+            }
+        }
+    }
+
+    @Test
+    void getsOffBeforeAOneWideTunnel() {
+        FakeCells cells = flat();
+        wallWithOpening(cells, 10, 0, 0, 3);
+
+        assertTrue(getsOffBefore(search(cells.mount(HORSE), 0, 20), 10));
+    }
+
+    @Test
+    void ridesAroundUnlessLeavingTheHorseIsFree() {
+        FakeCells cells = flat();
+        wallWithOpening(cells, 10, 0, 0, 3);
+        opening(cells, 10, 8, 9, 3);
+
+        assertTrue(ridesAllTheWay(search(cells.mount(HORSE), 0, 20)), "既定の割増なら遠回りしても乗ったまま");
+        assertTrue(getsOffBefore(search(cells.mount(HORSE).mountLeaveBehindTicks(0), 0, 20), 10),
+                "割増0なら近い1マス幅の口を歩いて通る");
+    }
+
+    @Test
+    void startsOnFootWhenTheHorseIsInDeepWater() {
+        FakeCells cells = river(10, 6, 3, false).mount(HORSE);
+
+        PathResult result = new AStarPathfinder(cells).search(new BlockPos(12, Y - 1, 0), new BlockPos(25, Y, 0), () -> false);
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().get(0).movement() == MovementType.DISMOUNT, "まず降りると言う");
+        assertTrue(result.steps().stream().skip(1).noneMatch(step -> step.movement() == MovementType.MOUNT
+                || step.movement() == MovementType.DISMOUNT));
     }
 
     /** {@code x}から{@code width}列の深い谷（底まで10マス）。 */

@@ -686,6 +686,11 @@ public final class ChunkView implements CellSource {
     }
 
     @Override
+    public int mountLeaveBehindTicks() {
+        return options.mountLeaveBehindTicks();
+    }
+
+    @Override
     public MinecartState minecart() {
         return minecart;
     }

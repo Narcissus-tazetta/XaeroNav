@@ -14,6 +14,7 @@ import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
+import net.prason.xaeronav.pathfinding.world.StanceFinder;
 import net.prason.xaeronav.util.MonotonicTime;
 
 /**
@@ -358,6 +359,9 @@ public final class AStarPathfinder {
      */
     private final NodeTable boatNodes = new NodeTable();
 
+    /** 乗り物に乗っているのに歩きで始めた（乗ったままでは立てない所にいる）。 */
+    private boolean startsByGettingOff;
+
     /** 乗り物に乗ったままのノード（{@link PathNode#mounted}）。座標は2×2の足場の角で、徒歩のノードとは意味が違う。 */
     private final NodeTable mountNodes = new NodeTable();
 
@@ -654,10 +658,14 @@ public final class AStarPathfinder {
         // 水面のセルであることも確かめるのは、乗ったまま陸に乗り上げている場合を除くため
         boolean startBoating = view.ridingBoat()
                 && isBoatSurface(start.getX(), start.getY(), start.getZ());
+        boolean startMounted = false;
         if (mountMoves != null) {
-            start = mountMoves.resolveStart(start);
+            BlockPos mounted = mountMoves.resolveStart(start);
+            startMounted = mounted != null;
+            start = startMounted ? mounted : StanceFinder.resolveStandingStart(view, start);
         }
-        PathNode startNode = node(start.getX(), start.getY(), start.getZ(), startBoating, mountMoves != null);
+        startsByGettingOff = mountMoves != null && !startMounted;
+        PathNode startNode = node(start.getX(), start.getY(), start.getZ(), startBoating, startMounted);
         startNode.bridgeRun = carried.bridgeRun();
         // 手前の区間で使うと決まっている枚数を先に計上する。これが無いと、区間ごとに予算が
         // 満額になって合計では手持ちの何倍も置く経路が出る
@@ -844,6 +852,12 @@ public final class AStarPathfinder {
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
         }
         Collections.reverse(steps);
+        if (startsByGettingOff && !steps.isEmpty()) {
+            // 乗ったままでは立てない所から歩きで引いた。降りる段が無いと、乗ったまま歩きの経路を案内することになる
+            BlockPos at = new BlockPos(startNode.x, startNode.y, startNode.z);
+            steps.add(0, new PathStep(at, MovementType.DISMOUNT, 0.0, List.of(at, at.above()), List.of(),
+                    PathRisk.NONE, null));
+        }
         if (trimCapViolations(steps)) {
             // 同一座標へ異なる資源状態で着く候補が統合されても、安全上限を超えた完成経路は
             // 外へ出さない。上位runnerはblockedフラグを見て緩和段を選べる。

@@ -120,6 +120,8 @@ public final class FakeCells implements CellSource {
     private final Long2IntOpenHashMap tracks = new Long2IntOpenHashMap();
     private MinecartState minecart = MinecartState.UNAVAILABLE;
     private MountState mount = MountState.NONE;
+    /** 設定の既定値に合わせて200。 */
+    private int mountLeaveBehindTicks = 200;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
     /**
@@ -285,6 +287,11 @@ public final class FakeCells implements CellSource {
 
     public FakeCells mount(MountState value) {
         this.mount = value;
+        return this;
+    }
+
+    public FakeCells mountLeaveBehindTicks(int value) {
+        this.mountLeaveBehindTicks = value;
         return this;
     }
 
@@ -486,6 +493,11 @@ public final class FakeCells implements CellSource {
     @Override
     public MountState mount() {
         return mount;
+    }
+
+    @Override
+    public int mountLeaveBehindTicks() {
+        return mountLeaveBehindTicks;
     }
 
     /**

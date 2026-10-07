@@ -283,6 +283,7 @@ Other markings:
 | `avoidRiskyJumps` | `true` | Avoid jumps over the void or a fatal drop (opened only when no way around exists at all) |
 | `blockBudgetEnabled` | `true` | Cap the total blocks a route may place at how many you carry (lifted when no route fits, with a shortage warning; never applied in creative) |
 | `blockBudgetReserve` | `0` | Blocks held back from that budget |
+| `mountLeaveBehindTicks` | `200` | While riding a horse or camel, extra cost (ticks, 20 per second) on routes that get off and leave it behind; detours up to this long stay mounted |
 | `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
 | `strictLimits` | `false` | Never loosen the limits on bridge length, time underwater, fall damage, risky jumps and carried blocks, even when there is no other way. `false` loosens them only when no route fits and shows the result with warnings; `true` shows no route and says no way exists within the limits |
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |

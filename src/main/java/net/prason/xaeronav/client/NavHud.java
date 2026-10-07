@@ -19,6 +19,7 @@ import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.astar.PathRisk;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
+import net.prason.xaeronav.pathfinding.world.MountState;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
@@ -149,8 +150,10 @@ public final class NavHud {
             int from = PathProgress.INSTANCE.indexFor(result) + 1;
             PathSuffixes.Action next = ahead.nextAction(from);
             String endpoint = guidance.nearEnd ? endpointKey(climbing, endsAtDestination, stuck != null) : null;
+            boolean camel = ChunkView.mount(mc.player).kind() == MountState.Kind.CAMEL;
             if (next != null && ahead.distanceToAction(from) <= ACTION_NOTICE_BLOCKS) {
-                add(TextCompat.translatable(next.key()), PRIMARY_COLOR);
+                add(TextCompat.translatable(next == PathSuffixes.Action.DISMOUNT && camel
+                        ? "hud.xaeronav.action_dismount_camel" : next.key()), PRIMARY_COLOR);
                 endpoint = null;
             } else if (endpoint != null) {
                 add(TextCompat.translatable(endpoint), PRIMARY_COLOR);
@@ -160,6 +163,12 @@ public final class NavHud {
             // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
             // 気付いたのでは、そこまでの案内が前提ごと成立していない。
             // 乗っている間は出さない——すでに済んでいる支度を促し続けることになる
+            // 降りるのは乗っていては通れない所の手前。近づいてからでは、そこまで乗って来た理由が分からない
+            double toDismount = ahead.distanceToDismount(from);
+            if (Double.isFinite(toDismount) && toDismount > ACTION_NOTICE_BLOCKS && ChunkView.mount(mc.player).walks()) {
+                add(TextCompat.translatable(camel ? "hud.xaeronav.dismount_ahead_camel" : "hud.xaeronav.dismount_ahead",
+                        (int) Math.round(toDismount)), SECONDARY_COLOR);
+            }
             if (ahead.usesBoat(from) && !ChunkView.ridingBoat(mc.player)) {
                 add(TextCompat.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
             }
@@ -233,7 +242,8 @@ public final class NavHud {
             PLACE("hud.xaeronav.action_place"),
             JUMP("hud.xaeronav.action_jump"),
             CLIMB("hud.xaeronav.action_climb"),
-            ALIGHT("hud.xaeronav.action_alight");
+            ALIGHT("hud.xaeronav.action_alight"),
+            DISMOUNT("hud.xaeronav.action_dismount");
 
             private final String key;
 
@@ -251,6 +261,7 @@ public final class NavHud {
         private final boolean[] carts;
         private final int[] placements;
         private final int[] nextActionSteps;
+        private final int[] dismountSteps;
         private final Action[] actions;
         private final double[] blocks;
 
@@ -261,9 +272,11 @@ public final class NavHud {
             carts = new boolean[steps.size() + 1];
             placements = new int[steps.size() + 1];
             nextActionSteps = new int[steps.size() + 1];
+            dismountSteps = new int[steps.size() + 1];
             actions = new Action[steps.size()];
             blocks = new double[steps.size()];
             nextActionSteps[steps.size()] = -1;
+            dismountSteps[steps.size()] = -1;
             for (int i = 1; i < steps.size(); i++) {
                 blocks[i] = blocks[i - 1] + Math.sqrt(steps.get(i - 1).pos().distSqr(steps.get(i).pos()));
             }
@@ -276,7 +289,10 @@ public final class NavHud {
                 // 降りるのは乗車の最後のセル。経路の末尾で降りる場合も、着いた所で降りる操作が要る
                 boolean alight = riding && (i + 1 == steps.size() || steps.get(i + 1).movement() != MovementType.CART);
                 placements[i] = placements[i + 1] + (step.bridging() ? 1 : 0);
-                actions[i] = alight ? Action.ALIGHT
+                boolean dismount = step.movement() == MovementType.DISMOUNT;
+                dismountSteps[i] = dismount ? i : dismountSteps[i + 1];
+                actions[i] = dismount ? Action.DISMOUNT
+                        : alight ? Action.ALIGHT
                         : step.digging() ? Action.DIG
                         : step.bridging() ? Action.PLACE
                         : step.movement() == MovementType.JUMP ? Action.JUMP
@@ -307,7 +323,15 @@ public final class NavHud {
         }
 
         double distanceToAction(int from) {
-            int step = nextActionSteps[index(from)];
+            return distanceTo(nextActionSteps[index(from)], from);
+        }
+
+        /** この先で乗り物を降りる段までの距離。降りなければ無限大。 */
+        double distanceToDismount(int from) {
+            return distanceTo(dismountSteps[index(from)], from);
+        }
+
+        private double distanceTo(int step, int from) {
             return step < 0 ? Double.POSITIVE_INFINITY : blocks[step] - blocks[Math.max(0, index(from) - 1)];
         }
 

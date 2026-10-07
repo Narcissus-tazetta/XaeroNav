@@ -52,7 +52,9 @@ enum MoveKind {
     /** 乗り物で跳んで段を上がる・隙間を跳び越える。 */
     MOUNT_JUMP(MovementType.MOUNT),
     /** 乗り物で2マス以上落ちる。 */
-    MOUNT_FALL(MovementType.MOUNT);
+    MOUNT_FALL(MovementType.MOUNT),
+    /** 乗り物を降りる。乗っている足場から、その4列のうち立てるセルへ。 */
+    DISMOUNT(MovementType.DISMOUNT);
 
     private final MovementType movementType;
 

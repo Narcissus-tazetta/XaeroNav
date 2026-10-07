@@ -31,6 +31,7 @@ import net.prason.xaeronav.pathfinding.astar.Carryover;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.astar.NavigationTuning;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
+import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.astar.SearchLimits;
 import net.prason.xaeronav.pathfinding.async.GenerationGate;
@@ -384,6 +385,11 @@ public final class PathfindingState {
     private volatile boolean flying;
     /** エリトラの滑空を飛行とみなすかの判定（時間と高さのヒステリシス）。 */
     private final ElytraTrigger elytraTrigger = new ElytraTrigger();
+    /**
+     * 経路の降りる段からこの水平距離までで降りたなら、予定どおり降りたとみなす（ブロック）。バニラは乗り物の横の
+     * 空いた所へ降ろすので、降りる段そのものに立つとは限らない。
+     */
+    private static final double DISMOUNT_KEEP_BLOCKS = 4.0;
     /** 直前のtickに乗っていた乗り物。クライアントスレッド専用 */
     private MountState mount = MountState.NONE;
     /** 乗り物が変わる前に引いた経路。乗り物が変わると歩けるという証明が通用しないので、残す候補にしない */
@@ -1284,6 +1290,12 @@ public final class PathfindingState {
         if (now.equals(mount)) {
             return false;
         }
+        // 経路が降りると言った所で降りたなら、その先の歩きの経路は降りた前提で引いてある
+        if (mount.walks() && !now.walks() && dismountPlannedNear(player)) {
+            LOGGER.info("XaeroNav: got off the mount where the path said to, keeping the path");
+            mount = now;
+            return false;
+        }
         LOGGER.info("XaeroNav: mount changed {} -> {}, replanning", mount, now);
         mount = now;
         generation.incrementAndGet();
@@ -1294,6 +1306,21 @@ public final class PathfindingState {
         stuckTracker.reset();
         recalculate("mount changed");
         return true;
+    }
+
+    /** 表示中の経路に、プレイヤーのすぐ近くで乗り物を降りる段があるか。 */
+    private boolean dismountPlannedNear(Player player) {
+        DisplayedPath shown = displayed;
+        if (shown == null) {
+            return false;
+        }
+        for (PathStep step : shown.result().steps()) {
+            if (step.movement() == MovementType.DISMOUNT
+                    && BlockDistance.horizontal(player.blockPosition(), step.pos()) <= DISMOUNT_KEEP_BLOCKS) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
