@@ -1,5 +1,8 @@
 package net.prason.xaeronav.pathfinding.world;
 
+import net.prason.xaeronav.rail.CartRide;
+import net.prason.xaeronav.rail.RailCell;
+
 /**
  * 探索が世界に対して行う問い合わせのすべて。
  *
@@ -206,6 +209,21 @@ public interface CellSource {
      */
     default boolean ridingBoat() {
         return false;
+    }
+
+    /**
+     * そのセルのレール（{@link RailCell}の形）か、無ければ
+     * {@link CartRide#NONE}。{@link #cell}がレールを区別しないので別に持つ。
+     *
+     * <p>{@link #cell}を書き換えるラッパーは、そこで消したセルのレールも消すこと。
+     */
+    default int track(int x, int y, int z) {
+        return CartRide.NONE;
+    }
+
+    /** トロッコで線路を走る移動を提示してよいか、いま乗っているか。 */
+    default MinecartState minecart() {
+        return MinecartState.UNAVAILABLE;
     }
 
     /**

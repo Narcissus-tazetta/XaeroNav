@@ -3,11 +3,16 @@ package net.prason.xaeronav.pathfinding.world;
 import java.util.ArrayList;
 import java.util.List;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
+import net.prason.xaeronav.rail.CartRide;
+import net.prason.xaeronav.rail.RailCell;
+import net.prason.xaeronav.rail.RailKind;
+import net.prason.xaeronav.rail.TrackShape;
 
 /**
  * テスト用の{@link CellSource}。地形を文字で書けるようにする。
@@ -112,6 +117,8 @@ public final class FakeCells implements CellSource {
     private boolean boatAvailable;
     /** 既定はfalse。乗っている状態から始めたいテストだけが明示的に立てる。 */
     private boolean ridingBoat;
+    private final Long2IntOpenHashMap tracks = new Long2IntOpenHashMap();
+    private MinecartState minecart = MinecartState.UNAVAILABLE;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
     /**
@@ -122,6 +129,7 @@ public final class FakeCells implements CellSource {
 
     private FakeCells() {
         cells.defaultReturnValue(Long.MIN_VALUE);
+        tracks.defaultReturnValue(CartRide.NONE);
     }
 
     public static FakeCells empty(SearchBounds bounds) {
@@ -260,6 +268,17 @@ public final class FakeCells implements CellSource {
     /** 乗っている状態から探索を始める。{@link #boatAvailable}も併せて立てること。 */
     public FakeCells ridingBoat(boolean value) {
         this.ridingBoat = value;
+        return this;
+    }
+
+    /** レールを置く。セル自体は書き換えないので、空気のセルに置くこと（レールは当たり判定が無い）。 */
+    public FakeCells rail(int x, int y, int z, TrackShape shape, RailKind kind, boolean powered) {
+        tracks.put(BlockPos.asLong(x, y, z), RailCell.pack(x & 15, y, z & 15, shape, kind, powered));
+        return this;
+    }
+
+    public FakeCells minecart(MinecartState value) {
+        this.minecart = value;
         return this;
     }
 
@@ -445,6 +464,16 @@ public final class FakeCells implements CellSource {
     @Override
     public boolean ridingBoat() {
         return ridingBoat;
+    }
+
+    @Override
+    public int track(int x, int y, int z) {
+        return tracks.get(BlockPos.asLong(x, y, z));
+    }
+
+    @Override
+    public MinecartState minecart() {
+        return minecart;
     }
 
     /**

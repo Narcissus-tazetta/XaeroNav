@@ -9,6 +9,7 @@ import java.util.function.LongPredicate;
 
 import org.jspecify.annotations.Nullable;
 
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.CellData;
@@ -341,6 +342,7 @@ public final class AStarPathfinder {
     private final GroundMoves groundMoves = new GroundMoves(this);
     private final WaterMoves waterMoves = new WaterMoves(this);
     private final BuildMoves buildMoves = new BuildMoves(this);
+    private final CartMoves cartMoves = new CartMoves(this);
 
     private final NodeTable nodes = new NodeTable();
 
@@ -796,6 +798,10 @@ public final class AStarPathfinder {
         List<PathStep> steps = new ArrayList<>();
         for (PathNode cursor = end; cursor != startNode && cursor.previous != null; cursor = cursor.previous) {
             PathNode from = cursor.previous;
+            if (cursor.kind == MoveKind.CART_RIDE) {
+                addRideSteps(steps, from, cursor);
+                continue;
+            }
             int x = cursor.x;
             int y = cursor.y;
             int z = cursor.z;
@@ -813,6 +819,25 @@ public final class AStarPathfinder {
             trimUnfinishedPlacements(steps);
         }
         return new PathResult(steps, termination, expanded, createdNodes);
+    }
+
+    /**
+     * 乗車の1手を、通るレールのセルごとのステップへ広げる（{@link #buildResult}は末尾から積むので逆順に足す）。
+     * セルごとの値段は着いたtickの差で、乗る手間は最初のセルに、降りる手間は最後のセルに乗せる。
+     */
+    private void addRideSteps(List<PathStep> steps, PathNode from, PathNode to) {
+        IntArrayList ticks = new IntArrayList();
+        List<BlockPos> cells = cartMoves.rideCells(from, to, ticks);
+        double board = cartMoves.boardingCost(from);
+        double remaining = to.cost - from.cost;
+        for (int i = cells.size() - 1; i >= 0; i--) {
+            double cost = i == 0 ? remaining : i == cells.size() - 1
+                    ? remaining - board - ticks.getInt(i - 1)
+                    : ticks.getInt(i) - ticks.getInt(i - 1);
+            remaining -= cost;
+            BlockPos pos = cells.get(i);
+            steps.add(new PathStep(pos, MovementType.CART, cost, List.of(pos), List.of(), PathRisk.NONE, null));
+        }
     }
 
     /** 探索中の近似状態が取りこぼしても、公開する経路の設置上限を最後に必ず守る。 */
@@ -982,6 +1007,7 @@ public final class AStarPathfinder {
             groundMoves.addClimbDown(current);
         }
         buildMoves.addPillar(current);
+        cartMoves.addRides(current);
         // 踏み出した先の下に何があるかは落下と設置で共通なので、方向ごとに1度だけ辿る。
         // ブロックの設置を最後に評価するのは、同コストなら地形をそのまま使う移動を採用させるため
         for (int i = 0; i < CARDINAL_DX.length; i++) {

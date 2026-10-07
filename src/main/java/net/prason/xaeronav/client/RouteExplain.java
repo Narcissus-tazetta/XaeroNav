@@ -221,6 +221,7 @@ final class RouteExplain {
             case FALL_MLG -> "fall (water bucket)";
             case SWIM -> "swim";
             case BOAT -> "boat";
+            case CART -> "minecart";
             case CLIMB -> "climb";
         };
     }
