@@ -113,7 +113,7 @@ final class PathColors {
             // riskのswitchで必ず先に拾われるので、ここへは落ちてこない
             case FALL_DAMAGE -> FALL_DAMAGE;
             case FALL_MLG -> MLG_REQUIRED;
-            case TRAVERSE -> WALK;
+            case TRAVERSE, MOUNT -> WALK;
         };
     }
 }

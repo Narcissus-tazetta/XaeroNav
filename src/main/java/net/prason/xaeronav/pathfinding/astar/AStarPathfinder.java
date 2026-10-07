@@ -111,10 +111,10 @@ public final class AStarPathfinder {
     /** 時刻とキャンセルの確認間隔（ノード数）。単調時計の呼び出しも内側では間引く。 */
     private static final int CHECK_INTERVAL_MASK = (1 << 6) - 1;
 
-    private static final int[] CARDINAL_DX = {0, 1, 0, -1};
-    private static final int[] CARDINAL_DZ = {-1, 0, 1, 0};
-    private static final int[] DIAGONAL_DX = {1, 1, -1, -1};
-    private static final int[] DIAGONAL_DZ = {1, -1, 1, -1};
+    static final int[] CARDINAL_DX = {0, 1, 0, -1};
+    static final int[] CARDINAL_DZ = {-1, 0, 1, 0};
+    static final int[] DIAGONAL_DX = {1, 1, -1, -1};
+    static final int[] DIAGONAL_DZ = {1, -1, 1, -1};
 
     final CellSource view;
     private final int maxExpandedNodes;
@@ -358,6 +358,12 @@ public final class AStarPathfinder {
      */
     private final NodeTable boatNodes = new NodeTable();
 
+    /** 乗り物に乗ったままのノード（{@link PathNode#mounted}）。座標は2×2の足場の角で、徒歩のノードとは意味が違う。 */
+    private final NodeTable mountNodes = new NodeTable();
+
+    /** 馬の仲間・ラクダに乗っていれば、乗ったままの移動候補。乗っていなければ{@code null}。 */
+    private final @Nullable MountMoves mountMoves;
+
     /** 作ったノードの総数（展開したノードの周りも含む）。 */
     private int createdNodes;
     private final BinaryHeapOpenSet open = new BinaryHeapOpenSet();
@@ -467,7 +473,12 @@ public final class AStarPathfinder {
         // 落下ダメージの許容量を緩めたら下降の下限も一緒に緩める。許せる落差が伸びるほど
         // 1ブロックあたりの実コストは終端速度へ近づいて安くなるので、元の下限のままでは
         // ヒューリスティックが実コストを上回りうる（＝非許容）
-        this.minDescentPerBlock = view.minDescentTicksPerBlock(this.maxFallDamagePoints);
+        this.mountMoves = view.mount().walks() ? new MountMoves(this, view.mount()) : null;
+        // 乗り物は徒歩より深く無傷で落ちられる（6マス、ダメージも半分）。徒歩の落差で決めた下限のままでは
+        // 乗り物の落下が下限を割る
+        this.minDescentPerBlock = mountMoves == null ? view.minDescentTicksPerBlock(this.maxFallDamagePoints)
+                : Math.min(view.minDescentTicksPerBlock(this.maxFallDamagePoints), ActionCosts.descentBoundForMaxDrop(
+                        MountMoves.SAFE_FALL_BLOCKS + 2 * this.maxFallDamagePoints));
         this.maxExpandedNodes = limits.maxExpandedNodes();
         this.timeLimitMillis = limits.timeLimitMillis();
         this.heuristicWeight = limits.heuristicWeight();
@@ -643,7 +654,10 @@ public final class AStarPathfinder {
         // 水面のセルであることも確かめるのは、乗ったまま陸に乗り上げている場合を除くため
         boolean startBoating = view.ridingBoat()
                 && isBoatSurface(start.getX(), start.getY(), start.getZ());
-        PathNode startNode = node(start.getX(), start.getY(), start.getZ(), startBoating);
+        if (mountMoves != null) {
+            start = mountMoves.resolveStart(start);
+        }
+        PathNode startNode = node(start.getX(), start.getY(), start.getZ(), startBoating, mountMoves != null);
         startNode.bridgeRun = carried.bridgeRun();
         // 手前の区間で使うと決まっている枚数を先に計上する。これが無いと、区間ごとに予算が
         // 満額になって合計では手持ちの何倍も置く経路が出る
@@ -703,14 +717,17 @@ public final class AStarPathfinder {
         if (surfaceGoal) {
             return node.y >= surfaceY && node.y >= view.surfacedY(node.x, node.z);
         }
+        int x = node.mounted ? MountMoves.nearest(node.x, goalX) : node.x;
+        int z = node.mounted ? MountMoves.nearest(node.z, goalZ) : node.z;
         if (goalRadius <= 0) {
-            return node.x == goalX && node.y == goalY && node.z == goalZ;
+            // 乗っている足場の高さは4列の床の一番高いもの。ゴールの列の床が隣より1段低いと、ぴったりの高さには立てない
+            return x == goalX && z == goalZ && (node.y == goalY || node.mounted && node.y == goalY + 1);
         }
         // 球ではなく「水平の円柱」で見る。中間目標のYはチャンク代表高さや直線補間でしか決まって
         // おらず、水平座標より遥かに当てにならない——同じ半径でYを縛ると、地形なりに数マス
         // 上下しただけの正しい経路を弾いてしまう
-        int dx = node.x - goalX;
-        int dz = node.z - goalZ;
+        int dx = x - goalX;
+        int dz = z - goalZ;
         return dx * dx + dz * dz <= goalRadius * goalRadius
                 && Math.abs(node.y - goalY) <= goalVerticalRadius(goalRadius);
     }
@@ -817,6 +834,11 @@ public final class AStarPathfinder {
             int x = cursor.x;
             int y = cursor.y;
             int z = cursor.z;
+            if (cursor.mounted) {
+                steps.add(new PathStep(new BlockPos(x, y, z), MovementType.MOUNT, cursor.cost - from.cost,
+                        mountMoves.bodyCells(from, cursor), List.of(), PathRisk.NONE, null));
+                continue;
+            }
             steps.add(new PathStep(new BlockPos(x, y, z), cursor.kind.movementType(),
                     cursor.cost - from.cost, cursor.kind.bodyCells(from.x, from.y, from.z, x, y, z),
                     digCells(from, cursor), PathRisk.NONE, cursor.kind.placedBlockPos(x, y, z)));
@@ -935,7 +957,11 @@ public final class AStarPathfinder {
     }
 
     private PathNode node(int x, int y, int z, boolean boating) {
-        PathNode[] page = (boating ? boatNodes : nodes).page(x, y, z);
+        return node(x, y, z, boating, false);
+    }
+
+    private PathNode node(int x, int y, int z, boolean boating, boolean mounted) {
+        PathNode[] page = (mounted ? mountNodes : boating ? boatNodes : nodes).page(x, y, z);
         int index = NodeTable.index(x, y, z);
         PathNode existing = page[index];
         if (existing != null) {
@@ -952,7 +978,10 @@ public final class AStarPathfinder {
         } else {
             // ボートに乗っているノードは水平の下限が漕ぎ速度まで下がる。疾走のまま見積もると
             // ボートの枝に対して非許容になり、乗り込む1手の一時コストと相まって一度も展開されない
-            heuristic = Heuristic.estimate(x, y, z, goalX, goalY, goalZ, minDescentPerBlock,
+            // 乗っている足場は4列あり、ゴールに一番近い列から測る（ゴール判定もその列で見る）
+            int nearX = mounted ? MountMoves.nearest(x, goalX) : x;
+            int nearZ = mounted ? MountMoves.nearest(z, goalZ) : z;
+            heuristic = Heuristic.estimate(nearX, y, nearZ, goalX, goalY, goalZ, minDescentPerBlock,
                     boating ? ActionCosts.PADDLE_ONE_BLOCK : horizontalPerBlock);
             // 領域ゴールでは、中心までの見積もりは半径ぶん過大＝非許容になる。
             // 最安の水平移動で半径ぶん詰められるとみなして差し引く（searchToSurfaceが
@@ -970,19 +999,40 @@ public final class AStarPathfinder {
                 // 上回った瞬間に経路の形が変わる。層1の解像度に由来する上振れは
                 // {@code CoarseRouter#centerOffsetCost}が落としてある——あれが無いと
                 // hに16ブロック周期の鋸歯が乗り、経路がチャンク境界へ吸い寄せられて直角になる
-                double guide = costToGo.searchEstimate(x, y, z);
+                double guide = mounted ? mountedGuide(x, y, z) : costToGo.searchEstimate(x, y, z);
                 guideHole = Double.isNaN(guide);
                 heuristic = Math.max(heuristic,
-                        (guideHole ? costToGo.estimate(x, y, z) : guide) - radiusAllowance);
+                        (guideHole ? costToGo.estimate(nearX, y, nearZ) : guide) - radiusAllowance);
             }
         }
-        PathNode created = new PathNode(x, y, z, boating, heuristic, guideHole);
+        PathNode created = new PathNode(x, y, z, boating, mounted, heuristic, guideHole);
         page[index] = created;
         createdNodes++;
         return created;
     }
 
+    /**
+     * 乗っている足場のガイド。ガイドは徒歩の立てるセルに値を持つので、足場の4列で値のあるものの最小を取る
+     * （足場の高さは4列の床の一番高いものなので、角の列だけ見ると床の低い列で穴になる）。
+     */
+    private double mountedGuide(int x, int y, int z) {
+        double best = Double.NaN;
+        for (int cx = x; cx <= x + 1; cx++) {
+            for (int cz = z; cz <= z + 1; cz++) {
+                double guide = costToGo.searchEstimate(cx, y, cz);
+                if (!Double.isNaN(guide) && (Double.isNaN(best) || guide < best)) {
+                    best = guide;
+                }
+            }
+        }
+        return best;
+    }
+
     private void expand(PathNode current) {
+        if (current.mounted) {
+            mountMoves.expand(current);
+            return;
+        }
         for (int i = 0; i < CARDINAL_DX.length; i++) {
             int dx = CARDINAL_DX[i];
             int dz = CARDINAL_DZ[i];
@@ -1206,7 +1256,12 @@ public final class AStarPathfinder {
 
     /** ボートに乗った状態のノードへ緩和する。{@link #addBoatEnter}/{@link #addBoatPaddle}専用。 */
     void relaxBoating(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
-        relax(from, x, y, z, edgeCost, kind, 0, true);
+        relax(from, x, y, z, edgeCost, kind, 0, true, false);
+    }
+
+    /** 乗り物に乗ったままのノードへ緩和する。{@link MountMoves}専用。 */
+    void relaxMounted(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind) {
+        relax(from, x, y, z, edgeCost, kind, 0, false, true);
     }
 
     /**
@@ -1214,11 +1269,11 @@ public final class AStarPathfinder {
      * （{@link #addBridge}・{@link #addPillar}）だけで、それ以外は実在する床に着くので0になる。
      */
     void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun) {
-        relax(from, x, y, z, edgeCost, kind, bridgeRun, false);
+        relax(from, x, y, z, edgeCost, kind, bridgeRun, false, false);
     }
 
-    void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
-               boolean boating) {
+    private void relax(PathNode from, int x, int y, int z, double edgeCost, MoveKind kind, int bridgeRun,
+                       boolean boating, boolean mounted) {
         if (from.boating && !boating) {
             edgeCost += ActionCosts.BOAT_STOW_TICKS;
         }
@@ -1232,7 +1287,7 @@ public final class AStarPathfinder {
         // この先で立てる{@code submergedRunCapBlocked}をここで取りこぼすが、それでよい——
         // 改善しない辺が上限で消えても答えは変わらないので、それを理由に上限を外して
         // 探し直しても同じ経路が出る
-        PathNode neighbor = node(x, y, z, boating);
+        PathNode neighbor = node(x, y, z, boating, mounted);
         if (neighbor.closed || neighbor.cost - (from.cost + edgeCost) <= MIN_IMPROVEMENT) {
             return;
         }
@@ -1248,7 +1303,8 @@ public final class AStarPathfinder {
         // ここで一括して見るのは、泳ぎ以外（水中を歩く・沈む・掘る・水へ落ちる）でも同じだから——
         // とりわけ採掘は1手に数十tickかかるので、マス数で数えると息の上限をすり抜ける
         double submergedTicks = 0.0;
-        boolean submerged = headSubmerged(from, x, y + 1, z);
+        // 乗り手の頭は乗り物の上。乗り物の目が浸かる足場はMountMovesが作らない
+        boolean submerged = !mounted && headSubmerged(from, x, y + 1, z);
         if (submerged) {
             submergedTicks = from.submergedTicks + edgeCost;
             if (maxSubmergedTicks > 0.0 && submergedTicks > maxSubmergedTicks) {

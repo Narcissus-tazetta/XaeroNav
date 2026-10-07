@@ -14,6 +14,11 @@ public record MountState(Kind kind, double movementSpeed, double jumpStrength) {
 
     public static final MountState NONE = new MountState(Kind.NONE, 0.0, 0.0);
 
+    /** 地面を歩く乗り物（馬の仲間・ラクダ）。探索は2×2の足場で乗ったまま進む。 */
+    public boolean walks() {
+        return kind == Kind.HORSE || kind == Kind.CAMEL;
+    }
+
     public enum Kind {
         NONE,
         /** 馬・ロバ・ラバ・スケルトンホース・ゾンビホース */

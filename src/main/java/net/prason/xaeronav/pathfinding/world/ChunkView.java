@@ -145,6 +145,7 @@ public final class ChunkView implements CellSource {
     private final boolean boatAvailable;
     private final boolean ridingBoat;
     private final MinecartState minecart;
+    private final MountState mount;
     private final double minDescentTicksPerBlock;
 
     /**
@@ -175,7 +176,7 @@ public final class ChunkView implements CellSource {
                       ItemStack[] hotbar, int[] hotbarEfficiency, MovementOptions options, boolean canPlaceBlocks,
                       int placedBlockBudget, int maxFallDamagePoints, int fatalFallBlocks,
                       boolean canMlgWaterBucket, boolean boatAvailable, boolean ridingBoat,
-                      MinecartState minecart, boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
+                      MinecartState minecart, MountState mount, boolean deepFallPossible, double minDescentTicksPerBlock, int minBuildHeight,
                       int maxBuildHeight, int minSection, boolean cacheCells) {
         this.deepFallPossible = deepFallPossible;
         this.chunks = chunks;
@@ -192,6 +193,7 @@ public final class ChunkView implements CellSource {
         this.boatAvailable = boatAvailable;
         this.ridingBoat = ridingBoat;
         this.minecart = minecart;
+        this.mount = mount;
         this.minDescentTicksPerBlock = minDescentTicksPerBlock;
         this.minBuildHeight = minBuildHeight;
         this.maxBuildHeight = maxBuildHeight;
@@ -473,7 +475,7 @@ public final class ChunkView implements CellSource {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
                 canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
-                minecart(level, player, bounds), deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
+                minecart(level, player, bounds), mount(player), deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
                 GameCompat.maxBuildHeight(level), GameCompat.minSection(level), true);
     }
 
@@ -530,7 +532,7 @@ public final class ChunkView implements CellSource {
         }
         return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
                 options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, deepFallPossible, minDescentTicksPerBlock,
+                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, mount, deepFallPossible, minDescentTicksPerBlock,
                 minBuildHeight, maxBuildHeight, minSection, true);
     }
 
@@ -545,10 +547,11 @@ public final class ChunkView implements CellSource {
         for (int slot = 0; slot < hotbar.length; slot++) {
             copiedHotbar[slot] = hotbar[slot].copy();
         }
-        // 航法グラフは乗車を持たない（1手が{@code MoveTable}の相対座標の幅を超えるうえ、乗る点ごとの模擬が窓全体に掛かる）
+        // 航法グラフは乗車を持たない（1手が{@code MoveTable}の相対座標の幅を超えるうえ、乗る点ごとの模擬が窓全体に掛かる）。
+        // 乗り物も持たない——グラフは徒歩で組み、乗り物の分まで持つとメモリが倍になる
         return new ChunkView(chunks, totalChunksInBounds, bounds, copiedHotbar, hotbarEfficiency.clone(),
                 options, canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, MinecartState.UNAVAILABLE, deepFallPossible,
+                canMlgWaterBucket, boatAvailable, ridingBoat, MinecartState.UNAVAILABLE, MountState.NONE, deepFallPossible,
                 minDescentTicksPerBlock, minBuildHeight, maxBuildHeight, minSection, false);
     }
 
@@ -562,7 +565,7 @@ public final class ChunkView implements CellSource {
     public ChunkView withoutDigging() {
         return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency,
                 options.withoutDigging(), canPlaceBlocks, placedBlockBudget, maxFallDamagePoints, fatalFallBlocks,
-                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, deepFallPossible, minDescentTicksPerBlock,
+                canMlgWaterBucket, boatAvailable, ridingBoat, minecart, mount, deepFallPossible, minDescentTicksPerBlock,
                 minBuildHeight, maxBuildHeight, minSection, true);
     }
 
@@ -675,6 +678,11 @@ public final class ChunkView implements CellSource {
     @Override
     public boolean ridingBoat() {
         return ridingBoat;
+    }
+
+    @Override
+    public MountState mount() {
+        return mount;
     }
 
     @Override

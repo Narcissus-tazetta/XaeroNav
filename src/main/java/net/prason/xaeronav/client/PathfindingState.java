@@ -20,6 +20,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -1252,6 +1253,19 @@ public final class PathfindingState {
     }
 
     /**
+     * 探索の始点。馬の仲間・ラクダに乗っていれば、乗り物の中心に一番近い2×2の足場の角
+     * （{@code MountMoves}がノードの座標にする角）。探索はこの角を最初に試す。
+     */
+    private BlockPos searchStart(Player player) {
+        Entity vehicle = player.getVehicle();
+        if (vehicle == null || !mount.walks()) {
+            return player.blockPosition();
+        }
+        return new BlockPos((int) Math.round(vehicle.getX()) - 1, player.blockPosition().getY(),
+                (int) Math.round(vehicle.getZ()) - 1);
+    }
+
+    /**
      * 乗り物に乗った・降りた・鞍を付けた等で前提が変わったら全部引き直す。引き直したら{@code true}。
      *
      * <p>新しい経路が届くまでは古い線を出したままにする。消すと探索の間だけ案内が空になる。
@@ -1728,7 +1742,7 @@ public final class PathfindingState {
             return;
         }
 
-        BlockPos start = player.blockPosition();
+        BlockPos start = searchStart(player);
         lastStart = start;
         boolean boatAvailable = ChunkView.boatAvailable(player);
 

@@ -88,6 +88,10 @@ public final class PathSafetyChecker {
     }
 
     private static boolean headUnderwater(CellSource view, PathStep step) {
+        // 乗り手の頭は乗り物の上にあり、乗り物の目が浸かる足場はそもそも経路に入らない
+        if (step.movement() == MovementType.MOUNT) {
+            return false;
+        }
         BlockPos pos = step.pos();
         return CellData.water(view.cell(pos.getX(), pos.getY() + 1, pos.getZ()));
     }

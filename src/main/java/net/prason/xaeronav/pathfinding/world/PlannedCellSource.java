@@ -167,6 +167,11 @@ public final class PlannedCellSource implements CellSource {
     }
 
     @Override
+    public MountState mount() {
+        return source.mount();
+    }
+
+    @Override
     public int openSkyY(int x, int z) {
         return source.openSkyY(x, z);
     }

@@ -1,0 +1,211 @@
+package net.prason.xaeronav.pathfinding.astar;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import org.junit.jupiter.api.Test;
+
+import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.world.FakeCells;
+import net.prason.xaeronav.pathfinding.world.MountState;
+import net.prason.xaeronav.pathfinding.world.SearchBounds;
+
+/** 馬の仲間・ラクダに乗ったままで通れる道。 */
+class MountRoutesTest {
+
+    private static final int Y = 64;
+    private static final int MIN_X = -10;
+    private static final int MAX_X = 30;
+    private static final int MIN_Z = -10;
+    private static final int MAX_Z = 10;
+
+    private static final MountState HORSE = new MountState(MountState.Kind.HORSE, 0.225, 0.5);
+    private static final MountState JUMPER = new MountState(MountState.Kind.HORSE, 0.225, 1.0);
+    private static final MountState CAMEL = new MountState(MountState.Kind.CAMEL, 0.09, 0.42);
+
+    /** 岩盤の平らな床（上に立つ高さが{@link #Y}）。 */
+    private static FakeCells flat() {
+        FakeCells cells = FakeCells.empty(new SearchBounds(MIN_X, Y - 20, MIN_Z, MAX_X, Y + 20, MAX_Z));
+        for (int x = MIN_X; x <= MAX_X; x++) {
+            for (int z = MIN_Z; z <= MAX_Z; z++) {
+                cells.set(x, Y - 1, z, FakeCells.BEDROCK);
+            }
+        }
+        return cells;
+    }
+
+    /** {@code x}に全幅の岩盤の壁を立て、{@code z}の範囲だけ高さ{@code height}の口を空ける。 */
+    private static void wallWithOpening(FakeCells cells, int x, int fromZ, int toZ, int height) {
+        for (int z = MIN_Z; z <= MAX_Z; z++) {
+            for (int y = Y; y < Y + 8; y++) {
+                cells.set(x, y, z, FakeCells.BEDROCK);
+            }
+        }
+        opening(cells, x, fromZ, toZ, height);
+    }
+
+    private static void opening(FakeCells cells, int x, int fromZ, int toZ, int height) {
+        for (int z = fromZ; z <= toZ; z++) {
+            for (int y = Y; y < Y + height; y++) {
+                cells.set(x, y, z, FakeCells.AIR);
+            }
+        }
+    }
+
+    private static PathResult search(FakeCells cells, int fromX, int toX) {
+        return new AStarPathfinder(cells).search(new BlockPos(fromX, Y, 0), new BlockPos(toX, Y, 0), () -> false);
+    }
+
+    private static boolean passesCell(PathResult result, int x, int z) {
+        return result.steps().stream().flatMap(step -> step.bodyCells().stream())
+                .anyMatch(cell -> cell.getX() == x && cell.getZ() == z);
+    }
+
+    @Test
+    void horseTakesTheTwoWideOpeningAndWalkerTheNarrowOne() {
+        FakeCells cells = flat();
+        wallWithOpening(cells, 10, 0, 0, 3);
+        opening(cells, 10, 6, 7, 3);
+
+        PathResult walker = search(cells, 0, 20);
+        PathResult horse = search(cells.mount(HORSE), 0, 20);
+
+        assertTrue(walker.complete());
+        assertTrue(passesCell(walker, 10, 0), "徒歩は近い1マス幅を通る");
+        assertTrue(horse.complete());
+        assertFalse(passesCell(horse, 10, 0), "馬は1マス幅を通れない");
+        assertTrue(passesCell(horse, 10, 6) && passesCell(horse, 10, 7));
+        assertTrue(horse.steps().stream().allMatch(step -> step.movement() == MovementType.MOUNT));
+    }
+
+    @Test
+    void horseNeedsThreeBlocksOfHeadroom() {
+        FakeCells low = flat();
+        wallWithOpening(low, 10, -1, 0, 2);
+        FakeCells high = flat();
+        wallWithOpening(high, 10, -1, 0, 3);
+
+        assertTrue(search(low, 0, 20).complete(), "徒歩は高さ2で通れる");
+        assertFalse(search(low.mount(HORSE), 0, 20).complete(), "乗り手の目が天井に入る");
+        assertTrue(search(high.mount(HORSE), 0, 20).complete());
+    }
+
+    @Test
+    void camelNeedsFourBlocksOfHeadroom() {
+        FakeCells three = flat();
+        wallWithOpening(three, 10, -1, 0, 3);
+        FakeCells four = flat();
+        wallWithOpening(four, 10, -1, 0, 4);
+
+        assertFalse(search(three.mount(CAMEL), 0, 20).complete());
+        assertTrue(search(four.mount(CAMEL), 0, 20).complete());
+    }
+
+    /** {@code x}から先を{@code rise}段高い台地にする。 */
+    private static FakeCells ledge(int x, int rise) {
+        FakeCells cells = flat();
+        for (int cx = x; cx <= MAX_X; cx++) {
+            for (int z = MIN_Z; z <= MAX_Z; z++) {
+                for (int y = Y; y < Y + rise; y++) {
+                    cells.set(cx, y, z, FakeCells.BEDROCK);
+                }
+            }
+        }
+        return cells;
+    }
+
+    @Test
+    void jumpsOnlyAsHighAsItsJumpStrength() {
+        BlockPos start = new BlockPos(0, Y, 0);
+        BlockPos goal = new BlockPos(20, Y + 3, 0);
+
+        PathResult weak = new AStarPathfinder(ledge(10, 3).mount(HORSE)).search(start, goal, () -> false);
+        PathResult strong = new AStarPathfinder(ledge(10, 3).mount(JUMPER)).search(start, goal, () -> false);
+
+        assertFalse(weak.complete(), "跳躍力0.5は1.7マスまで");
+        assertTrue(strong.complete(), "跳躍力1.0は5マス以上届く");
+        assertTrue(strong.steps().stream().anyMatch(step -> step.pos().getY() == Y + 3 && step.cost() > 3 * 3.0));
+    }
+
+    @Test
+    void stepsUpOneBlockWithoutJumping() {
+        PathResult result = new AStarPathfinder(ledge(10, 1).mount(HORSE))
+                .search(new BlockPos(0, Y, 0), new BlockPos(20, Y + 1, 0), () -> false);
+
+        assertTrue(result.complete());
+    }
+
+    /** {@code x}から手前を{@code drop}段高い台地にして、そこから降りる。 */
+    private static PathResult dropDown(int drop, MountState mount) {
+        FakeCells cells = flat();
+        for (int x = MIN_X; x < 10; x++) {
+            for (int z = MIN_Z; z <= MAX_Z; z++) {
+                for (int y = Y; y < Y + drop; y++) {
+                    cells.set(x, y, z, FakeCells.BEDROCK);
+                }
+            }
+        }
+        cells.mount(mount);
+        return new AStarPathfinder(cells).search(new BlockPos(0, Y + drop, 0), new BlockPos(20, Y, 0), () -> false);
+    }
+
+    @Test
+    void fallsSixBlocksUnhurtButNotSeven() {
+        assertTrue(dropDown(6, HORSE).complete(), "馬は6マスまで無傷");
+        assertFalse(dropDown(7, HORSE).complete(), "7マスはダメージ1で、既定の許容量0を超える");
+        assertFalse(dropDown(6, MountState.NONE).complete(), "徒歩は3マスまで");
+    }
+
+    /** {@code x}から{@code width}列の川。{@code ford}が真なら{@code z=6..7}だけ浅瀬。 */
+    private static FakeCells river(int x, int width, int depth, boolean ford) {
+        FakeCells cells = flat();
+        for (int cx = x; cx < x + width; cx++) {
+            for (int z = MIN_Z; z <= MAX_Z; z++) {
+                int bottom = ford && (z == 6 || z == 7) ? Y - 1 : Y - depth;
+                for (int y = bottom; y < Y; y++) {
+                    cells.set(cx, y, z, FakeCells.WATER);
+                }
+                cells.set(cx, bottom - 1, z, FakeCells.BEDROCK);
+            }
+        }
+        return cells;
+    }
+
+    @Test
+    void avoidsWaterThatWouldDismountTheRider() {
+        FakeCells deep = river(10, 10, 3, false).jumpGapEnabled(false).mount(HORSE);
+        FakeCells forded = river(10, 10, 3, true).jumpGapEnabled(false).mount(HORSE);
+
+        assertFalse(search(deep, 0, 25).complete());
+        PathResult result = search(forded, 0, 25);
+        assertTrue(result.complete());
+        assertTrue(passesCell(result, 14, 6), "浅瀬を渡る");
+    }
+
+    /** {@code x}から{@code width}列の深い谷（底まで10マス）。 */
+    private static FakeCells ravine(int x, int width) {
+        FakeCells cells = flat();
+        for (int cx = x; cx < x + width; cx++) {
+            for (int z = MIN_Z; z <= MAX_Z; z++) {
+                cells.set(cx, Y - 1, z, FakeCells.AIR);
+                cells.set(cx, Y - 11, z, FakeCells.BEDROCK);
+            }
+        }
+        return cells;
+    }
+
+    @Test
+    void jumpsAThreeWideRavine() {
+        PathResult result = search(ravine(10, 3).mount(HORSE), 0, 20);
+
+        assertTrue(result.complete());
+        assertTrue(result.steps().stream().allMatch(step -> step.pos().getY() == Y), "谷へ降りずに跳び越える");
+    }
+
+    @Test
+    void doesNotJumpWhenJumpingIsDisabled() {
+        PathResult result = search(ravine(10, 3).jumpGapEnabled(false).mount(HORSE), 0, 20);
+
+        assertFalse(result.complete(), "底まで10マスはダメージ2で降りられず、跳ぶほかに渡れない");
+    }
+}

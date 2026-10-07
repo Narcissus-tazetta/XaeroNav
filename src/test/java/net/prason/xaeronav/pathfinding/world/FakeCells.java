@@ -119,6 +119,7 @@ public final class FakeCells implements CellSource {
     private boolean ridingBoat;
     private final Long2IntOpenHashMap tracks = new Long2IntOpenHashMap();
     private MinecartState minecart = MinecartState.UNAVAILABLE;
+    private MountState mount = MountState.NONE;
     /** 書かれていない座標の既定。空虚（passableEmpty）にしておくと、床を書いた行だけが地形になる。 */
     private long fill = air();
     /**
@@ -279,6 +280,11 @@ public final class FakeCells implements CellSource {
 
     public FakeCells minecart(MinecartState value) {
         this.minecart = value;
+        return this;
+    }
+
+    public FakeCells mount(MountState value) {
+        this.mount = value;
         return this;
     }
 
@@ -475,6 +481,11 @@ public final class FakeCells implements CellSource {
     @Override
     public MinecartState minecart() {
         return minecart;
+    }
+
+    @Override
+    public MountState mount() {
+        return mount;
     }
 
     /**

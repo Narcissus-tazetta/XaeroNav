@@ -221,6 +221,19 @@ final class PathValidator {
         return !CellData.occupiableWithoutDigging(flags) && !CellData.openable(flags);
     }
 
+    /** 読めない列があれば立てるものとみなす（他の門番と同じく、読めない所では落とさない）。 */
+    private static boolean mountFooting(Level level, BlockPos pos, BlockPos.MutableBlockPos cursor) {
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dz = 0; dz <= 1; dz++) {
+                cursor.set(pos.getX() + dx, pos.getY() - 1, pos.getZ() + dz);
+                if (!readable(level, cursor) || CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static CellFailure cellFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
                                            Set<BlockPos> plannedDigs, Predicate<BlockPos> pendingPlacement) {
         BlockPos pos = step.pos();
@@ -245,6 +258,13 @@ final class PathValidator {
             // 梯子・ツタの区間も足場ではなく掴めるもの自体が前提
             if (!CellData.climbable(CellData.flagsOf(level.getBlockState(pos)))) {
                 return new CellFailure(pos, "step %d (%s): nothing to climb pos=%s"
+                        .formatted(i, step.movement(), pos.toShortString()));
+            }
+        } else if (step.movement() == MovementType.MOUNT) {
+            // 乗り物の足場は2×2で、4列のどれかに床があれば立てる
+            if (!mountFooting(level, pos, cursor)) {
+                BlockPos footing = pos.below();
+                return new CellFailure(footing, "step %d (%s): no footing under the mount pos=%s"
                         .formatted(i, step.movement(), pos.toShortString()));
             }
         } else if (!step.bridging()) {

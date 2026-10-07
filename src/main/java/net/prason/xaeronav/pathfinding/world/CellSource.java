@@ -226,6 +226,11 @@ public interface CellSource {
         return MinecartState.UNAVAILABLE;
     }
 
+    /** いま乗っている操れる乗り物。探索の始点を乗ったままの状態にする（{@link MountState}）。 */
+    default MountState mount() {
+        return MountState.NONE;
+    }
+
     /**
      * この列で頭上に何も無くなる最小のY。{@code y >= openSkyY(x, z)}なら、そのセルは空の下にある。
      *
