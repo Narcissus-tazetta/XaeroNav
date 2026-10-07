@@ -83,7 +83,7 @@ class CartRidePathTest {
 
     @Test
     void ridesOnWithoutBoardingAgainWhenAlreadyInACart() {
-        FakeCells cells = line(250, 8).minecart(new MinecartState(true, true, 100, Y, 0, 2.0, 1.0, 0.0, LongSets.EMPTY_SET));
+        FakeCells cells = line(250, 8).minecart(new MinecartState(true, true, 100, Y, 0, 2.0, 1.0, 0.0, LongSets.EMPTY_SET, true));
 
         PathResult result = search(cells, 100, 249);
 
