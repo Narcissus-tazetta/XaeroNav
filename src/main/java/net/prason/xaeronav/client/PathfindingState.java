@@ -826,6 +826,12 @@ public final class PathfindingState {
         return preview.from().equals(currentGoal) || preview.to().equals(legRequested) ? preview.result() : null;
     }
 
+    /** {@link #legPreviewPath}の始点。経路が無いときは{@code null}。 */
+    public @Nullable BlockPos legPreviewFrom() {
+        LegPreview.Preview preview = legPreview.preview();
+        return preview == null ? null : preview.from();
+    }
+
     /** 地図に描く、今の目的地より先の区間の折れ線（{@link LegPreview#mapLegs}）。 */
     List<List<BlockPos>> laterLegsForMap() {
         return goal == null || arrived ? List.of() : legPreview.mapLegs();

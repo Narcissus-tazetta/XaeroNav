@@ -60,28 +60,31 @@ public abstract class WaypointReaderMixin implements XaeroHookMarker {
                 }
             });
         }
-        original.add(new RightClickOption("gui.xaeronav_add_stop", original.size(), target) {
-            @Override
-            public boolean isActive() {
-                return element.isyIncluded() && PathfindingState.INSTANCE.goal() != null;
-            }
+        // 案内を始める前から並べると、ただ「ここへ案内」を押したいときに邪魔になる。メニューは右クリックのたびに組み直される
+        if (PathfindingState.INSTANCE.goal() != null) {
+            original.add(new RightClickOption("gui.xaeronav_add_stop", original.size(), target) {
+                @Override
+                public boolean isActive() {
+                    return element.isyIncluded() && PathfindingState.INSTANCE.goal() != null;
+                }
 
-            @Override
-            public void onAction(Screen screen) {
-                PathfindingState.INSTANCE.addStop(marker);
-            }
-        });
-        original.add(new RightClickOption("gui.xaeronav_append_stop", original.size(), target) {
-            @Override
-            public boolean isActive() {
-                return element.isyIncluded() && PathfindingState.INSTANCE.goal() != null;
-            }
+                @Override
+                public void onAction(Screen screen) {
+                    PathfindingState.INSTANCE.addStop(marker);
+                }
+            });
+            original.add(new RightClickOption("gui.xaeronav_append_stop", original.size(), target) {
+                @Override
+                public boolean isActive() {
+                    return element.isyIncluded() && PathfindingState.INSTANCE.goal() != null;
+                }
 
-            @Override
-            public void onAction(Screen screen) {
-                PathfindingState.INSTANCE.appendStop(marker);
-            }
-        });
+                @Override
+                public void onAction(Screen screen) {
+                    PathfindingState.INSTANCE.appendStop(marker);
+                }
+            });
+        }
         original.add(new RightClickOption("gui.xaeronav_clear_route", original.size(), target) {
             @Override
             public boolean isActive() {

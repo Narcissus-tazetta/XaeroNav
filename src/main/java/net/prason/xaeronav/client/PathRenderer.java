@@ -253,7 +253,10 @@ public final class PathRenderer {
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq, cameraInWater);
         }
         if (hasNextLeg) {
-            PathGeometry geometry = nextLegGeometryCache.get(nextLeg, r -> PathGeometry.build(mc.level, r, playerPos));
+            // 始点はプレイヤーではなく先の区間の始点（経由地）。プレイヤーにすると、経由地へ向かう余計な直線が
+            // プレイヤーから生える
+            BlockPos legStart = PathfindingState.INSTANCE.legPreviewFrom();
+            PathGeometry geometry = nextLegGeometryCache.get(nextLeg, r -> PathGeometry.build(mc.level, r, legStart));
             renderNextLeg(bufferSource, pose, geometry, cameraPos, cullRadiusSq);
         }
         if (hasFlight) {
