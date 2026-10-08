@@ -21,7 +21,7 @@ import xaero.map.gui.GuiMap;
 import xaero.map.gui.dropdown.rightclick.RightClickOption;
 
 /**
- * 世界地図の何もない場所を右クリックしたときのメニューに「ここへ経路探索」を足す。
+ * 世界地図の何もない場所を右クリックしたときのメニューに「ここへ経路探索」と経由地の項目を足す。
  * {@code GuiMap}自身が{@code IRightClickableElement}で、地図の背景を右クリックしたときだけ
  * この{@code getRightClickOptions}が呼ばれる（ウェイポイント上での右クリックは
  * {@link WaypointReaderMixin}側が受け持つ）。
@@ -87,9 +87,34 @@ public abstract class GuiMapRightClickMixin {
                 PathfindingState.INSTANCE.setGoal(new BlockPos(goalX, goalY, goalZ));
             }
         });
-        // 「ここへ経路探索」のすぐ下に置く。目的地が無い間は押しても意味が無いので灰色表示にする
+        BlockPos clicked = new BlockPos(goalX, goalY, goalZ);
+        // 経由地の項目と「案内を終了」は「ここへ経路探索」のすぐ下に置く。目的地が無い間は押しても意味が無いので灰色表示にする
         // （項目自体を消すとメニューの位置が探索中/未探索で変わってしまい押し間違えやすい）
-        int clearIndex = insertIndex + 1;
+        int addStopIndex = insertIndex + 1;
+        original.add(addStopIndex, new RightClickOption("gui.xaeronav_add_stop", addStopIndex, (GuiMap) (Object) this) {
+            @Override
+            public boolean isActive() {
+                return PathfindingState.INSTANCE.goal() != null;
+            }
+
+            @Override
+            public void onAction(Screen screen) {
+                PathfindingState.INSTANCE.addStop(clicked);
+            }
+        });
+        int appendIndex = insertIndex + 2;
+        original.add(appendIndex, new RightClickOption("gui.xaeronav_append_stop", appendIndex, (GuiMap) (Object) this) {
+            @Override
+            public boolean isActive() {
+                return PathfindingState.INSTANCE.goal() != null;
+            }
+
+            @Override
+            public void onAction(Screen screen) {
+                PathfindingState.INSTANCE.appendStop(clicked);
+            }
+        });
+        int clearIndex = insertIndex + 3;
         original.add(clearIndex, new RightClickOption("gui.xaeronav_clear_route", clearIndex, (GuiMap) (Object) this) {
             @Override
             public boolean isActive() {

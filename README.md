@@ -204,11 +204,31 @@ own pin on the world map, which keeps the same on-screen size however far you zo
 
 Clear the route with `/xaeronav clear` or its keybind.
 
+### Stops
+
+Once a destination is set, the right-click menus on the map and on waypoints let you add places to
+visit on the way (up to 10).
+
+| Option | What it does |
+|---|---|
+| Add as Stop | Keeps the destination and slots the stop in where it adds the least detour |
+| Add to End | Adds it after the current destination, which becomes a stop. Use it to visit places in the order you pick |
+| Remove This Stop | Shown when you right-click a stop's marker |
+
+Stops appear on the map as numbered light-blue markers, and the HUD shows which stop you are heading
+to. When you reach a stop, or reach a later one first, guidance moves on to the next point.
+"Route here" and "Clear Route" replace or clear the stops too. Stops are not saved and are gone
+when you leave the world.
+
 ### Commands
 
 | Command | What it does |
 |---|---|
 | `/xaeronav goto <x> <y> <z>` | Set the destination |
+| `/xaeronav via add <x> <y> <z>` | Add a stop (order picked automatically) |
+| `/xaeronav via append <x> <y> <z>` | Add a stop at the end |
+| `/xaeronav via list` | List the stops and the destination |
+| `/xaeronav via remove <number>` | Remove a stop |
 | `/xaeronav clear` | Clear the route |
 | `/xaeronav version` | Print the running build (include this in bug reports) |
 | `/xaeronav debug` | Print the current state for a bug report (versions, dimension, seed, position, destination, route, Xaero hooks, key settings); also copied to the clipboard and written to `latest.log` |
