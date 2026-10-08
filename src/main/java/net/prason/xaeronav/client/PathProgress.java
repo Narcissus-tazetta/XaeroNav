@@ -1,6 +1,7 @@
 package net.prason.xaeronav.client;
 
 import java.util.List;
+import java.util.function.IntUnaryOperator;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
@@ -78,18 +79,22 @@ final class PathProgress {
     }
 
     /**
-     * 末尾に区間を継ぎ足しただけの経路へ、対応づけをそのまま引き継ぐ。継ぎ足しは手前のステップの
-     * 添字を変えないので、いま指している位置はそのまま通用する。
+     * 組み替えた経路へ、対応づけを{@code newIndex}（組み替える前の添字→後の添字）で付け替えて引き継ぐ。
      *
      * <p>これを呼ばずに新しい{@link PathResult}を渡すと、{@link #update}が別経路とみなして
      * 添字を0に戻し、窓の外なので全体走査に落ちる。全体走査は経路が自分自身の近くを通る地形
      * （洞窟の折り返し階段）で遠くの区間へ飛び移る——先読みで経路が長くなるほど確率が上がる。
+     *
+     * <p><b>添字はそのままでは通用しない。</b>組み替えたあと{@code PathLoops#fold}が踏み直しを畳むと、
+     * 歩いている所より手前の手も消えうる。古い添字のままだと畳んだぶん先の手を指し、線が足元ではなく
+     * 先から描かれ、その手との距離で「経路から外れた」と判断して引き直していた。
      */
-    void carryOver(PathResult extended) {
+    void carryOver(PathResult extended, IntUnaryOperator newIndex) {
         if (source == null) {
             return;
         }
         source = extended;
+        index = Math.max(0, Math.min(extended.steps().size() - 1, newIndex.applyAsInt(index)));
     }
 
     /** 直近に測った経路までの距離（ブロック）。対応づけが無ければ{@link Double#MAX_VALUE}。 */

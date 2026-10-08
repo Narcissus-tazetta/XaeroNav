@@ -1191,6 +1191,12 @@ public final class PathfindingState {
                     > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
                 if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
                         && !splice.trySplice(mc.level, mc.player, shown, 0)) {
+                    int matched = PathProgress.INSTANCE.indexFor(result);
+                    LOGGER.debug("XaeroNav: off the path (player={}, matched step {}/{} at {}, distance {}, horizontal {})",
+                            mc.player.blockPosition().toShortString(), matched, result.steps().size(),
+                            result.steps().get(matched).pos().toShortString(),
+                            "%.1f".formatted(PathProgress.INSTANCE.distance()),
+                            "%.1f".formatted(PathProgress.INSTANCE.horizontalDistance()));
                     // 合流できない経路だけ、全部引き直す
                     recalculate("off path, could not splice");
                 }

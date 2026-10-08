@@ -436,8 +436,9 @@ final class SeamRepair {
         }
         PathResult combined = new PathResult(List.copyOf(folded.steps()), shown.result().termination(),
                 shown.result().expandedNodes(), shown.result().distinctNodes(), shown.result().limitsHeld());
-        // 差し替えたのは歩いた先だけなので、いま指している位置はそのまま通用する
-        PathProgress.INSTANCE.carryOver(combined);
+        int[] newIndex = folded.newIndex();
+        // 差し替えた区間の中にいたなら、差し替えた区間の頭へ寄せる
+        PathProgress.INSTANCE.carryOver(combined, old -> newIndex[old < from ? old : old > to ? old + shift : from]);
         return new PathfindingState.DisplayedPath(combined, shown.mode(), shown.waypointIndex(),
                 List.copyOf(segments));
     }

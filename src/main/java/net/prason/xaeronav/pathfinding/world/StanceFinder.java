@@ -46,7 +46,12 @@ public final class StanceFinder {
         return resolveStandingStart(view, start);
     }
 
-    /** 歩いて立つ始点。乗っていても乗ったままでは立てないときに探索が使う。 */
+    /**
+     * 歩いて立つ始点。乗っていても乗ったままでは立てないときに探索が使う。
+     *
+     * <p>下ろすのは落ちて通り抜けられるセルが続く間だけ。ソウルサンドのような背の低いブロックの上では足の座標が
+     * そのブロックの中になり、床を突き抜けて探すと30ブロック下の空洞を始点にしていた。
+     */
     public static BlockPos resolveStandingStart(CellSource view, BlockPos start) {
         int x = start.getX();
         int z = start.getZ();
@@ -54,6 +59,9 @@ public final class StanceFinder {
             return start;
         }
         for (int dy = 1; dy <= VERTICAL_SEARCH; dy++) {
+            if (!CellData.occupiableWithoutDigging(view.cell(x, start.getY() - dy + 1, z))) {
+                break;
+            }
             if (isStance(view, x, start.getY() - dy, z)) {
                 return new BlockPos(x, start.getY() - dy, z);
             }

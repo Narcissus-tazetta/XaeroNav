@@ -54,6 +54,14 @@ public class RandomSweepBenchTest {
     private static final boolean LEARN = Boolean.parseBoolean(System.getProperty("xaeronav.sweepLearn", "true"));
     /** ネザーの窓の外の推定（3D粗層）に掛ける倍率。本番は{@code NavGraphGuide.VOXEL_FAR_SCALE}。 */
     private static final double FAR_SCALE = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
+    /**
+     * 0より大きければ、ネザーの3D粗層を「歩いた所からこの距離（ブロック）以内のチャンクだけ地図が持っている」状態で組む。
+     * 実機の地図は歩くうちに埋まり、組み直すたびに推定が下がる。0なら全チャンクを知っている。
+     */
+    private static final int MAP_REACH = Integer.getInteger("xaeronav.netherMapReach", 0);
+    /** {@link #MAP_REACH}のときに地図が持つ洞窟レイヤー。実機の地図は歩いた高さ帯の1枚だけのことが多い。 */
+    private static final int[] CAVE_LAYERS = java.util.Arrays.stream(
+            System.getProperty("xaeronav.netherCaveLayers", "5").split(",")).mapToInt(Integer::parseInt).toArray();
     private static final int ROUTES = Integer.getInteger("xaeronav.routes", 8);
     private static final boolean UNKNOWN_MAP = Boolean.getBoolean("xaeronav.unknownMap");
     private static final int MIN_BLOCKS = Integer.getInteger("xaeronav.sweepMin", 100);
@@ -111,11 +119,30 @@ public class RandomSweepBenchTest {
             log(out, String.format(Locale.ROOT, "# %s %s→%s 全視界の最適%.0f (%ds)", p[0], start.toShortString(),
                     goal.toShortString(), best, (System.currentTimeMillis() - began) / 1000));
             CoarseMap sampled = dim == Dim.NETHER ? null : LiveCoarseSampler.sample(cells, cells.bounds());
-            ProgressiveWalk.Trace trace = ProgressiveWalk.trace(cells, start, goal, WINDOW, ProgressiveWalk.Mode.REPAIR,
-                    ProgressiveWalk.Aim.GOAL, guide(cells, dim, start, goal, sampled, null), 1.0);
+            BlockPos resolvedStart = StanceFinder.resolveStart(cells, start);
+            BlockPos resolvedGoal = StanceFinder.resolveGoal(cells, goal);
+            LossBook book = TRUTH ? new LossBook(cells, resolvedStart, resolvedGoal) : null;
+            Function<BlockPos, CostToGo> guide = guide(cells, dim, resolvedStart, resolvedGoal, sampled, null);
+            ProgressiveWalk.Trace trace;
+            try {
+                trace = ProgressiveWalk.trace(cells, resolvedStart, resolvedGoal, WINDOW, ProgressiveWalk.Mode.REPAIR,
+                        ProgressiveWalk.Aim.GOAL, player -> {
+                            CostToGo g = guide.apply(player);
+                            if (book != null) {
+                                book.guide(g, player, g instanceof WindowField f
+                                        ? f.descend(player.getX(), player.getY(), player.getZ()) : null);
+                            }
+                            return g;
+                        }, 1.0);
+            } finally {
+                ProgressiveWalk.LEG_LISTENER = steps -> { };
+            }
             double cost = trace.steps().isEmpty() ? Double.POSITIVE_INFINITY : ProgressiveWalk.cost(trace.steps());
             log(out, String.format(Locale.ROOT, "  歩き通し 値段%.0f 最適比%.3f 後退%.0f 重複%d %s", cost, cost / best,
                     worstRetreat(trace.steps(), goal), ProgressiveWalk.selfOverlaps(trace.steps()), trace.stopped()));
+            if (book != null && !trace.steps().isEmpty()) {
+                log(out, book.report(resolvedStart, trace.steps()));
+            }
         }
     }
 
@@ -341,7 +368,20 @@ public class RandomSweepBenchTest {
         BlockPos[] last = {null};
         CostToGo[] cached = {null};
         LearnedFar learned = LEARN && dim == Dim.NETHER ? new LearnedFar() : null;
+        it.unimi.dsi.fastutil.longs.LongOpenHashSet known = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+        if (MAP_REACH > 0) {
+            // 前に歩いて地図が埋まっている所（{@code -Pxaeronav.netherMapSeen=x,z;x,z;...}）
+            for (String spec : System.getProperty("xaeronav.netherMapSeen", "").split(";")) {
+                if (!spec.isBlank()) {
+                    String[] v = spec.split(",");
+                    see(known, Integer.parseInt(v[0].trim()), Integer.parseInt(v[1].trim()));
+                }
+            }
+        }
         return player -> {
+            if (MAP_REACH > 0) {
+                see(known, player.getX(), player.getZ());
+            }
             if (last[0] != null && Math.max(Math.abs(player.getX() - last[0].getX()),
                     Math.abs(player.getZ() - last[0].getZ())) < 8) {
                 return cached[0];
@@ -349,7 +389,8 @@ public class RandomSweepBenchTest {
             FarField far = fixedFar;
             if (dim == Dim.NETHER) {
                 if (voxelAt[0] == null || Math.hypot(player.getX() - voxelAt[0].getX(), player.getZ() - voxelAt[0].getZ()) >= 128) {
-                    voxel[0] = XaeroMapModel.guide(cells, player, goal, 0, 127, 1.0, 0L);
+                    voxel[0] = MAP_REACH > 0 ? XaeroMapModel.guide(cells, player, goal, 0, 127, CAVE_LAYERS, known::contains)
+                            : XaeroMapModel.guide(cells, player, goal, 0, 127, 1.0, 0L);
                     voxelAt[0] = player;
                 }
                 CostToGo current = voxel[0];
@@ -579,6 +620,15 @@ public class RandomSweepBenchTest {
                 cells.setColumn(x, z, java.util.Arrays.copyOf(runs, n));
             }
             return cells;
+        }
+    }
+
+    private static void see(it.unimi.dsi.fastutil.longs.LongOpenHashSet known, int x, int z) {
+        int reach = MAP_REACH >> 4;
+        for (int cx = (x >> 4) - reach; cx <= (x >> 4) + reach; cx++) {
+            for (int cz = (z >> 4) - reach; cz <= (z >> 4) + reach; cz++) {
+                known.add(((long) cx << 32) | (cz & 0xFFFFFFFFL));
+            }
         }
     }
 
