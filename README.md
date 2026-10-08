@@ -216,7 +216,8 @@ visit on the way (up to 10).
 | Remove This Stop | Shown when you right-click a stop's marker |
 
 Stops appear on the map as numbered light-blue markers, and the HUD shows which stop you are heading
-to. When you reach a stop, or reach a later one first, guidance moves on to the next point.
+to. The map shows the way on through every stop to the destination, and once the route reaches the
+next stop, the path beyond it appears in the world too, so the line carries on past the stop. When you reach a stop, or reach a later one first, guidance moves on to the next point.
 "Route here" and "Clear Route" replace or clear the stops too. Stops are not saved and are gone
 when you leave the world.
 
