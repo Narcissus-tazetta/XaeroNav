@@ -76,6 +76,10 @@ public final class NavHud {
         colors.clear();
         PathResult result = view.currentResult();
         PathfindingState.StuckReason stuck = view.stuckReason();
+        PathfindingState.StopProgress stop = PathfindingState.INSTANCE.stopProgress();
+        if (stop != null && !view.arrived()) {
+            add(TextCompat.translatable("hud.xaeronav.via_progress", stop.index(), stop.total()), SECONDARY_COLOR);
+        }
         if (view.arrived()) {
             add(TextCompat.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
         } else if (view.flying() && view.skyPillar() != null) {

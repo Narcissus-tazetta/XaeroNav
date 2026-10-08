@@ -156,6 +156,7 @@ public final class PathRenderer {
     private static final float STRAIGHT_OCCLUDED_ALPHA = 0.3f;
 
     private final PathCache<PathGeometry> geometryCache = new PathCache<>();
+    private final PathCache<PathGeometry> nextLegGeometryCache = new PathCache<>();
 
     // 筒の断面4頂点。区間ごとに作り直さず使い回す（描画スレッド専用）。
     private final double[] ringX = new double[4];
@@ -211,6 +212,8 @@ public final class PathRenderer {
         BlockPos goal = view.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
         boolean hasFlight = !flight.isEmpty();
+        PathResult nextLeg = PathfindingState.INSTANCE.legPreviewPath();
+        boolean hasNextLeg = nextLeg != null && !nextLeg.steps().isEmpty();
         boolean arrived = view.arrived();
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
         // 同じなので、目的地が足元より下にあると、着いた瞬間から真下へ向かう点線が残ってしまう
@@ -218,7 +221,7 @@ public final class PathRenderer {
         // 柱を出している間は点線を引かない。降りる地点は柱が示し、点線は地平線の手前で途切れるだけになる
         boolean hasStraight = pillar == null && goal != null && !arrived
                 && XaeroNavConfig.INSTANCE.straightLineEnabled();
-        if (!hasGround && !hasFlight && !hasStraight && pillar == null) {
+        if (!hasGround && !hasFlight && !hasStraight && pillar == null && !hasNextLeg) {
             return;
         }
 
@@ -248,6 +251,13 @@ public final class PathRenderer {
         if (hasGround) {
             current = geometryCache.get(groundResult, r -> PathGeometry.build(mc.level, r, playerPos));
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq, cameraInWater);
+        }
+        if (hasNextLeg) {
+            // 始点はプレイヤーではなく先の区間の始点（経由地）。プレイヤーにすると、経由地へ向かう余計な直線が
+            // プレイヤーから生える
+            BlockPos legStart = PathfindingState.INSTANCE.legPreviewFrom();
+            PathGeometry geometry = nextLegGeometryCache.get(nextLeg, r -> PathGeometry.build(mc.level, r, legStart));
+            renderNextLeg(bufferSource, pose, geometry, cameraPos, cullRadiusSq);
         }
         if (hasFlight) {
             renderFlightRoute(bufferSource, pose, flight, cullRadius, cameraPos);
@@ -527,6 +537,38 @@ public final class PathRenderer {
                     continue;
                 }
                 drawHighlightOutline(lineBuffer, pose, geometry, i);
+            }
+            bufferSource.endBatch(NavRenderTypes.LINES);
+        }
+    }
+
+    /**
+     * 経由地の先の区間を、先に解いておいた経路で描く（{@link PathfindingState#legPreviewPath}）。今の経路と同じ見た目に
+     * して、経由地で線が途切れずに続いて見えるようにする。まだ歩いていない経路なので、通り過ぎた区間の切り詰めと
+     * ボートの枠は扱わない。
+     */
+    private void renderNextLeg(MultiBufferSource.BufferSource bufferSource, PoseStack.Pose pose,
+                               PathGeometry geometry, Vec3 camera, double cullRadiusSq) {
+        VertexConsumer quadBuffer = bufferSource.getBuffer(NavRenderTypes.DEBUG_QUADS);
+        for (int i = 0; i < geometry.segmentCount(); i++) {
+            if (segmentVisible(geometry, i, camera, cullRadiusSq)) {
+                drawSegment(quadBuffer, pose, geometry, i, TUBE_ALPHA, false, false, camera);
+            }
+        }
+        int visibleHighlights = 0;
+        for (int i = 0; i < geometry.highlightCount(); i++) {
+            if (highlightVisible(geometry, i, 0, camera, cullRadiusSq)) {
+                visibleHighlights++;
+                drawHighlightBox(quadBuffer, pose, geometry, i, HIGHLIGHT_FILL_ALPHA);
+            }
+        }
+        bufferSource.endBatch(NavRenderTypes.DEBUG_QUADS);
+        if (visibleHighlights > 0) {
+            VertexConsumer lineBuffer = bufferSource.getBuffer(NavRenderTypes.LINES);
+            for (int i = 0; i < geometry.highlightCount(); i++) {
+                if (highlightVisible(geometry, i, 0, camera, cullRadiusSq)) {
+                    drawHighlightOutline(lineBuffer, pose, geometry, i);
+                }
             }
             bufferSource.endBatch(NavRenderTypes.LINES);
         }

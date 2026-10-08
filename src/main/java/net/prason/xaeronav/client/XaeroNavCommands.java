@@ -7,6 +7,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 import com.mojang.brigadier.arguments.ArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -99,6 +100,22 @@ public final class XaeroNavCommands {
                                     }
                                     return 1;
                                 })))
+                .then(XaeroNavCommands.<S>literal("via")
+                        .then(XaeroNavCommands.<S>literal("add")
+                                .then(XaeroNavCommands.<S, Coordinates>argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> reportStop(sink.apply(ctx),
+                                                PathfindingState.INSTANCE.addStop(blockPos.read(ctx, "pos"))))))
+                        .then(XaeroNavCommands.<S>literal("append")
+                                .then(XaeroNavCommands.<S, Coordinates>argument("pos", BlockPosArgument.blockPos())
+                                        .executes(ctx -> reportStop(sink.apply(ctx),
+                                                PathfindingState.INSTANCE.appendStop(blockPos.read(ctx, "pos"))))))
+                        .then(XaeroNavCommands.<S>literal("list")
+                                .executes(ctx -> listStops(sink.apply(ctx))))
+                        .then(XaeroNavCommands.<S>literal("remove")
+                                .then(XaeroNavCommands.<S, Integer>argument("number",
+                                                IntegerArgumentType.integer(1, RouteStops.MAX_STOPS))
+                                        .executes(ctx -> removeStop(sink.apply(ctx),
+                                                IntegerArgumentType.getInteger(ctx, "number"))))))
                 .then(XaeroNavCommands.<S>literal("clear")
                         .executes(ctx -> {
                             PathfindingState.INSTANCE.clear();
@@ -118,6 +135,45 @@ public final class XaeroNavCommands {
                         })
                         .then(XaeroNavCommands.<S>literal("probe")
                                 .executes(ctx -> reportProbe(sink.apply(ctx)))));
+    }
+
+    private static int reportStop(NavCommandSink out, PathfindingState.StopResult result) {
+        switch (result) {
+            case STARTED -> out.success(TextCompat.translatable("commands.xaeronav.goal_walk",
+                    PathfindingState.INSTANCE.goal().toShortString()));
+            case ADDED -> listStops(out);
+            // 上限に当たったことはPathfindingStateがチャットへ出している
+            case FULL, NO_WORLD -> {
+            }
+        }
+        return result == PathfindingState.StopResult.STARTED || result == PathfindingState.StopResult.ADDED ? 1 : 0;
+    }
+
+    private static int listStops(NavCommandSink out) {
+        BlockPos finalGoal = PathfindingState.INSTANCE.finalGoal();
+        if (finalGoal == null) {
+            out.failure(TextCompat.translatable("commands.xaeronav.probe_no_goal"));
+            return 0;
+        }
+        List<BlockPos> stops = PathfindingState.INSTANCE.stopsInOrder();
+        if (stops.isEmpty()) {
+            out.success(TextCompat.translatable("commands.xaeronav.stops_none"));
+        }
+        for (int i = 0; i < stops.size(); i++) {
+            out.success(TextCompat.translatable("commands.xaeronav.stop_entry", i + 1, stops.get(i).toShortString()));
+        }
+        out.success(TextCompat.translatable("commands.xaeronav.stop_final", finalGoal.toShortString()));
+        return 1;
+    }
+
+    private static int removeStop(NavCommandSink out, int number) {
+        List<BlockPos> stops = PathfindingState.INSTANCE.stopsInOrder();
+        if (number > stops.size()) {
+            out.failure(TextCompat.translatable("commands.xaeronav.stop_not_found", number));
+            return 0;
+        }
+        PathfindingState.INSTANCE.removeStop(stops.get(number - 1));
+        return listStops(out);
     }
 
     /**

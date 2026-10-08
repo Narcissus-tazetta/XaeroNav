@@ -96,16 +96,27 @@ public final class MapPathOverlay {
      */
     public record Snapshot(PathResult ground, BlockPos goal, boolean straightLine, boolean goalMarker,
                             BlockPos playerPos, List<BlockPos> coarseWaypoints, List<Vec3> flightRoute,
-                            int flightRouteFrom, List<Vec3> flightDash) {
+                            int flightRouteFrom, List<Vec3> flightDash, PathResult nextLeg, boolean nextLegContinues,
+                            List<List<BlockPos>> laterLegs) {
 
         public Snapshot {
+            laterLegs = List.copyOf(laterLegs);
             coarseWaypoints = List.copyOf(coarseWaypoints);
             flightRoute = List.copyOf(flightRoute);
             flightDash = List.copyOf(flightDash);
         }
 
+        /** 経由地の無い案内。 */
+        public Snapshot(PathResult ground, BlockPos goal, boolean straightLine, boolean goalMarker, BlockPos playerPos,
+                        List<BlockPos> coarseWaypoints, List<Vec3> flightRoute, int flightRouteFrom,
+                        List<Vec3> flightDash) {
+            this(ground, goal, straightLine, goalMarker, playerPos, coarseWaypoints, flightRoute, flightRouteFrom,
+                    flightDash, null, false, List.of());
+        }
+
         public boolean isEmpty() {
-            return ground == null && goal == null && coarseWaypoints.isEmpty() && flightRoute.isEmpty();
+            return ground == null && goal == null && coarseWaypoints.isEmpty() && flightRoute.isEmpty()
+                    && nextLeg == null && laterLegs.isEmpty();
         }
     }
 
@@ -117,7 +128,8 @@ public final class MapPathOverlay {
         XaeroHookHealth.hookRan();
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
-            return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of());
+            return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of(), null, false,
+                    List.of());
         }
         return PathfindingState.INSTANCE.mapOverlaySnapshot(player.blockPosition());
     }
@@ -217,9 +229,43 @@ public final class MapPathOverlay {
             straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ(), PathColors.STRAIGHT);
         }
 
+        drawLaterLegs(sink, snapshot);
+
         // 目印は最後。経路や点線と重なる位置に来るので、後から置いて上に乗せる
         if (goal != null && snapshot.goalMarker()) {
             drawGoalMarker(sink, goal, pixelsPerBlock);
+        }
+    }
+
+    /**
+     * 経由地より先の区間。先に解いておいた詳細経路があればそれを、残りは区間ごとの長距離ルートを点線で結ぶ。
+     * 今の区間と同じ描き方にして、経由地で線が途切れずに最終目的地まで続いて見えるようにする。
+     */
+    private static void drawLaterLegs(QuadSink sink, Snapshot snapshot) {
+        MapDots next = snapshot.nextLeg() == null || snapshot.nextLeg().steps().isEmpty()
+                ? null : MapDots.forPath(snapshot.nextLeg());
+        if (next != null) {
+            for (int i = 0; i < next.count; i++) {
+                sink.dot(next.x[i], next.z[i], next.color[i * 3], next.color[i * 3 + 1], next.color[i * 3 + 2]);
+            }
+        }
+        List<List<BlockPos>> legs = snapshot.laterLegs();
+        for (int leg = 0; leg < legs.size(); leg++) {
+            List<BlockPos> line = legs.get(leg);
+            int previousX = line.get(0).getX();
+            int previousZ = line.get(0).getZ();
+            int first = 1;
+            if (leg == 0 && next != null && snapshot.nextLegContinues() && next.count > 0) {
+                previousX = next.x[next.count - 1];
+                previousZ = next.z[next.count - 1];
+                first = Math.max(1, firstAheadWaypoint(line, previousX, previousZ));
+            }
+            for (int i = first; i < line.size(); i++) {
+                BlockPos point = line.get(i);
+                straightDots(sink, previousX, previousZ, point.getX(), point.getZ(), PathColors.COARSE_ROUTE);
+                previousX = point.getX();
+                previousZ = point.getZ();
+            }
         }
     }
 

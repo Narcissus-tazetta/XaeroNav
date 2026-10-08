@@ -79,6 +79,8 @@ public final class PathfindingState {
 
     /** 到着表示を出しておく長さ（tick）。過ぎたら目的地ごと片付ける。 */
     private static final int ARRIVAL_DISPLAY_TICKS = 100;
+    // 先の経由地は高さを寄せる前の座標（地図の高さ＝樹冠や屋根の上のことがある）なので、通り過ぎの判定は上下を広めに見る
+    private static final int PASSED_STOP_EXTRA_HEIGHT = 5;
 
     /** 経路から外れたときの再計算の下限間隔（tick）。外れている間ずっと探索を投げ続けないための頭打ち。 */
     private static final int MIN_RECALC_INTERVAL_TICKS = 10;
@@ -297,6 +299,10 @@ public final class PathfindingState {
     private final ExecutorService coarseExecutor = DaemonThreads.singleThread("xaeronav-coarse-route");
     // 滑空中の案内。目的地と「いま滑空しているか」はこちらが持ち、その目的地への空中経路だけを
     // 向こうが持つ。非同期結果の鮮度はstillFlyingToで問い合わせてもらう
+    private final RouteStops stops = new RouteStops();
+    private final LegPreview legPreview;
+    /** 今の区間の終点として指定された座標（立てる高さへ寄せる前）。 */
+    private @Nullable BlockPos legRequested;
     private final FlightNavState flight = new FlightNavState(this::stillFlyingTo, this::publishNavigationView);
     /** 空の下を滑空している間の柱と矢印の案内。クライアントスレッド専用。 */
     private final SkyGuide sky = new SkyGuide();
@@ -476,6 +482,7 @@ public final class PathfindingState {
 
     PathfindingState(Consumer<Runnable> onMainThread) {
         this.onMainThread = onMainThread;
+        this.legPreview = new LegPreview(onMainThread);
         this.generationGate = new GenerationGate(generation, onMainThread);
         this.seamRepair = new SeamRepair(executor, generation, generationGate, this::publishNavigationView,
                 new SeamRepair.Host() {
@@ -679,18 +686,183 @@ public final class PathfindingState {
     }
 
     /**
-     * 目的地を設定する。
+     * 目的地を設定する。経由地も含めて置き換える。
      *
      * @return 実際に採用した、立てる高さへ解決済みの目的地。ワールドが無ければ {@code null}
      */
     public @Nullable BlockPos setGoal(BlockPos goal) {
+        if (Minecraft.getInstance().level == null) {
+            return null;
+        }
+        stops.clear();
+        return beginLeg(goal);
+    }
+
+    /** 経由地を最終目的地は変えずに、寄り道が一番短くなる位置へ差し込む。目的地が無ければ目的地にする。 */
+    public StopResult addStop(BlockPos pos) {
+        BlockPos current = goal;
+        Player player = Minecraft.getInstance().player;
+        if (current == null || player == null) {
+            return setGoal(pos) != null ? StopResult.STARTED : StopResult.NO_WORLD;
+        }
+        if (refuseWhenFull(player)) {
+            return StopResult.FULL;
+        }
+        List<BlockPos> route = new ArrayList<>(stops.remainingStops() + 1);
+        route.add(legRequested);
+        route.addAll(stops.ahead());
+        int index = RouteStops.cheapestInsertion(player.blockPosition(), route, pos);
+        if (index == 0) {
+            stops.insert(0, legRequested);
+            beginLeg(pos);
+        } else {
+            stops.insert(index - 1, pos);
+        }
+        return StopResult.ADDED;
+    }
+
+    /** 今の最終目的地の先へ足す（今の最終目的地は経由地になる）。目的地が無ければ目的地にする。 */
+    public StopResult appendStop(BlockPos pos) {
+        Player player = Minecraft.getInstance().player;
+        if (goal == null || player == null) {
+            return setGoal(pos) != null ? StopResult.STARTED : StopResult.NO_WORLD;
+        }
+        if (refuseWhenFull(player)) {
+            return StopResult.FULL;
+        }
+        stops.append(pos);
+        return StopResult.ADDED;
+    }
+
+    private boolean refuseWhenFull(Player player) {
+        if (!stops.full()) {
+            return false;
+        }
+        GameCompat.tell(player, TextCompat.translatable("commands.xaeronav.stops_full", RouteStops.MAX_STOPS), false);
+        return true;
+    }
+
+    /** 経由地を外す。{@code marker}は経由地の印（{@link #stopsInOrder}の要素）。外したなら{@code true}。 */
+    public boolean removeStop(BlockPos marker) {
+        List<BlockPos> ordered = stopsInOrder();
+        int index = indexOfMarker(ordered, marker);
+        if (index < 0) {
+            return false;
+        }
+        if (index == 0) {
+            beginLeg(stops.takeFirst());
+        } else {
+            stops.remove(index - 1);
+        }
+        return true;
+    }
+
+    /** {@code marker}が経由地の印か。地図のウェイポイントの右クリックで「外す」を出すかに使う。 */
+    public boolean isStopMarker(BlockPos marker) {
+        return indexOfMarker(stopsInOrder(), marker) >= 0;
+    }
+
+    private static int indexOfMarker(List<BlockPos> ordered, BlockPos marker) {
+        // 地図のウェイポイントのYは置いた印と同じとは限らない（Xaeroが高さを持たない印として扱うことがある）
+        for (int i = 0; i < ordered.size(); i++) {
+            if (ordered.get(i).getX() == marker.getX() && ordered.get(i).getZ() == marker.getZ()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** まだ通っていない経由地を通る順に。今の目的地が経由地ならそれが先頭。最終目的地は含めない。 */
+    public List<BlockPos> stopsInOrder() {
+        BlockPos current = goal;
+        if (current == null || stops.isEmpty()) {
+            return List.of();
+        }
+        List<BlockPos> ordered = new ArrayList<>(stops.remainingStops());
+        ordered.add(current);
+        List<BlockPos> ahead = stops.ahead();
+        ordered.addAll(ahead.subList(0, ahead.size() - 1));
+        return ordered;
+    }
+
+    /** 最終目的地。経由地が無ければ今の目的地。 */
+    public @Nullable BlockPos finalGoal() {
+        return stops.isEmpty() ? goal : stops.ahead().get(stops.ahead().size() - 1);
+    }
+
+    /** 経由地へ向かっている間の、何番目の経由地か（1始まり）と経由地の総数。経由地へ向かっていなければ{@code null}。 */
+    public @Nullable StopProgress stopProgress() {
+        if (goal == null || stops.isEmpty()) {
+            return null;
+        }
+        return new StopProgress(stops.passed() + 1, stops.passed() + stops.remainingStops());
+    }
+
+    public record StopProgress(int index, int total) {
+    }
+
+    public enum StopResult {
+        /** 目的地が無かったので、目的地として設定した。 */
+        STARTED,
+        ADDED,
+        FULL,
+        NO_WORLD
+    }
+
+    @Nullable BlockPos legRequested() {
+        return legRequested;
+    }
+
+    /**
+     * 経由地の先の区間の、先に解いておいた詳細経路。今の区間の経路の続き（経由地から次の地点へ）か、経由地を通った直後で
+     * 今の区間の経路がまだ出ていない間の代わり。どちらでもなければ{@code null}。
+     */
+    public @Nullable PathResult legPreviewPath() {
+        LegPreview.Preview preview = legPreview.preview();
+        if (preview == null || flying) {
+            return null;
+        }
+        BlockPos currentGoal = goal;
+        return preview.from().equals(currentGoal) || preview.to().equals(legRequested) ? preview.result() : null;
+    }
+
+    /** {@link #legPreviewPath}の始点。経路が無いときは{@code null}。 */
+    public @Nullable BlockPos legPreviewFrom() {
+        LegPreview.Preview preview = legPreview.preview();
+        return preview == null ? null : preview.from();
+    }
+
+    /** 地図に描く、今の目的地より先の区間の折れ線（{@link LegPreview#mapLegs}）。 */
+    List<List<BlockPos>> laterLegsForMap() {
+        return goal == null || arrived ? List.of() : legPreview.mapLegs();
+    }
+
+    /** 地図に出す印。今の目的地から最終目的地まで。 */
+    private List<BlockPos> markerPoints(@Nullable BlockPos currentGoal) {
+        if (currentGoal == null) {
+            return List.of();
+        }
+        if (stops.isEmpty()) {
+            return List.of(currentGoal);
+        }
+        List<BlockPos> points = new ArrayList<>(stops.remainingStops() + 1);
+        points.add(currentGoal);
+        points.addAll(stops.ahead());
+        return points;
+    }
+
+    /**
+     * 区間の終点を設定する。経由地の列はそのまま残す。
+     */
+    private @Nullable BlockPos beginLeg(BlockPos goal) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
         if (level == null || player == null) {
             return null;
         }
-        clear();
+        resetLeg();
+        this.legRequested = goal;
         this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
         this.unresolvedGoal = level.getChunkSource().getChunkNow(goal.getX() >> 4, goal.getZ() >> 4) == null
@@ -700,7 +872,7 @@ public final class PathfindingState {
         this.flying = airborne(level, player);
         // 目的地が無い間は乗り物を追っていない。ここで読まないと最初のtickで「乗った」と見なして二重に引き直す
         this.mount = ChunkView.mount(player);
-        GoalWaypoint.sync(this.goal);
+        GoalWaypoint.sync(markerPoints(this.goal));
         if (this.flying) {
             sky.begin(level, player);
             if (!sky.active()) {
@@ -723,7 +895,7 @@ public final class PathfindingState {
      * 列が未読み込みならXaeroの地図データへ、それも無ければ元の座標へ順に落とす。
      * 寄せた先が自然の木の上なら、木の下の地面へ下ろす（{@link TreeGoal}）。
      */
-    private static BlockPos resolveGoalStandable(Level level, BlockPos goal) {
+    static BlockPos resolveGoalStandable(Level level, BlockPos goal) {
         int x = goal.getX();
         int z = goal.getZ();
         if (level.getChunkSource().getChunkNow(x >> 4, z >> 4) == null) {
@@ -784,7 +956,7 @@ public final class PathfindingState {
         LOGGER.info("XaeroNav: goal column loaded, moved the goal to a standable height ({} -> {})",
                 current.toShortString(), resolved.toShortString());
         if (flying) {
-            setGoal(requested);
+            beginLeg(requested);
         } else {
             retargetGoal(resolved);
         }
@@ -800,7 +972,7 @@ public final class PathfindingState {
      */
     private void retargetGoal(BlockPos resolved) {
         goal = resolved;
-        GoalWaypoint.sync(resolved);
+        GoalWaypoint.sync(markerPoints(resolved));
         CoarseRoute route = coarseRoute;
         if (route != null && !route.waypoints().isEmpty()) {
             // 長距離ルートは目的地の座標で持ち主を見分けるので、そのままだと捨てられてHUDの点線が消える
@@ -829,16 +1001,24 @@ public final class PathfindingState {
                 && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(new BlockPos(x, y + 1, z))));
     }
 
+    /** 案内を終える。経由地も消す。 */
     public void clear() {
+        stops.clear();
+        legPreview.clear();
+        resetLeg();
+    }
+
+    private void resetLeg() {
         // 世代を進めた時点で実行中の探索の結果は捨てられる。その結果待ちを表すcomputingもここで下ろす
         generation.incrementAndGet();
         executor.cancelAll();
         corridorExecutor.cancelAll();
-        GoalWaypoint.sync(null);
+        GoalWaypoint.sync(List.of());
         this.computing = false;
         this.goal = null;
         this.goalDimension = null;
         this.unresolvedGoal = null;
+        this.legRequested = null;
         this.displayed = null;
         this.lastStart = null;
         this.arrived = false;
@@ -947,6 +1127,8 @@ public final class PathfindingState {
             ground = null;
         }
         List<Vec3> dash = flight.dashWaypoints(airborne, done, currentGoal);
+        PathResult nextLeg = legPreviewPath();
+        LegPreview.Preview preview = legPreview.preview();
         return new MapPathOverlay.Snapshot(ground,
                 currentGoal,
                 XaeroNavConfig.INSTANCE.straightLineEnabled(),
@@ -955,7 +1137,10 @@ public final class PathfindingState {
                 view.coarseRouteWaypoints(),
                 route.points(),
                 FlightProgress.INSTANCE.segmentFor(route) + 1,
-                dash);
+                dash,
+                done ? null : nextLeg,
+                nextLeg != null && preview != null && preview.from().equals(currentGoal),
+                laterLegsForMap());
     }
 
     /** エリトラで滑空中か。滑空中は経路を計算せず、目的地への直線（点線）だけを見せる。 */
@@ -1091,7 +1276,7 @@ public final class PathfindingState {
                 warmUpWhenIdle();
                 return;
             }
-            GoalWaypoint.sync(currentGoal);
+            GoalWaypoint.sync(markerPoints(currentGoal));
             Minecraft mc = Minecraft.getInstance();
             if (mc.level == null || mc.player == null) {
                 return;
@@ -1104,6 +1289,14 @@ public final class PathfindingState {
             if (resolveGoalOnceLoaded(mc.level)) {
                 return;
             }
+            if (nextLegAfterStop(mc.player)) {
+                return;
+            }
+            // 地図を開いている間も回す。経由地を足すのはたいてい地図の上なので、閉じる前に先の区間を出したい
+            DisplayedPath leg = displayed;
+            legPreview.tick(mc.level, mc.player, goal, legRequested,
+                    leg != null && !leg.result().steps().isEmpty(), stops.ahead(),
+                    leg != null && leg.mode() == PathMode.GOAL && leg.result().complete(), flying);
             StuckReason notice = stuckTracker.takePendingNotice();
             if (notice != null) {
                 // 判断はワーカースレッドで行われる。チャットへの出力はメインスレッド専用なのでここで拾う
@@ -1589,6 +1782,36 @@ public final class PathfindingState {
         double dx = player.getX() - (pos.getX() + 0.5);
         double dz = player.getZ() - (pos.getZ() + 0.5);
         return dx * dx + dz * dz;
+    }
+
+    /**
+     * 経由地に着いたら次の区間へ移る。先の地点に先に着いたら、その手前の経由地は飛ばす。移ったなら{@code true}。
+     *
+     * <p>先の地点は区間の終点になる前で、高さを寄せていない（地図の高さは木の上のことがある）。それで上下は広めに見る。
+     */
+    private boolean nextLegAfterStop(Player player) {
+        if (stops.isEmpty()) {
+            return false;
+        }
+        if (arrived) {
+            int reached = stops.passed() + 1;
+            beginLeg(stops.advanceTo(0));
+            GameCompat.tell(player, TextCompat.translatable("hud.xaeronav.stop_reached", reached), true);
+            return true;
+        }
+        double radius = XaeroNavConfig.INSTANCE.arrivalRadiusBlocks();
+        List<BlockPos> ahead = stops.ahead();
+        for (int i = ahead.size() - 1; i >= 0; i--) {
+            BlockPos pos = ahead.get(i);
+            if (horizontalDistanceSq(player, pos) <= radius * radius
+                    && Math.abs(pos.getY() - player.blockPosition().getY()) <= radius + PASSED_STOP_EXTRA_HEIGHT) {
+                LOGGER.info("XaeroNav: reached a later route point first, skipping {} stop(s)", i + 1);
+                // 着いた地点を区間の終点にすれば、次のtickの到着判定がその地点の鐘と次の区間への移行を受け持つ
+                beginLeg(stops.advanceTo(i));
+                return true;
+            }
+        }
+        return false;
     }
 
     private void arrive() {
@@ -2558,7 +2781,7 @@ public final class PathfindingState {
      * 長距離ルートと窓の外の推定に足す乗車。持っている（乗っている）ときだけ——遠くの線路に置いてあるトロッコは
      * 見えないので、持っていなければ遠くの線路には乗れない。
      */
-    private static CoarseRides longRouteRides() {
+    static CoarseRides longRouteRides() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null || ChunkView.experimentalMinecarts(mc.level)
                 || !ChunkView.carryingMinecart(mc.player) && !ChunkView.ridingMinecart(mc.player)) {
@@ -3312,7 +3535,7 @@ public final class PathfindingState {
      * 複数の床を同時に持てるようになったので、1回の{@code readSurface}で参照Y付近の全レイヤーが
      * 床として揃い、梯子は不要になった。
      */
-    private static CoarseAttempt solveCoarseRoute(CoarseRead read, BlockPos start, BlockPos goal,
+    static CoarseAttempt solveCoarseRoute(CoarseRead read, BlockPos start, BlockPos goal,
                                                   boolean boatAvailable, CoarseRides rides) {
         CoarseMap map = read.map();
         if (map == null) {
@@ -3351,11 +3574,11 @@ public final class PathfindingState {
      * {@link #solveCoarseRoute}の結果と、それを引いたときに<b>まだ読み込まれていなかった</b>
      * リージョンの数。0より大きければ、待って引き直すと違うルートになりうる。
      */
-    private record CoarseAttempt(CoarseRouter.Route route, int pendingRegions) {
+    record CoarseAttempt(CoarseRouter.Route route, int pendingRegions) {
     }
 
     /** メインスレッドで読んだ長距離ルートの地図。{@code map}はXaeroの地図が無ければnull。 */
-    private record CoarseRead(@Nullable CoarseMap map, int pendingRegions) {
+    record CoarseRead(@Nullable CoarseMap map, int pendingRegions) {
     }
 
     /** 目的地まで届かなかったルート同士の比較。中間目標が多い方＝より遠くまで進めた方を採る。 */
@@ -3363,7 +3586,7 @@ public final class PathfindingState {
         return b.waypoints().size() > a.waypoints().size() ? b : a;
     }
 
-    private static List<BlockPos> replaceLast(List<BlockPos> waypoints, BlockPos replacement) {
+    static List<BlockPos> replaceLast(List<BlockPos> waypoints, BlockPos replacement) {
         List<BlockPos> copy = new ArrayList<>(waypoints);
         copy.set(copy.size() - 1, replacement);
         return List.copyOf(copy);

@@ -1,5 +1,7 @@
 package net.prason.xaeronav.xaero;
 
+import java.util.ArrayList;
+import java.util.List;
 import net.minecraft.core.BlockPos;
 import xaero.common.minimap.waypoints.Waypoint;
 import xaero.hud.minimap.BuiltInHudModules;
@@ -10,7 +12,7 @@ import xaero.hud.minimap.waypoint.set.WaypointSet;
 import xaero.hud.minimap.world.MinimapWorld;
 
 /**
- * 目的地をXaeroのミニマップへ<b>一時ウェイポイント</b>として置く。
+ * 目的地と経由地をXaeroのミニマップへ<b>一時ウェイポイント</b>として置く。
  *
  * <p>自前で地図へピンを描くのではなくXaeroのウェイポイントに乗せるのは、この描画がXaeroの内側でしか
  * できないことを含むため——ミニマップの回転を打ち消して常に立った向きで出る、画面の外にある目的地は
@@ -26,18 +28,19 @@ import xaero.hud.minimap.world.MinimapWorld;
  */
 public final class XaeroWaypoints {
 
-    /** ウェイポイントのアイコンに出る文字。Xaero自身の一時ウェイポイントと同じ。 */
-    private static final String SYMBOL = "X";
-
     /** いま置いてあるウェイポイントと、それが属する集合。消すときに同じ集合を引く必要がある。 */
-    private static Waypoint placed;
+    private static final List<Waypoint> placed = new ArrayList<>();
     private static WaypointSet placedIn;
 
     private XaeroWaypoints() {
     }
 
-    /** 目的地のウェイポイントを置き直す。置けたなら{@code true}。 */
-    public static boolean setDestination(BlockPos goal, String name) {
+    /** 置く印。{@code symbol}はアイコンに出る文字。経由地は色を変えて最終目的地と見分ける。 */
+    public record Marker(BlockPos pos, String name, String symbol, boolean stop) {
+    }
+
+    /** 目的地と経由地のウェイポイントを置き直す。置けたなら{@code true}。 */
+    public static boolean setDestination(List<Marker> markers) {
         clearDestination();
         MinimapSession session = BuiltInHudModules.MINIMAP.getCurrentSession();
         if (session == null) {
@@ -51,22 +54,27 @@ public final class XaeroWaypoints {
         if (set == null) {
             return false;
         }
-        Waypoint waypoint = new Waypoint(goal.getX(), goal.getY(), goal.getZ(), name, SYMBOL,
-                WaypointColor.BLUE, WaypointPurpose.NORMAL);
-        waypoint.setTemporary(true);
-        set.add(waypoint);
-        placed = waypoint;
+        for (Marker marker : markers) {
+            BlockPos pos = marker.pos();
+            Waypoint waypoint = new Waypoint(pos.getX(), pos.getY(), pos.getZ(), marker.name(), marker.symbol(),
+                    marker.stop() ? WaypointColor.AQUA : WaypointColor.BLUE, WaypointPurpose.NORMAL);
+            waypoint.setTemporary(true);
+            set.add(waypoint);
+            placed.add(waypoint);
+        }
         placedIn = set;
         return true;
     }
 
     /** 置いたウェイポイントを消す。置いていなければ何もしない。 */
     public static void clearDestination() {
-        if (placed == null) {
+        if (placed.isEmpty()) {
             return;
         }
-        placedIn.remove(placed);
-        placed = null;
+        for (Waypoint waypoint : placed) {
+            placedIn.remove(waypoint);
+        }
+        placed.clear();
         placedIn = null;
     }
 }
