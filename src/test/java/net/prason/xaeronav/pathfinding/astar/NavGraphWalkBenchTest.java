@@ -1,6 +1,8 @@
 package net.prason.xaeronav.pathfinding.astar;
 
 import java.io.IOException;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -54,7 +56,7 @@ class NavGraphWalkBenchTest {
     /** 本番（{@code NavGraphGuide}）と同じく、地上系の次元では航法グラフの下端を{@link NavGraph#floorBelow}で切る。 */
     private static boolean OVERWORLD_FLOOR;
 
-    private record Stats(long[] buildMillis, long[] fieldMillis, int[] maxEdges, long[] maxBytes) {
+    private record Stats(long[] buildMillis, long[] fieldMillis, int[] maxEdges, long[] maxBytes, long[] phaseMillis) {
     }
 
     /**
@@ -90,10 +92,13 @@ class NavGraphWalkBenchTest {
                 if (forwardOnly) {
                     far = FarField.forwardOf(far, player.getX(), player.getY(), player.getZ());
                 }
-                // 実機と同じく並列に組む。FakeCellsは読むだけなら共有してよい
+                // 実機と同じく並列に組む。FakeCellsは読むだけなら共有してよい。並列度は本番のNavGraphGuide.WORKERS（初回）と
+                // REBUILD_WORKERS（歩きながら）に揃える
+                int cpus = Runtime.getRuntime().availableProcessors();
+                int workers = last[0] == null ? Math.max(1, cpus - 1) : Math.max(1, cpus / 2 - 1);
                 NavGraph.Refreshed refreshed = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
                         LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
-                        Runtime.getRuntime().availableProcessors(), () -> false);
+                        workers, () -> false);
                 WindowField field = refreshed.field();
                 if (Boolean.getBoolean("xaeronav.navGraphVerbose")) {
                     System.out.printf(Locale.ROOT, "  組み直し %s セクション%d 構築%dms ガイド%dms%n", player.toShortString(),
@@ -102,6 +107,9 @@ class NavGraphWalkBenchTest {
                 stats.buildMillis()[0] += refreshed.buildMillis();
                 stats.fieldMillis()[0] += field.buildMillis();
                 stats.fieldMillis()[1] = Math.max(stats.fieldMillis()[1], field.buildMillis());
+                for (int i = 0; i < WindowField.PHASES.length; i++) {
+                    stats.phaseMillis()[i] += field.phaseMillis()[i];
+                }
                 stats.maxEdges()[0] = Math.max(stats.maxEdges()[0], field.edges());
                 stats.maxBytes()[0] = Math.max(stats.maxBytes()[0], graph.bytes());
                 stats.maxBytes()[1] = Math.max(stats.maxBytes()[1], field.bytes());
@@ -176,6 +184,14 @@ class NavGraphWalkBenchTest {
         });
     }
 
+    private static long gcPauseMillis() {
+        long total = 0;
+        for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
+            total += Math.max(0, bean.getCollectionTime());
+        }
+        return total;
+    }
+
     /** 歩き通しの各点で「それまでの最接近」から目的地へ水平に何ブロック遠ざかったかの最大。 */
     private static double worstRetreat(List<PathStep> steps, BlockPos goal) {
         double closest = Double.POSITIVE_INFINITY;
@@ -246,11 +262,15 @@ class NavGraphWalkBenchTest {
             ProgressiveWalk.Trace closureWalk = graphOnly || Boolean.getBoolean("xaeronav.skipClosure") ? null
                     : closureWalk(cells, start, goal, mode, far);
 
-            Stats stats = new Stats(new long[1], new long[2], new int[1], new long[2]);
+            Stats stats = new Stats(new long[1], new long[2], new int[1], new long[2], new long[WindowField.PHASES.length]);
+            long gcBefore = gcPauseMillis();
+            long walkBegan = System.nanoTime();
             ProgressiveWalk.UNGUIDED_LEGS.set(0);
             ProgressiveWalk.REVIEWS.set(0);
             ProgressiveWalk.Trace graphWalk = ProgressiveWalk.trace(cells, start, goal, WINDOW, mode,
                     ProgressiveWalk.Aim.GOAL, guide(cells, goal, farAt, forwardOnly, stats), 1.0);
+            long walkMillis = (System.nanoTime() - walkBegan) / 1_000_000L;
+            long gcMillis = gcPauseMillis() - gcBefore;
             double retreat = worstRetreat(graphWalk.steps(), goal);
             retreats.add(retreat);
             double[] values = new double[3];
@@ -261,12 +281,14 @@ class NavGraphWalkBenchTest {
                 ratios.get(i).add(values[i]);
             }
             System.out.printf(Locale.ROOT,
-                    "%s %s→%s 基準%.0f tick 現行%.3f 閉包の窓%.3f 航法グラフ%.5f(%.0f tick) 最大の後退%.0f 使えない区間%d 見直し%d 描き変わり%d(足元%d) 繋ぎ目%d 構築計%dms ガイド計%dms(最大%dms) 辺最大%d グラフ最大%dMB ガイド最大%dMB %s%n",
+                    "%s %s→%s 基準%.0f tick 現行%.3f 閉包の窓%.3f 航法グラフ%.5f(%.0f tick) 最大の後退%.0f 使えない区間%d 見直し%d 描き変わり%d(足元%d) 繋ぎ目%d 構築計%dms ガイド計%dms(最大%dms index%d/count%d/fill%d/settle%d) 歩き全体%dms GC%dms cpus%d 辺最大%d グラフ最大%dMB ガイド最大%dMB %s%n",
                     name, start.toShortString(), goal.toShortString(), best, values[0], values[1], values[2],
                     graphWalk.steps().isEmpty() ? Double.POSITIVE_INFINITY : ProgressiveWalk.cost(graphWalk.steps()),
                     retreat,
                     ProgressiveWalk.UNGUIDED_LEGS.get(), ProgressiveWalk.REVIEWS.get(), graphWalk.redraws(),
                     graphWalk.nearRedraws(), graphWalk.joints().size(), stats.buildMillis()[0], stats.fieldMillis()[0], stats.fieldMillis()[1],
+                    stats.phaseMillis()[0], stats.phaseMillis()[1], stats.phaseMillis()[2], stats.phaseMillis()[3],
+                    walkMillis, gcMillis, Runtime.getRuntime().availableProcessors(),
                     stats.maxEdges()[0], stats.maxBytes()[0] >> 20, stats.maxBytes()[1] >> 20, graphWalk.stopped());
         }
         String[] names = {"現行", "閉包の窓", "航法グラフ"};
