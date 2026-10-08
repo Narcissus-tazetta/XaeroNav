@@ -85,6 +85,7 @@ public final class WindowField implements CostToGo {
     private final double[] distance;
     private final int edges;
     private final long buildMillis;
+    private final long[] phaseMillis;
     private final boolean goalCut;
     private final int centerX;
     private final int centerZ;
@@ -93,7 +94,7 @@ public final class WindowField implements CostToGo {
     private final Int2ObjectMap<Ride> rides;
 
     private WindowField(BlockPos goal, FarField far, Index index, MoveTable.View moves, double[] distance, int edges,
-                        long buildMillis, boolean goalCut, int centerX, int centerZ, int radius,
+                        long buildMillis, long[] phaseMillis, boolean goalCut, int centerX, int centerZ, int radius,
                         Int2ObjectMap<Ride> rides) {
         this.rides = rides;
         this.moves = moves;
@@ -106,6 +107,7 @@ public final class WindowField implements CostToGo {
         this.distance = distance;
         this.edges = edges;
         this.buildMillis = buildMillis;
+        this.phaseMillis = phaseMillis;
         this.goalCut = goalCut;
     }
 
@@ -136,6 +138,11 @@ public final class WindowField implements CostToGo {
 
     public long buildMillis() {
         return buildMillis;
+    }
+
+    /** {@link #PHASES}の順の所要時間（ms）。実機が模型より遅い理由を段ごとに切り分けるために実機ログへ出す。 */
+    public long[] phaseMillis() {
+        return phaseMillis;
     }
 
     /** 組み立て後も覚えている配列のおおよそのバイト数。 */
@@ -260,6 +267,9 @@ public final class WindowField implements CostToGo {
         }
     }
 
+    /** 組み立ての段。{@link #phaseMillis}の添字と対応する。 */
+    public static final String[] PHASES = {"index", "count", "fill", "settle"};
+
     static @Nullable WindowField build(NavGraph graph, Buffers buffers, int centerX, int centerZ, int radius,
                                        FarField givenFar, WindowRides windowRides, Parallel parallel,
                                        BooleanSupplier cancelled) {
@@ -304,6 +314,7 @@ public final class WindowField implements CostToGo {
             }
         }
         Index index = new Index(keys, sections, slotOf, offsets, neighbor, graph.lowSectionY());
+        long indexed = MonotonicTime.millis();
 
         int n = offsets[slots];
         int[] position = buffers.position(n);
@@ -377,6 +388,7 @@ public final class WindowField implements CostToGo {
         if (!counted) {
             return null;
         }
+        long countedAt = MonotonicTime.millis();
         for (int i = 2; i <= n + 1; i++) {
             start[i] += start[i - 1];
         }
@@ -410,6 +422,7 @@ public final class WindowField implements CostToGo {
         if (!filled) {
             return null;
         }
+        long filledAt = MonotonicTime.millis();
         // 埋め終えると start[t]..start[t+1] が行き先tへ入る辺になる
         for (int s = 0; s < slots; s++) {
             for (int i = offsets[s]; i < offsets[s + 1]; i++) {
@@ -464,7 +477,9 @@ public final class WindowField implements CostToGo {
                 }
             }
         }
-        return new WindowField(goal, far, index, moves, distance, m + insideEdges, MonotonicTime.millis() - began,
+        long finished = MonotonicTime.millis();
+        long[] phaseMillis = {indexed - began, countedAt - indexed, filledAt - countedAt, finished - filledAt};
+        return new WindowField(goal, far, index, moves, distance, m + insideEdges, finished - began, phaseMillis,
                 goalInWindow && !goalEntered.get(), centerX, centerZ, radius, rides);
     }
 

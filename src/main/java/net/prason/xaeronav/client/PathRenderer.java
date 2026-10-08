@@ -16,6 +16,7 @@ import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
@@ -156,6 +157,17 @@ public final class PathRenderer {
     private static final float STRAIGHT_OCCLUDED_ALPHA = 0.3f;
 
     private final PathCache<PathGeometry> geometryCache = new PathCache<>();
+
+    /** 描画スレッドで経路の描画に使った時間の集計。重い長距離経路で描画が詰まっていないかをデバッグログで切り分ける。 */
+    private static final long LAP_LOG_INTERVAL_NANOS = 10_000_000_000L;
+    private long lapSince;
+    private int lapFrames;
+    private long lapFrameNanos;
+    private long lapMaxFrameNanos;
+    private int lapSegments;
+    private int lapBuilds;
+    private long lapBuildNanos;
+    private long lapMaxBuildNanos;
     private final PathCache<PathGeometry> nextLegGeometryCache = new PathCache<>();
 
     // 筒の断面4頂点。区間ごとに作り直さず使い回す（描画スレッド専用）。
@@ -249,8 +261,15 @@ public final class PathRenderer {
 
         PathGeometry current = null;
         if (hasGround) {
-            current = geometryCache.get(groundResult, r -> PathGeometry.build(mc.level, r, playerPos));
+            current = geometryCache.get(groundResult, r -> {
+                long built = System.nanoTime();
+                PathGeometry geometry = PathGeometry.build(mc.level, r, playerPos);
+                recordBuild(System.nanoTime() - built);
+                return geometry;
+            });
+            long drawn = System.nanoTime();
             renderGroundPath(bufferSource, pose, current, groundResult, cameraPos, cullRadiusSq, cameraInWater);
+            recordFrame(System.nanoTime() - drawn, current.segmentCount());
         }
         if (hasNextLeg) {
             // 始点はプレイヤーではなく先の区間の始点（経由地）。プレイヤーにすると、経由地へ向かう余計な直線が
@@ -273,6 +292,38 @@ public final class PathRenderer {
         *///?}
 
         poseStack.popPose();
+    }
+
+    private void recordBuild(long nanos) {
+        lapBuilds++;
+        lapBuildNanos += nanos;
+        lapMaxBuildNanos = Math.max(lapMaxBuildNanos, nanos);
+    }
+
+    private void recordFrame(long nanos, int segments) {
+        long now = System.nanoTime();
+        if (lapFrames == 0) {
+            lapSince = now;
+        }
+        lapFrames++;
+        lapFrameNanos += nanos;
+        lapMaxFrameNanos = Math.max(lapMaxFrameNanos, nanos);
+        lapSegments = Math.max(lapSegments, segments);
+        if (now - lapSince < LAP_LOG_INTERVAL_NANOS) {
+            return;
+        }
+        XaeroNav.LOGGER.debug("XaeroNav: path render (render thread, last {}s, frames {}, avg {}us, max {}us, "
+                        + "segments up to {}; geometry builds {}, total {}ms, max {}ms)",
+                (now - lapSince) / 1_000_000_000L, lapFrames, lapFrameNanos / lapFrames / 1000L,
+                lapMaxFrameNanos / 1000L, lapSegments, lapBuilds, lapBuildNanos / 1_000_000L,
+                lapMaxBuildNanos / 1_000_000L);
+        lapFrames = 0;
+        lapFrameNanos = 0;
+        lapMaxFrameNanos = 0;
+        lapSegments = 0;
+        lapBuilds = 0;
+        lapBuildNanos = 0;
+        lapMaxBuildNanos = 0;
     }
 
     /**

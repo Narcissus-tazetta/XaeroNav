@@ -1,5 +1,6 @@
 package net.prason.xaeronav.client;
 
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -533,6 +534,7 @@ final class NavGraphGuide {
         private long busyMillis;
         private long buildMillis;
         private long guideMillis;
+        private final long[] phaseMillis = new long[WindowField.PHASES.length];
         private long maxMillis;
         private long maxCaptureMillis;
         private int runs;
@@ -553,6 +555,10 @@ final class NavGraphGuide {
             } else {
                 buildMillis += refreshed.buildMillis();
                 guideMillis += refreshed.field().buildMillis();
+                long[] phases = refreshed.field().phaseMillis();
+                for (int i = 0; i < phases.length; i++) {
+                    phaseMillis[i] += phases[i];
+                }
             }
             if (ended - since >= LOAD_LOG_INTERVAL_MILLIS) {
                 flush(ended);
@@ -566,15 +572,16 @@ final class NavGraphGuide {
             long span = Math.max(1L, now - since);
             Runtime runtime = Runtime.getRuntime();
             LOGGER.info("XaeroNav: nav graph load (last {}s, rebuilds {} (cancelled {}), coordinator busy {}%, build total {}ms, "
-                            + "guide total {}ms, max per run {}ms, max chunk capture {}ms (main thread), GC {}ms, heap {}/{}MB)",
-                    span / 1000, runs, cancelled, 100 * busyMillis / span, buildMillis, guideMillis, maxMillis,
-                    maxCaptureMillis, TickLaps.gcPauseMillis() - gcSince, (runtime.totalMemory() - runtime.freeMemory()) >> 20,
+                            + "guide total {}ms (index {} / count {} / fill {} / settle {}), max per run {}ms, max chunk capture {}ms (main thread), GC {}ms, heap {}/{}MB)",
+                    span / 1000, runs, cancelled, 100 * busyMillis / span, buildMillis, guideMillis,
+                    phaseMillis[0], phaseMillis[1], phaseMillis[2], phaseMillis[3], maxMillis, maxCaptureMillis, TickLaps.gcPauseMillis() - gcSince, (runtime.totalMemory() - runtime.freeMemory()) >> 20,
                     runtime.maxMemory() >> 20);
             runs = 0;
             cancelled = 0;
             busyMillis = 0;
             buildMillis = 0;
             guideMillis = 0;
+            Arrays.fill(phaseMillis, 0L);
             maxMillis = 0;
             maxCaptureMillis = 0;
         }
