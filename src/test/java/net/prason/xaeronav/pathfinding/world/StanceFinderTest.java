@@ -52,6 +52,22 @@ class StanceFinderTest {
     }
 
     @Test
+    void startEmbeddedInTheFloorAboveACaveStaysOnTheFloor() {
+        // ソウルサンドの上に立つと足の座標がそのブロックの中になる。床を突き抜けて下の空洞へ下ろすと、
+        // 経路が床の下から始まり、線が足元に出ないまま「経路から外れた」と引き直し続けた
+        CellSource cells = FakeCells.of(0, 50, 0, """
+                ...
+                ...
+                ###
+                ###
+                ...
+                ...
+                ###""");
+
+        assertEquals(new BlockPos(1, 55, 0), StanceFinder.resolveStart(cells, new BlockPos(1, 54, 0)));
+    }
+
+    @Test
     void goalBuriedInDiggableGroundIsKeptAsIs() {
         // 地中の目的地。掘れば辿り着けるので寄せない — そこまでの坑道を出すのが正しい
         CellSource cells = FakeCells.of(0, 60, 0, """

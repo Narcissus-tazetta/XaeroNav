@@ -30,8 +30,7 @@ class PlannedCellSourceTest {
         raw.set(1, 66, 0, FakeCells.STONE);
         PathStep dig = new PathStep(end, MovementType.TRAVERSE, 80,
                 List.of(end, end.above()), List.of(end, end.above()), PathRisk.NONE, null);
-        assertEquals(new BlockPos(1, 44, 0), StanceFinder.resolveStart(raw, end),
-                "The old continuation silently started on the lower floor");
+        assertEquals(end, StanceFinder.resolveStart(raw, end), "Does not drop through the floor to the lower one");
         PlannedCellSource future = new PlannedCellSource(raw, List.of(dig), 0);
         assertEquals(end, StanceFinder.resolveStart(future, end));
         var result = new PathfindingExecutor().submit(future, end, new BlockPos(5, 65, 0),

@@ -269,7 +269,11 @@ final class NetherVoxelGuide {
         }
         // 要求しないと、Xaeroが既にメモリへ載せているリージョンしか読めない。要求は非同期なので
         // この回には間に合わないが、次の組み直しで効く
-        XaeroMapReader.requestLoad(minX >> 4, minZ >> 4,
+        // 読み込み待ちの数をログに残す。待ちが多いまま組んだ表は、歩いた所の地図が欠けて遠回りを指す
+        XaeroMapReader.RegionStats regions = XaeroMapReader.surveyRegions(minX >> 4, minZ >> 4,
+                ((minX + sizeX - 1) >> 4) - (minX >> 4) + 1,
+                ((minZ + sizeZ - 1) >> 4) - (minZ >> 4) + 1, referenceY);
+        int requested = XaeroMapReader.requestLoad(minX >> 4, minZ >> 4,
                 ((minX + sizeX - 1) >> 4) - (minX >> 4) + 1,
                 ((minZ + sizeZ - 1) >> 4) - (minZ >> 4) + 1, referenceY);
 
@@ -326,10 +330,12 @@ final class NetherVoxelGuide {
                     // ——1倍付近なら幾何ヒューリスティックと同じことしか言っていない。
                     // 箱も出す: Yの範囲が歩ける高さより広いと、格子の大半が天井の上の空きになる
                     LOGGER.debug("XaeroNav: 3D coarse layer (floors={}, {}, cells={}, cell size={}, inflation x{}, box={}, "
-                                    + "floor Y this time={}, remembered floors={}, map {}ms, Dijkstra {}ms)",
+                                    + "floor Y this time={}, remembered floors={}, regions loaded {}/{} (awaiting load {}, "
+                                    + "requested {}), map {}ms, Dijkstra {}ms)",
                             floors, terrain.breakdown(), terrain.cellCount(), terrain.cellBlocks(),
                             round(inflation(guide, player, goal)), box,
                             floors == 0 ? "unreadable" : range.lowest + ".." + range.highest, rememberedCount,
+                            regions.loaded(), regions.inRange(), regions.pendingLoad(), requested,
                             read, MonotonicTime.millis() - began - read);
                 });
     }

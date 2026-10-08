@@ -541,8 +541,7 @@ final class Extend {
     /**
      * 継ぎ足した経路を組み立てる。ステップ列は連結し、区間の境目を記録する。
      *
-     * <p>{@link PathProgress}へ引き継ぎを伝えるのはここ。継ぎ足しは手前の添字を変えないので
-     * 対応づけはそのまま通用するが、伝えないと別経路とみなされて全体走査に落ちる。
+     * <p>{@link PathProgress}へ引き継ぎを伝えるのはここ。伝えないと別経路とみなされて全体走査に落ちる。
      */
     private static PathfindingState.DisplayedPath append(PathfindingState.DisplayedPath current, PathResult tail,
                                                            int tailWaypointIndex, boolean reachesGoal) {
@@ -561,7 +560,8 @@ final class Extend {
                     segment.waypointIndex()));
         }
         segments.add(new PathfindingState.PathSegment(folded.steps().size() - 1, tailWaypointIndex));
-        PathProgress.INSTANCE.carryOver(combined);
+        int[] newIndex = folded.newIndex();
+        PathProgress.INSTANCE.carryOver(combined, old -> newIndex[old]);
         return new PathfindingState.DisplayedPath(combined,
                 reachesGoal ? PathfindingState.PathMode.GOAL : PathfindingState.PathMode.WAYPOINT,
                 tailWaypointIndex, List.copyOf(segments));

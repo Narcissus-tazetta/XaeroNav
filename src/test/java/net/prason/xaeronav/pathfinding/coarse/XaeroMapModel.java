@@ -3,6 +3,7 @@ package net.prason.xaeronav.pathfinding.coarse;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
+import java.util.function.LongPredicate;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -107,6 +108,17 @@ public final class XaeroMapModel {
         return VoxelCostToGo.build(terrain, goal, () -> false);
     }
 
+    /**
+     * {@code knownChunk}（チャンクキーは{@code x << 32 | z}）だけを地図が持っているときの、洞窟レイヤー{@code caveLayers}の床で組んだガイド。
+     * 実機の地図は歩いた周りしか埋まらず、歩くうちに広がる——その途中を組み直しごとに再現する。
+     */
+    public static VoxelCostToGo guide(CellSource all, BlockPos start, BlockPos goal, int minY, int maxY,
+                                       int[] caveLayers, LongPredicate knownChunk) {
+        VoxelTerrain terrain = VoxelTerrain.of(guideBox(start, goal, minY, maxY), true);
+        scan(all, terrain.box(), caveLayers, knownChunk, terrain::markFloor);
+        return VoxelCostToGo.build(terrain, goal, () -> false);
+    }
+
     /** 全チャンクが訪問済みとしたときの床。 */
     public static void fill(VoxelTerrain terrain, CellSource all) {
         fill(terrain, all, 1.0, 0L);
@@ -141,15 +153,21 @@ public final class XaeroMapModel {
      */
     private static void scan(CellSource all, SearchBounds box, int[] caveLayers,
                               double keepFraction, long seed, XaeroMapReader.FloorVisitor visitor) {
-        SearchBounds world = all.bounds();
         Random random = new Random(seed);
         Map<Long, Boolean> visited = new HashMap<>();
+        scan(all, box, caveLayers, chunk -> visited.computeIfAbsent(chunk, key -> random.nextDouble() < keepFraction),
+                visitor);
+    }
+
+    private static void scan(CellSource all, SearchBounds box, int[] caveLayers, LongPredicate knownChunk,
+                              XaeroMapReader.FloorVisitor visitor) {
+        SearchBounds world = all.bounds();
         for (int x = Math.max(box.minX(), world.minX()); x <= Math.min(box.maxX(), world.maxX());
                 x += SAMPLE_STEP) {
             for (int z = Math.max(box.minZ(), world.minZ()); z <= Math.min(box.maxZ(), world.maxZ());
                     z += SAMPLE_STEP) {
                 long chunk = ((long) (x >> 4) << 32) | ((z >> 4) & 0xFFFFFFFFL);
-                if (!visited.computeIfAbsent(chunk, key -> random.nextDouble() < keepFraction)) {
+                if (!knownChunk.test(chunk)) {
                     continue;
                 }
                 if (caveLayers == null) {
