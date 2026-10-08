@@ -721,6 +721,7 @@ public final class PathfindingState {
      *
      * <p>要求されたYに最も近い立てる高さを選ぶ（最寄りの地表とは限らない — 洞窟内の目的地も指定できる）。
      * 列が未読み込みならXaeroの地図データへ、それも無ければ元の座標へ順に落とす。
+     * 寄せた先が自然の木の上なら、木の下の地面へ下ろす（{@link TreeGoal}）。
      */
     private static BlockPos resolveGoalStandable(Level level, BlockPos goal) {
         int x = goal.getX();
@@ -735,14 +736,23 @@ public final class PathfindingState {
         for (int offset = 0; offset <= maxY - minY; offset++) {
             int below = requested - offset;
             if (below >= minY && standableAt(level, x, below, z)) {
-                return new BlockPos(x, below, z);
+                return offTree(level, new BlockPos(x, below, z));
             }
             int above = requested + offset;
             if (offset > 0 && above <= maxY && standableAt(level, x, above, z)) {
-                return new BlockPos(x, above, z);
+                return offTree(level, new BlockPos(x, above, z));
             }
         }
         return goal;
+    }
+
+    private static BlockPos offTree(Level level, BlockPos standable) {
+        BlockPos ground = TreeGoal.groundBelow(level, standable);
+        if (!ground.equals(standable)) {
+            LOGGER.info("XaeroNav: goal was on a natural tree, moved it to the ground ({} -> {})",
+                    standable.toShortString(), ground.toShortString());
+        }
+        return ground;
     }
 
     /**
@@ -813,7 +823,7 @@ public final class PathfindingState {
     }
 
     /** 足元に立てる地面があり、体の2セルが掘らずに入れるか。{@code AStarPathfinder}の移動の前提と同じ。 */
-    private static boolean standableAt(Level level, int x, int y, int z) {
+    static boolean standableAt(Level level, int x, int y, int z) {
         return CellData.standable(CellData.flagsOf(level.getBlockState(new BlockPos(x, y - 1, z))))
                 && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(new BlockPos(x, y, z))))
                 && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(new BlockPos(x, y + 1, z))));
