@@ -189,6 +189,10 @@ and the HUD work as usual.
 
 ![Right-click menu on Xaero's World Map showing "Navigate Here"](docs/images/how-to-use.png)
 
+The map's height over a forest is the top of the trees, but when you point at a natural tree or a
+huge mushroom the destination becomes the ground at its foot (leaves you placed yourself and houses
+built on trees are left as they are).
+
 Taking off with an elytra switches the guidance on its own. Under a roof or in the Nether it
 computes a terrain-avoiding aerial path and shows it as a light-blue line; under open sky it puts a
 light beam where you should land. As soon as you touch down it goes back to walking navigation
