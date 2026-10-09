@@ -209,6 +209,10 @@ tasks.register("verifyDistribution") {
                 }
                 check(jar.getEntry("xaeronav-xaero.mixins.json") != null) { "$name: mixin configがありません" }
                 val entryNames = jar.entries().asSequence().map { it.name }.toSet()
+                // 開発クライアント専用の自動操縦（devmod/）は配布しない。ソースセットを分けてあるだけなので、構成を変えると黙って混ざる
+                check(entryNames.none { it.startsWith("net/prason/xaeronav/dev/") }) {
+                    "$name: 開発用の道具（net/prason/xaeronav/dev/）が混入しています"
+                }
                 when (loader) {
                     "fabric" -> {
                         check(jar.getEntry("fabric.mod.json") != null) { "$name: fabric.mod.jsonがありません" }
