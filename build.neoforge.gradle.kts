@@ -18,6 +18,19 @@ val packFormat = packFormatFor(minecraftVersion)
 val runDir = rootProject.layout.projectDirectory.dir(
     if (stonecutter.current.project == "1.21.1-neoforge") "run" else "run/${stonecutter.current.project}")
 
+// 開発クライアントにだけ載せる計測道具（devmod/）。別のMODとして読み込むので配布jar（mainの出力）には入らない。
+// Stonecutterに書き換えられないようsrc/の外に置き、書いてある版（1.21.1）のノードでだけ組む
+val devSourceSet = if (stonecutter.current.project == "1.21.1-neoforge") {
+    sourceSets.create("dev") {
+        java.setSrcDirs(listOf(rootProject.file("devmod/java")))
+        resources.setSrcDirs(listOf(rootProject.file("devmod/resources")))
+        compileClasspath += sourceSets["main"].output
+        runtimeClasspath += sourceSets["main"].output
+    }
+} else {
+    null
+}
+
 neoForge {
     version = dep("neoforge")
 
@@ -25,7 +38,13 @@ neoForge {
         create(modProperty("mod_id")) {
             sourceSet(sourceSets["main"])
         }
+        devSourceSet?.let { dev ->
+            create("xaeronavdev") {
+                sourceSet(dev)
+            }
+        }
     }
+    devSourceSet?.let { addModdingDependenciesTo(it) }
 
     // 単体テストからMinecraftの素の値型（BlockPos・Vec3・Mth）を使えるようにする。
     // これが無いとtestCompileClasspathにMinecraftが載らず、経路探索コアのテストは
@@ -41,6 +60,9 @@ neoForge {
             gameDirectory = runDir
             // `-Pxaeronav.quickPlay=<ワールド名>`でタイトル画面を飛ばして既存のワールドへ入る（手元の確認用）
             providers.gradleProperty("xaeronav.quickPlay").orNull?.let { programArguments.addAll("--quickPlaySingleplayer", it) }
+            // `-Pxaeronav.autopilot=dx,dz`で経路をなぞって歩かせる（devmodのAutopilot、計測用）
+            providers.gradleProperty("xaeronav.autopilot").orNull?.let { systemProperty("xaeronav.autopilot", it) }
+            providers.gradleProperty("xaeronav.autopilotMinutes").orNull?.let { systemProperty("xaeronav.autopilotMinutes", it) }
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
             // XaeroNavのDEBUGが開発クライアントではどこにも出ない。latest.logはINFOのままなので配布版と同じ出方になる
             logLevel = org.slf4j.event.Level.DEBUG
