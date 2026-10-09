@@ -148,8 +148,8 @@ to reproduce the problem here.
 ## What it does
 
 Routes are found with A* over the actual terrain, not by straight-line distance. The move set
-covers walking, climbing, descending, swimming, riding a boat, ladders and vines, jumping gaps of
-1 to 3 blocks, digging, and placing blocks to bridge a gap.
+covers walking, climbing, descending, swimming, riding a boat or a minecart, ladders and vines,
+jumping gaps of 1 to 3 blocks, digging, and placing blocks to bridge a gap.
 
 Blocks placed to bridge a gap are budgeted against **how many you actually carry**. A route that
 needs more than you have is only offered when there is no other way through, and the HUD says how
@@ -171,8 +171,17 @@ underground and the destination is on the surface, the route heads for the neare
 cliff first instead of digging straight up under the target. Dimensions without a sky are the
 exception; there is no surface to aim for.
 
-Start gliding with an elytra and the mod switches to a 3D aerial path that avoids terrain, with
-its own deviation threshold and recalculation interval. Recalculation is deliberately lazy while
+XaeroNav remembers the rails you have seen in each world and dimension. When you carry a minecart,
+or one is already sitting on the rails, routes can ride them, even on rails outside your render
+distance. The HUD tells you where to get on and when to get off.
+
+While riding a horse, donkey, mule, skeleton horse, zombie horse or camel, the route stays on ground
+your mount can walk and jump, keeps out of water, and tells you where to jump. If the way on needs
+you to get off, the HUD says where. While riding a nautilus, routes follow the water.
+
+Under a roof or in the Nether, gliding with an elytra switches to a 3D aerial path that avoids
+terrain, with its own deviation threshold and recalculation interval (see
+[Setting a destination](#setting-a-destination) for open sky). Recalculation is deliberately lazy while
 walking, so drifting a few blocks off the line does not redraw it and the guidance stays still.
 
 Without Xaero installed, only the map drawing and the right-click menu go away. In-world rendering
@@ -182,9 +191,9 @@ and the HUD work as usual.
 
 | Method | Action |
 |---|---|
-| World map | Right-click empty space on the map → "Route here" |
-| Waypoint | Right-click a waypoint → "Route here" |
-| Keybind | "Route to block looked at" (unbound by default) |
+| World map | Right-click empty space on the map → "Navigate Here" |
+| Waypoint | Right-click a waypoint → "Navigate Here" |
+| Keybind | "Navigate to the block you are looking at" (unbound by default) |
 | Command | `/xaeronav goto <x> <y> <z>` |
 
 ![Right-click menu on Xaero's World Map showing "Navigate Here"](docs/images/how-to-use.png)
@@ -215,14 +224,14 @@ visit on the way (up to 10).
 
 | Option | What it does |
 |---|---|
-| Add as Stop | Keeps the destination and slots the stop in where it adds the least detour |
-| Add to End | Adds it after the current destination, which becomes a stop. Use it to visit places in the order you pick |
+| Add as Stop (Insert) | Keeps the destination and slots the stop in where it adds the least detour |
+| Make This the Final Destination | Adds it after the current destination, which becomes a stop. Use it to visit places in the order you pick |
 | Remove This Stop | Shown when you right-click a stop's marker |
 
 Stops appear on the map as numbered light-blue markers, and the HUD shows which stop you are heading
 to. The map shows the way on through every stop to the destination, and once the route reaches the
 next stop, the path beyond it appears in the world too, so the line carries on past the stop. When you reach a stop, or reach a later one first, guidance moves on to the next point.
-"Route here" and "Clear Route" replace or clear the stops too. Stops are not saved and are gone
+"Navigate Here" and "Clear Route" replace or clear the stops too. Stops are not saved and are gone
 when you leave the world.
 
 ### Commands
@@ -248,7 +257,7 @@ All unbound by default (`Options → Controls → XaeroNav`).
 
 | Action | Purpose |
 |---|---|
-| Route to block looked at | Main way to set a destination without Xaero installed |
+| Navigate to the block you are looking at | Main way to set a destination without Xaero installed |
 | Clear route | |
 | Toggle HUD | Show or hide the on-screen guidance (persisted to the config file) |
 | Open config screen | Edit `config/xaeronav-client.toml` via GUI |
@@ -259,11 +268,12 @@ Movement:
 
 | Color | Meaning |
 |---|---|
-| Green | Walking |
+| Green | Walking (also riding a horse or camel) |
 | Yellow | Climbing up |
 | Blue | Climbing or stepping down |
 | Dark blue | Swimming |
-| Light cyan | Riding a boat |
+| Light cyan | Riding a boat (a boat-shaped outline marks where to place it) |
+| Light gray | Riding a minecart |
 | Purple | Ladder or vine |
 | Pink | Jumping a gap |
 | Orange | Digging (target block outlined) |
@@ -290,7 +300,7 @@ Other markings:
 |---|---|
 | Off-white | Dotted line for a stretch with no known route, heading toward the unexplored destination |
 | Amber | Coarse waypoint chain for a long-distance route |
-| Sky blue | Aerial path while gliding with an elytra |
+| Sky blue | Aerial path while gliding under a roof or in the Nether |
 | Pale yellow beam | Where to land while gliding under open sky |
 | Red pin | The destination, drawn by XaeroNav when Xaero's Minimap is not installed |
 
