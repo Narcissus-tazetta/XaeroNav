@@ -53,6 +53,12 @@ class NavGraphWalkBenchTest {
             "-12, 64, 349→-53, 68, 716", 3944.0,
             "72, 69, 439→-53, 68, 716", 3008.0);
 
+    /** 初回だけ目的地の側の半径これの窓で先にガイドを出す（0なら出さない）。{@code -Pxaeronav.firstPreview=160}。 */
+    private static final int FIRST_PREVIEW = Integer.getInteger("xaeronav.firstPreview", 0);
+
+    /** 初回の全体の組み立ての時間を出す（先出しと比べる基準）。 */
+    private static final boolean FIRST_REPORT = FIRST_PREVIEW > 0 || Boolean.getBoolean("xaeronav.firstReport");
+
     /** 本番（{@code NavGraphGuide}）と同じく、地上系の次元では航法グラフの下端を{@link NavGraph#floorBelow}で切る。 */
     private static boolean OVERWORLD_FLOOR;
 
@@ -81,9 +87,40 @@ class NavGraphWalkBenchTest {
         int lag = Integer.getInteger("xaeronav.navGraphLag", 0);
         BlockPos[] last = {null};
         CostToGo[] cached = {null};
+        boolean[] previewed = {false};
         return player -> {
-            if (last[0] == null || (!player.equals(last[0]) && Math.max(Math.abs(player.getX() - last[0].getX()),
-                    Math.abs(player.getZ() - last[0].getZ())) >= lag)) {
+            if (last[0] == null && FIRST_PREVIEW > 0) {
+                // 実機の初回の先出し: 目的地の側に寄せた小さい窓だけを組んでガイドを出し、次の呼び出しで窓全体を組む
+                // （ProgressiveWalkは16ブロック歩くごとに呼ぶ＝全体が組み上がるまでに歩く数秒ぶん）
+                int cpus = Runtime.getRuntime().availableProcessors();
+                int[] center = NavGraph.aheadCenter(player.getX(), player.getZ(), goal.getX(), goal.getZ(), WINDOW,
+                        FIRST_PREVIEW);
+                if (OVERWORLD_FLOOR) {
+                    graph.floorBelow(player.getY());
+                }
+                FarField far = farAt.apply(player);
+                if (forwardOnly) {
+                    far = FarField.forwardOf(far, player.getX(), player.getY(), player.getZ());
+                }
+                CellSource window = new WindowedCells(cells, player, WINDOW);
+                NavGraph.Refreshed preview = graph.refresh(() -> window, center[0], center[1], FIRST_PREVIEW,
+                        LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
+                        Math.max(1, cpus - 1), () -> false);
+                System.out.printf(Locale.ROOT, "  先出し %s 中心%d,%d 半径%d セクション%d 構築%dms ガイド%dms%n",
+                        player.toShortString(), center[0], center[1], FIRST_PREVIEW, preview.sectionsBuilt(),
+                        preview.buildMillis(), preview.field().buildMillis());
+                stats.buildMillis()[0] += preview.buildMillis();
+                stats.fieldMillis()[0] += preview.field().buildMillis();
+                cached[0] = preview.field();
+                last[0] = player;
+                previewed[0] = true;
+                return cached[0];
+            }
+            // 同じtickの中の呼び出し（見直しと区間の計画）には先出しのガイドを返し続ける
+            if (last[0] == null || !player.equals(last[0]) && (previewed[0]
+                    || Math.max(Math.abs(player.getX() - last[0].getX()), Math.abs(player.getZ() - last[0].getZ())) >= lag)) {
+                boolean afterPreview = previewed[0];
+                previewed[0] = false;
                 CellSource window = new WindowedCells(cells, player, WINDOW);
                 if (OVERWORLD_FLOOR) {
                     graph.floorBelow(player.getY());
@@ -95,11 +132,16 @@ class NavGraphWalkBenchTest {
                 // 実機と同じく並列に組む。FakeCellsは読むだけなら共有してよい。並列度は本番のNavGraphGuide.WORKERS（初回）と
                 // REBUILD_WORKERS（歩きながら）に揃える
                 int cpus = Runtime.getRuntime().availableProcessors();
-                int workers = last[0] == null ? Math.max(1, cpus - 1) : Math.max(1, cpus / 2 - 1);
+                int workers = last[0] == null || afterPreview ? Math.max(1, cpus - 1) : Math.max(1, cpus / 2 - 1);
                 NavGraph.Refreshed refreshed = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
                         LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
                         workers, () -> false);
                 WindowField field = refreshed.field();
+                if (afterPreview || last[0] == null && FIRST_REPORT) {
+                    System.out.printf(Locale.ROOT, "  %s %s セクション%d 構築%dms ガイド%dms%n",
+                            afterPreview ? "先出しの後の全体" : "初回の全体", player.toShortString(),
+                            refreshed.sectionsBuilt(), refreshed.buildMillis(), field.buildMillis());
+                }
                 if (Boolean.getBoolean("xaeronav.navGraphVerbose")) {
                     System.out.printf(Locale.ROOT, "  組み直し %s セクション%d 構築%dms ガイド%dms%n", player.toShortString(),
                             refreshed.sectionsBuilt(), refreshed.buildMillis(), field.buildMillis());

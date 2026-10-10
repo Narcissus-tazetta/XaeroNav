@@ -240,6 +240,21 @@ public final class NavGraph {
     public record Refreshed(WindowField field, int sectionsBuilt, long buildMillis) {
     }
 
+    /**
+     * 窓（中心{@code x, z}・半径{@code window}）の中で、目的地の側の縁に寄せた半径{@code radius}の正方形の中心。
+     * 斜めの目的地では角へ寄せる（チェビシェフ距離で正規化する）ので、目的地の側の縁は窓と同じ所まで届く。
+     */
+    public static int[] aheadCenter(int x, int z, int goalX, int goalZ, int window, int radius) {
+        int dx = goalX - x;
+        int dz = goalZ - z;
+        int far = Math.max(Math.abs(dx), Math.abs(dz));
+        if (far == 0) {
+            return new int[] {x, z};
+        }
+        double shift = Math.min(window - radius, far) / (double) far;
+        return new int[] {x + (int) Math.round(dx * shift), z + (int) Math.round(dz * shift)};
+    }
+
     /** 窓からこれより離れたセクションは捨てる。窓が少し戻っただけで縁の帯を組み直さずに済む幅。 */
     static final int RETAIN_MARGIN = 32;
 

@@ -228,7 +228,9 @@ Layer 1 measured worse than straight-line distance alone.
   uncovered strip is built, in parallel. Searches keep using the previous guide until the new one is
   ready. When a chunk's blocks change, the sections around it are dropped and rebuilt.
 - **Wait briefly for the first route.** When nothing has been drawn yet and the destination is far,
-  the first route waits up to 10 seconds for the graph. Near destinations are solved immediately. A
+  the first route waits up to 10 seconds for the graph. To shorten the wait, the half of the window on
+  the destination side is built first and used as the guide while the rest is filled in. Near
+  destinations are solved immediately. A
   route drawn without the graph is reviewed once the graph is ready.
 - If building fails (for example, out of memory), it is not retried for 30 seconds and guidance
   continues without it.
