@@ -7,16 +7,19 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.file.FileNotFoundAction;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jspecify.annotations.Nullable;
 
 /**
  * NeoForgeの{@code ModConfigSpec}が持っていない場所（Fabric）での保存先。
@@ -162,6 +165,42 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
             return list.stream().allMatch(elementValidator) ? list : defaultValue;
         });
         return () -> file.<List<String>>get(path);
+    }
+
+    /** ModConfigSpecと同じく名前（大文字小文字を問わない）で読み、TOMLには名前で書く。 */
+    @Override
+    public <E extends Enum<E>> EnumValue<E> defineEnum(String name, E defaultValue) {
+        Class<E> type = defaultValue.getDeclaringClass();
+        String allowed = Arrays.stream(type.getEnumConstants()).map(Enum::name)
+                .collect(Collectors.joining(", "));
+        List<String> path = define(name, defaultValue.name(), takeComment() + "\nAllowed Values: " + allowed,
+                value -> {
+                    E parsed = parseEnum(type, value);
+                    return (parsed == null ? defaultValue : parsed).name();
+                });
+        return new EnumValue<>() {
+            @Override
+            public E get() {
+                return parseEnum(type, file.get(path));
+            }
+
+            @Override
+            public void set(E value) {
+                file.set(path, value.name());
+            }
+        };
+    }
+
+    private static <E extends Enum<E>> @Nullable E parseEnum(Class<E> type, Object value) {
+        if (!(value instanceof String text)) {
+            return null;
+        }
+        for (E constant : type.getEnumConstants()) {
+            if (constant.name().equalsIgnoreCase(text)) {
+                return constant;
+            }
+        }
+        return null;
     }
 
     private List<String> define(String name, Object defaultValue, String comment, Function<Object, Object> corrector) {

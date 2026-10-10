@@ -1,7 +1,10 @@
 package net.prason.xaeronav.client.gui;
 
 //? if >=1.19.3 {
+import java.util.List;
 import java.util.function.Consumer;
+
+import com.mojang.serialization.Codec;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.OptionInstance;
@@ -15,6 +18,9 @@ import net.minecraft.client.gui.screens.OptionsSubScreen;
 import net.minecraft.network.chat.CommonComponents;
 *///?}
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.prason.xaeronav.client.NavGraphWindow;
+import net.prason.xaeronav.config.RoutingMode;
 import net.prason.xaeronav.config.XaeroNavConfig;
 //?} else {
 /*import com.mojang.blaze3d.vertex.PoseStack;
@@ -22,16 +28,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.TextCompat;
+import net.prason.xaeronav.config.RoutingMode;
 import net.prason.xaeronav.config.XaeroNavConfig;
 *///?}
 
 /**
- * {@link XaeroNavConfig}のうちトグル系の項目だけを並べる設定画面。
+ * {@link XaeroNavConfig}のうちトグル系の項目と経路探索のモードだけを並べる設定画面。
  *
  * <p>探索範囲・逸脱閾値・地上高さ等の数値系パラメータと掘削禁止ブロックの追加リストはここに置かない。
  * たまにしか触らない設定で、TOMLの直接編集で足りるため。
@@ -98,6 +106,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     // cfgを引数化しているのはテスト用（XaeroNavConfigScreenTest）——本番はXaeroNavConfig.INSTANCEを渡すだけ。
     // publicなのは、load済みのXaeroNavConfigをNightConfigStore経由で作るテストがconfigパッケージ側にあるため
     public static void addAllOptions(XaeroNavConfig cfg, Consumer<OptionInstance<?>> addBig) {
+        addBig.accept(routingModeOption(cfg));
         addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.digging_enabled",
                 "gui.xaeronav.config.digging_enabled.tooltip", cfg.diggingEnabled(), cfg::setDiggingEnabled));
         addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.bridging_enabled",
@@ -134,6 +143,20 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         return OptionInstance.createBoolean(key, initial, setter::accept);
     }
 
+    /** 押すたびに次のモードへ回る。ヒープ不足で窓を狭めているときは、その旨を補足に足す。 */
+    private static OptionInstance<RoutingMode> routingModeOption(XaeroNavConfig cfg) {
+        MutableComponent tooltip = Component.translatable("gui.xaeronav.config.routing_mode.tooltip");
+        if (NavGraphWindow.narrowed()) {
+            tooltip.append("\n\n").append(Component.translatable("gui.xaeronav.config.routing_mode.narrowed"));
+        }
+        return new OptionInstance<>("gui.xaeronav.config.routing_mode", OptionInstance.cachedConstantTooltip(tooltip),
+                (caption, mode) -> Component.translatable("options.generic_value", caption,
+                        Component.translatable(mode.translationKey())),
+                new OptionInstance.Enum<>(List.of(RoutingMode.values()),
+                        Codec.STRING.xmap(RoutingMode::valueOf, RoutingMode::name)),
+                cfg.routingMode(), cfg::setRoutingMode);
+    }
+
     /**
      * 安全性・所持品への影響がある項目にだけ付ける短い補足。全項目に付けると
      * どれも同じ重みに見えて読み飛ばされるので、実際に結果が変わる項目に絞る。
@@ -167,6 +190,9 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         super(TextCompat.translatable("gui.xaeronav.config.title"));
         this.parent = parent;
         XaeroNavConfig cfg = XaeroNavConfig.INSTANCE;
+        toggles.add(new Toggle(() -> TextCompat.translatable("gui.xaeronav.config.routing_mode").append(": ")
+                .append(TextCompat.translatable(cfg.routingMode().translationKey())),
+                () -> cfg.setRoutingMode(RoutingMode.values()[(cfg.routingMode().ordinal() + 1) % RoutingMode.values().length])));
         add("gui.xaeronav.config.digging_enabled", cfg::diggingEnabled, cfg::setDiggingEnabled);
         add("gui.xaeronav.config.bridging_enabled", cfg::bridgingEnabled, cfg::setBridgingEnabled);
         add("gui.xaeronav.config.lava_bridging_enabled", cfg::lavaBridgingEnabled, cfg::setLavaBridgingEnabled);
@@ -184,7 +210,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     }
 
     private void add(String key, BooleanSupplier getter, Consumer<Boolean> setter) {
-        toggles.add(new Toggle(key, getter, setter));
+        toggles.add(new Toggle(() -> TextCompat.translatable(key).append(": " + (getter.getAsBoolean() ? "ON" : "OFF")),
+                () -> setter.accept(!getter.getAsBoolean())));
     }
 
     @Override
@@ -193,9 +220,9 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         for (int i = page * PAGE_SIZE; i < Math.min(toggles.size(), (page + 1) * PAGE_SIZE); i++) {
             Toggle toggle = toggles.get(i);
             int y = 38 + (i % PAGE_SIZE) * 25;
-            addToggleWidget(new Button(left, y, 300, 20, toggle.label(), button -> {
-                toggle.setter.accept(!toggle.getter.getAsBoolean());
-                button.setMessage(toggle.label());
+            addToggleWidget(new Button(left, y, 300, 20, toggle.label().get(), button -> {
+                toggle.press().run();
+                button.setMessage(toggle.label().get());
             }));
         }
         if (page > 0) {
@@ -235,20 +262,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         ClientCompat.setScreen(minecraft, parent);
     }
 
-    private static final class Toggle {
-        final String key;
-        final BooleanSupplier getter;
-        final Consumer<Boolean> setter;
-
-        Toggle(String key, BooleanSupplier getter, Consumer<Boolean> setter) {
-            this.key = key;
-            this.getter = getter;
-            this.setter = setter;
-        }
-
-        Component label() {
-            return TextCompat.translatable(key).append(": " + (getter.getAsBoolean() ? "ON" : "OFF"));
-        }
+    private record Toggle(Supplier<Component> label, Runnable press) {
     }
 }
 *///?}
