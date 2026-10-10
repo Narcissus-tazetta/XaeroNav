@@ -31,6 +31,8 @@ public interface NavConfigSpec {
     StringListValue defineStringList(String path, List<String> defaultValue,
             Supplier<String> newElement, Predicate<Object> elementValidator);
 
+    <E extends Enum<E>> EnumValue<E> defineEnum(String path, E defaultValue);
+
     interface BoolValue {
         boolean get();
 
@@ -49,5 +51,11 @@ public interface NavConfigSpec {
 
     interface StringListValue {
         List<? extends String> get();
+    }
+
+    interface EnumValue<E extends Enum<E>> {
+        E get();
+
+        void set(E value);
     }
 }

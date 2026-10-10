@@ -103,5 +103,21 @@ public final class ModConfigSpecStore implements NavConfigStore, NavConfigSpec {
                 *///?}
         return value::get;
     }
+
+    @Override
+    public <E extends Enum<E>> EnumValue<E> defineEnum(String path, E defaultValue) {
+        ModConfigSpec.EnumValue<E> value = builder.defineEnum(path, defaultValue);
+        return new EnumValue<>() {
+            @Override
+            public E get() {
+                return value.get();
+            }
+
+            @Override
+            public void set(E newValue) {
+                value.set(newValue);
+            }
+        };
+    }
 }
 //?}

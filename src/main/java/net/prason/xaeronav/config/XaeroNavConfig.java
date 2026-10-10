@@ -55,6 +55,7 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue lavaBridgingEnabled;
     private final NavConfigSpec.BoolValue deepLookAheadEnabled;
     private final NavConfigSpec.BoolValue costToGoGuideEnabled;
+    private final NavConfigSpec.EnumValue<RoutingMode> routingMode;
     private final NavConfigSpec.BoolValue fallDamageToleranceEnabled;
     private final NavConfigSpec.BoolValue avoidRiskyJumps;
     private final NavConfigSpec.BoolValue strictLimits;
@@ -182,6 +183,15 @@ public final class XaeroNavConfig {
                         "航法グラフが組み上がるまでは層1・3D粗層（粗い地図）の見積もりを使う",
                         "falseにすると航法グラフと層1の見積もりを使わず、幾何学的な直線距離だけに戻る（比較用・負荷を下げたいとき）")
                 .define("costToGoGuideEnabled", true);
+
+        routingMode = spec
+                .comment("経路探索の重さと質の釣り合い（costToGoGuideEnabledがtrueのときに効く）",
+                        "QUALITY: 8ブロック歩くごとに航法グラフを組み直す。最も正確",
+                        "BALANCED: 48ブロックごと。組み直しのCPUが約6割減り、経路はほぼ同じ",
+                        "LIGHT: 96ブロックごと・組み直しは1スレッド。CPUが約7割減り、細かい寄り道が少し増える",
+                        "どれでも向かう方角を決める範囲と経路の見直しは同じなので、大きく引き直されることは増えない",
+                        "途中で変えても今の経路は引き直さず、次の組み直しから効く")
+                .defineEnum("routingMode", RoutingMode.QUALITY);
 
         detailHorizonBlocks = spec
                 .comment("詳細探索が一度に狙う最大の水平距離（ブロック）。これより遠い目的地には",
@@ -455,6 +465,14 @@ public final class XaeroNavConfig {
 
     public void setCostToGoGuideEnabled(boolean value) {
         costToGoGuideEnabled.set(value);
+    }
+
+    public RoutingMode routingMode() {
+        return routingMode.get();
+    }
+
+    public void setRoutingMode(RoutingMode value) {
+        routingMode.set(value);
     }
 
     public boolean jumpGapEnabled() {

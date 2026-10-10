@@ -54,6 +54,7 @@ class NightConfigStoreTest {
                 blockBudgetReserve = 9999
                 heuristicWeight = "ではない数"
                 diggingEnabled = false
+                routingMode = "balanced"
                 """, StandardCharsets.UTF_8);
 
         NightConfigStore store = new NightConfigStore(file);
@@ -64,6 +65,8 @@ class NightConfigStoreTest {
         assertEquals(512, config.blockBudgetReserve());
         assertEquals(1.5, config.heuristicWeight());
         assertEquals(false, config.diggingEnabled());
+        // ModConfigSpecと同じく名前の大文字小文字は問わない
+        assertEquals(RoutingMode.BALANCED, config.routingMode());
     }
 
     @Test
@@ -74,12 +77,14 @@ class NightConfigStoreTest {
         store.build();
 
         config.setHudEnabled(false);
+        config.setRoutingMode(RoutingMode.LIGHT);
         store.save();
 
         NightConfigStore reopened = new NightConfigStore(file);
         XaeroNavConfig reloaded = new XaeroNavConfig(reopened.spec());
         reopened.build();
         assertTrue(!reloaded.hudEnabled());
+        assertEquals(RoutingMode.LIGHT, reloaded.routingMode());
     }
 
     @Test
@@ -102,6 +107,17 @@ class NightConfigStoreTest {
         }
     }
 
+
+    @Test
+    void unknownRoutingModeFallsBackToQuality(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("xaeronav-client.toml");
+        Files.writeString(file, "[pathfinding]\nroutingMode = \"FASTEST\"\n", StandardCharsets.UTF_8);
+        NightConfigStore store = new NightConfigStore(file);
+        XaeroNavConfig config = new XaeroNavConfig(store.spec());
+        store.build();
+
+        assertEquals(RoutingMode.QUALITY, config.routingMode());
+    }
     @Test
     void flightClearanceToggleRestoresTheCustomValue(@TempDir Path dir) throws IOException {
         Path file = dir.resolve("xaeronav-client.toml");
