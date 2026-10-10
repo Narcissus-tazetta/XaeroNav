@@ -34,6 +34,6 @@ class XaeroNavConfigScreenOptionsTest {
         assertDoesNotThrow(() -> XaeroNavConfigScreen.addAllOptions(cfg, collected::add));
         // XaeroNavConfigScreen.addAllOptions内のaddBig.accept呼び出し数と一致させること。
         // 項目を増減したときにここが検知する。
-        assertEquals(14, collected.size());
+        assertEquals(15, collected.size());
     }
 }

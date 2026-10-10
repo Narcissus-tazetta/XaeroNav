@@ -224,7 +224,8 @@ Layer 1 measured worse than straight-line distance alone.
   from nearby nodes (within 3 blocks), then from the far-field estimate or the geometric bound.
 - **Do not use it if the destination is not connected to the shell.** Every value in the window would
   then come from the rim estimate, on a scale that does not match.
-- **Rebuild every 8 blocks walked.** Sections are remembered per destination and only the newly
+- **Rebuild every 8 blocks walked** (48 in the `BALANCED` routing mode, 96 on a single thread in `LIGHT`).
+  Sections are remembered per destination and only the newly
   uncovered strip is built, in parallel. Searches keep using the previous guide until the new one is
   ready. When a chunk's blocks change, the sections around it are dropped and rebuilt.
 - **Wait briefly for the first route.** When nothing has been drawn yet and the destination is far,
