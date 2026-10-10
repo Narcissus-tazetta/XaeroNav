@@ -177,11 +177,36 @@ class NavGraphWalkBenchTest {
     }
 
     private static void measure(String name, FakeCells cells, List<BlockPos[]> routes, ProgressiveWalk.Mode mode,
-                                ProgressiveWalk.Aim currentAim, boolean forwardOnly, Function<BlockPos[], FarField> farFor) {
+                                ProgressiveWalk.Aim currentAim, boolean forwardOnly, Function<BlockPos[], FarField> farFor,
+                                Function<BlockPos[], Function<BlockPos, CostToGo>> lightFor) {
         measureFollowing(name, cells, routes, mode, currentAim, forwardOnly, route -> {
             FarField far = farFor.apply(route);
             return player -> far;
-        });
+        }, lightFor);
+    }
+
+    /**
+     * 航法グラフを組まずに、粗い見積もりだけをガイドに目的地をそのまま狙って歩く（軽量モードの候補）。
+     * {@code -Pxaeronav.light=true}で測る。重みは本番の{@code GoalGuide(..., navGraph=false)}と同じ設定値の既定。
+     */
+    private static final boolean LIGHT = Boolean.getBoolean("xaeronav.light");
+
+    private static final double LIGHT_WEIGHT = Double.parseDouble(System.getProperty("xaeronav.lightWeight",
+            String.valueOf(AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT)));
+
+    /** 現世の候補: 地図全体の層1の見積もり（本番は窓の外の推定に使っているもの）。 */
+    private static Function<BlockPos[], Function<BlockPos, CostToGo>> layer1Light(FakeCells cells) {
+        return route -> {
+            CostToGo estimate = CoarseRouter.farEstimate(LiveCoarseSampler.sample(cells, cells.bounds(),
+                    route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE);
+            return player -> estimate;
+        };
+    }
+
+    private static String traceSummary(ProgressiveWalk.Trace trace, double best, long millis) {
+        double ratio = trace.steps().isEmpty() ? Double.POSITIVE_INFINITY : ProgressiveWalk.cost(trace.steps()) / best;
+        return String.format(Locale.ROOT, "%.3f 描き変わり%d(足元%d) 捨てた線%.0fブロック 歩き%dms %s", ratio,
+                trace.redraws(), trace.nearRedraws(), trace.redrawnBlocks(), millis, trace.stopped());
     }
 
     private static long gcPauseMillis() {
@@ -209,11 +234,19 @@ class NavGraphWalkBenchTest {
      * プレイヤーの位置から組み直す。
      */
     private static Function<BlockPos, FarField> voxelFar(FakeCells cells, BlockPos start, BlockPos goal, double scale) {
+        Function<BlockPos, CostToGo> voxel = voxelFollowing(cells, start, goal);
+        return player -> {
+            CostToGo current = voxel.apply(player);
+            return FarField.of((x, y, z) -> scale * current.estimate(x, y, z));
+        };
+    }
+
+    /** 3D粗層そのもの。{@link #VOXEL_FOLLOW}なら本番の{@code NetherVoxelGuide}と同じ引き金でプレイヤーの位置から組み直す。 */
+    private static Function<BlockPos, CostToGo> voxelFollowing(FakeCells cells, BlockPos start, BlockPos goal) {
         CostToGo[] voxel = {XaeroMapModel.guide(cells, start, goal, NetherLiveWalkTest.NETHER_MIN_Y,
                 NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L)};
         if (!VOXEL_FOLLOW) {
-            FarField far = FarField.of((x, y, z) -> scale * voxel[0].estimate(x, y, z));
-            return player -> far;
+            return player -> voxel[0];
         }
         BlockPos[] builtAt = {start};
         return player -> {
@@ -234,15 +267,15 @@ class NavGraphWalkBenchTest {
                                     NetherLiveWalkTest.NETHER_MIN_Y, NetherLiveWalkTest.NETHER_MAX_Y)));
                 }
             }
-            CostToGo current = voxel[0];
-            return FarField.of((x, y, z) -> scale * current.estimate(x, y, z));
+            return voxel[0];
         };
     }
 
     private static void measureFollowing(String name, FakeCells cells, List<BlockPos[]> routes, ProgressiveWalk.Mode mode,
                                          ProgressiveWalk.Aim currentAim, boolean forwardOnly,
-                                         Function<BlockPos[], Function<BlockPos, FarField>> farFor) {
-        List<List<Double>> ratios = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+                                         Function<BlockPos[], Function<BlockPos, FarField>> farFor,
+                                         Function<BlockPos[], Function<BlockPos, CostToGo>> lightFor) {
+        List<List<Double>> ratios = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         List<Double> retreats = new ArrayList<>();
         for (BlockPos[] route : routes.subList(Math.min(routes.size(), Integer.getInteger("xaeronav.routeSkip", 0)),
                 Math.min(routes.size(), Integer.getInteger("xaeronav.routeLimit", 99)))) {
@@ -257,8 +290,23 @@ class NavGraphWalkBenchTest {
 
             // 航法グラフの実装だけを測り直すときは、重い2本（現行・閉包の窓）を飛ばす
             boolean graphOnly = Boolean.getBoolean("xaeronav.navGraphOnly");
+            long currentBegan = System.nanoTime();
             ProgressiveWalk.Trace current = graphOnly ? null
                     : ProgressiveWalk.trace(cells, start, goal, WINDOW, mode, currentAim, null);
+            long currentMillis = (System.nanoTime() - currentBegan) / 1_000_000L;
+            ProgressiveWalk.Trace light = null;
+            long lightMillis = 0;
+            if (LIGHT && lightFor != null) {
+                long lightBegan = System.nanoTime();
+                light = ProgressiveWalk.trace(cells, start, goal, WINDOW, mode, ProgressiveWalk.Aim.GOAL,
+                        lightFor.apply(new BlockPos[] {start, goal}), LIGHT_WEIGHT);
+                lightMillis = (System.nanoTime() - lightBegan) / 1_000_000L;
+            }
+            if (current != null || light != null) {
+                System.out.printf(Locale.ROOT, "%s %s→%s 基準%.0f 現行 %s 軽量 %s%n", name, start.toShortString(),
+                        goal.toShortString(), best, current == null ? "-" : traceSummary(current, best, currentMillis),
+                        light == null ? "-" : traceSummary(light, best, lightMillis));
+            }
             ProgressiveWalk.Trace closureWalk = graphOnly || Boolean.getBoolean("xaeronav.skipClosure") ? null
                     : closureWalk(cells, start, goal, mode, far);
 
@@ -273,9 +321,9 @@ class NavGraphWalkBenchTest {
             long gcMillis = gcPauseMillis() - gcBefore;
             double retreat = worstRetreat(graphWalk.steps(), goal);
             retreats.add(retreat);
-            double[] values = new double[3];
-            ProgressiveWalk.Trace[] traces = {current, closureWalk, graphWalk};
-            for (int i = 0; i < 3; i++) {
+            double[] values = new double[4];
+            ProgressiveWalk.Trace[] traces = {current, closureWalk, graphWalk, light};
+            for (int i = 0; i < 4; i++) {
                 values[i] = traces[i] == null || traces[i].steps().isEmpty() ? Double.POSITIVE_INFINITY
                         : ProgressiveWalk.cost(traces[i].steps()) / best;
                 ratios.get(i).add(values[i]);
@@ -291,8 +339,8 @@ class NavGraphWalkBenchTest {
                     walkMillis, gcMillis, Runtime.getRuntime().availableProcessors(),
                     stats.maxEdges()[0], stats.maxBytes()[0] >> 20, stats.maxBytes()[1] >> 20, graphWalk.stopped());
         }
-        String[] names = {"現行", "閉包の窓", "航法グラフ"};
-        for (int i = 0; i < 3; i++) {
+        String[] names = {"現行", "閉包の窓", "航法グラフ", "軽量"};
+        for (int i = 0; i < 4; i++) {
             List<Double> list = ratios.get(i);
             System.out.printf(Locale.ROOT, "== %s %s 平均%.3f 最悪%.3f%n", name, names[i],
                     list.stream().filter(Double::isFinite).mapToDouble(Double::doubleValue).average().orElse(0),
@@ -320,7 +368,7 @@ class NavGraphWalkBenchTest {
         measure("地上/広域(長)", cells, surfaceRoutes(cells, 4, 200, 450), ProgressiveWalk.Mode.EXTEND,
                 ProgressiveWalk.Aim.HORIZON, false, route -> layer1Far(CoarseRouter.farEstimate(LiveCoarseSampler.sample(
                         cells, cells.bounds(), route[0].getY(), () -> false), route[1], false,
-                        CoarseRouter.BridgePolicy.BRIDGE)));
+                        CoarseRouter.BridgePolicy.BRIDGE)), layer1Light(cells));
     }
 
     /**
@@ -340,7 +388,7 @@ class NavGraphWalkBenchTest {
         }
         measure("地上/広域(長・地中始点)", cells, routes, ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON,
                 false, route -> layer1Far(CoarseRouter.farEstimate(LiveCoarseSampler.sample(cells, cells.bounds(),
-                        route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE)));
+                        route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE)), layer1Light(cells));
     }
 
     @Test
@@ -349,7 +397,7 @@ class NavGraphWalkBenchTest {
         measure("エンド", cells, TerrainFixture.randomRoutes(cells, cells.bounds(), SEED, 4, 120, 220),
                 ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON, true,
                 route -> "unknown".equals(System.getProperty("xaeronav.navGraphFar")) ? FarField.UNKNOWN
-                        : endFar(cells, route));
+                        : endFar(cells, route), null);
     }
 
     /**
@@ -371,7 +419,7 @@ class NavGraphWalkBenchTest {
                 new BlockPos[] {new BlockPos(2163, 54, 1047), new BlockPos(2298, 57, 1149)},
                 new BlockPos[] {new BlockPos(2028, 57, 1098), new BlockPos(2440, 60, 1160)});
         measure("エンド外側の島", cells, routes, ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON, true,
-                route -> endFar(cells, route));
+                route -> endFar(cells, route), null);
     }
 
     /** 実機のネザーで溶岩の海の周りを行き来した区間。溶岩を挟んだ小島を渡れないと、外周へ出ては引き返す。 */
@@ -384,7 +432,7 @@ class NavGraphWalkBenchTest {
                 new BlockPos[] {new BlockPos(-261, 66, 448), new BlockPos(-333, 59, 694)},
                 new BlockPos[] {new BlockPos(-212, 48, 553), new BlockPos(-333, 59, 694)});
         measureFollowing("ネザー溶岩の海", cells, routes, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, false,
-                route -> voxelFar(cells, route[0], route[1], scale));
+                route -> voxelFar(cells, route[0], route[1], scale), route -> voxelFollowing(cells, route[0], route[1]));
     }
 
     @Test
@@ -393,7 +441,7 @@ class NavGraphWalkBenchTest {
         // 本番のNavGraphGuide.VOXEL_FAR_SCALE
         double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
         measureFollowing("ネザー(外=3D粗層x" + scale + ")", cells, NetherLiveWalkTest.routes(), ProgressiveWalk.Mode.REPAIR,
-                ProgressiveWalk.Aim.GOAL, false, route -> voxelFar(cells, route[0], route[1], scale));
+                ProgressiveWalk.Aim.GOAL, false, route -> voxelFar(cells, route[0], route[1], scale), route -> voxelFollowing(cells, route[0], route[1]));
     }
 
     /** 実機で罠(-65,47,521)へ入っては引き返した溶岩の多い地形（{@link NetherTrapBenchTest}）。条件は実機の既定に揃える。 */
@@ -404,7 +452,7 @@ class NavGraphWalkBenchTest {
         List<BlockPos[]> routes = NetherTrapBenchTest.STARTS.stream()
                 .map(start -> new BlockPos[] {start, NetherTrapBenchTest.GOAL}).toList();
         measureFollowing("ネザー罠", cells, routes, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, false,
-                route -> voxelFar(cells, route[0], route[1], scale));
+                route -> voxelFar(cells, route[0], route[1], scale), route -> voxelFollowing(cells, route[0], route[1]));
     }
 
     /** 地下まで書き出した実機の海沿い（{@code tools/dump_terrain_columns.py ... --depth 0}）。洞窟が何層もある。 */
@@ -421,7 +469,7 @@ class NavGraphWalkBenchTest {
         }
         measure("地上/海沿い(地下込み)", cells, routes, ProgressiveWalk.Mode.EXTEND, ProgressiveWalk.Aim.HORIZON,
                 false, route -> layer1Far(CoarseRouter.farEstimate(LiveCoarseSampler.sample(cells, cells.bounds(),
-                        route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE)));
+                        route[0].getY(), () -> false), route[1], false, CoarseRouter.BridgePolicy.BRIDGE)), layer1Light(cells));
     }
 
     private static FarField layer1Far(CostToGo estimate) {
