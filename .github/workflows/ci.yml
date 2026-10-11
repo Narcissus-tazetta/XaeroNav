@@ -259,14 +259,12 @@ jobs:
             done
           ' > /dev/null 2>&1 &
 
-      # 26.3の描画層（renderpearl）はOpenGL 3.3 coreのsRGB対応の画面を求め、作れなければVulkanへ落ちる。ランナーの
-      # Xvfbでは「Couldn't find matching GLX visual」になり、VulkanはVK_KHR_surfaceを持つ実装（lavapipe）が無くて落ちた。
-      # lavapipeを入れ、Xvfbの上で見えているGL・Vulkanをログに残す
-      - name: Prepare the display for 26.3
+      # 26.3の描画層（renderpearl）はXvfbの上でOpenGLの窓を作れず（「Couldn't find matching GLX visual」。sRGB対応の
+      # fbconfigはあるが原因は未確定）、Vulkanへ落ちる。ランナーにはVK_KHR_surfaceを持つVulkanの実装が無いので、
+      # lavapipe（CPUで描くVulkan）を入れる
+      - name: Install a software Vulkan driver for 26.3
         if: matrix.node.minecraft == '26.3'
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mesa-vulkan-drivers mesa-utils vulkan-tools > /dev/null
-          xvfb-run -a sh -c 'glxinfo -B; echo "sRGB-capable fbconfigs: $(glxinfo -v | grep -ci srgb)"; vulkaninfo --summary 2>&1 | grep -E "deviceName|apiVersion"' || true
+        run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mesa-vulkan-drivers > /dev/null
 
       # 上のウォッチが効かなかったときの最後の砦。ここで打ち切っても後続の
       # ログ出力・アップロードは `if: always()` で走るので、原因を追う材料は残る
