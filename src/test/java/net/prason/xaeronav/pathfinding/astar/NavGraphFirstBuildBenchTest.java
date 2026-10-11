@@ -29,6 +29,9 @@ class NavGraphFirstBuildBenchTest {
 
     private static final int WINDOW = 224;
     private static final BlockPos GOAL = new BlockPos(-53, 68, 716);
+    /** 初回の先出しの半径（{@code -Pxaeronav.firstPreview=160}）。0なら窓全体だけを組む。 */
+    private static final int AHEAD = Integer.getInteger("xaeronav.firstPreview", 0);
+
     private static final BlockPos[] PLAYERS = {new BlockPos(-235, 88, 505), new BlockPos(-193, 50, 559),
             new BlockPos(-152, 65, 521)};
 
@@ -57,6 +60,17 @@ class NavGraphFirstBuildBenchTest {
             FarField far = FarField.of((x, y, z) -> 1.3 * voxel.estimate(x, y, z));
             for (int round = 0; round < rounds; round++) {
                 NavGraph graph = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
+                if (AHEAD > 0) {
+                    // 本番の初回の先出し（NavGraphGuide）: 目的地の側へ寄せた小さい窓を先に組んでガイドを出し、続けて窓全体を組む
+                    int[] center = NavGraph.aheadCenter(player.getX(), player.getZ(), goal.getX(), goal.getZ(), WINDOW,
+                            AHEAD);
+                    NavGraph.Refreshed ahead = graph.refresh(() -> window, center[0], center[1], AHEAD,
+                            LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
+                            workers, () -> false);
+                    System.out.printf(Locale.ROOT, "プレイヤー%s 回%d 先出し半径%d 構築%dms ガイド%dms セクション%d%n",
+                            player.toShortString(), round, AHEAD, ahead.buildMillis(), ahead.field().buildMillis(),
+                            ahead.sectionsBuilt());
+                }
                 NavGraph.Refreshed built = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
                         LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),
                         workers, () -> false);

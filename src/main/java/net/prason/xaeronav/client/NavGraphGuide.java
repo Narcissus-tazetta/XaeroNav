@@ -6,6 +6,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import org.apache.logging.log4j.LogManager;
@@ -131,6 +132,17 @@ final class NavGraphGuide {
      * 組み直しの間も古いガイドで探せるので、半分で遅れても案内は途切れない。
      */
     private static final int REBUILD_WORKERS = Math.max(1, Runtime.getRuntime().availableProcessors() / 2 - 1);
+
+    /**
+     * この目的地のガイドが無いうちは、窓の中で目的地の側の縁へ寄せた小さい正方形（半径は窓の7分のこれ）を先に組んで
+     * ガイドを出し、続けて窓全体を組む（{@link NavGraph#aheadCenter}）。窓224なら160で、セクションは約半分。
+     *
+     * <p>初回の構築は少コアでは数秒〜十数秒かかり、その間は最初の線が出ない（2コアの実測: ネザーの罠の地形で
+     * 15.6〜21.7秒 → 先出しで9.4〜13.5秒。窓全体が組み上がるまでの合計は2〜10%延びる。組み上がったガイドは先出し無しと同じ）。
+     * 歩き通しの模型（全8地形36本）では、160で32本が先出し無しと同じ経路、溶岩の海の2本で描き変わりが1回ずつ増えただけ。
+     * 128では目的地の側でも縁が近すぎ、地中始点で1.002→1.366倍・ネザーで最悪1.476倍に落ちた。
+     */
+    private static final int AHEAD_RADIUS_SEVENTHS = 5;
 
     /**
      * JITを温めるために組む窓の半径。初回の組み立ては、JITが冷えたままだと温まった後の2.5倍かかる（実機の保存地形で
@@ -373,13 +385,18 @@ final class NavGraphGuide {
         int minY = key.minY();
         int maxY = key.maxY();
         // この目的地のガイドがまだ無い＝案内を待たせている間だけ全力で組む
-        int workers = retargeted || built != null && built.key().equals(key) ? REBUILD_WORKERS : WORKERS;
+        boolean waiting = !(retargeted || built != null && built.key().equals(key));
+        int workers = waiting ? WORKERS : REBUILD_WORKERS;
         building = true;
         long myGeneration = generation.incrementAndGet();
         CompletableFuture.supplyAsync(() -> {
                     long began = MonotonicTime.millis();
                     NavGraph.Refreshed refreshed = refresh(key, view, at, minY, maxY, farMap, invalidateAround, workers,
-                            () -> generation.get() != myGeneration);
+                            () -> generation.get() != myGeneration, !waiting ? null : ahead -> {
+                                if (generation.get() == myGeneration) {
+                                    built = new Built(key, at, ahead);
+                                }
+                            });
                     load.record(began, MonotonicTime.millis(), captureMillis, refreshed);
                     if (refreshed != null) {
                         farScale.observe(refreshed.field(), at);
@@ -446,9 +463,10 @@ final class NavGraphGuide {
     /** 段取りの1本で走る。 */
     private NavGraph.@Nullable Refreshed refresh(Key key, ChunkView view, BlockPos at, int minY, int maxY,
                                                  @Nullable Far farMap, boolean invalidateAround, int workers,
-                                                 BooleanSupplier cancelled) {
+                                                 BooleanSupplier cancelled, @Nullable Consumer<WindowField> early) {
         NavGraph current = graph;
-        if (current == null || !key.sameEdges(graphKey)) {
+        boolean fresh = current == null || !key.sameEdges(graphKey);
+        if (fresh) {
             // 条件が変わったグラフを残して差分で組み直すことはできない（辺そのものが条件に依存する）
             current = new NavGraph(key.goal(), minY, maxY);
             graph = current;
@@ -488,9 +506,23 @@ final class NavGraphGuide {
         if (farMap != null && farMap.learns()) {
             seeds = learned.over(seeds);
         }
-        return current.refresh(view::forGraphBuild, at.getX(), at.getZ(), window,
-                LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded), seeds, key.rides(), pool, workers,
-                cancelled);
+        LoadedArea loaded = LoadedArea.chunks(at.getX(), at.getZ(), window, view::chunkLoaded);
+        int aheadRadius = window * AHEAD_RADIUS_SEVENTHS / 7;
+        if (early != null && fresh) {
+            int[] center = NavGraph.aheadCenter(at.getX(), at.getZ(), key.goal().getX(), key.goal().getZ(), window,
+                    aheadRadius);
+            NavGraph.Refreshed ahead = current.refresh(view::forGraphBuild, center[0], center[1], aheadRadius, loaded,
+                    seeds, key.rides(), pool, workers, cancelled);
+            if (ahead == null) {
+                return null;
+            }
+            LOGGER.debug("XaeroNav: nav graph ahead of the player first (sections built={}, build {}ms, guide {}ms, "
+                            + "radius {} around {},{})", ahead.sectionsBuilt(), ahead.buildMillis(),
+                    ahead.field().buildMillis(), aheadRadius, center[0], center[1]);
+            early.accept(ahead.field());
+        }
+        return current.refresh(view::forGraphBuild, at.getX(), at.getZ(), window, loaded, seeds, key.rides(), pool,
+                workers, cancelled);
     }
 
     /**
