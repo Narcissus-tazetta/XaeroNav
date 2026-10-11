@@ -149,9 +149,9 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         if (NavGraphWindow.narrowed()) {
             tooltip.append("\n\n").append(Component.translatable("gui.xaeronav.config.routing_mode.narrowed"));
         }
+        // 値だけを返す。「項目名: 値」はCycleButtonが組み立てる（ここで項目名を足すと二重になる）
         return new OptionInstance<>("gui.xaeronav.config.routing_mode", OptionInstance.cachedConstantTooltip(tooltip),
-                (caption, mode) -> Component.translatable("options.generic_value", caption,
-                        Component.translatable(mode.translationKey())),
+                (caption, mode) -> Component.translatable(mode.translationKey()),
                 new OptionInstance.Enum<>(List.of(RoutingMode.values()),
                         Codec.STRING.xmap(RoutingMode::valueOf, RoutingMode::name)),
                 cfg.routingMode(), cfg::setRoutingMode);
