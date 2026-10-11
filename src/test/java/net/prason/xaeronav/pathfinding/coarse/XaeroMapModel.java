@@ -39,8 +39,8 @@ public final class XaeroMapModel {
     /** Xaeroの{@code CAVE_MODE_DEPTH}既定値。1枚のレイヤーはこの厚さのスライスしか持たない。 */
     private static final int CAVE_MODE_DEPTH = 30;
 
-    /** 本番の{@code XaeroMapReader#SAMPLE_STEP}と同じ間引き。 */
-    private static final int SAMPLE_STEP = 2;
+    /** 本番（{@code NetherVoxelGuide}）と同じ間引き。 */
+    private static final int SAMPLE_STEP = VoxelTerrain.FLOOR_SAMPLE_BLOCKS;
 
     private XaeroMapModel() {
     }

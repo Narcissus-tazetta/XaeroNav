@@ -111,6 +111,7 @@ public final class VoxelCostToGo implements CostToGo {
         if (goalIndex < 0) {
             return null;
         }
+        terrain.connectFloors();
         double[] cost = new double[terrain.cellCount()];
         Arrays.fill(cost, Double.POSITIVE_INFINITY);
         cost[goalIndex] = 0.0;
@@ -153,7 +154,13 @@ public final class VoxelCostToGo implements CostToGo {
                             continue;
                         }
                         double blocks = terrain.cellBlocks() * Math.sqrt(di * di + dj * dj + dk * dk);
-                        double next = cost[current] + blocks * rate(terrain.kindAt(neighbor), lavaPassable);
+                        byte kind = terrain.kindAt(neighbor);
+                        // 地図の床ではつながらない隣の床セルへは、橋・柱・掘削のどれかが要る。値段は床の無いセルと同じにする
+                        // （VoxelTerrain#connectFloors）
+                        boolean cut = kind == VoxelTerrain.STANDABLE
+                                && terrain.kindAt(current) == VoxelTerrain.STANDABLE
+                                && !terrain.walkable(neighbor, current);
+                        double next = cost[current] + blocks * rate(cut ? VoxelTerrain.OPEN : kind, lavaPassable);
                         if (next < cost[neighbor]) {
                             cost[neighbor] = next;
                             open.add(new Entry(neighbor, next));

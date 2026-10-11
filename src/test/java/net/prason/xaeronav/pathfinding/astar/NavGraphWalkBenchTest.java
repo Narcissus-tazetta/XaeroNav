@@ -468,7 +468,7 @@ class NavGraphWalkBenchTest {
     @Test
     void netherLavaSea() throws IOException {
         FakeCells cells = netherTerrain();
-        double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
+        double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.0"));
         List<BlockPos[]> routes = List.of(
                 new BlockPos[] {new BlockPos(-271, 64, 395), new BlockPos(-333, 59, 694)},
                 new BlockPos[] {new BlockPos(-261, 66, 448), new BlockPos(-333, 59, 694)},
@@ -481,7 +481,7 @@ class NavGraphWalkBenchTest {
     void nether() throws IOException {
         FakeCells cells = netherTerrain();
         // 本番のNavGraphGuide.VOXEL_FAR_SCALE
-        double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
+        double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.0"));
         measureFollowing("ネザー(外=3D粗層x" + scale + ")", cells, NetherLiveWalkTest.routes(), ProgressiveWalk.Mode.REPAIR,
                 ProgressiveWalk.Aim.GOAL, false, route -> voxelFar(cells, route[0], route[1], scale), route -> voxelFollowing(cells, route[0], route[1]));
     }
@@ -490,7 +490,7 @@ class NavGraphWalkBenchTest {
     @Test
     void netherTrap() throws IOException {
         FakeCells cells = NetherTrapBenchTest.cells();
-        double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
+        double scale = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.0"));
         List<BlockPos[]> routes = NetherTrapBenchTest.STARTS.stream()
                 .map(start -> new BlockPos[] {start, NetherTrapBenchTest.GOAL}).toList();
         measureFollowing("ネザー罠", cells, routes, ProgressiveWalk.Mode.REPAIR, ProgressiveWalk.Aim.GOAL, false,

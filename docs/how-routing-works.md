@@ -211,7 +211,7 @@ The numbers illustrate "cheapest ticks from here to the goal". The search simply
 | Dimension | Estimate outside the window |
 |---|---|
 | Overworld with Xaero's map | Layer 1 cost-to-go |
-| Nether | 3D coarse layer cost-to-go × 1.3 (that layer runs at about 0.77× the true value) |
+| Nether | 3D coarse layer cost-to-go (floor cells are linked only where the map's floor heights allow walking between them) |
 | End, or no map | Straight-line distance, only while the destination is outside the window |
 
 Anything unknown is **infinite**. A poor estimate is worse than none: in the End, seeding the rim with

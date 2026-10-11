@@ -1,5 +1,8 @@
 package net.prason.xaeronav.pathfinding.coarse;
 
+import java.util.Arrays;
+
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
 //? if >=1.17 {
 import net.minecraft.world.level.LevelHeightAccessor;
@@ -54,6 +57,22 @@ public final class VoxelTerrain {
     public static final int DEFAULT_CELL_BLOCKS = 4;
 
     /**
+     * 地図から床を拾う間隔（ブロック）。格子のセル辺の半分——1セルにつき数点入る粒度で見ないと、
+     * 幅の狭い通路が抜け落ちる。{@link #connectFloors}は隣の標本をこの間隔で探すので、
+     * 読む側（{@code NetherVoxelGuide}）と必ず同じ値を使うこと。
+     */
+    public static final int FLOOR_SAMPLE_BLOCKS = DEFAULT_CELL_BLOCKS / 2;
+
+    /**
+     * 隣の標本（{@link #FLOOR_SAMPLE_BLOCKS}先）の床へ歩いて移れる段差の上限。上りは1ブロックごとに1段ずつなので
+     * 標本の間隔と同じ2、下りは落下ダメージを許さない既定の設定で1手に降りられる3。
+     * 実測（2026-09-27、{@code VoxelEstimateErrorBenchTest}）では上り1〜3・下り2〜5のどれでも同じ程度に効き、
+     * 下り2だけが目に見えて悪い。
+     */
+    static final int MAX_SAMPLE_CLIMB_BLOCKS = 2;
+    static final int MAX_SAMPLE_DROP_BLOCKS = 3;
+
+    /**
      * 格子の総数の上限。超えるぶんはセルを粗くして吸収する（{@link #cellBlocksFor}）。
      *
      * <p>目的地が遠いほど箱が広がるので、ここが無いと確保量も構築時間も距離の2乗で伸びる。
@@ -94,6 +113,8 @@ public final class VoxelTerrain {
     private final int ny;
     private final int nz;
     private final byte[] kind;
+    private final LongArrayList floors = new LongArrayList();
+    private int[] links;
     private int floorMarks;
 
     private VoxelTerrain(SearchBounds box, int cellBlocks, boolean lavaPassable, int nx, int ny, int nz) {
@@ -211,6 +232,82 @@ public final class VoxelTerrain {
         if (kind[index] < mark) {
             kind[index] = mark;
         }
+        if (!lava) {
+            floors.add(packFloor(x - box.minX(), standY - box.minY(), z - box.minZ()));
+        }
+    }
+
+    private static long packFloor(int rx, int ry, int rz) {
+        return ((long) rx << 40) | ((long) rz << 16) | ry;
+    }
+
+    /**
+     * 床の標本同士を段差で結び、どの床セルからどの隣の床セルへ歩いて移れるかを求める。
+     * {@link #markFloor}を全部終えてから1回だけ呼ぶこと。ワーカースレッドで呼んでよい。
+     *
+     * <p><b>隣り合う床セルが歩いてつながっているとは限らない。</b>セル辺は4〜6ブロックあるので、
+     * 隣のセルの床が壁の向こうの別の通路や、落下0では降りられない崖の下であることが普通にある。
+     * これを知らないと、表は壁や崖を疾走で抜ける値段になり、窓の外の推定が真値の0.34〜0.67倍まで下がる。
+     * 下がり方が回廊ごとに違う（罠の回廊は壁が多い）ので、一様な倍率では直せず、分かれ道で実際より安く見える方へ出てしまう。
+     * 地図が持っているのは床の高さだけだが、隣り合う標本の段差を見れば、壁と崖の大半は分かる。
+     */
+    void connectFloors() {
+        long[] sorted = floors.toLongArray();
+        Arrays.sort(sorted);
+        links = new int[kind.length];
+        for (long floor : sorted) {
+            int rx = (int) (floor >>> 40);
+            int rz = (int) ((floor >>> 16) & 0xFFFFFF);
+            int ry = (int) (floor & 0xFFFF);
+            int from = indexOfBlock(box.minX() + rx, box.minY() + ry, box.minZ() + rz);
+            for (int dx = -FLOOR_SAMPLE_BLOCKS; dx <= FLOOR_SAMPLE_BLOCKS; dx += FLOOR_SAMPLE_BLOCKS) {
+                for (int dz = -FLOOR_SAMPLE_BLOCKS; dz <= FLOOR_SAMPLE_BLOCKS; dz += FLOOR_SAMPLE_BLOCKS) {
+                    int nx = rx + dx;
+                    int nz = rz + dz;
+                    if ((dx | dz) == 0 || nx < 0 || nz < 0) {
+                        continue;
+                    }
+                    long column = packFloor(nx, 0, nz);
+                    for (int at = firstAtOrAfter(sorted, column); at < sorted.length
+                            && sorted[at] >>> 16 == column >>> 16; at++) {
+                        int climb = (int) (sorted[at] & 0xFFFF) - ry;
+                        if (climb > MAX_SAMPLE_CLIMB_BLOCKS || -climb > MAX_SAMPLE_DROP_BLOCKS) {
+                            continue;
+                        }
+                        int to = indexOfBlock(box.minX() + nx, box.minY() + ry + climb, box.minZ() + nz);
+                        if (to != from) {
+                            links[from] |= directionBit(from, to);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static int firstAtOrAfter(long[] sorted, long key) {
+        int low = 0;
+        int high = sorted.length;
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            if (sorted[mid] < key) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        return low;
+    }
+
+    private int directionBit(int from, int to) {
+        int di = cellX(to) - cellX(from);
+        int dj = cellY(to) - cellY(from);
+        int dk = cellZ(to) - cellZ(from);
+        return 1 << ((di + 1) * 9 + (dj + 1) * 3 + (dk + 1));
+    }
+
+    /** 床セル{@code from}から隣の床セル{@code to}へ、地図の床をつたって歩いて移れるか。 */
+    boolean walkable(int from, int to) {
+        return (links[from] & directionBit(from, to)) != 0;
     }
 
     /** {@link #markFloor}で箱の中へ写せた床の数（診断用）。0なら地図から何も取れていない。 */

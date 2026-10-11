@@ -42,11 +42,7 @@ final class NetherVoxelGuide {
 
     private static final Logger LOGGER = LogManager.getLogger();
 
-    /**
-     * 地図を何ブロックおきに読むか。格子のセル辺の半分——1セルにつき数点入る粒度で見ないと、
-     * 幅の狭い通路が抜け落ちる。
-     */
-    private static final int SAMPLE_STEP = VoxelTerrain.DEFAULT_CELL_BLOCKS / 2;
+    private static final int SAMPLE_STEP = VoxelTerrain.FLOOR_SAMPLE_BLOCKS;
 
     /** 箱の縁からこれだけ内側にいる限りは組み直さない（{@code FLIGHT_COARSE_RECALC}と同じ考え方）。 */
     private static final int REBUILD_INSET_BLOCKS = 32;

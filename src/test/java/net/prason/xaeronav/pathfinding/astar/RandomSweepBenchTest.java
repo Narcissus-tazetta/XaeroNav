@@ -53,7 +53,7 @@ public class RandomSweepBenchTest {
     /** 窓の値を覚えて窓の外の推定の下限にする（{@link LearnedFar}、本番はネザーで有効）。 */
     private static final boolean LEARN = Boolean.parseBoolean(System.getProperty("xaeronav.sweepLearn", "true"));
     /** ネザーの窓の外の推定（3D粗層）に掛ける倍率。本番は{@code NavGraphGuide.VOXEL_FAR_SCALE}。 */
-    private static final double FAR_SCALE = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.3"));
+    private static final double FAR_SCALE = Double.parseDouble(System.getProperty("xaeronav.navGraphFarScale", "1.0"));
     /**
      * 0より大きければ、ネザーの3D粗層を「歩いた所からこの距離（ブロック）以内のチャンクだけ地図が持っている」状態で組む。
      * 実機の地図は歩くうちに埋まり、組み直すたびに推定が下がる。0なら全チャンクを知っている。

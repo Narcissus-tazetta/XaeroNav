@@ -5,9 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.function.IntUnaryOperator;
+
 import org.junit.jupiter.api.Test;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 
 class VoxelCostToGoTest {
@@ -84,5 +87,42 @@ class VoxelCostToGoTest {
     @Test
     void stopsWhenCancelled() {
         assertNull(VoxelCostToGo.build(corridor(), new BlockPos(120, 16, 64), () -> true));
+    }
+
+    /** 床の高さを列ごとに決めた、幅17ブロックの帯。 */
+    private static VoxelTerrain strip(IntUnaryOperator floorTopAt) {
+        VoxelTerrain terrain = VoxelTerrain.of(box(), VoxelTerrain.DEFAULT_CELL_BLOCKS, false);
+        for (int x = 0; x <= 127; x += VoxelTerrain.FLOOR_SAMPLE_BLOCKS) {
+            for (int z = 56; z <= 72; z += VoxelTerrain.FLOOR_SAMPLE_BLOCKS) {
+                terrain.markFloor(x, z, floorTopAt.applyAsInt(x), false);
+            }
+        }
+        return terrain;
+    }
+
+    /**
+     * 隣り合う床セルでも、間が4ブロックの崖なら走っては上れない。疾走の値段でつないでいた頃は、
+     * 壁や崖の多い回廊ほど見積もりが安く出て、窓の外の分かれ道でそちらへ出てしまった。
+     */
+    @Test
+    void doesNotRunUpACliffBetweenNeighbouringFloors() {
+        VoxelCostToGo guide = VoxelCostToGo.build(strip(x -> x < 64 ? 15 : 19), new BlockPos(120, 20, 64), () -> false);
+        assertNotNull(guide);
+        double below = guide.estimate(60, 16, 64);
+        double above = guide.estimate(68, 20, 64);
+        assertTrue(below - above > 8 * ActionCosts.SPRINT_ONE_BLOCK * 4,
+                "崖を走って上る値段になっている: 下=" + below + " 上=" + above);
+    }
+
+    /** 同じ高さを1段ずつ上る階段なら、走って上れる。 */
+    @Test
+    void runsUpStairsMadeOfSingleSteps() {
+        VoxelCostToGo guide = VoxelCostToGo.build(strip(x -> 15 + Math.max(0, Math.min(4, (x - 54) / 4))),
+                new BlockPos(120, 20, 64), () -> false);
+        assertNotNull(guide);
+        double below = guide.estimate(52, 16, 64);
+        double above = guide.estimate(76, 20, 64);
+        assertTrue(below - above < 24 * ActionCosts.SPRINT_ONE_BLOCK * 1.5,
+                "階段を上る値段が高すぎる: 下=" + below + " 上=" + above);
     }
 }
