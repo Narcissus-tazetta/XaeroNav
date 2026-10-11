@@ -587,6 +587,11 @@ public final class PathfindingState {
                         BlockPos currentGoal = goal;
                         return currentGoal == null ? null : navGraphGuide.latest(currentGoal);
                     }
+
+                    @Override
+                    public void noteEdgeStarved() {
+                        navGraphGuide.noteEdgeStarved();
+                    }
                 }, seamRepair, recentFailures);
     }
 

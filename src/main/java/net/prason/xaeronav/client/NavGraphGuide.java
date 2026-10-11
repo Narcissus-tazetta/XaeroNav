@@ -209,6 +209,8 @@ final class NavGraphGuide {
     // 直近の探索が前進できなかった。ワーカースレッド（whenComplete）が立て、forGoalが落とす
     private volatile boolean stalled;
     private long nextStallRebuildMillis;
+    // 継ぎ足しが窓の縁で止まったまま、プレイヤーが経路の末端に迫っている。Extendが立て、startが落とす
+    private volatile boolean edgeStarved;
     // 組み立ての失敗から立ち直るまでの時刻と、続けて失敗した回数。完了を受けるスレッドが書き、forGoalが読む
     private volatile long retryAfterMillis;
     private volatile int failures;
@@ -264,7 +266,14 @@ final class NavGraphGuide {
         boolean moved = !usable || Math.max(Math.abs(at.getX() - current.center().getX()),
                 Math.abs(at.getZ() - current.center().getZ())) >= rebuildMoveBlocks(mode);
         boolean stallRebuild = stalled && MonotonicTime.millis() >= nextStallRebuildMillis;
-        if ((moved || stallRebuild) && !building && !failedRecently()) {
+        boolean edgeRebuild = edgeStarved && usable && Math.max(Math.abs(at.getX() - current.center().getX()),
+                Math.abs(at.getZ() - current.center().getZ())) >= rebuildMoveBlocks(RoutingMode.QUALITY);
+        if (edgeRebuild && !moved && !building) {
+            LOGGER.debug("XaeroNav: rebuilding the nav graph early because the path end is at the window edge "
+                    + "(moved {} of {} blocks, player={})", Math.max(Math.abs(at.getX() - current.center().getX()),
+                    Math.abs(at.getZ() - current.center().getZ())), rebuildMoveBlocks(mode), at.toShortString());
+        }
+        if ((moved || stallRebuild || edgeRebuild) && !building && !failedRecently()) {
             start(level, player, key, at, far, mode);
         }
         return usable ? current.field() : null;
@@ -367,12 +376,22 @@ final class NavGraphGuide {
         stalled = true;
     }
 
+    /**
+     * 経路の先端が窓の縁で止まり、プレイヤーがその末端に迫っている。歩いた距離が組み直しの間隔に届いていなくても組み直す。
+     * 窓が描画距離で小さいと、軽量モードの96ブロックを歩く前に末端へ追いつき、そこから引き直しを繰り返していた
+     * （実機の描画距離8・窓128: 6分で引き直し23回、品質重視は0回）。
+     */
+    void noteEdgeStarved() {
+        edgeStarved = true;
+    }
+
     private void start(Level level, Player player, Key key, BlockPos at, @Nullable Far farMap, RoutingMode mode) {
         boolean invalidateAround = stalled && MonotonicTime.millis() >= nextStallRebuildMillis;
         if (invalidateAround) {
             nextStallRebuildMillis = MonotonicTime.millis() + STALL_REBUILD_INTERVAL_MILLIS;
         }
         stalled = false;
+        edgeStarved = false;
         int window = key.window();
         SearchBounds bounds = new SearchBounds(at.getX() - window, key.minY(), at.getZ() - window,
                 at.getX() + window, key.maxY(), at.getZ() + window);

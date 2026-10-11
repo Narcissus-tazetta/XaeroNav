@@ -59,6 +59,13 @@ final class Extend {
     private static final double EXTEND_RETRY_MOVE_BLOCKS = 16.0;
 
     /**
+     * 窓の縁で止まった末端までの残りがこれを切ったら、航法グラフを早めに組み直させる。末端の{@code EXTEND_DISTANCE_BLOCKS}
+     * 手前でプレイヤーからの引き直しが始まるので、それより先に新しい窓を出したい。上乗せの32は、軽量モードの1本の組み直し
+     * （窓128で約2.5秒）の間に走る距離の倍ほど。
+     */
+    private static final double EDGE_REBUILD_LEAD_BLOCKS = PathfindingState.EXTEND_DISTANCE_BLOCKS + 32;
+
+    /**
      * {@link #noteLoop}が「戻ってきた」とみなす水平の距離（各軸）。窓の縁の先の行き止まりから引き返す線は、来た線と十数ブロック
      * 離れて並ぶことがある（実機のエンドのV字）。
      */
@@ -118,6 +125,9 @@ final class Extend {
 
         /** いま出来上がっている航法グラフのガイド。組み直しは始めない。 */
         @Nullable WindowField guide();
+
+        /** 先端が窓の縁で止まったまま末端に迫っているので、歩いた距離を待たずに航法グラフを組み直させる。 */
+        void noteEdgeStarved();
     }
 
     private final PathfindingExecutor executor;
@@ -383,6 +393,11 @@ final class Extend {
                 LOGGER.debug("XaeroNav: holding extension at the nav graph window edge (end={}, window center {},{} radius {}, player={})",
                         from.toShortString(), guideWindow.centerX(), guideWindow.centerZ(), guideWindow.radius(),
                         playerAt.toShortString());
+            }
+            if (BlockDistance.horizontal(playerAt, from) < EDGE_REBUILD_LEAD_BLOCKS) {
+                host.noteEdgeStarved();
+                // 組み直しの引き金は探索を投げるときにしか引かれないので、ここで引く
+                host.goalGuide(level, player, from, currentGoal, renderRadius);
             }
             blockExtendUntilNextGuide(from, playerAt, guideWindow);
             return;
