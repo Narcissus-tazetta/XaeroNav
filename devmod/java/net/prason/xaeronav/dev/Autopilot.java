@@ -1,5 +1,8 @@
 package net.prason.xaeronav.dev;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.Locale;
 
@@ -37,6 +40,7 @@ public final class Autopilot {
     private static final int STEP_TICKS = 4;
     /** 入ってから目的地を置くまで。周りのチャンクが読み込まれるのを待つ。 */
     private static final int SETTLE_TICKS = 100;
+    private static final int STALL_DUMP_TICKS = 600;
 
     private final int dx;
     private final int dz;
@@ -44,8 +48,11 @@ public final class Autopilot {
     private int ticks;
     private BlockPos goal;
     private boolean finished;
+    private BlockPos stillAt;
+    private int stillTicks;
 
     public Autopilot() {
+        ConfigShot.armIfRequested();
         String spec = System.getProperty("xaeronav.autopilot");
         if (spec == null) {
             this.dx = 0;
@@ -72,6 +79,9 @@ public final class Autopilot {
             if (ticks < SETTLE_TICKS) {
                 return;
             }
+            // 窓のフォーカスが外れると一時停止メニューが開き、XaeroNavは画面が開いている間は探索しない。自動操縦はクライアント側で
+            // 位置を動かすので一時停止中も経路の末端まで歩いてしまい、「継ぎ足しが止まった」ように見える（実機で取り違えた）
+            mc.options.pauseOnLostFocus = false;
             BlockPos at = mc.player.blockPosition();
             goal = PathfindingState.INSTANCE.setGoal(at.offset(dx, 0, dz));
             XaeroNav.LOGGER.info("XaeroNav autopilot: start {} -> goal {}", at.toShortString(),
@@ -94,6 +104,7 @@ public final class Autopilot {
             finish(mc, "time limit");
             return;
         }
+        watchStall(mc);
         PathResult result = view.currentResult();
         boolean report = ticks % 200 == 0;
         if (result == null || result.steps().isEmpty()) {
@@ -135,6 +146,77 @@ public final class Autopilot {
         mc.player.setDeltaMovement(Vec3.ZERO);
         mc.player.setYRot(yaw);
         mc.player.setPos(next.x, next.y, next.z);
+    }
+
+    /** 同じ場所に30秒留まったら、探索の状態を丸ごと出す。tickがどこで黙って戻っているかを実機で見分けるため。 */
+    private void watchStall(Minecraft mc) {
+        BlockPos at = mc.player.blockPosition();
+        if (!at.equals(stillAt)) {
+            stillAt = at;
+            stillTicks = 0;
+            return;
+        }
+        if (++stillTicks % STALL_DUMP_TICKS == 0) {
+            XaeroNav.LOGGER.info("XaeroNav autopilot: stalled {}s at {}: {}", stillTicks / 20, at.toShortString(),
+                    dumpState(mc));
+        }
+    }
+
+    private static String dumpState(Minecraft mc) {
+        PathfindingState state = PathfindingState.INSTANCE;
+        StringBuilder out = new StringBuilder();
+        for (Field field : PathfindingState.class.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            try {
+                field.setAccessible(true);
+                Object value = field.get(state);
+                if (value == null || value instanceof Number || value instanceof Boolean || value instanceof Enum<?>
+                        || value instanceof CharSequence || value instanceof BlockPos) {
+                    out.append(field.getName()).append('=').append(value).append(", ");
+                }
+            } catch (ReflectiveOperationException e) {
+                out.append(field.getName()).append("=<").append(e).append(">, ");
+            }
+        }
+        try {
+            Object stuck = field(state, "stuckTracker");
+            Method reason = stuck.getClass().getDeclaredMethod("reason");
+            reason.setAccessible(true);
+            out.append("stuckReason=").append(reason.invoke(stuck)).append(", ");
+            Object shown = field(state, "displayed");
+            if (shown != null) {
+                Object extend = field(state, "extend");
+                Method refusal = null;
+                for (Method m : extend.getClass().getDeclaredMethods()) {
+                    if (m.getName().equals("extendRefusal")) {
+                        refusal = m;
+                    }
+                }
+                refusal.setAccessible(true);
+                int renderRadius = mc.options.getEffectiveRenderDistance() * 16;
+                out.append("extendRefusal=").append(refusal.invoke(extend, mc.player, shown, renderRadius)).append(", ");
+                for (String name : new String[] {"mode", "result"}) {
+                    Method m = shown.getClass().getDeclaredMethod(name);
+                    m.setAccessible(true);
+                    Object v = m.invoke(shown);
+                    out.append("shown.").append(name).append('=');
+                    out.append(v instanceof PathResult r ? r.steps().size() + " steps, complete=" + r.complete()
+                            + ", termination=" + r.termination() : v).append(", ");
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            out.append("<").append(e).append(">");
+        }
+        out.append("screen=").append(mc.screen);
+        return out.toString();
+    }
+
+    private static Object field(Object owner, String name) throws ReflectiveOperationException {
+        Field field = owner.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(owner);
     }
 
     /** いちばん近い手の次の手。 */
