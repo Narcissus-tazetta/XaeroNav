@@ -375,7 +375,10 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 - While gliding with an elytra, the HUD shows the direct distance to the destination and upcoming
   climbs. Under open sky (Overworld and End) the mod puts a light beam where you should land instead of
   drawing an aerial path, and the HUD shows an arrow toward it and the distance.
-- Routes don't cross dimensions. Changing dimension clears the current destination.
+- Routes don't cross dimensions. Going between the Overworld and the Nether carries the destination and
+  stops over to the other side's coordinates (the same conversion a portal uses), and returning restores the
+  exact original ones. Where to build or take a portal is up to you. Reaching the converted destination keeps
+  the guidance until you go through a portal or clear it. Any other dimension change clears the destination.
 - Map integration hooks into Xaero's internals. If a newer Xaero changes them, only that part
   switches off; XaeroNav says which part in chat once per session, and in-world rendering and the
   HUD keep working.

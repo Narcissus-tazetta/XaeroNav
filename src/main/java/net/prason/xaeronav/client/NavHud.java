@@ -82,6 +82,11 @@ public final class NavHud {
         }
         if (view.arrived()) {
             add(TextCompat.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
+            PathfindingState.HopArrival hop = view.hopArrival();
+            if (hop != null) {
+                add(TextCompat.translatable(hop.fromNether() ? "hud.xaeronav.arrived_hop_nether"
+                        : "hud.xaeronav.arrived_hop_overworld", hop.destination().toShortString()), SECONDARY_COLOR);
+            }
         } else if (view.flying() && view.skyPillar() != null) {
             // 空の下では線を引かず、降りる地点（柱）の方角と距離だけを出す
             BlockPos pillar = view.skyPillar();

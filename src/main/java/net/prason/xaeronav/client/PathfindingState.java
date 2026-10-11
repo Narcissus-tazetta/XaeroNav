@@ -23,6 +23,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.util.ChangeGate;
@@ -314,6 +315,10 @@ public final class PathfindingState {
     private volatile @Nullable BlockPos goal;
     // 目的地を設定した次元。座標だけを覚えていると、ネザーへ移動したあとも同じ座標を目指してしまう
     private volatile @Nullable ResourceKey<Level> goalDimension;
+    // 目的地を設定した次元の種類。次元を移ったあとは元のLevelが手元に無く、座標の倍率を引けない
+    private @Nullable DimensionType goalDimensionType;
+    // 地上⇄ネザーで目的地を換算して持ち越している間だけ非null。元の次元へ戻ったら正確な座標へ戻す。クライアントスレッド専用
+    private @Nullable DimensionHop hop;
     // 目的地の列が未読み込みのまま設定されたときの、指定そのままの座標。読み込まれたら立てる高さへ寄せ直す
     // （resolveGoalStandable）。寄せ終えたらnull
     private volatile @Nullable BlockPos unresolvedGoal;
@@ -615,7 +620,20 @@ public final class PathfindingState {
         navigationView = new NavigationView(goal, flying, arrived, computing || awaitingNavGraph, stuckTracker.reason(), displayed,
                 coarseRoute, refinedRoute, passedWaypoints, rerouteNoticeTicks > 0,
                 mountNoticeTicks > 0 ? mountNotice : null,
-                flying ? flight.route() : FlightRoute.NONE, skyPillar());
+                flying ? flight.route() : FlightRoute.NONE, skyPillar(), hopArrival());
+    }
+
+    /** 換算した最終目的地に着いたときの、元の次元での最終目的地。{@code fromNether}は元の次元がネザーか。 */
+    public record HopArrival(BlockPos destination, boolean fromNether) {
+    }
+
+    private @Nullable HopArrival hopArrival() {
+        DimensionHop current = hop;
+        BlockPos requested = legRequested;
+        if (current == null || !arrived || !stops.isEmpty() || requested == null) {
+            return null;
+        }
+        return new HopArrival(current.originOf(requested), current.fromNether());
     }
 
     /** 空の下を滑空している間だけ、柱を立てる地点。それ以外は{@code null}。 */
@@ -641,11 +659,12 @@ public final class PathfindingState {
     public record NavigationView(BlockPos goal, boolean flying, boolean arrived, boolean computing,
                                   StuckReason stuckReason, DisplayedPath displayed, CoarseRoute coarseRoute,
                                   RefinedRoute refinedRoute, int passedWaypoints, boolean rerouted,
-                                  @Nullable MountState mountChange, FlightRoute flightRoute, @Nullable BlockPos skyPillar) {
+                                  @Nullable MountState mountChange, FlightRoute flightRoute, @Nullable BlockPos skyPillar,
+                                  @Nullable HopArrival hopArrival) {
 
         private static NavigationView empty() {
             return new NavigationView(null, false, false, false, null, null, null, null, 0, false, null,
-                    FlightRoute.NONE, null);
+                    FlightRoute.NONE, null, null);
         }
 
         /** {@link PathfindingState#currentResult()}と同じ規則。 */
@@ -706,6 +725,7 @@ public final class PathfindingState {
             return null;
         }
         stops.clear();
+        hop = null;
         return beginLeg(goal);
     }
 
@@ -876,6 +896,7 @@ public final class PathfindingState {
         this.legRequested = goal;
         this.goal = resolveGoalStandable(level, goal);
         this.goalDimension = level.dimension();
+        this.goalDimensionType = level.dimensionType();
         this.unresolvedGoal = level.getChunkSource().getChunkNow(goal.getX() >> 4, goal.getZ() >> 4) == null
                 ? goal : null;
         // 滑空中に指定された目的地は、地上へ戻るまで歩行の経路を引かない
@@ -1015,6 +1036,7 @@ public final class PathfindingState {
     /** 案内を終える。経由地も消す。 */
     public void clear() {
         stops.clear();
+        hop = null;
         legPreview.clear();
         resetLeg();
     }
@@ -1028,6 +1050,7 @@ public final class PathfindingState {
         this.computing = false;
         this.goal = null;
         this.goalDimension = null;
+        this.goalDimensionType = null;
         this.unresolvedGoal = null;
         this.legRequested = null;
         this.displayed = null;
@@ -1293,8 +1316,10 @@ public final class PathfindingState {
                 return;
             }
             if (!mc.level.dimension().equals(goalDimension)) {
-                // 別の次元へ移った。同じ座標を目指し続けても意味がないので目的地ごと捨てる
-                clear();
+                // 地上⇄ネザー以外へ移ったなら、同じ座標を目指し続けても意味がないので目的地ごと捨てる
+                if (!hopDimension(mc.level, mc.player)) {
+                    clear();
+                }
                 return;
             }
             if (resolveGoalOnceLoaded(mc.level)) {
@@ -1316,7 +1341,8 @@ public final class PathfindingState {
             }
             if (arrived) {
                 arrivedTicks++;
-                if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS) {
+                // 換算した目的地は通過点にすぎない。消すとポータルをくぐった先で元の目的地へ戻せない
+                if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS && hop == null) {
                     clear();
                 }
                 return;
@@ -1823,6 +1849,51 @@ public final class PathfindingState {
             }
         }
         return false;
+    }
+
+    /**
+     * 地上⇄ネザーを移ったなら、目的地と経由地を移った先の座標へ換算して案内を続ける。換算したなら{@code true}。
+     *
+     * <p>ポータルの位置・行き先は予測しない。バニラの換算と同じ座標を示し、どこでくぐるかはプレイヤーに任せる。
+     */
+    private boolean hopDimension(Level level, Player player) {
+        ResourceKey<Level> from = goalDimension;
+        DimensionType fromType = goalDimensionType;
+        ResourceKey<Level> to = level.dimension();
+        BlockPos requested = legRequested;
+        if (from == null || fromType == null || requested == null || !overworldNetherPair(from, to)) {
+            return false;
+        }
+        int minY = GameCompat.minBuildHeight(level) + 1;
+        // 論理高さで切らないと、ネザーの天井の岩盤の上が立てる所として選ばれる
+        int maxY = GameCompat.minBuildHeight(level) + level.dimensionType().logicalHeight() - 2;
+        List<BlockPos> points = new ArrayList<>(stops.remainingStops() + 1);
+        points.add(requested);
+        points.addAll(stops.ahead());
+        DimensionHop current = hop;
+        List<BlockPos> moved;
+        if (current != null) {
+            moved = current.back(points, minY, maxY);
+            hop = null;
+        } else {
+            double scale = DimensionType.getTeleportationScale(fromType, level.dimensionType());
+            DimensionHop.Converted converted = DimensionHop.leave(points, scale, minY, maxY, from == Level.NETHER);
+            moved = converted.points();
+            hop = converted.hop();
+        }
+        stops.replaceAhead(moved.subList(1, moved.size()));
+        beginLeg(moved.get(0));
+        BlockPos destination = moved.get(moved.size() - 1);
+        LOGGER.info("XaeroNav: carried the destination over from {} to {} ({} -> {})", from, to,
+                points.get(points.size() - 1).toShortString(), destination.toShortString());
+        GameCompat.tell(player, TextCompat.translatable(
+                to == Level.NETHER ? "hud.xaeronav.hop_to_nether" : "hud.xaeronav.hop_to_overworld",
+                destination.toShortString()), false);
+        return true;
+    }
+
+    private static boolean overworldNetherPair(ResourceKey<Level> a, ResourceKey<Level> b) {
+        return a == Level.OVERWORLD && b == Level.NETHER || a == Level.NETHER && b == Level.OVERWORLD;
     }
 
     private void arrive() {

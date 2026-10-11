@@ -63,6 +63,8 @@ neoForge {
             // `-Pxaeronav.autopilot=dx,dz`で経路をなぞって歩かせる（devmodのAutopilot、計測用）
             providers.gradleProperty("xaeronav.autopilot").orNull?.let { systemProperty("xaeronav.autopilot", it) }
             providers.gradleProperty("xaeronav.autopilotMinutes").orNull?.let { systemProperty("xaeronav.autopilotMinutes", it) }
+            // `-Pxaeronav.hopCheck=<名前>`で地上⇄ネザーの目的地の持ち越しを通しで確かめる（devmodのHopCheck）
+            providers.gradleProperty("xaeronav.hopCheck").orNull?.let { systemProperty("xaeronav.hopCheck", it) }
             // `-Pxaeronav.configShot=<名前>`で設定画面を開いてスクリーンショットを撮る（devmodのConfigShot）
             providers.gradleProperty("xaeronav.configShot").orNull?.let { systemProperty("xaeronav.configShot", it) }
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
