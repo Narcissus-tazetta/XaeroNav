@@ -196,11 +196,13 @@ final class NavGraphGuide {
     }
 
     /**
-     * 3D粗層を窓の外の推定に使うときに掛ける倍率。3D粗層は真の残りの0.77倍前後に縮んでいて、窓の中の正確な値と尺度が食い違う。
+     * 3D粗層を窓の外の推定に使うときに掛ける倍率。
      *
-     * <p>実測（ネザー4本、平均/最悪）: 1.0倍で1.016/1.035、1.3倍で1.013/1.023（3D粗層だけの現行は1.048/1.104）。
+     * <p>床のつながり（{@code VoxelTerrain#connectFloors}）を入れる前の3D粗層は壁や崖を疾走で抜ける値段で、真の残りの0.77倍前後に
+     * 縮んでいたので1.3倍していた。つながりを入れると縮みが減り、1.3倍のままでは推定が真値を超える所が出る（溶岩の海で窓の端の登りを
+     * 払って入り、最適の1.29倍）。実測（ネザー長距離12本・既存の地形10本）で1.15倍でも同じ悪化が出て、1.0倍で消えた。
      */
-    static final double VOXEL_FAR_SCALE = 1.3;
+    static final double VOXEL_FAR_SCALE = 1.0;
 
     private volatile @Nullable Built built;
     private volatile boolean building;

@@ -39,7 +39,7 @@ class ResnapBenchTest {
             WindowedCells window = new WindowedCells(cells, player, WINDOW);
             CostToGo voxel = XaeroMapModel.guide(cells, player, goal, NetherLiveWalkTest.NETHER_MIN_Y,
                     NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L);
-            FarField far = FarField.of((x, y, z) -> 1.3 * voxel.estimate(x, y, z));
+            FarField far = FarField.of((x, y, z) -> 1.0 * voxel.estimate(x, y, z));
             NavGraph graph = new NavGraph(IN_ROCK, cells.bounds().minY(), cells.bounds().maxY());
             long began = System.currentTimeMillis();
             NavGraph.Refreshed cold = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
@@ -86,7 +86,7 @@ class ResnapBenchTest {
             WindowedCells window = new WindowedCells(cells, player, WINDOW);
             CostToGo voxel = XaeroMapModel.guide(cells, player, goal, NetherLiveWalkTest.NETHER_MIN_Y,
                     NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L);
-            FarField far = FarField.of((x, y, z) -> 1.3 * voxel.estimate(x, y, z));
+            FarField far = FarField.of((x, y, z) -> 1.0 * voxel.estimate(x, y, z));
             NavGraph graph = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
             WindowField field = graph.refresh(() -> window, player.getX(), player.getZ(), WINDOW,
                     LoadedArea.square(player.getX(), player.getZ(), WINDOW), far, ForkJoinPool.commonPool(),

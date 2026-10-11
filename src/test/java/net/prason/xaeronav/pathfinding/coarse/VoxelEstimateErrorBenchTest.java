@@ -72,6 +72,77 @@ class VoxelEstimateErrorBenchTest {
         measure("広域(西の目的地)", cells, new BlockPos(-505, 71, 836), new BlockPos(-538, 67, 496), List.of());
     }
 
+    /**
+     * ランダム検査の箱で、歩き通しが選び違えた出口の推定を分解する。{@code -Pxaeronav.voxelProbe=箱:組んだ位置:目的地:点 点...}
+     * （箱は{@code -Pxaeronav.sweepDir}の{@code 箱.txt.gz}）。真値は組んだ位置・目的地・点の外接箱＋240を1窓で覆う。
+     */
+    @Test
+    void sweepPoint() throws IOException {
+        String spec = System.getProperty("xaeronav.voxelProbe", "");
+        if (spec.isBlank()) {
+            return;
+        }
+        String[] p = spec.split(":");
+        FakeCells cells = net.prason.xaeronav.pathfinding.astar.RandomSweepBenchTest.load(
+                java.nio.file.Path.of(System.getProperty("xaeronav.sweepDir", ".")).resolve(p[0] + ".txt.gz"),
+                net.prason.xaeronav.pathfinding.astar.RandomSweepBenchTest.Dim.NETHER);
+        BlockPos from = parse(p[1]);
+        BlockPos goal = StanceFinder.resolveGoal(cells, parse(p[2]));
+        List<BlockPos> points = new ArrayList<>();
+        for (String token : p[3].split(" ")) {
+            points.add(parse(token));
+        }
+        int minX = Math.min(from.getX(), goal.getX());
+        int maxX = Math.max(from.getX(), goal.getX());
+        int minZ = Math.min(from.getZ(), goal.getZ());
+        int maxZ = Math.max(from.getZ(), goal.getZ());
+        for (BlockPos point : points) {
+            minX = Math.min(minX, point.getX());
+            maxX = Math.max(maxX, point.getX());
+            minZ = Math.min(minZ, point.getZ());
+            maxZ = Math.max(maxZ, point.getZ());
+        }
+        int centerX = (minX + maxX) / 2;
+        int centerZ = (minZ + maxZ) / 2;
+        int radius = Math.max(maxX - minX, maxZ - minZ) / 2 + 240;
+        WindowedCells window = new WindowedCells(cells, new BlockPos(centerX, 64, centerZ), radius);
+        WindowField truth = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY()).refresh(() -> window, centerX,
+                centerZ, radius, LoadedArea.square(centerX, centerZ, radius), FarField.of((x, y, z) -> 0.0),
+                ForkJoinPool.commonPool(), Runtime.getRuntime().availableProcessors(), () -> false).field();
+        VoxelCostToGo voxel = XaeroMapModel.guide(cells, from, goal, NETHER_MIN_Y, NETHER_MAX_Y, 1.0, 0L);
+        VoxelTerrain terrain = VoxelTerrain.of(XaeroMapModel.guideBox(from, goal, NETHER_MIN_Y, NETHER_MAX_Y), true);
+        XaeroMapModel.fill(terrain, cells);
+        Probe probe = new Probe(terrain, VoxelCostToGo.build(terrain, goal, () -> false), truth);
+        System.out.printf(Locale.ROOT, "%s 組んだ位置%s 目的地%s 3D粗層 辺%d %s%n", p[0], from.toShortString(), goal.toShortString(),
+                terrain.cellBlocks(), terrain.breakdown());
+        for (BlockPos point : points) {
+            BlockPos at = StanceFinder.resolveStart(cells, point);
+            Breakdown one = new Breakdown();
+            one.verbose = true;
+            probe.decompose(at, one);
+            double exact = truth.exact(at.getX(), at.getY(), at.getZ());
+            System.out.printf(Locale.ROOT, "  %s 真%.0f 表%.0f 比%.2f (本番の推定%.0f)  %s%n", at.toShortString(), exact, probe.value(at),
+                    probe.value(at) / exact, voxel.estimate(at.getX(), at.getY(), at.getZ()), one);
+            List<BlockPos> optimal = new ArrayList<>();
+            truth.descend(at.getX(), at.getY(), at.getZ(), (x, y, z) -> optimal.add(new BlockPos(x, y, z)));
+            StringBuilder along = new StringBuilder();
+            BlockPos last = null;
+            for (BlockPos on : optimal) {
+                if (last == null || Math.max(Math.abs(on.getX() - last.getX()), Math.abs(on.getZ() - last.getZ())) >= 24) {
+                    along.append(String.format(Locale.ROOT, " %d,%d,%d 真%.0f 表%.0f", on.getX(), on.getY(), on.getZ(),
+                            truth.exact(on.getX(), on.getY(), on.getZ()), probe.value(on)));
+                    last = on;
+                }
+            }
+            System.out.printf(Locale.ROOT, "    最適な道筋:%s%n", along);
+        }
+    }
+
+    private static BlockPos parse(String s) {
+        String[] v = s.split(",");
+        return new BlockPos(Integer.parseInt(v[0].trim()), Integer.parseInt(v[1].trim()), Integer.parseInt(v[2].trim()));
+    }
+
     private static void measure(String name, FakeCells cells, BlockPos rawStart, BlockPos rawGoal, List<BlockPos> points) {
         BlockPos goal = StanceFinder.resolveGoal(cells, rawGoal);
         BlockPos start = StanceFinder.resolveStart(cells, rawStart);

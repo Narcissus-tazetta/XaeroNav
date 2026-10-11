@@ -57,7 +57,7 @@ class NavGraphFirstBuildBenchTest {
             WindowedCells window = new WindowedCells(new ArrayCells(cells, player, WINDOW), player, WINDOW);
             CostToGo voxel = XaeroMapModel.guide(cells, player, goal, NetherLiveWalkTest.NETHER_MIN_Y,
                     NetherLiveWalkTest.NETHER_MAX_Y, 1.0, 0L);
-            FarField far = FarField.of((x, y, z) -> 1.3 * voxel.estimate(x, y, z));
+            FarField far = FarField.of((x, y, z) -> 1.0 * voxel.estimate(x, y, z));
             for (int round = 0; round < rounds; round++) {
                 NavGraph graph = new NavGraph(goal, cells.bounds().minY(), cells.bounds().maxY());
                 if (AHEAD > 0) {
