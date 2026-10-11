@@ -581,6 +581,12 @@ public final class PathfindingState {
                     public void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result) {
                         PathfindingState.this.noteSearchOutcome(start, planEnd, result);
                     }
+
+                    @Override
+                    public @Nullable WindowField guide() {
+                        BlockPos currentGoal = goal;
+                        return currentGoal == null ? null : navGraphGuide.latest(currentGoal);
+                    }
                 }, seamRepair, recentFailures);
     }
 

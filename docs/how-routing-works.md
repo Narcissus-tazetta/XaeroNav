@@ -228,6 +228,10 @@ Layer 1 measured worse than straight-line distance alone.
   Sections are remembered per destination and only the newly
   uncovered strip is built, in parallel. Searches keep using the previous guide until the new one is
   ready. When a chunk's blocks change, the sections around it are dropped and rebuilt.
+- **Extend the route's tip only inside the current guide's window.** The window stays where it was
+  built and does not follow the player. Extending past it would let the far-field estimate alone pick
+  the way, so at the rim the tip waits for the next rebuild (in `BALANCED` and `LIGHT`, which rebuild
+  less often, the line drawn ahead can be shorter).
 - **Wait briefly for the first route.** When nothing has been drawn yet and the destination is far,
   the first route waits up to 10 seconds for the graph. To shorten the wait, the half of the window on
   the destination side is built first and used as the guide while the rest is filled in. Near
