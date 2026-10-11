@@ -69,7 +69,7 @@ jobs:
             SERVER=true
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")
-            if echo "$CHANGED" | grep -qE '^(stonecutter\.properties\.toml|settings\.gradle\.kts|src/main/java/net/prason/xaeronav/mixin/|src/main/java/net/prason/xaeronav/client/ClientTickHandler\.java|src/main/java/net/prason/xaeronav/xaero/XaeroHook(Probe|RuntimeProbe)\.java|src/main/resources/.*\.mixins\.json)'; then
+            if echo "$CHANGED" | grep -qE '^(\.github/workflows/ci\.yml|stonecutter\.properties\.toml|settings\.gradle\.kts|src/main/java/net/prason/xaeronav/mixin/|src/main/java/net/prason/xaeronav/client/ClientTickHandler\.java|src/main/java/net/prason/xaeronav/xaero/XaeroHook(Probe|RuntimeProbe)\.java|src/main/resources/.*\.mixins\.json)'; then
               FULL=true
             fi
             if echo "$CHANGED" | grep -qE '^(\.github/workflows/ci\.yml|stonecutter\.properties\.toml|settings\.gradle\.kts|gradle\.properties|gradle/|buildSrc/|build(\.forge(-legacy|-116)?|\.fabric|\.neoforge)?\.gradle\.kts|stonecutter\.gradle\.kts|src/main/(java|resources)/)'; then
@@ -93,8 +93,6 @@ jobs:
           else
             RUNTIME=$(echo "$NODES" | jq -c --arg c "$CANON" '[.[] | select(.node == $c)]')
           fi
-          # mc-runtime-testは26.3向けの配布物をまだ出していない（4.5.1は26.2まで）。出たら外す
-          RUNTIME=$(echo "$RUNTIME" | jq -c '[.[] | select(.minecraft != "26.3")]')
           echo "runtime_nodes=$RUNTIME" >> "$GITHUB_OUTPUT"
           SERVER=$(echo "$NODES" | jq -c '[.[] | select(.loader == "forge")]')
           echo "server_nodes=$SERVER" >> "$GITHUB_OUTPUT"
@@ -261,13 +259,20 @@ jobs:
             done
           ' > /dev/null 2>&1 &
 
+      # 26.3の描画層（renderpearl）はXvfbの上でOpenGLの窓を作れず（「Couldn't find matching GLX visual」。sRGB対応の
+      # fbconfigはあるが原因は未確定）、Vulkanへ落ちる。ランナーにはVK_KHR_surfaceを持つVulkanの実装が無いので、
+      # lavapipe（CPUで描くVulkan）を入れる
+      - name: Install a software Vulkan driver for 26.3
+        if: matrix.node.minecraft == '26.3'
+        run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mesa-vulkan-drivers > /dev/null
+
       # 上のウォッチが効かなかったときの最後の砦。ここで打ち切っても後続の
       # ログ出力・アップロードは `if: always()` で走るので、原因を追う材料は残る
       - name: Run the client
         id: client
         timeout-minutes: 20
         continue-on-error: true
-        uses: headlesshq/mc-runtime-test@fbafe02f89f4f13682e7b16dbcee6b6a43f4faca # 4.5.1
+        uses: headlesshq/mc-runtime-test@645691de43520240e1d1e45b4b9a4d9cd9c294a4 # 4.5.2
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: ${{ matrix.node.loader }}
@@ -293,7 +298,7 @@ jobs:
         if: steps.client.outcome == 'failure' && hashFiles('run/logs/latest.log') == ''
         timeout-minutes: 20
         continue-on-error: true
-        uses: headlesshq/mc-runtime-test@fbafe02f89f4f13682e7b16dbcee6b6a43f4faca # 4.5.1
+        uses: headlesshq/mc-runtime-test@645691de43520240e1d1e45b4b9a4d9cd9c294a4 # 4.5.2
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: ${{ matrix.node.loader }}
