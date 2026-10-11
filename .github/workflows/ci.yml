@@ -259,16 +259,14 @@ jobs:
             done
           ' > /dev/null 2>&1 &
 
-      # 26.3の描画層（SDL）は24ビットの画面形式を求める。actionのxvfb-runは既定の8ビットで立てるので
-      # 「Couldn't find matching GLX visual」でウィンドウが作れない。xvfbを切ると、HeadlessMCがLWJGLを書き換えに行き
-      # 26.3のクラスを読めずに落ちる。xvfb-runはそのまま使わせ、画面の色深度だけを差し替える
-      - name: Make xvfb-run use a 24-bit screen
+      # 26.3の描画層（renderpearl）はOpenGL 3.3 coreのsRGB対応の画面を求め、作れなければVulkanへ落ちる。ランナーの
+      # Xvfbでは「Couldn't find matching GLX visual」になり、VulkanはVK_KHR_surfaceを持つ実装（lavapipe）が無くて落ちた。
+      # lavapipeを入れ、Xvfbの上で見えているGL・Vulkanをログに残す
+      - name: Prepare the display for 26.3
         if: matrix.node.minecraft == '26.3'
         run: |
-          mkdir -p "$RUNNER_TEMP/xvfb-shim"
-          printf '#!/bin/sh\nexec /usr/bin/xvfb-run -s "-screen 0 1280x1024x24" "$@"\n' > "$RUNNER_TEMP/xvfb-shim/xvfb-run"
-          chmod +x "$RUNNER_TEMP/xvfb-shim/xvfb-run"
-          echo "$RUNNER_TEMP/xvfb-shim" >> "$GITHUB_PATH"
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mesa-vulkan-drivers mesa-utils vulkan-tools > /dev/null
+          xvfb-run -a sh -c 'glxinfo -B; echo "sRGB-capable fbconfigs: $(glxinfo -v | grep -ci srgb)"; vulkaninfo --summary 2>&1 | grep -E "deviceName|apiVersion"' || true
 
       # 上のウォッチが効かなかったときの最後の砦。ここで打ち切っても後続の
       # ログ出力・アップロードは `if: always()` で走るので、原因を追う材料は残る
