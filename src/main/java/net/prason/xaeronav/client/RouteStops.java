@@ -44,6 +44,12 @@ final class RouteStops {
         passed = 0;
     }
 
+    /** 先の地点を別の次元の座標へ差し替える。通った数はそのまま。 */
+    void replaceAhead(List<BlockPos> points) {
+        ahead.clear();
+        ahead.addAll(points);
+    }
+
     void insert(int index, BlockPos pos) {
         ahead.add(index, pos);
     }
