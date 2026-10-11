@@ -115,6 +115,9 @@ final class Extend {
 
         /** この探索の結果を詰みの判定へ反映する（{@code PathfindingState#noteSearchOutcome}への委譲）。 */
         void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result);
+
+        /** いま出来上がっている航法グラフのガイド。組み直しは始めない。 */
+        @Nullable WindowField guide();
     }
 
     private final PathfindingExecutor executor;
@@ -134,6 +137,12 @@ final class Extend {
     /** {@link #blockedAt}を立てたときのプレイヤー位置。{@link #EXTEND_RETRY_MOVE_BLOCKS}参照。 */
     private volatile BlockPos blockedFrom;
 
+    /** 窓の縁で止めたときのガイド。これと違うガイドが出たら（組み直しで窓が動いたら）、歩いていなくても試し直す。 */
+    private volatile @Nullable WindowField blockedGuide;
+
+    // 窓の縁で止めたことをログに出したガイド。組み直しまでは16ブロックごとに同じ理由で止まるので、ガイドごとに1回だけ出す
+    private @Nullable WindowField heldAtEdgeOf;
+
     // goto直後、地図の読み込み待ちで継ぎ足しの先を1レグに留めている間だけ真。ログを1回だけ出す印
     private boolean heldForStreaming;
 
@@ -152,6 +161,7 @@ final class Extend {
     void clear() {
         blockedAt = null;
         blockedFrom = null;
+        blockedGuide = null;
         heldForStreaming = false;
     }
 
@@ -225,7 +235,8 @@ final class Extend {
             return "the end is the goal itself";
         }
         if (extendBlocked(player, end)) {
-            return "the previous extension failed at this end";
+            return blockedGuide != null ? "the end is at the edge of the nav graph window, waiting for the next rebuild"
+                    : "the previous extension failed at this end";
         }
         int pendingRegions = host.coarseRoutePendingRegions(currentGoal);
         if (pendingRegions > 0
@@ -283,13 +294,29 @@ final class Extend {
             return false;
         }
         BlockPos from = blockedFrom;
-        if (from != null && from.distSqr(player.blockPosition())
-                > EXTEND_RETRY_MOVE_BLOCKS * EXTEND_RETRY_MOVE_BLOCKS) {
+        WindowField guide = blockedGuide;
+        if ((from != null && from.distSqr(player.blockPosition())
+                > EXTEND_RETRY_MOVE_BLOCKS * EXTEND_RETRY_MOVE_BLOCKS)
+                || (guide != null && host.guide() != guide)) {
             blockedAt = null;
             blockedFrom = null;
+            blockedGuide = null;
             return false;
         }
         return true;
+    }
+
+    /** 末端からガイドの窓の縁（正方形）までの残り。窓の中心は組んだ時点で決まっていて、今のプレイヤーの位置ではない。 */
+    private static int windowLead(WindowField guide, BlockPos end) {
+        return guide.radius() - Math.max(Math.abs(end.getX() - guide.centerX()), Math.abs(end.getZ() - guide.centerZ()));
+    }
+
+    /** 探索の箱をガイドの窓の中に切る。窓の外の値は推定なので、そこを辿ると大局が推定で決まる。 */
+    private static SearchBounds withinWindow(SearchBounds box, WindowField guide) {
+        return new SearchBounds(Math.max(box.minX(), guide.centerX() - guide.radius()), box.minY(),
+                Math.max(box.minZ(), guide.centerZ() - guide.radius()),
+                Math.min(box.maxX(), guide.centerX() + guide.radius()), box.maxY(),
+                Math.min(box.maxZ(), guide.centerZ() + guide.radius()));
     }
 
     /** 経路の端から端までの直線距離。先読みの余裕を経路長より長く取らないための目安。 */
@@ -339,11 +366,25 @@ final class Extend {
         int reach = Math.min(PathfindingState.detailHorizon(renderRadius), lead);
         PathfindingState.GoalGuide goalGuide = host.goalGuide(level, player, from, currentGoal, renderRadius);
         boolean navGraphGuided = goalGuide != null && goalGuide.navGraph();
+        WindowField guideWindow = navGraphGuided ? (WindowField) goalGuide.costToGo() : null;
         if (navGraphGuided && extendLead(player, from, NavGraphGuide.window(renderRadius))
                 < PathfindingState.MIN_DETAIL_REACH_BLOCKS) {
             // 航法グラフで探す箱は描画距離ではなく窓で切られる（navGraphBounds）。描画距離で測った余地のまま投げると、
             // 末端が箱の縁にある継ぎ足しが10万ノードを焼いて1歩も進まない（実機: 描画距離15のネザー・エンドで数秒おきに繰り返した）
             blockExtend(from, playerAt);
+            return;
+        }
+        if (guideWindow != null && windowLead(guideWindow, from) < PathfindingState.MIN_DETAIL_REACH_BLOCKS) {
+            // ガイドの窓は組んだときの中心にあり、プレイヤーには付いてこない（組み直しは歩いた距離で起き、軽量モードでは
+            // 96ブロックごと）。プレイヤー基準の余地で伸ばすと、窓の外を外の推定だけで進む（実機の軽量モード: 先端が窓の縁から
+            // 200ブロック東へ流れ、組み直しのあとで60ブロック引き返した）。次のガイドが出るまで待つ
+            if (guideWindow != heldAtEdgeOf) {
+                heldAtEdgeOf = guideWindow;
+                LOGGER.debug("XaeroNav: holding extension at the nav graph window edge (end={}, window center {},{} radius {}, player={})",
+                        from.toShortString(), guideWindow.centerX(), guideWindow.centerZ(), guideWindow.radius(),
+                        playerAt.toShortString());
+            }
+            blockExtendUntilNextGuide(from, playerAt, guideWindow);
             return;
         }
         PathfindingState.DetailTarget detail = PathfindingState.landingOr(goalGuide, currentGoal,
@@ -368,8 +409,8 @@ final class Extend {
 
         NavigationTuning tuning = XaeroNavConfig.INSTANCE.navigationTuning();
         SearchBounds bounds = navGraphGuided
-                ? PathfindingState.navGraphBounds(level, from, target, playerAt, renderRadius,
-                        tuning.searchHorizontalMargin(), landing, goalGuide.costToGo())
+                ? withinWindow(PathfindingState.navGraphBounds(level, from, target, playerAt, renderRadius,
+                        tuning.searchHorizontalMargin(), landing, goalGuide.costToGo()), guideWindow)
                 : SearchBounds.around(level, from, target, tuning.searchHorizontalMargin(),
                         PathfindingState.verticalSearchMargin(level, false), renderRadius);
         ChunkView view = TickLaps.measure("chunk capture",
@@ -454,6 +495,7 @@ final class Extend {
                         () -> host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal)));
                 blockedAt = null;
                 blockedFrom = null;
+                blockedGuide = null;
             } finally {
                 onChanged.run();
             }
@@ -536,6 +578,14 @@ final class Extend {
     private void blockExtend(BlockPos end, BlockPos playerAt) {
         blockedAt = end;
         blockedFrom = playerAt;
+        blockedGuide = null;
+    }
+
+    /** {@link #blockExtend}に加えて、次のガイドが出たら（窓が動いたら）歩いていなくても失効させる。 */
+    private void blockExtendUntilNextGuide(BlockPos end, BlockPos playerAt, WindowField guide) {
+        blockedAt = end;
+        blockedFrom = playerAt;
+        blockedGuide = guide;
     }
 
     /**

@@ -17,6 +17,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.prason.xaeronav.config.RoutingMode;
+import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.CostToGo;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
 import net.prason.xaeronav.pathfinding.navgraph.LearnedFar;
@@ -60,43 +62,11 @@ final class NavGraphGuide {
     }
 
     /**
-     * ヒープに余裕があるときの窓の半径（ブロック）。描画距離がこれより広くてもここで切る。
-     *
-     * <p>経路の見直し（{@link net.prason.xaeronav.pathfinding.navgraph.RouteReview}）は目的地が窓に入ってから走るので、
-     * 窓が狭いと遠回りに気づくのが遅れる（実機のネザーで目的地まで約130ブロックで初めて気づき、余計に653tick）。
-     * 歩き通しの模型で160・192・224・240を測った。
-     * <ul>
-     * <li>224は、ネザーが平均1.044→1.001・最悪1.147→1.003倍、現世が1.018→1.009倍。実機の保存地形の罠では6207→4177tick（真値3941）</li>
-     * <li>192は、ネザーの最悪が1.229倍で、160より悪い。広げるほど単調に良くなるわけではない</li>
-     * <li>240は、エンド外側の島の1本で経路が出なくなる</li>
-     * </ul>
-     * 辺の数は面積に比例して増える。224で辺は最大7,000万本、グラフとガイドは合わせて最大約270MB（160では約150MB。ネザーの罠の地形で実測）。
-     * ガイド1回の最大は1.3→2.1秒になる。
-     *
-     * <p>ヒープが{@link #WIDE_WINDOW_MIN_HEAP_BYTES}未満なら{@link #NARROW_WINDOW_BLOCKS}に落とす。
-     */
-    private static final int WIDE_WINDOW_BLOCKS = 224;
-
-    /** ヒープが小さいときの窓。間の192はネザーの最悪が160より悪いので選ばない。 */
-    private static final int NARROW_WINDOW_BLOCKS = 160;
-
-    /**
-     * 窓224を使うのに要るヒープ。公式ランチャーの既定の2GBでは、本体の分と窓224の最大約270MBが重なると余裕が無い。
-     *
-     * <p>{@code -Xmx3G}を指定した人は224にしたいが、SerialGC・ParallelGCの{@link Runtime#maxMemory}は生存領域1つ分を
-     * 引いて返す（実測: {@code -Xmx3G}で2,969MB・2,731MB、{@code -Xmx2G}で1,979MB・1,820MB）ので、間の2.5GBで切る。
-     */
-    private static final long WIDE_WINDOW_MIN_HEAP_BYTES = 2560L << 20;
-
-    private static final int WINDOW_BLOCKS = Runtime.getRuntime().maxMemory() >= WIDE_WINDOW_MIN_HEAP_BYTES
-            ? WIDE_WINDOW_BLOCKS : NARROW_WINDOW_BLOCKS;
-
-    /**
      * 窓の半径（ブロック）。探索の箱もこれで切ること——窓の外ではガイドが層1か幾何の推定に落ちるので、
      * 箱と窓がずれると測っていない探索になる。
      */
     static int window(int renderRadius) {
-        return Math.min(WINDOW_BLOCKS, renderRadius);
+        return Math.min(NavGraphWindow.BLOCKS, renderRadius);
     }
 
     /**
@@ -109,10 +79,21 @@ final class NavGraphGuide {
      * 組んだ中心からこれだけ歩いたら組み直す。組み直しは帯の組み足し（0.02〜0.3秒）とガイド作り（0.5〜1.3秒）で、
      * 組んでいる間は次を始めないので、実際の遅れはこれに組み直しの間に歩く分が足される。
      *
-     * <p>歩き通しの模型（広域長距離4本）では8ブロックで遅れ無しと同じ経路になった。16ブロックでは1本が1.030→1.101倍に落ち、
-     * 32ブロックでは戻る——窓の縁が区間の始点と噛み合う位相で外れるので、間隔を詰めて噛み合う幅を小さくしておく。
+     * <p>窓224の歩き通しの模型（全8地形36本、真値比の最悪、構築＋ガイドのCPU時間）:
+     * <ul>
+     * <li>8: 遅れ無しと同じ経路。窓160の頃は16で1本が1.030→1.101倍に落ちた（窓の縁が区間の始点と噛み合う位相で外れる）</li>
+     * <li>48: 全体の最悪は同じ1.083、地中始点1.018→1.030・溶岩の海1.019→1.025。CPUは-57%（ガイドがほぼ4分の1になる）</li>
+     * <li>96: 広域1.018→1.024。CPUは-66%。この先は新しく窓に入るセクションの構築が支配して頭打ち</li>
+     * </ul>
+     * 模型は組み直しを待ってから歩くので、組み直しの間に古いガイドで歩く遅れは入っていない。
      */
-    private static final int REBUILD_MOVE_BLOCKS = 8;
+    private static int rebuildMoveBlocks(RoutingMode mode) {
+        return switch (mode) {
+            case QUALITY -> 8;
+            case BALANCED -> 48;
+            case LIGHT -> 96;
+        };
+    }
 
     /** 詰まったときに捨てるチャンクの半径。掘る・置くはたいてい自分の足元で起きる。 */
     private static final int STALL_INVALIDATE_CHUNKS = 1;
@@ -132,6 +113,11 @@ final class NavGraphGuide {
      * 組み直しの間も古いガイドで探せるので、半分で遅れても案内は途切れない。
      */
     private static final int REBUILD_WORKERS = Math.max(1, Runtime.getRuntime().availableProcessors() / 2 - 1);
+
+    /** 軽量モードは組み直しを1本で回し、描画と内蔵サーバーへ回すコアを最大にする。組み直しが遅れても古いガイドで探せる。 */
+    private static int rebuildWorkers(RoutingMode mode) {
+        return mode == RoutingMode.LIGHT ? 1 : REBUILD_WORKERS;
+    }
 
     /**
      * この目的地のガイドが無いうちは、窓の中で目的地の側の縁へ寄せた小さい正方形（半径は窓の7分のこれ）を先に組んで
@@ -229,6 +215,16 @@ final class NavGraphGuide {
 
     /** 段取りの1本だけが触る。 */
     private final Load load = new Load();
+
+    NavGraphGuide() {
+        if (NavGraphWindow.narrowed()) {
+            LOGGER.info("XaeroNav: max heap {}MB is below {}MB, so the nav graph window is narrowed to {} blocks "
+                            + "(routes get slightly worse). Allocate 3GB or more to Minecraft to use {} blocks",
+                    Runtime.getRuntime().maxMemory() >> 20, NavGraphWindow.WIDE_MIN_HEAP_BYTES >> 20,
+                    NavGraphWindow.BLOCKS, NavGraphWindow.WIDE_BLOCKS);
+        }
+    }
+
     /** 学ぶのは段取りの1本だけ。倍率はどこから読んでもよい。 */
     private final FarScaleCalibration farScale = new FarScaleCalibration();
 
@@ -262,13 +258,14 @@ final class NavGraphGuide {
         boolean floored = !level.dimensionType().hasCeiling() && level.dimension() != Level.END;
         Key key = new Key(level.dimension(), goal, options, canPlaceBlocks(player, options), window, minY, maxY,
                 floored, rides);
+        RoutingMode mode = XaeroNavConfig.INSTANCE.routingMode();
         Built current = built;
         boolean usable = current != null && current.key().equals(key);
         boolean moved = !usable || Math.max(Math.abs(at.getX() - current.center().getX()),
-                Math.abs(at.getZ() - current.center().getZ())) >= REBUILD_MOVE_BLOCKS;
+                Math.abs(at.getZ() - current.center().getZ())) >= rebuildMoveBlocks(mode);
         boolean stallRebuild = stalled && MonotonicTime.millis() >= nextStallRebuildMillis;
         if ((moved || stallRebuild) && !building && !failedRecently()) {
-            start(level, player, key, at, far);
+            start(level, player, key, at, far, mode);
         }
         return usable ? current.field() : null;
     }
@@ -370,7 +367,7 @@ final class NavGraphGuide {
         stalled = true;
     }
 
-    private void start(Level level, Player player, Key key, BlockPos at, @Nullable Far farMap) {
+    private void start(Level level, Player player, Key key, BlockPos at, @Nullable Far farMap, RoutingMode mode) {
         boolean invalidateAround = stalled && MonotonicTime.millis() >= nextStallRebuildMillis;
         if (invalidateAround) {
             nextStallRebuildMillis = MonotonicTime.millis() + STALL_REBUILD_INTERVAL_MILLIS;
@@ -386,7 +383,7 @@ final class NavGraphGuide {
         int maxY = key.maxY();
         // この目的地のガイドがまだ無い＝案内を待たせている間だけ全力で組む
         boolean waiting = !(retargeted || built != null && built.key().equals(key));
-        int workers = waiting ? WORKERS : REBUILD_WORKERS;
+        int workers = waiting ? WORKERS : rebuildWorkers(mode);
         building = true;
         long myGeneration = generation.incrementAndGet();
         CompletableFuture.supplyAsync(() -> {
