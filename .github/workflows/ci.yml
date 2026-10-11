@@ -260,12 +260,15 @@ jobs:
           ' > /dev/null 2>&1 &
 
       # 26.3の描画層（SDL）は24ビットの画面形式を求める。actionのxvfb-runは既定の8ビットで立てるので
-      # 「Couldn't find matching GLX visual」でウィンドウが作れない。26.3だけ自前の24ビットのXvfbで動かす
-      - name: Start a 24-bit Xvfb
+      # 「Couldn't find matching GLX visual」でウィンドウが作れない。xvfbを切ると、HeadlessMCがLWJGLを書き換えに行き
+      # 26.3のクラスを読めずに落ちる。xvfb-runはそのまま使わせ、画面の色深度だけを差し替える
+      - name: Make xvfb-run use a 24-bit screen
         if: matrix.node.minecraft == '26.3'
         run: |
-          Xvfb :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/xvfb-shim"
+          printf '#!/bin/sh\nexec /usr/bin/xvfb-run -s "-screen 0 1280x1024x24" "$@"\n' > "$RUNNER_TEMP/xvfb-shim/xvfb-run"
+          chmod +x "$RUNNER_TEMP/xvfb-shim/xvfb-run"
+          echo "$RUNNER_TEMP/xvfb-shim" >> "$GITHUB_PATH"
 
       # 上のウォッチが効かなかったときの最後の砦。ここで打ち切っても後続の
       # ログ出力・アップロードは `if: always()` で走るので、原因を追う材料は残る
@@ -283,7 +286,6 @@ jobs:
           # （modloader引数の"forge"とは別物。headlesshq/mc-runtime-testのaction.yml参照）
           mc-runtime-test: ${{ matrix.node.loader == 'forge' && 'lexforge' || matrix.node.loader }}
           fabric-api: none
-          xvfb: ${{ matrix.node.minecraft != '26.3' }}
           # HeadlessMCの--jvmは値1個をそのままJVM引数として渡す。空白区切りで2個を
           # まとめると後半がjava.awt.headlessの値に入り、probe propertyにならない。
           headlessmc-command: '--jvm "-Dxaeronav-ci.runtimeHookProbe=true"'
@@ -308,7 +310,6 @@ jobs:
           java: ${{ matrix.node.java }}
           mc-runtime-test: ${{ matrix.node.loader == 'forge' && 'lexforge' || matrix.node.loader }}
           fabric-api: none
-          xvfb: ${{ matrix.node.minecraft != '26.3' }}
           headlessmc-command: '--jvm "-Dxaeronav-ci.runtimeHookProbe=true"'
 
       # 起動に失敗・ハングしたときは、まずここを読めば分かるようにする
