@@ -387,7 +387,8 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 - The navigation graph covers up to 224 blocks around you, or 160 when the Java heap limit is below
   2.5 GB, and never more than your render distance. It ignores block changes it hasn't rebuilt yet;
   it is rebuilt as you walk and when a search stops making progress. Rebuilding keeps about half of
-  your CPU cores busy for up to about 2 seconds every 8 blocks you walk.
+  your CPU cores busy for up to about 2 seconds every 8 blocks you walk (every 48 blocks with
+  `routingMode = BALANCED`, every 96 blocks on one core with `LIGHT`).
 - A Java heap below 2 GB is not supported. The game itself can run out of memory there.
 
 ## Building
