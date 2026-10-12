@@ -232,55 +232,78 @@ final class Splice {
         CompletableFuture<PathResult> spliceFuture = executor.submit(
                 AvoidedCellSource.wrap(view, recentFailures.avoided()), playerAt, joinPos, limits,
                 tuning.costToGoGuideEnabled(), 0, carried);
-        generationGate.whenStillCurrent(spliceFuture, myGeneration, TickLaps.timed("receive/splice", (splice, error) -> {
-            try {
-                host.setComputing(false);
-                if (error != null) {
-                    if (!(error instanceof CancellationException)) {
-                        LOGGER.error("XaeroNav: splicing into the path failed", error);
-                    }
-                    return;
-                }
-                if (host.displayed() != shown || !currentGoal.equals(host.goal())) {
-                    return;
-                }
-                if (!splice.complete() || splice.steps().isEmpty()) {
-                    blockedFrom = playerAt;
-                    LOGGER.debug("XaeroNav: could not splice into the path ({}, join point={}, expanded={})",
-                            splice.termination(), joinPos.toShortString(), splice.expandedNodes());
-                    return;
-                }
-                double spliceCost = splice.steps().stream().mapToDouble(PathStep::cost).sum();
-                if (!spliceWorthTaking(spliceCost, playerAt, joinPos, currentGoal, guide)) {
-                    // 合流できるが、そのために元の経路へ引き返すことになる。捨てて全部引き直す
-                    // （次のtickでblockedFromが効いて、呼び出し側のrecalculateへ落ちる）
-                    //
-                    // 断った理由を数字で残す。実機(2026-09-18 23:20)で「経路から5ブロックずれただけで
-                    // 完走した233ステップの経路が捨てられる」が出たが、当時のログには合流区間のtickしか
-                    // 無く、ガイドが何を言って断ったのかが追えなかった。物差しの3項を並べておけば、
-                    // 「ガイドが合流点を過大評価した」のか「本当に引き返しだった」のかが1行で割れる
-                    blockedFrom = playerAt;
-                    LOGGER.debug("XaeroNav: gave up splicing because it would turn back (join point={}, splice leg={} ticks, "
-                                    + "remaining from player={} from join point={}, actual path remaining={} ticks, "
-                                    + "yardstick={})",
-                            joinPos.toShortString(), Math.round(spliceCost),
-                            remainingAt(playerAt, currentGoal, guide),
-                            remainingAt(joinPos, currentGoal, guide),
-                            Math.round(costAlong(result.steps(), joinIndex)),
-                            measuredInWindow(playerAt, joinPos, guide) ? "guide" : "geometric lower bound");
-                    return;
-                }
-                blockedFrom = null;
-                refusalGate.reset();
-                seamRepair.queue(joinPos);
-                TickLaps.measure("splice swap", () -> host.setDisplayed(spliced(shown, splice, joinIndex)));
-                LOGGER.debug("XaeroNav: spliced into the path ({} steps to join, {} steps kept, expanded={})",
-                        splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
-            } finally {
-                onChanged.run();
-            }
-        }));
+        SpliceJob job = new SpliceJob(shown, currentGoal, playerAt, joinPos, joinIndex, guide);
+        generationGate.whenStillCurrent(spliceFuture, myGeneration,
+                TickLaps.timed("receive/splice", (splice, error) -> receive(job, splice, error)));
         return true;
+    }
+
+    /**
+     * 合流を投げたときの入力。結果を受け取ったとき（{@link #receive}）に、まだ同じ経路へ合流してよいかの照合と、
+     * 合流の採否に使う。
+     *
+     * @param joinIndex 合流する手の添字（表示中の経路の中）
+     * @param guide     投げる前に取った物差し。完了時の窓で測ると、合流点が窓の外に出ていることがある
+     */
+    private record SpliceJob(PathfindingState.DisplayedPath shown, BlockPos currentGoal, BlockPos playerAt,
+                             BlockPos joinPos, int joinIndex, @Nullable WindowField guide) {
+    }
+
+    /** 合流の探索結果を受け取る（メインスレッド、世代が今のままのときだけ）。 */
+    private void receive(SpliceJob job, PathResult splice, @Nullable Throwable error) {
+        PathfindingState.DisplayedPath shown = job.shown();
+        PathResult result = shown.result();
+        BlockPos currentGoal = job.currentGoal();
+        BlockPos playerAt = job.playerAt();
+        BlockPos joinPos = job.joinPos();
+        int joinIndex = job.joinIndex();
+        WindowField guide = job.guide();
+        try {
+            host.setComputing(false);
+            if (error != null) {
+                if (!(error instanceof CancellationException)) {
+                    LOGGER.error("XaeroNav: splicing into the path failed", error);
+                }
+                return;
+            }
+            if (host.displayed() != shown || !currentGoal.equals(host.goal())) {
+                return;
+            }
+            if (!splice.complete() || splice.steps().isEmpty()) {
+                blockedFrom = playerAt;
+                LOGGER.debug("XaeroNav: could not splice into the path ({}, join point={}, expanded={})",
+                        splice.termination(), joinPos.toShortString(), splice.expandedNodes());
+                return;
+            }
+            double spliceCost = splice.steps().stream().mapToDouble(PathStep::cost).sum();
+            if (!spliceWorthTaking(spliceCost, playerAt, joinPos, currentGoal, guide)) {
+                // 合流できるが、そのために元の経路へ引き返すことになる。捨てて全部引き直す
+                // （次のtickでblockedFromが効いて、呼び出し側のrecalculateへ落ちる）
+                //
+                // 断った理由を数字で残す。実機(2026-09-18 23:20)で「経路から5ブロックずれただけで
+                // 完走した233ステップの経路が捨てられる」が出たが、当時のログには合流区間のtickしか
+                // 無く、ガイドが何を言って断ったのかが追えなかった。物差しの3項を並べておけば、
+                // 「ガイドが合流点を過大評価した」のか「本当に引き返しだった」のかが1行で割れる
+                blockedFrom = playerAt;
+                LOGGER.debug("XaeroNav: gave up splicing because it would turn back (join point={}, splice leg={} ticks, "
+                                + "remaining from player={} from join point={}, actual path remaining={} ticks, "
+                                + "yardstick={})",
+                        joinPos.toShortString(), Math.round(spliceCost),
+                        remainingAt(playerAt, currentGoal, guide),
+                        remainingAt(joinPos, currentGoal, guide),
+                        Math.round(costAlong(result.steps(), joinIndex)),
+                        measuredInWindow(playerAt, joinPos, guide) ? "guide" : "geometric lower bound");
+                return;
+            }
+            blockedFrom = null;
+            refusalGate.reset();
+            seamRepair.queue(joinPos);
+            TickLaps.measure("splice swap", () -> host.setDisplayed(spliced(shown, splice, joinIndex)));
+            LOGGER.debug("XaeroNav: spliced into the path ({} steps to join, {} steps kept, expanded={})",
+                    splice.steps().size(), result.steps().size() - joinIndex - 1, splice.expandedNodes());
+        } finally {
+            onChanged.run();
+        }
     }
 
     /**
