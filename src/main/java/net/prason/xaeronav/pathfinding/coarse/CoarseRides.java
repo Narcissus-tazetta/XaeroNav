@@ -13,6 +13,7 @@ import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
 import net.prason.xaeronav.rail.CartRide;
 import net.prason.xaeronav.rail.RailNetwork;
+import net.prason.xaeronav.util.PackedXZ;
 
 /**
  * 層1（{@link CoarseRouter}）に足す、トロッコで線路を走る辺。乗る点のチャンクから降りる点のチャンクへの1本で、
@@ -98,7 +99,7 @@ public final class CoarseRides {
         int fromX = BlockPos.getX(from);
         int fromY = BlockPos.getY(from);
         int fromZ = BlockPos.getZ(from);
-        long fromChunk = chunkKey(fromX >> 4, fromZ >> 4);
+        long fromChunk = PackedXZ.pack(fromX >> 4, fromZ >> 4);
         for (int e = 0; e < 2; e++) {
             int fromExit = e;
             LongOpenHashSet entered = new LongOpenHashSet();
@@ -109,7 +110,7 @@ public final class CoarseRides {
                         long cell = BlockPos.asLong(x, y, z);
                         last[0] = cell;
                         last[1] = tick;
-                        if (!entered.add(chunkKey(x >> 4, z >> 4))) {
+                        if (!entered.add(PackedXZ.pack(x >> 4, z >> 4))) {
                             return true;
                         }
                         // 降りる点は入ったチャンクの{@link #ALIGHT_EVERY_CHUNKS}つおき。全部のチャンクに張ると
@@ -143,9 +144,9 @@ public final class CoarseRides {
         alight.add(to);
         exit.add(fromExit);
         cost.add(total);
-        byBoardChunk.computeIfAbsent(chunkKey(BlockPos.getX(from) >> 4, BlockPos.getZ(from) >> 4),
+        byBoardChunk.computeIfAbsent(PackedXZ.pack(BlockPos.getX(from) >> 4, BlockPos.getZ(from) >> 4),
                 key -> new IntArrayList()).add(index);
-        byAlightChunk.computeIfAbsent(chunkKey(BlockPos.getX(to) >> 4, BlockPos.getZ(to) >> 4),
+        byAlightChunk.computeIfAbsent(PackedXZ.pack(BlockPos.getX(to) >> 4, BlockPos.getZ(to) >> 4),
                 key -> new IntArrayList()).add(index);
     }
 
@@ -159,13 +160,13 @@ public final class CoarseRides {
 
     /** チャンク({@code chunkX}, {@code chunkZ})で乗る辺。無ければ空。 */
     IntArrayList boardingIn(int chunkX, int chunkZ) {
-        IntArrayList edges = byBoardChunk.get(chunkKey(chunkX, chunkZ));
+        IntArrayList edges = byBoardChunk.get(PackedXZ.pack(chunkX, chunkZ));
         return edges == null ? NONE : edges;
     }
 
     /** チャンク({@code chunkX}, {@code chunkZ})で降りる辺。無ければ空。 */
     IntArrayList alightingIn(int chunkX, int chunkZ) {
-        IntArrayList edges = byAlightChunk.get(chunkKey(chunkX, chunkZ));
+        IntArrayList edges = byAlightChunk.get(PackedXZ.pack(chunkX, chunkZ));
         return edges == null ? NONE : edges;
     }
 
@@ -199,8 +200,4 @@ public final class CoarseRides {
     }
 
     private static final IntArrayList NONE = new IntArrayList();
-
-    private static long chunkKey(int chunkX, int chunkZ) {
-        return (long) chunkX << 32 | chunkZ & 0xFFFFFFFFL;
-    }
 }

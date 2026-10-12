@@ -3,6 +3,7 @@ package net.prason.xaeronav.client;
 import org.jspecify.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * 「目的地へいちばん近づいた所から、そのあと遠ざかった」ことの検出。ネザーの実機で
@@ -57,7 +58,7 @@ final class RetreatWatcher {
      * <p>近づいたときは最接近を更新して記録の間隔もリセットする——そこから先は別の後退として数える。
      */
     @Nullable Retreat observe(BlockPos at, BlockPos goal) {
-        double distance = horizontal(at, goal);
+        double distance = BlockDistance.horizontal(at, goal);
         if (distance < closest) {
             closest = distance;
             closestAt = at;
@@ -93,7 +94,7 @@ final class RetreatWatcher {
         }
         double limit = closest + RETREAT_BLOCKS;
         for (BlockPos position : positions) {
-            if (horizontal(position, goal) >= limit) {
+            if (BlockDistance.horizontal(position, goal) >= limit) {
                 return true;
             }
         }
@@ -108,11 +109,5 @@ final class RetreatWatcher {
     /** いちばん近づいた位置。まだ一度も観測していなければ{@code null}。 */
     @Nullable BlockPos closestAt() {
         return closestAt;
-    }
-
-    private static double horizontal(BlockPos a, BlockPos b) {
-        double dx = a.getX() - b.getX();
-        double dz = a.getZ() - b.getZ();
-        return Math.sqrt(dx * dx + dz * dz);
     }
 }

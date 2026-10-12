@@ -104,7 +104,7 @@ class CoarseWaypointFidelityTest {
                 if (!route.reachedGoal() || route.waypoints().size() < 2) {
                     continue;
                 }
-                // 最後は PathfindingState#freshRoute の replaceLast が本来の目的地で上書きする
+                // 最後は CoarseRoutes#adoptCoarseRoute の replaceLast が本来の目的地で上書きする
                 for (int i = 0; i < route.waypoints().size() - 1; i++) {
                     BlockPos w = route.waypoints().get(i);
                     intermediates++;

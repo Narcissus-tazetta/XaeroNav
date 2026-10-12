@@ -105,4 +105,4 @@ XaeroNav は長距離の徒歩経路を、解像度と責務の異なる層で�
 - `pathfinding/astar/AStarPathfinder.java`, `pathfinding/astar/SectionMoves.java`
 - `pathfinding/navgraph/NavGraph.java`, `pathfinding/navgraph/WindowField.java`, `pathfinding/navgraph/RouteReview.java`
 - `client/NavGraphGuide.java`, `client/NetherVoxelGuide.java`
-- `client/PathfindingState.java`
+- `client/PathfindingState.java`, `client/CoarseRoutes.java`（層1・層2の結果を目的地ごとに持つ）, `client/DetailTargets.java`（層3のゴールの選定）

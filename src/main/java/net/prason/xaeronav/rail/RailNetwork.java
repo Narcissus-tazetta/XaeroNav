@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.util.PackedXZ;
 
 /**
  * 1つのワールド・次元で見たことのあるレールの、ある時点の写し。読み込まれていない所の線路も引ける。
@@ -21,15 +22,15 @@ public final class RailNetwork {
     private final Long2ObjectOpenHashMap<long[]> byChunk = new Long2ObjectOpenHashMap<>();
 
     /**
-     * @param chunks チャンク（{@code chunkX << 32 | chunkZ}）ごとの{@link RailCell}。写すので後で変えてよい
+     * @param chunks チャンク（{@link PackedXZ#pack}）ごとの{@link RailCell}。写すので後で変えてよい
      */
     public RailNetwork(String key, long version, Long2ObjectMap<int[]> chunks) {
         this.key = key;
         this.version = version;
         tracks.defaultReturnValue(CartRide.NONE);
         for (Long2ObjectMap.Entry<int[]> entry : chunks.long2ObjectEntrySet()) {
-            int chunkX = (int) (entry.getLongKey() >> 32);
-            int chunkZ = (int) entry.getLongKey();
+            int chunkX = PackedXZ.x(entry.getLongKey());
+            int chunkZ = PackedXZ.z(entry.getLongKey());
             int[] cells = entry.getValue();
             long[] positions = new long[cells.length];
             for (int i = 0; i < cells.length; i++) {
@@ -39,7 +40,7 @@ public final class RailNetwork {
                 positions[i] = pos;
                 tracks.put(pos, cell);
             }
-            byChunk.put(chunkKey(chunkX, chunkZ), positions);
+            byChunk.put(PackedXZ.pack(chunkX, chunkZ), positions);
         }
     }
 
@@ -74,7 +75,7 @@ public final class RailNetwork {
     public void forEachIn(int minX, int minZ, int maxX, int maxZ, RailVisitor visitor) {
         for (int chunkX = minX >> 4; chunkX <= maxX >> 4; chunkX++) {
             for (int chunkZ = minZ >> 4; chunkZ <= maxZ >> 4; chunkZ++) {
-                long[] positions = byChunk.get(chunkKey(chunkX, chunkZ));
+                long[] positions = byChunk.get(PackedXZ.pack(chunkX, chunkZ));
                 if (positions == null) {
                     continue;
                 }
@@ -92,16 +93,12 @@ public final class RailNetwork {
     /** レールのあるチャンクごとに、そのチャンクのレールの座標を渡す。 */
     public void forEachChunk(ChunkVisitor visitor) {
         for (Long2ObjectMap.Entry<long[]> entry : byChunk.long2ObjectEntrySet()) {
-            visitor.visit((int) (entry.getLongKey() >> 32), (int) entry.getLongKey(), entry.getValue());
+            visitor.visit(PackedXZ.x(entry.getLongKey()), PackedXZ.z(entry.getLongKey()), entry.getValue());
         }
     }
 
     @FunctionalInterface
     public interface ChunkVisitor {
         void visit(int chunkX, int chunkZ, long[] positions);
-    }
-
-    private static long chunkKey(int chunkX, int chunkZ) {
-        return (long) chunkX << 32 | chunkZ & 0xFFFFFFFFL;
     }
 }

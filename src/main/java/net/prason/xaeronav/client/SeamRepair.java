@@ -98,26 +98,11 @@ final class SeamRepair {
      */
     private static final int QUEUE_LIMIT = 4;
 
-    /** {@link PathfindingState}が持つ、非同期完了時に読み書きする必要のある可変状態。 */
-    interface Host {
-        /** 現在の目的地。 */
-        @Nullable BlockPos goal();
-
-        /** 現在表示中の経路。 */
-        PathfindingState.DisplayedPath displayed();
-
-        /** 表示中の経路を差し替える。 */
-        void setDisplayed(PathfindingState.DisplayedPath path);
-
-        /** 探索中フラグを立て下げする。 */
-        void setComputing(boolean computing);
-    }
-
     private final PathfindingExecutor executor;
     private final AtomicLong generation;
     private final GenerationGate generationGate;
     private final Runnable onChanged;
-    private final Host host;
+    private final PathHost host;
     private final RecentFailures recentFailures;
 
     /**
@@ -156,7 +141,7 @@ final class SeamRepair {
     private final ChangeGate<String> refusalGate = new ChangeGate<>();
 
     SeamRepair(PathfindingExecutor executor, AtomicLong generation, GenerationGate generationGate,
-               Runnable onChanged, Host host, RecentFailures recentFailures) {
+               Runnable onChanged, PathHost host, RecentFailures recentFailures) {
         this.executor = executor;
         this.generation = generation;
         this.generationGate = generationGate;

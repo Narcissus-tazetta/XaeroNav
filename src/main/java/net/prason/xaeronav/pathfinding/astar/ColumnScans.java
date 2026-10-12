@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
+import net.prason.xaeronav.util.PackedXZ;
 
 /**
  * 足元より下へ向かう縦走査と、その結果の覚え書き。
@@ -195,7 +196,7 @@ final class ColumnScans {
     }
 
     private long[] column(int x, int z) {
-        long key = ((long) x << 32) ^ (z & 0xffffffffL);
+        long key = PackedXZ.pack(x, z);
         long[] column = columns.get(key);
         if (column == null) {
             column = new long[PLANES * words];

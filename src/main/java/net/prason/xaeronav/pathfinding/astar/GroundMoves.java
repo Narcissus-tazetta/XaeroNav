@@ -215,59 +215,17 @@ final class GroundMoves {
         if (!owner.view.jumpGapEnabled()) {
             return;
         }
+        if (!canTakeOff(from, dx, dz)) {
+            return;
+        }
         int y = from.y;
-        if (CellData.standable(owner.view.cell(from.x + dx, y - 1, from.z + dz))) {
-            // 隙間ではなく床がある。歩いて行けるならTraverseの方が安い
-            return;
-        }
-        // 踏み切り地点の頭上。ここが塞がっていると跳躍そのものが成立しない
-        if (!CellData.occupiableWithoutDigging(owner.view.cell(from.x, from.y + 2, from.z))) {
-            return;
-        }
-        // ソウルサンド・蜂蜜の上からは疾走の最高速度が出ない。到達距離は踏み切り時の水平速度で
-        // 決まる（滞空時間は距離に依らず一定）ので、減速したまま跳ぶと必ず隙間に落ちる。
-        // 倍率の探し方は歩行コスト（{@code AStarPathfinder#stepCost}）と同じくバニラの
-        // {@code getBlockSpeedFactor}に倣う
-        if (slowedTakeoff(from.x, y, from.z)) {
-            return;
-        }
-        // 蜘蛛の巣の上からは跳べない。WebBlock#entityInsideが移動量に0.25を掛け続けるので、
-        // 疾走の助走で乗せた速度もジャンプ自体の初速も踏み切った瞬間に大きく削られる——
-        // 理論上は隙間の向こうへ届く場合もあるが、外して落ちる確率が高すぎて案内として出す価値が無い
-        if (CellData.cobweb(owner.view.cell(from.x, y, from.z))) {
-            return;
-        }
-        // 梯子・ツタに掴まったままでは跳べない。onGround()がfalseなのでjumpFromGround()自体が
-        // 呼ばれず（LivingEntity#aiStep）、掴まったまま接地していてもhandleOnClimbableが
-        // 水平速度を±0.15に固定するので、疾走の0.286も踏み切り加算の0.2も残らない
-        if (CellData.climbable(owner.view.cell(from.x, y, from.z))
-                || !CellData.standable(owner.view.cell(from.x, y - 1, from.z))) {
-            return;
-        }
-        // 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中の加速は
-        // 0.02/tickしかない（LivingEntity#getFlyingSpeed）ので、到達距離は踏み切り速度で
-        // そのまま決まる。1マス幅の足場からでは自分のマスの中（約0.5マス）しか助走できず、
-        // 3マスの隙間は理論上届いても余裕がゼロになる——跳べと指示するだけで、外して落ちるのは
-        // 人間の方（JUMP_REACH_PENALTYと同じ方針）
-        if (!hasRunUp(from, y, dx, dz)) {
-            return;
-        }
 
         // 跳び越す隙間の下がどれだけ深いか。addBridgeと同じ値段表で危険料を積む
         double dropRisk = 0.0;
         for (int gap = 1; gap <= MAX_JUMP_GAP_BLOCKS; gap++) {
             int gapX = from.x + gap * dx;
             int gapZ = from.z + gap * dz;
-            // 跳び越える空間が塞がっていれば、その先へはどれだけ助走しても届かない
-            if (!owner.clearWithoutDigging(gapX, y, gapZ)
-                    || !CellData.occupiableWithoutDigging(owner.view.cell(gapX, y + 2, gapZ))) {
-                return;
-            }
-            // 蜘蛛の巣は当たり判定が無いのでclearWithoutDiggingは素通りするが、滞空中に体が
-            // かすめると速度をまた0.25倍に削られる。踏み切りだけ見ても、経路の途中に巣があれば
-            // 同じ理由で隙間に落ちる
-            if (CellData.cobweb(owner.view.cell(gapX, y, gapZ))
-                    || CellData.cobweb(owner.view.cell(gapX, y + 1, gapZ))) {
+            if (!gapClear(gapX, y, gapZ)) {
                 return;
             }
             // 下が溶岩の隙間は跳ばない。跳躍は外せば落ちるという前提でコストを積んであるが、
@@ -296,6 +254,62 @@ final class GroundMoves {
             owner.relax(from, x, y, z, ActionCosts.jumpAcrossGap(gap) + dropRisk, MoveKind.JUMP);
             return;
         }
+    }
+
+    /**
+     * {@code from}から({@code dx},{@code dz})へ隙間を跳び越すために踏み切れるか。踏み切る足場・頭上・助走を見る
+     * （隙間そのものは{@link #addJumpGap}が1マスずつ見る）。
+     */
+    private boolean canTakeOff(PathNode from, int dx, int dz) {
+        int y = from.y;
+        if (CellData.standable(owner.view.cell(from.x + dx, y - 1, from.z + dz))) {
+            // 隙間ではなく床がある。歩いて行けるならTraverseの方が安い
+            return false;
+        }
+        // 踏み切り地点の頭上。ここが塞がっていると跳躍そのものが成立しない
+        if (!CellData.occupiableWithoutDigging(owner.view.cell(from.x, from.y + 2, from.z))) {
+            return false;
+        }
+        // ソウルサンド・蜂蜜の上からは疾走の最高速度が出ない。到達距離は踏み切り時の水平速度で
+        // 決まる（滞空時間は距離に依らず一定）ので、減速したまま跳ぶと必ず隙間に落ちる。
+        // 倍率の探し方は歩行コスト（{@code AStarPathfinder#stepCost}）と同じくバニラの
+        // {@code getBlockSpeedFactor}に倣う
+        if (slowedTakeoff(from.x, y, from.z)) {
+            return false;
+        }
+        // 蜘蛛の巣の上からは跳べない。WebBlock#entityInsideが移動量に0.25を掛け続けるので、
+        // 疾走の助走で乗せた速度もジャンプ自体の初速も踏み切った瞬間に大きく削られる——
+        // 理論上は隙間の向こうへ届く場合もあるが、外して落ちる確率が高すぎて案内として出す価値が無い
+        if (CellData.cobweb(owner.view.cell(from.x, y, from.z))) {
+            return false;
+        }
+        // 梯子・ツタに掴まったままでは跳べない。onGround()がfalseなのでjumpFromGround()自体が
+        // 呼ばれず（LivingEntity#aiStep）、掴まったまま接地していてもhandleOnClimbableが
+        // 水平速度を±0.15に固定するので、疾走の0.286も踏み切り加算の0.2も残らない
+        if (CellData.climbable(owner.view.cell(from.x, y, from.z))
+                || !CellData.standable(owner.view.cell(from.x, y - 1, from.z))) {
+            return false;
+        }
+        // 助走が要る。疾走の最高速度は静止から約5tick（≒1マス）かけて乗り、滞空中の加速は
+        // 0.02/tickしかない（LivingEntity#getFlyingSpeed）ので、到達距離は踏み切り速度で
+        // そのまま決まる。1マス幅の足場からでは自分のマスの中（約0.5マス）しか助走できず、
+        // 3マスの隙間は理論上届いても余裕がゼロになる——跳べと指示するだけで、外して落ちるのは
+        // 人間の方（JUMP_REACH_PENALTYと同じ方針）
+        return hasRunUp(from, y, dx, dz);
+    }
+
+    /** 隙間の1マス（{@code gapX},{@code y},{@code gapZ}）の上を、体を削られずに跳び越えられるか。 */
+    private boolean gapClear(int gapX, int y, int gapZ) {
+        // 跳び越える空間が塞がっていれば、その先へはどれだけ助走しても届かない
+        if (!owner.clearWithoutDigging(gapX, y, gapZ)
+                || !CellData.occupiableWithoutDigging(owner.view.cell(gapX, y + 2, gapZ))) {
+            return false;
+        }
+        // 蜘蛛の巣は当たり判定が無いのでclearWithoutDiggingは素通りするが、滞空中に体が
+        // かすめると速度をまた0.25倍に削られる。踏み切りだけ見ても、経路の途中に巣があれば
+        // 同じ理由で隙間に落ちる
+        return !CellData.cobweb(owner.view.cell(gapX, y, gapZ))
+                && !CellData.cobweb(owner.view.cell(gapX, y + 1, gapZ));
     }
 
     /**

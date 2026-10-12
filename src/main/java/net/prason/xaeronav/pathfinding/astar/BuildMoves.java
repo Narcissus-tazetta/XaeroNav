@@ -141,16 +141,7 @@ final class BuildMoves {
         // 重みで抑えると、A*は安い辺から展開するので橋に手を伸ばす前に周囲を展開し尽くし、
         // 展開ノード数を焼き切ったうえで結局その先に進めない（ActionCosts#LAVA_BRIDGE_PENALTY_TICKS
         // に記録された実測そのもの）。辺を作らなければ、探索は最初から迂回路だけを見る。
-        //
-        // 溶岩と奈落の上だけは別（より短い）上限で切る。底のある空洞なら足場を外しても落ちるだけだが、
-        // この2つでは死ぬので、同じ長さの橋でも許してよい範囲が違う。両方に当たる橋は厳しい方で切る
-        int cap = owner.maxBridgeRun;
-        if (lavaNearby) {
-            cap = RunCaps.stricter(cap, owner.maxLavaBridgeRun);
-        }
-        if (voidBelow || fatalDropBelow) {
-            cap = RunCaps.stricter(cap, owner.maxVoidBridgeRun);
-        }
+        int cap = bridgeRunCap(lavaNearby, voidBelow || fatalDropBelow);
         int bridgeRun = from.bridgeRun + 1;
         if (cap > 0 && bridgeRun > cap) {
             owner.markBridgeRunCapBlocked();
@@ -175,17 +166,39 @@ final class BuildMoves {
         // （ActionCosts#LAVA_BRIDGE_PENALTY_TICKS）から外れると経路そのものが出なくなる
         // ——ジ・エンドの島渡りが60万ノードでも解けなくなることをRealEndTerrainTestで確認した。
         // 迂回させたいという意図も、そこでは迂回路が探索の箱の中に無いので買えるものが無い
+        double cost = bridgeCost(from, voidBelow, lavaNearby, lavaFarBelow, dropBelow, bodyCost);
+        owner.relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
+    }
+
+    /**
+     * 橋を何マスまで続けてよいか（0以下は上限なし）。溶岩と奈落・致死の落差の上では別の（より短い）上限で切る。
+     * 底のある空洞なら足場を外しても落ちるだけだが、この2つでは死ぬので、同じ長さの橋でも許してよい範囲が違う。
+     * 両方に当たる橋は厳しい方で切る。
+     */
+    private int bridgeRunCap(boolean lavaNearby, boolean deadlyBelow) {
+        int cap = owner.maxBridgeRun;
+        if (lavaNearby) {
+            cap = RunCaps.stricter(cap, owner.maxLavaBridgeRun);
+        }
+        if (deadlyBelow) {
+            cap = RunCaps.stricter(cap, owner.maxVoidBridgeRun);
+        }
+        return cap;
+    }
+
+    /** 橋1マスの値段（tick）。どの割増を乗せるかの理由は{@link #addBridge}の該当箇所を参照。 */
+    private double bridgeCost(PathNode from, boolean voidBelow, boolean lavaNearby, boolean lavaFarBelow,
+                              int dropBelow, double bodyCost) {
         double interruption = voidBelow || lavaNearby
                 ? 0.0
                 : ActionCosts.TERRAIN_EDIT_INTERRUPTION_TICKS;
-        double cost = ActionCosts.SPRINT_ONE_BLOCK / owner.takeoffSpeedFactor(from.x, from.y, from.z)
+        return ActionCosts.SPRINT_ONE_BLOCK / owner.takeoffSpeedFactor(from.x, from.y, from.z)
                 + owner.placementCostTicks + interruption
                 + (lavaNearby ? ActionCosts.LAVA_BRIDGE_PENALTY_TICKS : 0.0)
                 // 遥か下が溶岩なら落差は測らない。外したときの結末は既に溶岩の割増が表しているので、
                 // 深さで二重に取ると測っていないネザーの橋の値段まで動く
                 + (lavaFarBelow ? 0.0 : ActionCosts.dropRiskPenalty(dropBelow, owner.view.fatalFallBlocks()))
                 + owner.submerged(from, bodyCost);
-        owner.relax(from, x, y, z, cost, MoveKind.BRIDGE, bridgeRun);
     }
 
     /**

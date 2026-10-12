@@ -24,6 +24,7 @@ import net.prason.xaeronav.util.MonotonicTime;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 import net.prason.xaeronav.util.DaemonThreads;
+import net.prason.xaeronav.util.BlockDistance;
 
 /**
  * 天井のある次元で使う3D粗層の作りかけ・出来上がりを持つ。
@@ -187,7 +188,7 @@ final class NetherVoxelGuide {
         Built current = built;
         boolean usable = current != null && current.key().equals(key);
         boolean stale = !usable || stalled || !insideBox(current.box(), player)
-                || horizontal(current.from(), player) >= REBUILD_MOVE_BLOCKS;
+                || BlockDistance.horizontal(current.from(), player) >= REBUILD_MOVE_BLOCKS;
         // 条件が変わったときだけ間隔を飛ばす。同じ条件のまま失敗し続けるとき、間隔が無いと
         // 探索のたびにメインスレッドで地図を読み直すことになる
         boolean mayAttempt = !key.equals(attempted) || MonotonicTime.millis() >= nextAttemptMillis;
@@ -211,12 +212,6 @@ final class NetherVoxelGuide {
      */
     void noteStalled() {
         stalled = true;
-    }
-
-    private static double horizontal(BlockPos a, BlockPos b) {
-        double dx = (double) a.getX() - b.getX();
-        double dz = (double) a.getZ() - b.getZ();
-        return Math.sqrt(dx * dx + dz * dz);
     }
 
     private static boolean insideBox(SearchBounds box, BlockPos player) {

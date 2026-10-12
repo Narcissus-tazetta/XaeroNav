@@ -688,59 +688,80 @@ final class FlightNavState {
                     return new Extension(grown, segmentAtStart, TurnBack.cut(ahead, grown.points(),
                             new AirGrid(view, grown.cellBlocks(), model.body())::clearLine));
                 }, executor)
-                .whenComplete((result, error) -> Minecraft.getInstance().execute(() -> {
-                    if (jobGeneration != myJob) {
-                        return;
-                    }
-                    try {
-                        computing = false;
-                        if (error != null) {
-                            LOGGER.error("XaeroNav: failed to extend the flight route", error);
-                            return;
-                        }
-                        FlightRoute extension = result.route();
-                        Vec3 grown = extension.tail();
-                        LOGGER.debug("XaeroNav: extended the flight route ({}, expanded={}, {}ms, gained={} blocks, grid={})",
-                                extension.termination(), extension.expandedNodes(),
-                                (System.nanoTime() - startedAt) / 1_000_000L,
-                                grown == null ? 0 : Mth.floor(tail.distanceTo(grown)), extension.cellBlocks());
-                        if (!current.stillFlyingTo(currentGoal, dimension)) {
-                            return;
-                        }
-                        // 継ぎ足す先が入れ替わっていたら捨てる（引き直しが挟まった場合）
-                        if (route != source) {
-                            return;
-                        }
-                        if (extension.isEmpty()) {
-                            extendBlockedAt = tail;
-                            extendBlockedFrom = from;
-                            return;
-                        }
-                        if (!extension.complete() && tail.distanceTo(grown) < MIN_EXTENSION_BLOCKS) {
-                            // 予算を焼き切るか、先が無いと分かって数十ブロックしか伸びなかった。この末端から
-                            // 投げ直しても同じことの繰り返しになるので、プレイヤーが進んで地形が変わるまで待つ。
-                            // 先が無いときに待たないと、閉じた空間の中で2点の間を10tickごとに引き直し続ける。
-                            // 伸びたぶんは捨てずに繋ぐ
-                            extendBlockedAt = extension.tail();
-                            extendBlockedFrom = from;
-                        } else {
-                            extendBlockedAt = null;
-                            extendBlockedFrom = null;
-                        }
-                        FlightRoute extended = result.cut() != null
-                                ? spliced(source, result.segmentAtStart(), result.cut(), extension)
-                                : source.append(extension);
-                        if (result.cut() != null) {
-                            LOGGER.debug("XaeroNav: flight route extension doubled back, trimmed the out-and-back section");
-                        }
-                        // 対応づけを引き継がないと、伸ばした瞬間だけ通過済みの区間が描き直される
-                        FlightProgress.INSTANCE.carryOver(extended);
-                        route = extended;
-                        computedFrom = from;
-                    } finally {
-                        onChanged.run();
-                    }
-                }));
+                .whenComplete((result, error) -> Minecraft.getInstance().execute(() -> receiveExtension(
+                        new ExtendJob(myJob, source, tail, currentGoal, dimension, from, startedAt), result, error)));
+    }
+
+    /**
+     * 継ぎ足しを投げたときの入力。結果を受け取ったとき（{@link #receiveExtension}）に、まだ同じ経路へ繋いでよいかの
+     * 照合と、繋ぐのに使う。
+     *
+     * @param startedAt 投げた時刻（{@link System#nanoTime()}）。ログの所要時間に使う
+     */
+    private record ExtendJob(long myJob, FlightRoute source, Vec3 tail, BlockPos currentGoal,
+                             ResourceKey<Level> dimension, BlockPos from, long startedAt) {
+    }
+
+    /** 継ぎ足しの結果を受け取る（メインスレッド）。投げた後に引き直し・目的地の変更が挟まっていれば捨てる。 */
+    private void receiveExtension(ExtendJob job, @Nullable Extension result, @Nullable Throwable error) {
+        long myJob = job.myJob();
+        FlightRoute source = job.source();
+        Vec3 tail = job.tail();
+        BlockPos currentGoal = job.currentGoal();
+        ResourceKey<Level> dimension = job.dimension();
+        BlockPos from = job.from();
+        long startedAt = job.startedAt();
+        if (jobGeneration != myJob) {
+            return;
+        }
+        try {
+            computing = false;
+            if (error != null) {
+                LOGGER.error("XaeroNav: failed to extend the flight route", error);
+                return;
+            }
+            FlightRoute extension = result.route();
+            Vec3 grown = extension.tail();
+            LOGGER.debug("XaeroNav: extended the flight route ({}, expanded={}, {}ms, gained={} blocks, grid={})",
+                    extension.termination(), extension.expandedNodes(),
+                    (System.nanoTime() - startedAt) / 1_000_000L,
+                    grown == null ? 0 : Mth.floor(tail.distanceTo(grown)), extension.cellBlocks());
+            if (!current.stillFlyingTo(currentGoal, dimension)) {
+                return;
+            }
+            // 継ぎ足す先が入れ替わっていたら捨てる（引き直しが挟まった場合）
+            if (route != source) {
+                return;
+            }
+            if (extension.isEmpty()) {
+                extendBlockedAt = tail;
+                extendBlockedFrom = from;
+                return;
+            }
+            if (!extension.complete() && tail.distanceTo(grown) < MIN_EXTENSION_BLOCKS) {
+                // 予算を焼き切るか、先が無いと分かって数十ブロックしか伸びなかった。この末端から
+                // 投げ直しても同じことの繰り返しになるので、プレイヤーが進んで地形が変わるまで待つ。
+                // 先が無いときに待たないと、閉じた空間の中で2点の間を10tickごとに引き直し続ける。
+                // 伸びたぶんは捨てずに繋ぐ
+                extendBlockedAt = extension.tail();
+                extendBlockedFrom = from;
+            } else {
+                extendBlockedAt = null;
+                extendBlockedFrom = null;
+            }
+            FlightRoute extended = result.cut() != null
+                    ? spliced(source, result.segmentAtStart(), result.cut(), extension)
+                    : source.append(extension);
+            if (result.cut() != null) {
+                LOGGER.debug("XaeroNav: flight route extension doubled back, trimmed the out-and-back section");
+            }
+            // 対応づけを引き継がないと、伸ばした瞬間だけ通過済みの区間が描き直される
+            FlightProgress.INSTANCE.carryOver(extended);
+            route = extended;
+            computedFrom = from;
+        } finally {
+            onChanged.run();
+        }
     }
 
     /**

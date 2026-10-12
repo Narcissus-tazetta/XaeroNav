@@ -397,7 +397,7 @@ public final class PathfindingExecutor {
      * <p><b>ゴールが箱の外にあるとガイドは丸ごと無効になる。</b>{@code CoarseRouter#costToGo}は
      * ゴールのセルを地図に含まないと全コストを無限にし、{@code estimate}はどこでも0を返す。
      * 箱は始点を中心に描画距離で切られる（{@code SearchBounds#around}）ので、遠い目的地を
-     * そのまま狙う設計（天井のある次元。{@code PathfindingState#selectDetailTarget}）では常にこの形になる
+     * そのまま狙う設計（天井のある次元。{@code DetailTargets#selectDetailTarget}）では常にこの形になる
      * ——<b>意図的にそうしている</b>（測定は{@code NetherDetourBreakdownTest}）。
      */
     private CostToGo buildCostToGoGuide(CellSource view, BlockPos start, BlockPos goal,
@@ -424,7 +424,7 @@ public final class PathfindingExecutor {
      * どれだけ予算を積んでも完走しない——範囲の外は未ロード扱いのセルで、そこへ入る手が無い。
      *
      * <p>{@code SearchBounds#around}は始点を中心に描画距離で切るので、遠い目的地をそのまま
-     * 狙う設計（天井のある次元。{@code PathfindingState#selectDetailTarget}）では常にこちら側になる。
+     * 狙う設計（天井のある次元。{@code DetailTargets#selectDetailTarget}）では常にこちら側になる。
      */
     private static boolean goalInsideBounds(CellSource view, BlockPos goal, int goalRadius) {
         SearchBounds bounds = view.bounds();
@@ -550,25 +550,11 @@ public final class PathfindingExecutor {
         // その中で各区間が残り時間を山分けする（下のlegShare）
         long chainDeadline = MonotonicTime.millis() + limits.timeLimitMillis();
 
-        List<PathStep> steps = new ArrayList<>();
-        // 届かなかった区間のうち、いちばん長く引けた部分経路。チェーンが丸ごと空で返るのを
-        // 防ぐための最後の受け皿——実機のネザーの溶岩の海で、3区間とも届かず
-        // 「展開47万・ステップ数0」＝線が1本も出ないまま24秒待たされた。
-        // 案内は末端から継ぎ足して伸びていくので、途中までの線が出れば次の探索はそのぶん
-        // 近い所から始まる。空で返すとその起点すら作れず、同じ場所で何度でもやり直すことになる
-        List<PathStep> bestPartial = List.of();
-        boolean complete = false;
-        int totalExpanded = 0;
-        int totalDistinct = 0;
-        // チェーン全体の打ち切り理由は最後に解いた区間のもの。全区間が「範囲内に道が無い」で
-        // 終わったときだけEXHAUSTEDのまま残り、本物の詰みとして呼び出し側に伝わる
-        PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
-        boolean limitsHeld = false;
-        BlockPos legStart = StanceFinder.resolveStart(view, start);
+        LegChain chain = new LegChain(StanceFinder.resolveStart(view, start));
         for (int i = 0; i < rawLegGoals.size(); i++) {
             long remainingMillis = chainDeadline - MonotonicTime.millis();
             if (remainingMillis <= 0) {
-                termination = PathResult.Termination.TIME_LIMIT;
+                chain.termination = PathResult.Termination.TIME_LIMIT;
                 break;
             }
             // 区間の持ち時間は<b>残りを山分けする</b>。1つの区間がチェーンの予算を使い切ると、
@@ -590,24 +576,14 @@ public final class PathfindingExecutor {
                     limits.maxExpandedNodes() * LEG_NODE_BUDGET_FACTOR,
                     Math.max(1, legShare / 2), limits.heuristicWeight());
             BlockPos legGoal = StanceFinder.resolveGoal(view, rawLegGoals.get(i));
-            BlockPos currentLegStart = legStart;
+            BlockPos legStart = chain.legStart;
             // 中間の経由地はチャンク平均から作った代表点でしかない。座標ぴったりへ寄せる意味が
             // 無いどころか、そのための遠回りが生まれる。最後の区間だけは呼び出し側の指定に従う
-            boolean lastLegGoal = i == rawLegGoals.size() - 1;
-            int legRadius = lastLegGoal ? goalRadius : COARSE_LEG_GOAL_RADIUS_BLOCKS;
-            // 区間ごとのゴールに向けたガイド。区間分割の計画（route）には広い箱のcoarseMapが
-            // 要るが、ガイドの計算はその区間の始点・終点周りだけで足りる——広い箱をそのまま
-            // 使い回すとDijkstraの状態数が箱の面積に比例して膨らみ、区間の数だけ払うことになる
-            // （COARSE_LEG_GUIDE_MARGIN_BLOCKS参照）。区間専用の狭い地図を別に組み直す
-            CostToGo legCostToGo = costToGoGuideEnabled
-                    ? CoarseRouter.costToGo(legCoarseMap(view, currentLegStart, legGoal, bounds, cancelled),
-                            legGoal, false, bridgePolicy)
-                    : null;
-            // 区間の境目で累積が0に戻らないよう、直前までの分を引き継ぐ（橋の連続長・設置数）
-            Carryover carried = Carryover.after(steps);
+            boolean lastLeg = i == rawLegGoals.size() - 1;
+            int legRadius = lastLeg ? goalRadius : COARSE_LEG_GOAL_RADIUS_BLOCKS;
             long legBegan = MonotonicTime.millis();
-            PathResult legResult = search(view, thisLegLimits, legDeadline, cancelled, legCostToGo,
-                    (pathfinder, c) -> pathfinder.search(currentLegStart, legGoal, c, carried, legRadius));
+            PathResult legResult = solveLeg(view, bounds, legStart, legGoal, legRadius, thisLegLimits, legDeadline,
+                    cancelled, costToGoGuideEnabled, bridgePolicy, chain.steps);
             // 区間ごとに出す。チェーン全体の合算だけでは「どの区間で詰まったか」「始点から
             // 動けていないのか、最後の区間だけ届かないのか」が切り分けられない——実機の
             // 「展開30万・ステップ数2」がどちらなのかを、合算値からは判断できなかった。
@@ -615,18 +591,79 @@ public final class PathfindingExecutor {
             // debugに留める
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("XaeroNav: leg {}/{} {} -> {} (reached={}, {}, expanded={}, steps={}, {}ms)",
-                        i + 1, rawLegGoals.size(), currentLegStart.toShortString(), legGoal.toShortString(),
+                        i + 1, rawLegGoals.size(), legStart.toShortString(), legGoal.toShortString(),
                         legResult.complete(), legResult.termination(), legResult.expandedNodes(),
                         legResult.steps().size(), MonotonicTime.millis() - legBegan);
             }
+            chain.accept(legResult, lastLeg);
+        }
+        return chain.result();
+    }
+
+    /**
+     * 区間1つを解く。ガイドはその区間の始点・終点周りだけの狭い地図で組み直す——区間分割の計画（route）には
+     * 広い箱の地図が要るが、ガイドの計算は区間の周りだけで足りる。広い箱をそのまま使い回すとDijkstraの状態数が
+     * 箱の面積に比例して膨らみ、区間の数だけ払うことになる（{@link #COARSE_LEG_GUIDE_MARGIN_BLOCKS}参照）。
+     *
+     * @param before 直前までに繋いだ手。区間の境目で累積が0に戻らないよう、橋の連続長・設置数を引き継ぐ
+     */
+    private static PathResult solveLeg(CellSource view, SearchBounds bounds, BlockPos legStart, BlockPos legGoal,
+                                       int legRadius, SearchLimits legLimits, long legDeadline,
+                                       BooleanSupplier cancelled, boolean costToGoGuideEnabled,
+                                       CoarseRouter.BridgePolicy bridgePolicy, List<PathStep> before) {
+        CostToGo legCostToGo = costToGoGuideEnabled
+                ? CoarseRouter.costToGo(legCoarseMap(view, legStart, legGoal, bounds, cancelled),
+                        legGoal, false, bridgePolicy)
+                : null;
+        Carryover carried = Carryover.after(before);
+        return search(view, legLimits, legDeadline, cancelled, legCostToGo,
+                (pathfinder, c) -> pathfinder.search(legStart, legGoal, c, carried, legRadius));
+    }
+
+    /** 経由地チェーンで、区間の結果を繋いでいく途中の状態。 */
+    private static final class LegChain {
+        /** 届いた区間の手を順に繋いだもの。 */
+        final List<PathStep> steps = new ArrayList<>();
+        /**
+         * 届かなかった区間のうち、いちばん長く引けた部分経路。チェーンが丸ごと空で返るのを防ぐための最後の受け皿——
+         * 実機のネザーの溶岩の海で、3区間とも届かず「展開47万・ステップ数0」＝線が1本も出ないまま24秒待たされた。
+         * 案内は末端から継ぎ足して伸びていくので、途中までの線が出れば次の探索はそのぶん近い所から始まる。
+         * 空で返すとその起点すら作れず、同じ場所で何度でもやり直すことになる
+         */
+        List<PathStep> bestPartial = List.of();
+        boolean complete;
+        int totalExpanded;
+        int totalDistinct;
+        /**
+         * チェーン全体の打ち切り理由は最後に解いた区間のもの。全区間が「範囲内に道が無い」で終わったときだけ
+         * EXHAUSTEDのまま残り、本物の詰みとして呼び出し側に伝わる
+         */
+        PathResult.Termination termination = PathResult.Termination.EXHAUSTED;
+        boolean limitsHeld;
+        /** 次の区間の始点。届いた区間の終点へ進む。 */
+        BlockPos legStart;
+
+        LegChain(BlockPos start) {
+            this.legStart = start;
+        }
+
+        /**
+         * 区間の結果を繋ぐ。
+         *
+         * <p>中間の経由地に届かなかったときは、そこで諦めずに同じ地点から次の経由地を狙う。粗い地図は溶岩以外に
+         * 「通行不能」を表現できず、チャンクを埋める垂直な壁は起伏0の平坦な台地に見えるため、経由地が壁の天面のような
+         * 到達不能な点に落ちることがある。1つ届かないだけでチェーンごと捨てると、そういう地形で直接探索より悪くなる——
+         * 最後の区間は必ず本来の目的地なので、経由地が全滅しても直接探索と同じ結果に落ち着く。部分経路をその場で
+         * 継ぎ足さないのは、次の区間を同じ地点から引き直す以上そこで経路が飛ぶため。拾えた分は{@link #bestPartial}に
+         * 取っておき、全区間が空振りしたときだけ使う
+         */
+        void accept(PathResult legResult, boolean lastLeg) {
             totalExpanded += legResult.expandedNodes();
             totalDistinct += legResult.distinctNodes();
-            boolean lastLeg = i == rawLegGoals.size() - 1;
             if (!legResult.complete()) {
                 termination = legResult.termination();
                 limitsHeld = legResult.limitsHeld();
             }
-
             if (legResult.complete()) {
                 steps.addAll(legResult.steps());
                 if (!legResult.steps().isEmpty()) {
@@ -641,20 +678,17 @@ public final class PathfindingExecutor {
             } else if (legResult.steps().size() > bestPartial.size()) {
                 bestPartial = legResult.steps();
             }
-            // 中間の経由地に届かなかったときは、そこで諦めずに同じ地点から次の経由地を狙う。
-            // 粗い地図は溶岩以外に「通行不能」を表現できず、チャンクを埋める垂直な壁は起伏0の
-            // 平坦な台地に見えるため、経由地が壁の天面のような到達不能な点に落ちることがある。
-            // 1つ届かないだけでチェーンごと捨てると、そういう地形で直接探索より悪くなる——
-            // 最後の区間は必ず本来の目的地なので、経由地が全滅しても直接探索と同じ結果に落ち着く。
-            // 部分経路をその場で継ぎ足さないのは、次の区間を同じ地点から引き直す以上そこで
-            // 経路が飛ぶため。拾えた分はbestPartialに取っておき、全区間が空振りしたときだけ使う
         }
-        if (steps.isEmpty()) {
-            // どの区間も届かず、最後の区間も1手も引けなかった。ここで空を返すと案内が消える
-            steps.addAll(bestPartial);
+
+        /** 繋いだ結果。どの区間も1手も引けなければ、いちばん長く引けた部分経路を返す。 */
+        PathResult result() {
+            if (steps.isEmpty()) {
+                // どの区間も届かず、最後の区間も1手も引けなかった。ここで空を返すと案内が消える
+                steps.addAll(bestPartial);
+            }
+            return new PathResult(steps, complete ? PathResult.Termination.REACHED_GOAL : termination,
+                    totalExpanded, totalDistinct, !complete && limitsHeld);
         }
-        return new PathResult(steps, complete ? PathResult.Termination.REACHED_GOAL : termination,
-                totalExpanded, totalDistinct, !complete && limitsHeld);
     }
 
     /**

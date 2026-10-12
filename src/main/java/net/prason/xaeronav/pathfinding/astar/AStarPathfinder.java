@@ -1379,7 +1379,14 @@ public final class AStarPathfinder {
         } else {
             open.insert(neighbor);
         }
+        noteBestSoFar(neighbor);
+    }
 
+    /**
+     * 打ち切られたときに返す部分経路の候補（{@link #bestSoFar}）を、係数ごとに更新する。前半は乗車を除いた値段が
+     * {@link #FALLBACK_BUDGET_TICKS}以内のものだけ、後半は値段を問わない。
+     */
+    private void noteBestSoFar(PathNode neighbor) {
         boolean withinBudget = neighbor.cost - neighbor.rideCost <= FALLBACK_BUDGET_TICKS;
         for (int i = 0; i < COEFFICIENTS.length; i++) {
             double heuristic = neighbor.estimatedCostToGoal + neighbor.cost / COEFFICIENTS[i];
