@@ -2,6 +2,8 @@ package net.prason.xaeronav.client;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 //? if >=1.19.3 {
 import org.joml.Matrix4f;
 //?} else {
@@ -135,6 +137,21 @@ public final class MapPathOverlay {
     }
 
     public static void draw(Snapshot snapshot, QuadSink sink, double pixelsPerBlock) {
+        MapDots dots = drawGroundPath(sink, snapshot);
+        drawCoarseRoute(sink, snapshot, dots);
+        drawFlightRoute(sink, snapshot);
+        drawStraightLine(sink, snapshot, dots);
+        drawLaterLegs(sink, snapshot);
+
+        // 目印は最後。経路や点線と重なる位置に来るので、後から置いて上に乗せる
+        BlockPos goal = snapshot.goal();
+        if (goal != null && snapshot.goalMarker()) {
+            drawGoalMarker(sink, goal, pixelsPerBlock);
+        }
+    }
+
+    /** 詳細経路の点。描いた点の並びを返す（経路が無ければ{@code null}）——続きの点線はその末端から引く。 */
+    private static @Nullable MapDots drawGroundPath(QuadSink sink, Snapshot snapshot) {
         MapDots dots = snapshot.ground() == null ? null : MapDots.forPath(snapshot.ground());
         if (dots != null) {
             // 通り過ぎた区間は描かない（PathRenderer.renderGroundPathと同じ理由）。継ぎ足しで
@@ -147,6 +164,11 @@ public final class MapPathOverlay {
             }
         }
 
+        return dots;
+    }
+
+    /** 長距離ルートの中間目標を結ぶ点線。 */
+    private static void drawCoarseRoute(QuadSink sink, Snapshot snapshot, @Nullable MapDots dots) {
         // 長距離ルートの中間目標を先に結んでおく。目的地までの点線（下）は、この続きから引くことで
         // 「粗いルートに沿った点線」と「目的地への直線」が同時に、しかも食い違う向きに出るのを避ける
         // （中間目標無しに目的地まで一直線で結ぶと、粗いルートが迂回した山や海を平然と突っ切って見える）
@@ -154,7 +176,6 @@ public final class MapPathOverlay {
         // 始点は中間目標そのものではなく詳細経路の末端（無ければプレイヤー）。中間目標だけを結ぶと、
         // 経路から外れたとき点線が現在地から切り離されて宙に浮き、古いルートが残っているように見える
         List<BlockPos> coarseWaypoints = snapshot.coarseWaypoints();
-        BlockPos lastCoarseWaypoint = coarseWaypoints.isEmpty() ? null : coarseWaypoints.get(coarseWaypoints.size() - 1);
         if (!coarseWaypoints.isEmpty()) {
             int previousX;
             int previousZ;
@@ -175,10 +196,13 @@ public final class MapPathOverlay {
             }
         }
 
+    }
+
+    /** 空中経路の太線と同じ色の点。 */
+    private static void drawFlightRoute(QuadSink sink, Snapshot snapshot) {
         // 空中経路。地図は平面なので高度は表現できないが、「どちらへ回り込むのか」は出る。
         // ワールド内の太線と同じ色にして、点線（方角だけの線）と区別する
         List<Vec3> flightRoute = snapshot.flightRoute();
-        Vec3 flightTail = flightRoute.isEmpty() ? null : flightRoute.get(flightRoute.size() - 1);
         if (!flightRoute.isEmpty()) {
             int previousX = snapshot.playerPos().getX();
             int previousZ = snapshot.playerPos().getZ();
@@ -197,6 +221,14 @@ public final class MapPathOverlay {
             }
         }
 
+    }
+
+    /** 経路・長距離ルート・空中経路の先から目的地までの直線（滑空中は中間目標を辿る）。 */
+    private static void drawStraightLine(QuadSink sink, Snapshot snapshot, @Nullable MapDots dots) {
+        List<BlockPos> coarseWaypoints = snapshot.coarseWaypoints();
+        BlockPos lastCoarseWaypoint = coarseWaypoints.isEmpty() ? null : coarseWaypoints.get(coarseWaypoints.size() - 1);
+        List<Vec3> flightRoute = snapshot.flightRoute();
+        Vec3 flightTail = flightRoute.isEmpty() ? null : flightRoute.get(flightRoute.size() - 1);
         BlockPos goal = snapshot.goal();
         if (goal != null && snapshot.straightLine()) {
             // 点線の始点は、粗いルートがあればその終点、無ければ経路の末端。経路も粗いルートも
@@ -229,12 +261,6 @@ public final class MapPathOverlay {
             straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ(), PathColors.STRAIGHT);
         }
 
-        drawLaterLegs(sink, snapshot);
-
-        // 目印は最後。経路や点線と重なる位置に来るので、後から置いて上に乗せる
-        if (goal != null && snapshot.goalMarker()) {
-            drawGoalMarker(sink, goal, pixelsPerBlock);
-        }
     }
 
     /**
