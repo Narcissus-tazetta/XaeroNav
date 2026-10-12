@@ -1167,13 +1167,7 @@ public final class PathfindingState {
 
     public void onClientTick() {
         try {
-            if (rerouteNoticeTicks > 0) {
-                rerouteNoticeTicks--;
-            }
-            // 引き直しが終わるまでは数えない。探索の間に消えると、理由が出ないまま線だけ変わる
-            if (mountNoticeTicks > 0 && !computing) {
-                mountNoticeTicks--;
-            }
+            tickNoticeCountdowns();
             BlockPos currentGoal = goal;
             if (currentGoal == null) {
                 warmUpWhenIdle();
@@ -1197,23 +1191,8 @@ public final class PathfindingState {
             if (nextLegAfterStop(mc.player)) {
                 return;
             }
-            // 地図を開いている間も回す。経由地を足すのはたいてい地図の上なので、閉じる前に先の区間を出したい
-            DisplayedPath leg = displayed;
-            legPreview.tick(mc.level, mc.player, goal, legRequested,
-                    leg != null && !leg.result().steps().isEmpty(), stops.ahead(),
-                    leg != null && leg.mode() == PathMode.GOAL && leg.result().complete(), flying);
-            StuckReason notice = stuckTracker.takePendingNotice();
-            if (notice != null) {
-                // 判断はワーカースレッドで行われる。チャットへの出力はメインスレッド専用なのでここで拾う
-                GameCompat.tell(mc.player, TextCompat.translatable("hud.xaeronav.unreachable_notice",
-                        TextCompat.translatable(stuckHintKey(notice))), false);
-            }
-            if (arrived) {
-                arrivedTicks++;
-                // 換算した目的地は通過点にすぎない。消すとポータルをくぐった先で元の目的地へ戻せない
-                if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS && hop == null) {
-                    clear();
-                }
+            tickLegPreview(mc);
+            if (holdArrivalDisplay()) {
                 return;
             }
             // 経路とモードは一組で差し替わるので、1tickの判断は同じスナップショットの上で行う
@@ -1255,7 +1234,6 @@ public final class PathfindingState {
                 recalculate("reached the surface");
                 return;
             }
-            PathResult result = shown == null ? null : shown.result();
             if (checkArrival(mc.player, currentGoal, shown)) {
                 return;
             }
@@ -1269,116 +1247,174 @@ public final class PathfindingState {
                 recalculate("waiting for nav graph");
                 return;
             }
-            ticksSinceRecalc++;
-            ticksSinceValidation++;
-            if (stuckTracker.reason() != null
-                    && !stuckTracker.retryDue(lastStart, mc.player.blockPosition(),
-                            ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS)) {
-                // 目的地へ行けないと判断済み。同じ場所から投げ直しても読み込み済みチャンクも地形も
-                // 変わっていないので結果は同じ——実機では通常探索10万＋粗い経由地チェーン20万ノードを
-                // 3秒おきに焼き続けていた。プレイヤーが動くか、世界が変わりうるだけの時間が経つまで待つ
-                return;
-            }
-            if (pendingEscalation(mc.player)) {
-                return;
-            }
-            // 継ぎ足しより前に置く。深い先読みでは継ぎ足しが数tick続くので、後ろに置くと
-            // その間ずっと starve して、欠けた地図で引いた大局のまま歩き続けることになる。
-            // 中継区間（TO_SURFACE）は長距離ルートを使っていないので対象外
-            if ((shown == null || shown.mode() != PathMode.TO_SURFACE)
-                    && redrawCoarseRouteForLoadedMap(currentGoal)) {
-                return;
-            }
-
-            if (result == null || result.steps().isEmpty()) {
-                retryWithoutRoute(mc.player.blockPosition());
-                return;
-            }
-            // 経路の帯からはみ出したときだけ引き直す。1〜2マス横にずれた程度で作り直すと、
-            // そのたびに違う経路が出てきて線が落ち着かない（歩いているだけで案内が変わる）
-            if (offPathDistance(mc.level, mc.player, result)
-                    > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
-                if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
-                        && !splice.trySplice(mc.level, mc.player, shown, 0)) {
-                    int matched = PathProgress.INSTANCE.indexFor(result);
-                    LOGGER.debug("XaeroNav: off the path (player={}, matched step {}/{} at {}, distance {}, horizontal {})",
-                            mc.player.blockPosition().toShortString(), matched, result.steps().size(),
-                            result.steps().get(matched).pos().toShortString(),
-                            "%.1f".formatted(PathProgress.INSTANCE.distance()),
-                            "%.1f".formatted(PathProgress.INSTANCE.horizontalDistance()));
-                    // 合流できない経路だけ、全部引き直す
-                    recalculate("off path, could not splice");
-                }
-                return;
-            }
-            // 継ぎ足しは逸脱・到着の判定より後に置く。深い先読みでは区間を連続で探索しうるので、
-            // 先に置くとその間ずっと逸脱検知が止まる（computing中は下のトリガーが全て止まるため）
-            // 継ぎ足しは中間目標へ向かう経路だけのものではない。目的地へ直接向かう経路も、予算切れで
-            // 打ち切られていれば末端から伸ばせる——ここを WAYPOINT に限ると、そういう経路は下の
-            // 「打ち切られた末端に近づいたら引き直す」に落ちて毎回<b>全置換</b>され、手前の案内まで
-            // 描き変わる。地上へ出る中継区間（TO_SURFACE）だけはゴールの意味が違うので対象外
-            if (shown.mode() != PathMode.TO_SURFACE) {
-                int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
-                if (extend.shouldExtend(mc.player, shown, renderRadius)) {
-                    // 末端から継ぎ足す。着いてから引き直すのでは遅い——探索に数百msかかり、反映は
-                    // さらに次tick以降なので、その間ずっと「もう終わっている経路」を見せることになる。
-                    //
-                    // ここに間隔ゲートを掛けないのは、継ぎ足しが手前の経路を変えないから。全置換だった
-                    // 頃は頻度を上げるとそのまま案内のちらつきになったが、継ぎ足しにはその副作用が無い
-                    extend.extendPath(shown);
-                    return;
-                }
-                if (reachedPathEnd(mc.player, shown)) {
-                    // 末端に着いたのに伸ばせていない＝行き止まりか予算切れ。ここで初めて全体を引き直す。
-                    //
-                    // ここへ来た時点で案内は途切れる——引き直しには数秒かかり、その間プレイヤーは
-                    // 案内の無い状態で立たされる（実機報告「ルートの先まで着いて計算が追いついていない」）。
-                    // <b>継ぎ足しがなぜ間に合わなかったのか</b>が分からないと直しようがないので、
-                    // 断った理由をここで残す。1本の経路につき1回しか出ない（この直後にcomputingが立つ）
-                    LOGGER.debug("XaeroNav: reached the end of the path, replanning (why it was not extended={}, {} steps)",
-                            extend.extendRefusal(mc.player, shown, renderRadius), shown.result().steps().size());
-                    recalculate("reached path end");
-                    return;
-                }
-                // 継ぎ足す先も末端への到達も無いtickでだけ、直前の繋ぎ目を解き直す。案内を先へ
-                // 伸ばす方が常に優先——修復は既に引いてある線の質の話でしかない
-                if (!seamRepair.isEmpty() && seamRepair.tryRepair(mc.level, mc.player, shown, renderRadius)) {
-                    return;
-                }
-                if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
-                        && reviewAgainstNavGraph(mc.player, currentGoal, shown)) {
-                    return;
-                }
-            }
-            if (ticksSinceRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()
-                    && !result.complete() && nearPathEnd(mc.player.position(), result)
-                    && retryTruncatedNow(mc.player)) {
-                // 打ち切られた末端に近づいた。ここから先は新しく読み込まれたチャンクを使って伸ばせる
-                recalculate("approaching truncated end");
-                return;
-            }
-            if (ticksSinceValidation >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
-                // プレイヤーが動かなくてもワールドは変わりうる。経路上のセルだけを定期的に見る
-                ticksSinceValidation = 0;
-                // この定期検証が「地形が変わった」の第一の入口——まだ歩いていない先も見るので、
-                // ユーザーが経路上のどこかにブロックを置いただけでも即座にここで引っかかる。
-                // 理由を出さないと「置いたら経路が消えた」の説明が付かない
-                // （実際にユーザーからその報告が出て、この行で裏が取れた）
-                //
-                // 見るのは<b>いま居るステップから先</b>だけ。もう歩き終えた区間の変化はこれから通る道に
-                // 関係が無いうえ、そこから走査すると背後の変化で止まって先の変化を見落とす。
-                // 描画距離より先は goto 直後のストリーミング中に誤爆するので見ない（PathValidator参照）
-                int validationHorizon = ClientCompat.renderDistance(mc.options) * 16;
-                PathValidator.Failure failure = TickLaps.measure("path validation",
-                        () -> PathValidator.firstFailureFrom(mc.level, result,
-                                PathProgress.INSTANCE.indexFor(result), mc.player.blockPosition(), validationHorizon));
-                if (failure != null) {
-                    noteUnusableCell(failure);
-                    handleBlockedPath(mc.level, mc.player, shown, failure);
-                }
-            }
+            tickRouteTriggers(mc, currentGoal, shown);
         } finally {
             TickLaps.measure("view publish", () -> publishNavigationView());
+        }
+    }
+
+    /** HUDに理由を出しておく残りtickを進める。 */
+    private void tickNoticeCountdowns() {
+        if (rerouteNoticeTicks > 0) {
+            rerouteNoticeTicks--;
+        }
+        // 引き直しが終わるまでは数えない。探索の間に消えると、理由が出ないまま線だけ変わる
+        if (mountNoticeTicks > 0 && !computing) {
+            mountNoticeTicks--;
+        }
+    }
+
+    /** 地図の上で足した先の区間の下見と、ワーカースレッドが決めた「行けない」の通知。 */
+    private void tickLegPreview(Minecraft mc) {
+        // 地図を開いている間も回す。経由地を足すのはたいてい地図の上なので、閉じる前に先の区間を出したい
+        DisplayedPath leg = displayed;
+        legPreview.tick(mc.level, mc.player, goal, legRequested,
+                leg != null && !leg.result().steps().isEmpty(), stops.ahead(),
+                leg != null && leg.mode() == PathMode.GOAL && leg.result().complete(), flying);
+        StuckReason notice = stuckTracker.takePendingNotice();
+        if (notice != null) {
+            // 判断はワーカースレッドで行われる。チャットへの出力はメインスレッド専用なのでここで拾う
+            GameCompat.tell(mc.player, TextCompat.translatable("hud.xaeronav.unreachable_notice",
+                    TextCompat.translatable(stuckHintKey(notice))), false);
+        }
+    }
+
+    /** 到着表示を出している間か。出し終えたら目的地ごと片付ける。 */
+    private boolean holdArrivalDisplay() {
+        if (!arrived) {
+            return false;
+        }
+        arrivedTicks++;
+        // 換算した目的地は通過点にすぎない。消すとポータルをくぐった先で元の目的地へ戻せない
+        if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS && hop == null) {
+            clear();
+        }
+        return true;
+    }
+
+    /**
+     * 経路が出ていて計算中でもないtickの、再計算・継ぎ足し・合流・検証のトリガー。上から順に見て、
+     * 1つ動かしたらそのtickは終える（順序の理由は各所のコメント参照）。
+     */
+    private void tickRouteTriggers(Minecraft mc, BlockPos currentGoal, @Nullable DisplayedPath shown) {
+        PathResult result = shown == null ? null : shown.result();
+        ticksSinceRecalc++;
+        ticksSinceValidation++;
+        if (stuckTracker.reason() != null
+                && !stuckTracker.retryDue(lastStart, mc.player.blockPosition(),
+                        ticksSinceRecalc >= NO_ROUTE_RETRY_TICKS)) {
+            // 目的地へ行けないと判断済み。同じ場所から投げ直しても読み込み済みチャンクも地形も
+            // 変わっていないので結果は同じ——実機では通常探索10万＋粗い経由地チェーン20万ノードを
+            // 3秒おきに焼き続けていた。プレイヤーが動くか、世界が変わりうるだけの時間が経つまで待つ
+            return;
+        }
+        if (pendingEscalation(mc.player)) {
+            return;
+        }
+        // 継ぎ足しより前に置く。深い先読みでは継ぎ足しが数tick続くので、後ろに置くと
+        // その間ずっと starve して、欠けた地図で引いた大局のまま歩き続けることになる。
+        // 中継区間（TO_SURFACE）は長距離ルートを使っていないので対象外
+        if ((shown == null || shown.mode() != PathMode.TO_SURFACE)
+                && redrawCoarseRouteForLoadedMap(currentGoal)) {
+            return;
+        }
+
+        if (result == null || result.steps().isEmpty()) {
+            retryWithoutRoute(mc.player.blockPosition());
+            return;
+        }
+        followShownPath(mc, currentGoal, shown, result);
+    }
+
+    /** 表示中の経路に沿って歩いている間のトリガー（逸脱・継ぎ足し・末端・修復・見直し・打ち切り・検証）。 */
+    private void followShownPath(Minecraft mc, BlockPos currentGoal, DisplayedPath shown, PathResult result) {
+        // 経路の帯からはみ出したときだけ引き直す。1〜2マス横にずれた程度で作り直すと、
+        // そのたびに違う経路が出てきて線が落ち着かない（歩いているだけで案内が変わる）
+        if (offPathDistance(mc.level, mc.player, result)
+                > XaeroNavConfig.INSTANCE.deviationThresholdBlocks()) {
+            if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
+                    && !splice.trySplice(mc.level, mc.player, shown, 0)) {
+                int matched = PathProgress.INSTANCE.indexFor(result);
+                LOGGER.debug("XaeroNav: off the path (player={}, matched step {}/{} at {}, distance {}, horizontal {})",
+                        mc.player.blockPosition().toShortString(), matched, result.steps().size(),
+                        result.steps().get(matched).pos().toShortString(),
+                        "%.1f".formatted(PathProgress.INSTANCE.distance()),
+                        "%.1f".formatted(PathProgress.INSTANCE.horizontalDistance()));
+                // 合流できない経路だけ、全部引き直す
+                recalculate("off path, could not splice");
+            }
+            return;
+        }
+        // 継ぎ足しは逸脱・到着の判定より後に置く。深い先読みでは区間を連続で探索しうるので、
+        // 先に置くとその間ずっと逸脱検知が止まる（computing中は下のトリガーが全て止まるため）
+        // 継ぎ足しは中間目標へ向かう経路だけのものではない。目的地へ直接向かう経路も、予算切れで
+        // 打ち切られていれば末端から伸ばせる——ここを WAYPOINT に限ると、そういう経路は下の
+        // 「打ち切られた末端に近づいたら引き直す」に落ちて毎回<b>全置換</b>され、手前の案内まで
+        // 描き変わる。地上へ出る中継区間（TO_SURFACE）だけはゴールの意味が違うので対象外
+        if (shown.mode() != PathMode.TO_SURFACE) {
+            int renderRadius = ClientCompat.renderDistance(mc.options) * 16;
+            if (extend.shouldExtend(mc.player, shown, renderRadius)) {
+                // 末端から継ぎ足す。着いてから引き直すのでは遅い——探索に数百msかかり、反映は
+                // さらに次tick以降なので、その間ずっと「もう終わっている経路」を見せることになる。
+                //
+                // ここに間隔ゲートを掛けないのは、継ぎ足しが手前の経路を変えないから。全置換だった
+                // 頃は頻度を上げるとそのまま案内のちらつきになったが、継ぎ足しにはその副作用が無い
+                extend.extendPath(shown);
+                return;
+            }
+            if (reachedPathEnd(mc.player, shown)) {
+                // 末端に着いたのに伸ばせていない＝行き止まりか予算切れ。ここで初めて全体を引き直す。
+                //
+                // ここへ来た時点で案内は途切れる——引き直しには数秒かかり、その間プレイヤーは
+                // 案内の無い状態で立たされる（実機報告「ルートの先まで着いて計算が追いついていない」）。
+                // <b>継ぎ足しがなぜ間に合わなかったのか</b>が分からないと直しようがないので、
+                // 断った理由をここで残す。1本の経路につき1回しか出ない（この直後にcomputingが立つ）
+                LOGGER.debug("XaeroNav: reached the end of the path, replanning (why it was not extended={}, {} steps)",
+                        extend.extendRefusal(mc.player, shown, renderRadius), shown.result().steps().size());
+                recalculate("reached path end");
+                return;
+            }
+            // 継ぎ足す先も末端への到達も無いtickでだけ、直前の繋ぎ目を解き直す。案内を先へ
+            // 伸ばす方が常に優先——修復は既に引いてある線の質の話でしかない
+            if (!seamRepair.isEmpty() && seamRepair.tryRepair(mc.level, mc.player, shown, renderRadius)) {
+                return;
+            }
+            if (ticksSinceRecalc >= MIN_RECALC_INTERVAL_TICKS
+                    && reviewAgainstNavGraph(mc.player, currentGoal, shown)) {
+                return;
+            }
+        }
+        if (ticksSinceRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()
+                && !result.complete() && nearPathEnd(mc.player.position(), result)
+                && retryTruncatedNow(mc.player)) {
+            // 打ち切られた末端に近づいた。ここから先は新しく読み込まれたチャンクを使って伸ばせる
+            recalculate("approaching truncated end");
+            return;
+        }
+        validateAhead(mc, shown, result);
+    }
+
+    /** 定期的に、これから通る経路上のセルが今も通れるかを確かめる。 */
+    private void validateAhead(Minecraft mc, DisplayedPath shown, PathResult result) {
+        if (ticksSinceValidation >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()) {
+            // プレイヤーが動かなくてもワールドは変わりうる。経路上のセルだけを定期的に見る
+            ticksSinceValidation = 0;
+            // この定期検証が「地形が変わった」の第一の入口——まだ歩いていない先も見るので、
+            // ユーザーが経路上のどこかにブロックを置いただけでも即座にここで引っかかる。
+            // 理由を出さないと「置いたら経路が消えた」の説明が付かない
+            // （実際にユーザーからその報告が出て、この行で裏が取れた）
+            //
+            // 見るのは<b>いま居るステップから先</b>だけ。もう歩き終えた区間の変化はこれから通る道に
+            // 関係が無いうえ、そこから走査すると背後の変化で止まって先の変化を見落とす。
+            // 描画距離より先は goto 直後のストリーミング中に誤爆するので見ない（PathValidator参照）
+            int validationHorizon = ClientCompat.renderDistance(mc.options) * 16;
+            PathValidator.Failure failure = TickLaps.measure("path validation",
+                    () -> PathValidator.firstFailureFrom(mc.level, result,
+                            PathProgress.INSTANCE.indexFor(result), mc.player.blockPosition(), validationHorizon));
+            if (failure != null) {
+                noteUnusableCell(failure);
+                handleBlockedPath(mc.level, mc.player, shown, failure);
+            }
         }
     }
 
