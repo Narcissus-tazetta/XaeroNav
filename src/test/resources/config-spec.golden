@@ -39,3 +39,5 @@ display.hudEnabled | class=ValueSpec | type=Boolean | default=true | range=- | c
 display.straightLineEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=経路が分からない区間（未読み込みチャンクの先など）を目的地までの点線で示すか
 display.goalMarkerEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=Xaeroの世界地図・ミニマップの目的地にピンを立てるか
 display.dangerDashedEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=危険区間（溶岩・奈落・溺水・落下ダメージ等）の線を破線で強調するか\n色だけでは色覚特性や画面の色調補正で判別しづらい場面があるための、色以外の識別手段
+display.chatCoordinateLinksEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=チャットに出た「90 64 -120」のような座標を、押すと目的地になるリンクにするか\n拾うのは数字がちょうど3つ並んだもの（「x:90 y:64 z:-120」「90, 64, -120」の形も）で、\nYが今いるワールドの高さの範囲に入るときだけ。他のmodやサーバーが付けたリンクには手を付けない
+display.chatCoordinateShiftViaEnabled | class=ValueSpec | type=Boolean | default=false | range=- | comment=座標のリンクをShift+クリックしたとき、目的地を置き換えずに経由地として足すか\nfalseならShift+クリックでも普通のクリックと同じく目的地にする

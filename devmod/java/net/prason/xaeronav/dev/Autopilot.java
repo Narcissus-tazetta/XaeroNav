@@ -54,6 +54,7 @@ public final class Autopilot {
     public Autopilot() {
         ConfigShot.armIfRequested();
         HopCheck.armIfRequested();
+        ChatCheck.armIfRequested();
         String spec = System.getProperty("xaeronav.autopilot");
         if (spec == null) {
             this.dx = 0;

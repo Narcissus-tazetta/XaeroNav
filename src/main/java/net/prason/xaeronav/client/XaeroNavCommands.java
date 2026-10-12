@@ -46,6 +46,7 @@ import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.xaero.XaeroMapReader;
 import net.prason.xaeronav.xaero.XaeroPresence;
 import net.prason.xaeronav.util.BlockDistance;
+import org.jspecify.annotations.Nullable;
 
 /**
  * {@code /xaeronav} のクライアントコマンド。
@@ -91,13 +92,8 @@ public final class XaeroNavCommands {
                 .then(XaeroNavCommands.<S>literal("goto")
                         .then(XaeroNavCommands.<S, Coordinates>argument("pos", BlockPosArgument.blockPos())
                                 .executes(ctx -> {
-                                    BlockPos resolved = PathfindingState.INSTANCE.setGoal(blockPos.read(ctx, "pos"));
-                                    // 指定座標ではなく解決後の目的地を出す。Yはその列で実際に立てる高さへ
-                                    // 寄せられるので、指定したままを表示すると案内先と食い違って見える
-                                    if (resolved != null) {
-                                        sink.apply(ctx).success(TextCompat.translatable("commands.xaeronav.goal_walk",
-                                                resolved.toShortString()));
-                                    }
+                                    reportGoal(sink.apply(ctx),
+                                            PathfindingState.INSTANCE.setGoal(blockPos.read(ctx, "pos")));
                                     return 1;
                                 })))
                 .then(XaeroNavCommands.<S>literal("via")
@@ -137,7 +133,15 @@ public final class XaeroNavCommands {
                                 .executes(ctx -> reportProbe(sink.apply(ctx)))));
     }
 
-    private static int reportStop(NavCommandSink out, PathfindingState.StopResult result) {
+    static void reportGoal(NavCommandSink out, @Nullable BlockPos resolved) {
+        // 指定座標ではなく解決後の目的地を出す。Yはその列で実際に立てる高さへ
+        // 寄せられるので、指定したままを表示すると案内先と食い違って見える
+        if (resolved != null) {
+            out.success(TextCompat.translatable("commands.xaeronav.goal_walk", resolved.toShortString()));
+        }
+    }
+
+    static int reportStop(NavCommandSink out, PathfindingState.StopResult result) {
         switch (result) {
             case STARTED -> out.success(TextCompat.translatable("commands.xaeronav.goal_walk",
                     PathfindingState.INSTANCE.goal().toShortString()));
