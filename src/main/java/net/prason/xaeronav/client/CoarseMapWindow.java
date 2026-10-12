@@ -80,7 +80,7 @@ final class CoarseMapWindow {
                 .surveyRegions(minChunkX, minChunkZ, chunksX, chunksZ, referenceY).pendingLoad();
         if (pending > 0) {
             // 要求は非同期なのでこの回の読み取りには間に合わない。呼び出し側が
-            // pendingRegionsを見て引き直す（PathfindingState#cachedOrFreshRoute）
+            // pendingRegionsを見て引き直す（CoarseRoutes#cachedOrFreshRoute）
             XaeroMapReader.requestLoad(minChunkX, minChunkZ, chunksX, chunksZ, referenceY);
         }
         long startMillis = MonotonicTime.millis();
