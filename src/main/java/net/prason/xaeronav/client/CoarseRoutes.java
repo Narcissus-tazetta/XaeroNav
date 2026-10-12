@@ -103,6 +103,8 @@ final class CoarseRoutes {
     // 地図の読み込み待ちで引き直した回数（COARSE_MAP_RETRY_LIMIT）。クライアントスレッドだけが触る
     private int coarseMapRetries;
     private final MapGrowthWatch mapGrowth = new MapGrowthWatch();
+    // 解いた長距離ルートに振る番号（CoarseRoute#lineage）。採用はメインスレッドだけが行う
+    private long lineages;
 
     private final Consumer<Runnable> onMainThread;
     /** 中間目標の列を入れ替えたとき。添字の意味が変わるので、通過済みの数を数え直させる。 */
@@ -121,9 +123,19 @@ final class CoarseRoutes {
         return coarseRoute;
     }
 
-    /** 今の精緻版。{@link RefinedRoute#source()}が{@link #route()}と同じときだけ有効。 */
+    /** 今の精緻版。{@link #refines}が{@link #route()}について真のときだけ有効。 */
     @Nullable RefinedRoute refined() {
         return refinedRoute;
+    }
+
+    /** {@code refined}が{@code route}を解いた回の精緻版か。違う回のもの（引き直す前のルートの精緻版）は使わない。 */
+    static boolean refines(@Nullable RefinedRoute refined, @Nullable CoarseRoute route) {
+        return refined != null && route != null && refined.source().lineage() == route.lineage();
+    }
+
+    /** {@code route}の中間目標の列。{@code refined}がその精緻版ならそちら（{@link #refines}）。 */
+    static List<BlockPos> waypointsOf(CoarseRoute route, @Nullable RefinedRoute refined) {
+        return refines(refined, route) ? refined.waypoints() : route.waypoints();
     }
 
     /** {@code goal}に対して層2の精緻化が進行中なら、その元のルート。 */
@@ -139,8 +151,7 @@ final class CoarseRoutes {
     List<BlockPos> waypointsFor(BlockPos goal) {
         CoarseRoute route = coarseRoute;
         RefinedRoute refined = refinedRoute;
-        return route == null || !route.goal().equals(goal) ? List.of()
-                : refined != null && refined.source() == route ? refined.waypoints() : route.waypoints();
+        return route == null || !route.goal().equals(goal) ? List.of() : waypointsOf(route, refined);
     }
 
     /** 最後に読んだ{@code goal}向けの長距離ルートの地図。読んでいなければ{@code null}。 */
@@ -168,7 +179,7 @@ final class CoarseRoutes {
     boolean refinedRouteInUse() {
         CoarseRoute cached = coarseRoute;
         RefinedRoute refined = refinedRoute;
-        return cached != null && refined != null && refined.source() == cached;
+        return refines(refined, cached);
     }
 
     /**
@@ -181,7 +192,7 @@ final class CoarseRoutes {
             return false;
         }
         pendingRefinedRouteReady = null;
-        if (pendingRefined.source() != coarseRoute) {
+        if (!refines(pendingRefined, coarseRoute)) {
             return false;
         }
         refinedRoute = pendingRefined;
@@ -217,8 +228,15 @@ final class CoarseRoutes {
         CoarseRoute route = coarseRoute;
         if (route != null && !route.waypoints().isEmpty()) {
             List<BlockPos> waypoints = route.reachedGoal() ? replaceLast(route.waypoints(), resolved) : route.waypoints();
-            coarseRoute = new CoarseRoute(resolved, route.computedFrom(), route.reachedGoal(), route.pendingRegions(),
-                    waypoints);
+            CoarseRoute moved = new CoarseRoute(resolved, route.computedFrom(), route.reachedGoal(),
+                    route.pendingRegions(), waypoints, route.lineage());
+            coarseRoute = moved;
+            // 進行中の精緻化も同じ回のもの。目的地で照合する側（refiningFor）から見えなくなると、精緻化を待たずに
+            // 長距離ルートを引き直してしまう
+            CoarseRoute refining = refiningRoute;
+            if (refining != null && refining.lineage() == route.lineage()) {
+                refiningRoute = moved;
+            }
         }
         CoarseMapForGoal latestMap = latestCoarseMap;
         if (latestMap != null) {
@@ -256,7 +274,7 @@ final class CoarseRoutes {
         }
         CoarseRoute cached = coarseRoute;
         RefinedRoute refined = refinedRoute;
-        return refined != null && refined.source() == cached ? refined.waypoints() : cached.waypoints();
+        return waypointsOf(cached, refined);
     }
 
     /**
@@ -347,7 +365,7 @@ final class CoarseRoutes {
             waypoints = replaceLast(waypoints, currentGoal);
         }
         CoarseRoute thisRoute = new CoarseRoute(currentGoal, start, route.reachedGoal(),
-                attempt.pendingRegions(), waypoints);
+                attempt.pendingRegions(), waypoints, ++lineages);
         CoarseRoute before = mapRetryBefore;
         coarseRoute = thisRoute;
         // 新しい列では添字の意味が変わる。引き直しは今の位置を始点にするので、先頭が通過済みに
@@ -428,19 +446,26 @@ final class CoarseRoutes {
                     ? CorridorWaypoints.downsample(CorridorWaypoints.stitch(legPoints),
                             REFINED_WAYPOINT_MIN_SPACING_BLOCKS)
                     : null;
-            onMainThread.accept(() -> {
-                if (refiningRoute == forRoute) {
-                    refiningRoute = null;
-                }
-                if (downsampled == null) {
-                    return;
-                }
-            // 世代の検査はここではなく読み出し側（RefinedRoute.source()）で行う。ここで
-            // 「検査してから書き込む」形にすると、その間に世代が進んだ場合に古い精緻版が
-            // 素通りする（stitch/downsampleは点列全体を走査するので、その隙間は実時間で開く）
-                pendingRefinedRouteReady = new RefinedRoute(currentGoal, forRoute, downsampled);
-            });
+            onMainThread.accept(() -> refinementDone(currentGoal, forRoute, downsampled));
         });
+    }
+
+    /**
+     * {@code forRoute}の精緻化が終わった（メインスレッド）。{@code waypoints}は失敗したら{@code null}。
+     * 採用するのは次のtickの{@link #adoptRefinedIfReady}。テストからも呼ぶ。
+     */
+    void refinementDone(BlockPos goal, CoarseRoute forRoute, @Nullable List<BlockPos> waypoints) {
+        CoarseRoute refining = refiningRoute;
+        if (refining != null && refining.lineage() == forRoute.lineage()) {
+            refiningRoute = null;
+        }
+        if (waypoints == null) {
+            return;
+        }
+        // 世代の検査はここではなく読み出し側（RefinedRoute.source()）で行う。ここで
+        // 「検査してから書き込む」形にすると、その間に世代が進んだ場合に古い精緻版が
+        // 素通りする（stitch/downsampleは点列全体を走査するので、その隙間は実時間で開く）
+        pendingRefinedRouteReady = new RefinedRoute(goal, forRoute, waypoints);
     }
 
     private CompletableFuture<List<BlockPos>> solveLeg(CorridorLegSolver.PreparedLeg leg, BlockPos rawTarget) {
@@ -569,9 +594,11 @@ final class CoarseRoutes {
      * @param pendingRegions このルートを引いたとき、ディスクにはあるのにまだメモリへ載って
      *         いなかったリージョンの数。0より大きければ<b>このルートは欠けた地図の上で引かれた</b>
      *         ということで、読み込みを待って引き直す（{@link #cachedOrFreshRoute}）
+     * @param lineage 解いた1回ごとの番号。目的地を同じ列の別の高さへ寄せ直したとき（{@link #retarget}）は
+     *         作り直したルートへ引き継ぐ——引き直したわけではないので、精緻版もそのまま通用する
      */
     record CoarseRoute(BlockPos goal, BlockPos computedFrom, boolean reachedGoal, int pendingRegions,
-                                List<BlockPos> waypoints) {
+                       List<BlockPos> waypoints, long lineage) {
     }
 
     /** 長距離ルートの地図と、それを読んだときの目的地。 */
@@ -588,7 +615,8 @@ final class CoarseRoutes {
      * <p>由来元を持つのが要点。同じ目的地への再navigateでは{@code goal}が変わらないので、
      * 座標の一致だけでは古い世代の精緻化を弾けない。書き込み側で検査すると
      * 「検査してから書くまでの間に世代が進む」競合が残るので、<b>読み出し時に</b>
-     * 今の{@code coarseRoute}と同一インスタンスかを見る（順序に依存しない）。
+     * 今の{@code coarseRoute}と同じ回に解いたもの（{@link CoarseRoute#lineage}）かを見る（順序に依存しない、
+     * {@link #refines}）。
      */
     record RefinedRoute(BlockPos goal, CoarseRoute source, List<BlockPos> waypoints) {
     }

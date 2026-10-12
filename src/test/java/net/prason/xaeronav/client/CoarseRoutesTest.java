@@ -147,4 +147,65 @@ class CoarseRoutesTest {
         assertFalse(routes.refinedRouteInUse());
         assertNull(routes.refiningFor(GOAL), "天井のある次元で精緻化を始めている");
     }
+
+    /** 層2の精緻版（中間目標を約24ブロック間隔に詰めたもの）の代わり。 */
+    private static final List<BlockPos> REFINED = List.of(
+            new BlockPos(24, 65, 2), new BlockPos(48, 65, 4), new BlockPos(72, 66, 6), new BlockPos(96, 66, 8),
+            new BlockPos(392, 72, 8));
+
+    /** 精緻化が終わると、次の採用で精緻版が中間目標になる。 */
+    @Test
+    void aFinishedRefinementReplacesTheWaypoints() {
+        adopt(true, 0);
+
+        routes.refinementDone(GOAL, routes.route(), REFINED);
+
+        assertTrue(routes.adoptRefinedIfReady());
+        assertTrue(routes.refinedRouteInUse());
+        assertEquals(REFINED, routes.waypointsFor(GOAL));
+    }
+
+    /**
+     * 目的地を同じ列の別の高さへ寄せ直しても、精緻版は捨てない。寄せ直しはルートを作り直すが、引き直したわけでは
+     * ないので、精緻版はそのまま通用する（捨てると、その目的地へ着くまで粗い層1の点しか狙えなくなる）。
+     */
+    @Test
+    void retargetingKeepsTheRefinement() {
+        adopt(true, 0);
+        routes.refinementDone(GOAL, routes.route(), REFINED);
+        assertTrue(routes.adoptRefinedIfReady());
+        BlockPos resolved = GOAL.above(5);
+
+        routes.retarget(resolved);
+
+        assertTrue(routes.refinedRouteInUse(), "寄せ直しで精緻版が使われなくなった");
+        assertEquals(REFINED, routes.waypointsFor(resolved));
+    }
+
+    /** 寄せ直しの前に終わって採用を待っていた精緻化も、寄せ直した後のルートに採用される。 */
+    @Test
+    void aRefinementFinishedBeforeRetargetingIsStillAdopted() {
+        adopt(true, 0);
+        routes.refinementDone(GOAL, routes.route(), REFINED);
+        BlockPos resolved = GOAL.above(5);
+
+        routes.retarget(resolved);
+
+        assertTrue(routes.adoptRefinedIfReady(), "寄せ直しの前に終わった精緻化が捨てられた");
+        assertEquals(REFINED, routes.waypointsFor(resolved));
+    }
+
+    /** 引き直した（新しく解いた）ルートには、前のルートの精緻版を使わない。 */
+    @Test
+    void aRedrawnRouteDoesNotUseTheOldRefinement() {
+        adopt(true, 0);
+        CoarseRoutes.CoarseRoute first = routes.route();
+        adopt(true, 0);
+
+        routes.refinementDone(GOAL, first, REFINED);
+
+        assertFalse(routes.adoptRefinedIfReady());
+        assertFalse(routes.refinedRouteInUse());
+        assertEquals(GOAL, routes.waypointsFor(GOAL).get(WAYPOINTS.size() - 1));
+    }
 }

@@ -555,8 +555,7 @@ public final class PathfindingState {
             if (coarseRoute == null || goal == null || !coarseRoute.goal().equals(goal)) {
                 return List.of();
             }
-            return refinedRoute != null && refinedRoute.source() == coarseRoute
-                    ? refinedRoute.waypoints() : coarseRoute.waypoints();
+            return CoarseRoutes.waypointsOf(coarseRoute, refinedRoute);
         }
     }
 
