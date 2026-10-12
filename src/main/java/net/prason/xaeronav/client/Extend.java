@@ -98,7 +98,7 @@ final class Extend {
          */
         int coarseRoutePendingRegions(BlockPos currentGoal);
 
-        /** 詳細探索のゴールを決める（{@code PathfindingState#selectDetailTarget}への委譲）。 */
+        /** 詳細探索のゴールを決める（{@code DetailTargets#selectDetailTarget}への委譲）。 */
         PathfindingState.DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
                                                            int reach, boolean boatAvailable, boolean playerAnchored,
                                                            int minWaypointIndex, boolean ceilingDimension,

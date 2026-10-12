@@ -397,7 +397,7 @@ public final class PathfindingExecutor {
      * <p><b>ゴールが箱の外にあるとガイドは丸ごと無効になる。</b>{@code CoarseRouter#costToGo}は
      * ゴールのセルを地図に含まないと全コストを無限にし、{@code estimate}はどこでも0を返す。
      * 箱は始点を中心に描画距離で切られる（{@code SearchBounds#around}）ので、遠い目的地を
-     * そのまま狙う設計（天井のある次元。{@code PathfindingState#selectDetailTarget}）では常にこの形になる
+     * そのまま狙う設計（天井のある次元。{@code DetailTargets#selectDetailTarget}）では常にこの形になる
      * ——<b>意図的にそうしている</b>（測定は{@code NetherDetourBreakdownTest}）。
      */
     private CostToGo buildCostToGoGuide(CellSource view, BlockPos start, BlockPos goal,
@@ -424,7 +424,7 @@ public final class PathfindingExecutor {
      * どれだけ予算を積んでも完走しない——範囲の外は未ロード扱いのセルで、そこへ入る手が無い。
      *
      * <p>{@code SearchBounds#around}は始点を中心に描画距離で切るので、遠い目的地をそのまま
-     * 狙う設計（天井のある次元。{@code PathfindingState#selectDetailTarget}）では常にこちら側になる。
+     * 狙う設計（天井のある次元。{@code DetailTargets#selectDetailTarget}）では常にこちら側になる。
      */
     private static boolean goalInsideBounds(CellSource view, BlockPos goal, int goalRadius) {
         SearchBounds bounds = view.bounds();

@@ -63,7 +63,6 @@ public final class XaeroMapReader {
      * 必要なのは「そのチャンクの大まかな性格」なので、格子状に間引いて足りる。
      */
     private static final int SAMPLE_STEP = 4;
-    private static final int SAMPLES_PER_TILE = (16 / SAMPLE_STEP) * (16 / SAMPLE_STEP);
 
     /**
      * このセルを{@link CoarseMap#LAVA_MIXED}（通れるが高コスト）とみなすサンプル比率。

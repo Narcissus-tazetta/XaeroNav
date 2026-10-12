@@ -59,7 +59,7 @@ final class ProgressiveWalk {
      */
     private static final long TRACE_BUDGET_MILLIS = Long.getLong("xaeronav.traceBudgetSeconds", 120L) * 1000L;
 
-    /** {@code PathfindingState#INTERPOLATED_GOAL_RADIUS_BLOCKS}。補間した中間目標は領域で狙う。 */
+    /** {@code DetailTargets#INTERPOLATED_GOAL_RADIUS_BLOCKS}。補間した中間目標は領域で狙う。 */
     static final int INTERPOLATED_GOAL_RADIUS = 16;
 
     /** 1回の計画のあいだにプレイヤーが歩く距離（ブロック）。 */
@@ -137,7 +137,7 @@ final class ProgressiveWalk {
                 .search(from, aim, NEVER, Carryover.NONE, radius);
     }
 
-    /** 詳細探索が何を狙うか。実装の{@code PathfindingState#selectDetailTarget}の2つの姿。 */
+    /** 詳細探索が何を狙うか。実装の{@code DetailTargets#selectDetailTarget}の2つの姿。 */
     enum Aim {
         /** 遠い目的地は{@link #DETAIL_HORIZON}ぶん手前で切って狙う（{@code goalOrPointToward}）。 */
         HORIZON,

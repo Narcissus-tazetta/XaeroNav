@@ -33,7 +33,7 @@ class DetailTargetAimTest {
     void aimsAtTheGoalWhenItIsWithinReach() {
         BlockPos goal = new BlockPos(REACH, 64, 0);
 
-        assertEquals(goal, PathfindingState.aimTowardGoal(START, goal, REACH));
+        assertEquals(goal, DetailTargets.aimTowardGoal(START, goal, REACH));
     }
 
     /** 遠すぎる目的地は、その方向へちょうど{@code reach}だけ進んだ点に切り替える。 */
@@ -41,7 +41,7 @@ class DetailTargetAimTest {
     void clipsAGoalBeyondReachToAPointAlongTheWay() {
         BlockPos goal = new BlockPos(509, 64, 0);
 
-        BlockPos aim = PathfindingState.aimTowardGoal(START, goal, REACH);
+        BlockPos aim = DetailTargets.aimTowardGoal(START, goal, REACH);
 
         assertNotEquals(goal, aim, "箱の外の目的地をそのまま狙っている");
         assertEquals(REACH, aim.getX(), "目的地の方向へreachぶん進んだ点になっていない");
@@ -53,7 +53,7 @@ class DetailTargetAimTest {
     void clipsDiagonallyByDistanceNotPerAxis() {
         BlockPos goal = new BlockPos(400, 64, 300);
 
-        BlockPos aim = PathfindingState.aimTowardGoal(START, goal, REACH);
+        BlockPos aim = DetailTargets.aimTowardGoal(START, goal, REACH);
 
         double distance = Math.sqrt(aim.getX() * aim.getX() + (double) aim.getZ() * aim.getZ());
         assertEquals(REACH, distance, 1.0, "切った点までの距離がreachと合っていない");
@@ -63,13 +63,13 @@ class DetailTargetAimTest {
     /** 目標が近すぎると探索は0ステップで終わる——その距離を境として扱う。 */
     @Test
     void refusesAnAimTooCloseToProduceAPath() {
-        assertTrue(PathfindingState.tooCloseToAim(START, START), "自分の位置を狙うのを止めていない");
-        assertTrue(PathfindingState.tooCloseToAim(START, new BlockPos(10, 64, 0)));
+        assertTrue(DetailTargets.tooCloseToAim(START, START), "自分の位置を狙うのを止めていない");
+        assertTrue(DetailTargets.tooCloseToAim(START, new BlockPos(10, 64, 0)));
     }
 
     /** 十分離れていれば普通に狙う。ここまで拒むと、まともな中間目標まで捨ててしまう。 */
     @Test
     void acceptsAnAimFarEnoughAway() {
-        assertFalse(PathfindingState.tooCloseToAim(START, new BlockPos(40, 64, 0)));
+        assertFalse(DetailTargets.tooCloseToAim(START, new BlockPos(40, 64, 0)));
     }
 }

@@ -34,7 +34,7 @@ import net.prason.xaeronav.pathfinding.world.WindowedCells;
  * 再現しないと発生源が測れない。
  *
  * <p><b>{@code ProgressiveWalk}は使わない。</b>あちらの区間は「目的地への直線上の点」を狙う
- * （{@code PathfindingState#goalOrPointToward}に当たる道）。実機が長距離で通るのは
+ * （{@code DetailTargets#goalOrPointToward}に当たる道）。実機が長距離で通るのは
  * <b>層1の中間目標を狙う</b>道（{@code selectDetailTarget}→{@code reachableWaypointTarget}）で、
  * 溶岩の海のあるネザーでは両者の結果がまるで違う——直線上の点は岩の中や溶岩の上に落ちるので、
  * あちらで測ると「経路が返らない」が量産され、実機の症状と区別できない。

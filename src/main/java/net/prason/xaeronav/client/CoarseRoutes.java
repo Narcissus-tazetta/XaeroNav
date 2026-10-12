@@ -246,7 +246,7 @@ final class CoarseRoutes {
     /**
      * 層2の精緻版があればそちらを優先する（{@link PathfindingState.NavigationView#coarseRouteWaypoints}と同じ順序）。層1は
      * チャンク解像度で中間目標が100ブロック近く離れることがあり、描画距離を下げた環境では
-     * {@code PathfindingState#reachableWaypointTarget}の「renderRadius以内」を1つも満たせず長距離ルートごと
+     * {@code DetailTargets#reachableWaypointTarget}の「renderRadius以内」を1つも満たせず長距離ルートごと
      * 空振りする。精緻版は{@link #REFINED_WAYPOINT_MIN_SPACING_BLOCKS}間隔なのでここを埋められる。
      */
     List<BlockPos> cachedOrFreshRoute(BlockPos start, BlockPos currentGoal, boolean boatAvailable,
@@ -562,7 +562,7 @@ final class CoarseRoutes {
      * 長距離ルートの中間目標のキャッシュ。地形は不変なので、目的地が変わらない限り引き直さない。
      *
      * @param computedFrom このルートを引いたときの始点。同じ場所からの引き直しは同じ結果になるので、
-     *         それを避けるための照合に使う（{@code PathfindingState#COARSE_ROUTE_RETRY_MOVE_BLOCKS}）
+     *         それを避けるための照合に使う（{@code DetailTargets#COARSE_ROUTE_RETRY_MOVE_BLOCKS}）
      * @param reachedGoal 粗い地図の上で目的地まで届いたか。届いていないなら、詳細探索を
      *         いくら回しても届かない（粗い地図で通行不能になるのは溶岩だけで、未探索セルは
      *         通行可能として扱われる）ので、詰みの理由を言い当てる材料になる
