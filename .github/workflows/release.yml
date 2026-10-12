@@ -131,7 +131,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.discover.outputs.version }}
           NODE: ${{ matrix.node.node }}
-        run: ./gradlew verifyDistribution --console=plain -Prelease "-Pmod_version=$RELEASE_VERSION" "-Pxaeronav.onlyNodes=$NODE"
+        run: .github/scripts/gradle-with-retry.sh verifyDistribution --console=plain -Prelease "-Pmod_version=$RELEASE_VERSION" "-Pxaeronav.onlyNodes=$NODE"
 
       # 公開ジョブと同じく正典ノードだけを構成して試す
       - name: Dry run every platform

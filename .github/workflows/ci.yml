@@ -127,9 +127,9 @@ jobs:
           CANONICAL_NODE: ${{ needs.discover.outputs.canonical_node }}
         run: |
           if [ "$NODE" = "$CANONICAL_NODE" ]; then
-            ./gradlew spotlessCheck ":$NODE:build" "-Pxaeronav.onlyNodes=$NODE" --console=plain
+            .github/scripts/gradle-with-retry.sh spotlessCheck ":$NODE:build" "-Pxaeronav.onlyNodes=$NODE" --console=plain
           else
-            ./gradlew ":$NODE:assemble" "-Pxaeronav.onlyNodes=$NODE" --console=plain
+            .github/scripts/gradle-with-retry.sh ":$NODE:assemble" "-Pxaeronav.onlyNodes=$NODE" --console=plain
           fi
 
       # 失敗したときに、どのテストがなぜ落ちたかをログを掘らずに見られるようにする
@@ -186,7 +186,7 @@ jobs:
           cache-read-only: true
 
       - name: Build and stage mods
-        run: ./gradlew :${{ matrix.node.node }}:stageRuntimeTestMods -Pxaeronav.onlyNodes=${{ matrix.node.node }} --console=plain
+        run: .github/scripts/gradle-with-retry.sh :${{ matrix.node.node }}:stageRuntimeTestMods -Pxaeronav.onlyNodes=${{ matrix.node.node }} --console=plain
 
       - name: Put mods into the test client
         run: |
@@ -437,7 +437,7 @@ jobs:
           cache-read-only: true
 
       - name: Build and stage the production mod jar
-        run: ./gradlew :${{ matrix.node.node }}:stageServerTestMod -Pxaeronav.onlyNodes=${{ matrix.node.node }} --console=plain
+        run: .github/scripts/gradle-with-retry.sh :${{ matrix.node.node }}:stageServerTestMod -Pxaeronav.onlyNodes=${{ matrix.node.node }} --console=plain
 
       - name: Put XaeroNav into the test server
         run: |
