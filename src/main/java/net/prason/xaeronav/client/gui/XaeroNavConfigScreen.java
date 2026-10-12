@@ -137,6 +137,11 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 cfg.goalMarkerEnabled(), cfg::setGoalMarkerEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.danger_dashed_enabled",
                 cfg.dangerDashedEnabled(), cfg::setDangerDashedEnabled));
+        addBig.accept(boolOption("gui.xaeronav.config.chat_coordinate_links",
+                cfg.chatCoordinateLinksEnabled(), cfg::setChatCoordinateLinksEnabled));
+        addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.chat_coordinate_shift_via",
+                "gui.xaeronav.config.chat_coordinate_shift_via.tooltip",
+                cfg.chatCoordinateShiftViaEnabled(), cfg::setChatCoordinateShiftViaEnabled));
     }
 
     private static OptionInstance<Boolean> boolOption(String key, boolean initial, Consumer<Boolean> setter) {
@@ -207,6 +212,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         add("gui.xaeronav.config.straight_line_enabled", cfg::straightLineEnabled, cfg::setStraightLineEnabled);
         add("gui.xaeronav.config.goal_marker_enabled", cfg::goalMarkerEnabled, cfg::setGoalMarkerEnabled);
         add("gui.xaeronav.config.danger_dashed_enabled", cfg::dangerDashedEnabled, cfg::setDangerDashedEnabled);
+        add("gui.xaeronav.config.chat_coordinate_links", cfg::chatCoordinateLinksEnabled, cfg::setChatCoordinateLinksEnabled);
+        add("gui.xaeronav.config.chat_coordinate_shift_via", cfg::chatCoordinateShiftViaEnabled, cfg::setChatCoordinateShiftViaEnabled);
     }
 
     private void add(String key, BooleanSupplier getter, Consumer<Boolean> setter) {

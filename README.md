@@ -195,6 +195,12 @@ and the HUD work as usual.
 | Waypoint | Right-click a waypoint → "Navigate Here" |
 | Keybind | "Navigate to the block you are looking at" (unbound by default) |
 | Command | `/xaeronav goto <x> <y> <z>` |
+| Chat | Click coordinates posted in chat |
+
+When three numbers appear in chat, like `90 64 -120`, `90, 64, -120` or `x:90 y:64 z:-120`, they become an
+underlined link that sets the destination when clicked. Only coordinates whose Y fits the height of the world
+you are in are linked, and links added by other mods or the server are left alone. A setting turns Shift+click
+into adding a stop instead (off by default, so Shift+click also sets the destination).
 
 ![Right-click menu on Xaero's World Map showing "Navigate Here"](docs/images/how-to-use.png)
 
@@ -361,6 +367,8 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 | `hudEnabled` | `true` | On-screen guidance at the top of the screen |
 | `straightLineEnabled` | `true` | Show a dotted line to the destination for stretches with no known route |
 | `goalMarkerEnabled` | `true` | Mark the destination on Xaero's maps (a temporary waypoint with the minimap installed, otherwise a pin drawn by XaeroNav) |
+| `chatCoordinateLinksEnabled` | `true` | Turn coordinates in chat into links that set the destination when clicked |
+| `chatCoordinateShiftViaEnabled` | `false` | Shift+clicking a coordinate link adds it as a stop instead of replacing the destination |
 
 ## Known limitations
 

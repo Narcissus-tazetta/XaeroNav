@@ -91,6 +91,8 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue straightLineEnabled;
     private final NavConfigSpec.BoolValue goalMarkerEnabled;
     private final NavConfigSpec.BoolValue dangerDashedEnabled;
+    private final NavConfigSpec.BoolValue chatCoordinateLinksEnabled;
+    private final NavConfigSpec.BoolValue chatCoordinateShiftViaEnabled;
 
     // package-private: 2つの保存先が同じ定義から同じ設定ファイルを作ることをテストが確かめる
     XaeroNavConfig(NavConfigSpec spec) {
@@ -404,6 +406,17 @@ public final class XaeroNavConfig {
                         "色だけでは色覚特性や画面の色調補正で判別しづらい場面があるための、色以外の識別手段")
                 .define("dangerDashedEnabled", true);
 
+        chatCoordinateLinksEnabled = spec
+                .comment("チャットに出た「90 64 -120」のような座標を、押すと目的地になるリンクにするか",
+                        "拾うのは数字がちょうど3つ並んだもの（「x:90 y:64 z:-120」「90, 64, -120」の形も）で、",
+                        "Yが今いるワールドの高さの範囲に入るときだけ。他のmodやサーバーが付けたリンクには手を付けない")
+                .define("chatCoordinateLinksEnabled", true);
+
+        chatCoordinateShiftViaEnabled = spec
+                .comment("座標のリンクをShift+クリックしたとき、目的地を置き換えずに経由地として足すか",
+                        "falseならShift+クリックでも普通のクリックと同じく目的地にする")
+                .define("chatCoordinateShiftViaEnabled", false);
+
         spec.pop();
     }
 
@@ -671,5 +684,21 @@ public final class XaeroNavConfig {
 
     public void setDangerDashedEnabled(boolean value) {
         dangerDashedEnabled.set(value);
+    }
+
+    public boolean chatCoordinateLinksEnabled() {
+        return chatCoordinateLinksEnabled.get();
+    }
+
+    public void setChatCoordinateLinksEnabled(boolean value) {
+        chatCoordinateLinksEnabled.set(value);
+    }
+
+    public boolean chatCoordinateShiftViaEnabled() {
+        return chatCoordinateShiftViaEnabled.get();
+    }
+
+    public void setChatCoordinateShiftViaEnabled(boolean value) {
+        chatCoordinateShiftViaEnabled.set(value);
     }
 }
