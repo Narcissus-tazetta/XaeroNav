@@ -371,62 +371,9 @@ public final class ChunkView implements CellSource {
         int minChunkZ = bounds.minZ() >> 4;
         int maxChunkZ = bounds.maxZ() >> 4;
 
-        Long2ObjectOpenHashMap<LevelChunk> chunks =
-                new Long2ObjectOpenHashMap<>((maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1));
-        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
-            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-                // 未ロードのチャンクはそもそも読めない。ここで拾わないことで、経路は自然に
-                // 読み込み済み範囲の縁で打ち切られる（進入不可のセルとして扱われるため）。
-                LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
-                if (chunk != null) {
-                    chunks.put(GameCompat.chunkKey(chunkX, chunkZ), chunk);
-                }
-            }
-        }
+        Long2ObjectOpenHashMap<LevelChunk> chunks = loadedChunks(level, minChunkX, maxChunkX, minChunkZ, maxChunkZ);
 
-        // 1.21より前はエンチャントがレジストリ経由のHolderではなく、Enchantments直下の静的フィールドを
-        // そのままEnchantmentHelperへ渡す旧モデル（フィールド名は1.20.5でBLOCK_EFFICIENCYからEFFICIENCYへ変わった）。
-        // vanilla APIの形そのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
-        //? if >=1.21.2 {
-        /*Holder<Enchantment> efficiency = level.registryAccess()
-                .lookupOrThrow(Registries.ENCHANTMENT)
-                .getOrThrow(Enchantments.EFFICIENCY);
-        *///?} else if >=1.21 {
-        Holder<Enchantment> efficiency = level.registryAccess()
-                .registryOrThrow(Registries.ENCHANTMENT)
-                .getHolderOrThrow(Enchantments.EFFICIENCY);
-        //?} else if >=1.20.5 {
-        /*Enchantment efficiency = Enchantments.EFFICIENCY;
-        *///?} else {
-        /*Enchantment efficiency = Enchantments.BLOCK_EFFICIENCY;
-        *///?}
-        ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
-        int[] hotbarEfficiency = new int[hotbar.length];
-        for (int slot = 0; slot < hotbar.length; slot++) {
-            ItemStack stack = GameCompat.inventory(player).getItem(slot);
-            hotbar[slot] = stack.copy();
-            // NeoForge/Forgeが足す ItemStack#getEnchantmentLevel は使わない。この階層はローダーに
-            // 依存しない決まりで、他のMODがエンチャント値を動的に書き換える場合まで拾う必要も無い。
-            // 1.20.1-forge/1.21.1-neoforgeはgetItemEnchantmentLevelをその動的な値へ差し替えた
-            // (deprecated)ので、NBTの値をそのまま返すgetTagEnchantmentLevelを使う。Fabricは無改造の
-            // vanilla APIでgetItemEnchantmentLevelが最初からNBTの値を返し、1.21.1-forgeはそもそも
-            // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
-            // その2つはgetItemEnchantmentLevelのままでよい。1.20.5〜1.20.6はNBTがデータコンポーネントに
-            // 置き換わった直後でgetTagEnchantmentLevelがどのローダーにも無く、NeoForgeはgetItemEnchantmentLevelを
-            // 非推奨にしているので、保存された値をデータコンポーネントから直接読む
-            //? if >=1.20.5 && <1.21 {
-            /*hotbarEfficiency[slot] = stack.getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY)
-                    .getLevel(efficiency);
-            *///?} else if (forge && <1.21) || neoforge {
-            //? if >=1.19 {
-            hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
-            //?} else {
-            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
-            *///?}
-            //?} else {
-            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
-            *///?}
-        }
+        Hotbar hotbar = hotbar(level, player);
         // 置ける枚数は持ち物<b>全体</b>で数える。ホットバーだけを見ていた頃は、インベントリに
         // 1スタック持っていても橋の案内が出ず、逆にホットバーの1個だけで64マスの橋が出ていた。
         // 採掘の道具（hotbar）をホットバーに限るのとは要求が違う——道具は持ち替えないと使えないが、
@@ -472,11 +419,86 @@ public final class ChunkView implements CellSource {
         boolean canPlaceBlocks = options.bridgingEnabled() && (placeableBlocks > 0 || creative);
 
         int totalChunksInBounds = (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
-        return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar, hotbarEfficiency, options,
+        return new ChunkView(chunks, totalChunksInBounds, bounds, hotbar.stacks(), hotbar.efficiency(), options,
                 canPlaceBlocks, placedBlockBudget,
                 maxFallDamagePoints, fatalFallBlocks, canMlgWaterBucket, boatAvailable, ridingBoat,
                 minecart(level, player, bounds), mount(player), deepFallPossible, minDescentTicksPerBlock, GameCompat.minBuildHeight(level),
                 GameCompat.maxBuildHeight(level), GameCompat.minSection(level), true);
+    }
+
+    /** 箱にかかるチャンクのうち、読み込み済みのもの。 */
+    private static Long2ObjectOpenHashMap<LevelChunk> loadedChunks(Level level, int minChunkX, int maxChunkX,
+                                                                  int minChunkZ, int maxChunkZ) {
+        Long2ObjectOpenHashMap<LevelChunk> chunks =
+                new Long2ObjectOpenHashMap<>((maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1));
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                // 未ロードのチャンクはそもそも読めない。ここで拾わないことで、経路は自然に
+                // 読み込み済み範囲の縁で打ち切られる（進入不可のセルとして扱われるため）。
+                LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
+                if (chunk != null) {
+                    chunks.put(GameCompat.chunkKey(chunkX, chunkZ), chunk);
+                }
+            }
+        }
+        return chunks;
+    }
+
+    /**
+     * ホットバーの写しと、各スロットの効率強化のレベル。
+     *
+     * @param stacks     各スロットのアイテムの写し（探索中に持ち物が変わっても読み取りが揺れない）
+     * @param efficiency 各スロットの効率強化のレベル
+     */
+    private record Hotbar(ItemStack[] stacks, int[] efficiency) {
+    }
+
+    /** ホットバーを写し取る（メインスレッド）。採掘の速さは持ち替えられる道具で決まる。 */
+    private static Hotbar hotbar(Level level, Player player) {
+        // 1.21より前はエンチャントがレジストリ経由のHolderではなく、Enchantments直下の静的フィールドを
+        // そのままEnchantmentHelperへ渡す旧モデル（フィールド名は1.20.5でBLOCK_EFFICIENCYからEFFICIENCYへ変わった）。
+        // vanilla APIの形そのものが違うので、ここだけはpathfinding/にゲートを置く例外にする
+        //? if >=1.21.2 {
+        /*Holder<Enchantment> efficiency = level.registryAccess()
+                .lookupOrThrow(Registries.ENCHANTMENT)
+                .getOrThrow(Enchantments.EFFICIENCY);
+        *///?} else if >=1.21 {
+        Holder<Enchantment> efficiency = level.registryAccess()
+                .registryOrThrow(Registries.ENCHANTMENT)
+                .getHolderOrThrow(Enchantments.EFFICIENCY);
+        //?} else if >=1.20.5 {
+        /*Enchantment efficiency = Enchantments.EFFICIENCY;
+        *///?} else {
+        /*Enchantment efficiency = Enchantments.BLOCK_EFFICIENCY;
+        *///?}
+        ItemStack[] hotbar = new ItemStack[Inventory.getSelectionSize()];
+        int[] hotbarEfficiency = new int[hotbar.length];
+        for (int slot = 0; slot < hotbar.length; slot++) {
+            ItemStack stack = GameCompat.inventory(player).getItem(slot);
+            hotbar[slot] = stack.copy();
+            // NeoForge/Forgeが足す ItemStack#getEnchantmentLevel は使わない。この階層はローダーに
+            // 依存しない決まりで、他のMODがエンチャント値を動的に書き換える場合まで拾う必要も無い。
+            // 1.20.1-forge/1.21.1-neoforgeはgetItemEnchantmentLevelをその動的な値へ差し替えた
+            // (deprecated)ので、NBTの値をそのまま返すgetTagEnchantmentLevelを使う。Fabricは無改造の
+            // vanilla APIでgetItemEnchantmentLevelが最初からNBTの値を返し、1.21.1-forgeはそもそも
+            // getTagEnchantmentLevelを持たない（Forge/NeoForgeが1.21で別々にpatchしたため）ので、
+            // その2つはgetItemEnchantmentLevelのままでよい。1.20.5〜1.20.6はNBTがデータコンポーネントに
+            // 置き換わった直後でgetTagEnchantmentLevelがどのローダーにも無く、NeoForgeはgetItemEnchantmentLevelを
+            // 非推奨にしているので、保存された値をデータコンポーネントから直接読む
+            //? if >=1.20.5 && <1.21 {
+            /*hotbarEfficiency[slot] = stack.getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY)
+                    .getLevel(efficiency);
+            *///?} else if (forge && <1.21) || neoforge {
+            //? if >=1.19 {
+            hotbarEfficiency[slot] = EnchantmentHelper.getTagEnchantmentLevel(efficiency, stack);
+            //?} else {
+            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            *///?}
+            //?} else {
+            /*hotbarEfficiency[slot] = EnchantmentHelper.getItemEnchantmentLevel(efficiency, stack);
+            *///?}
+        }
+        return new Hotbar(hotbar, hotbarEfficiency);
     }
 
     /**
