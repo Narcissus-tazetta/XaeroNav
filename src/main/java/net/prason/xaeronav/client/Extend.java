@@ -365,29 +365,7 @@ final class Extend {
         PathfindingState.GoalGuide goalGuide = host.goalGuide(level, player, from, currentGoal, renderRadius);
         boolean navGraphGuided = goalGuide != null && goalGuide.navGraph();
         WindowField guideWindow = navGraphGuided ? (WindowField) goalGuide.costToGo() : null;
-        if (navGraphGuided && extendLead(player, from, NavGraphGuide.window(renderRadius))
-                < PathfindingState.MIN_DETAIL_REACH_BLOCKS) {
-            // 航法グラフで探す箱は描画距離ではなく窓で切られる（navGraphBounds）。描画距離で測った余地のまま投げると、
-            // 末端が箱の縁にある継ぎ足しが10万ノードを焼いて1歩も進まない（実機: 描画距離15のネザー・エンドで数秒おきに繰り返した）
-            blockExtend(from, playerAt);
-            return;
-        }
-        if (guideWindow != null && windowLead(guideWindow, from) < PathfindingState.MIN_DETAIL_REACH_BLOCKS) {
-            // ガイドの窓は組んだときの中心にあり、プレイヤーには付いてこない（組み直しは歩いた距離で起き、軽量モードでは
-            // 96ブロックごと）。プレイヤー基準の余地で伸ばすと、窓の外を外の推定だけで進む（実機の軽量モード: 先端が窓の縁から
-            // 200ブロック東へ流れ、組み直しのあとで60ブロック引き返した）。次のガイドが出るまで待つ
-            if (guideWindow != heldAtEdgeOf) {
-                heldAtEdgeOf = guideWindow;
-                LOGGER.debug("XaeroNav: holding extension at the nav graph window edge (end={}, window center {},{} radius {}, player={})",
-                        from.toShortString(), guideWindow.centerX(), guideWindow.centerZ(), guideWindow.radius(),
-                        playerAt.toShortString());
-            }
-            if (BlockDistance.horizontal(playerAt, from) < EDGE_REBUILD_LEAD_BLOCKS) {
-                host.noteEdgeStarved();
-                // 組み直しの引き金は探索を投げるときにしか引かれないので、ここで引く
-                host.goalGuide(level, player, from, currentGoal, renderRadius);
-            }
-            blockExtendUntilNextGuide(from, playerAt, guideWindow);
+        if (heldAtGuideWindow(level, player, from, playerAt, currentGoal, renderRadius, navGraphGuided, guideWindow)) {
             return;
         }
         PathfindingState.DetailTarget detail = PathfindingState.landingOr(goalGuide, currentGoal,
@@ -503,6 +481,39 @@ final class Extend {
                 onChanged.run();
             }
         }));
+    }
+
+    /**
+     * 航法グラフの窓の縁で、継ぎ足しを止めておくべきか。止めたなら{@code true}（歯止めも立て終えている）。
+     */
+    private boolean heldAtGuideWindow(Level level, Player player, BlockPos from, BlockPos playerAt, BlockPos currentGoal,
+                                      int renderRadius, boolean navGraphGuided, @Nullable WindowField guideWindow) {
+        if (navGraphGuided && extendLead(player, from, NavGraphGuide.window(renderRadius))
+                < PathfindingState.MIN_DETAIL_REACH_BLOCKS) {
+            // 航法グラフで探す箱は描画距離ではなく窓で切られる（navGraphBounds）。描画距離で測った余地のまま投げると、
+            // 末端が箱の縁にある継ぎ足しが10万ノードを焼いて1歩も進まない（実機: 描画距離15のネザー・エンドで数秒おきに繰り返した）
+            blockExtend(from, playerAt);
+            return true;
+        }
+        if (guideWindow != null && windowLead(guideWindow, from) < PathfindingState.MIN_DETAIL_REACH_BLOCKS) {
+            // ガイドの窓は組んだときの中心にあり、プレイヤーには付いてこない（組み直しは歩いた距離で起き、軽量モードでは
+            // 96ブロックごと）。プレイヤー基準の余地で伸ばすと、窓の外を外の推定だけで進む（実機の軽量モード: 先端が窓の縁から
+            // 200ブロック東へ流れ、組み直しのあとで60ブロック引き返した）。次のガイドが出るまで待つ
+            if (guideWindow != heldAtEdgeOf) {
+                heldAtEdgeOf = guideWindow;
+                LOGGER.debug("XaeroNav: holding extension at the nav graph window edge (end={}, window center {},{} radius {}, player={})",
+                        from.toShortString(), guideWindow.centerX(), guideWindow.centerZ(), guideWindow.radius(),
+                        playerAt.toShortString());
+            }
+            if (BlockDistance.horizontal(playerAt, from) < EDGE_REBUILD_LEAD_BLOCKS) {
+                host.noteEdgeStarved();
+                // 組み直しの引き金は探索を投げるときにしか引かれないので、ここで引く
+                host.goalGuide(level, player, from, currentGoal, renderRadius);
+            }
+            blockExtendUntilNextGuide(from, playerAt, guideWindow);
+            return true;
+        }
+        return false;
     }
 
     /**
