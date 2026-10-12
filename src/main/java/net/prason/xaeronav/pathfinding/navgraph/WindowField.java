@@ -429,8 +429,7 @@ public final class WindowField implements CostToGo {
                     int lx = local & 15;
                     int ly = local >> 8 & 15;
                     int lz = local >> 4 & 15;
-                    if (Math.abs(baseX + lx - centerX) > radius - EDGE_SEED_BAND
-                            || Math.abs(baseZ + lz - centerZ) > radius - EDGE_SEED_BAND) {
+                    if (inSeedBand(baseX + lx, baseZ + lz, centerX, centerZ, radius)) {
                         double value = far.at(baseX + lx, baseY + ly, baseZ + lz);
                         if (Double.isFinite(value)) {
                             distance[from] = Math.min(distance[from], value);
@@ -943,11 +942,8 @@ public final class WindowField implements CostToGo {
             Ride ride = rides.get(here);
             // 乗車を記録した後の回で、歩いた方が安くなっていることがある。値を作ったのが乗車のときだけ辿る
             if (ride != null && explains(ride, distance[here])) {
-                for (int k = 0; k < ride.alight(); k++) {
-                    if (trail != null) {
-                        trail.visit(BlockPos.getX(ride.cells()[k]), BlockPos.getY(ride.cells()[k]),
-                                BlockPos.getZ(ride.cells()[k]));
-                    }
+                if (trail != null) {
+                    visitRide(trail, ride);
                 }
                 long cell = ride.cells()[ride.alight()];
                 inside += ride.cost();
@@ -964,7 +960,7 @@ public final class WindowField implements CostToGo {
             double best = Double.POSITIVE_INFINITY;
             int bestMove = -1;
             int bestTarget = OUTSIDE;
-            if (Math.abs(x - centerX) > radius - EDGE_SEED_BAND || Math.abs(z - centerZ) > radius - EDGE_SEED_BAND) {
+            if (inSeedBand(x, z, centerX, centerZ, radius)) {
                 best = far.at(x, y, z);
             }
             for (int e = section.first(node), end = section.end(node); e < end; e++) {
@@ -972,17 +968,8 @@ public final class WindowField implements CostToGo {
                 int tx = x + moves.dx[m];
                 int ty = y + moves.dy[m];
                 int tz = z + moves.dz[m];
-                double candidate;
                 int target = index.resolve(slot, lx + moves.dx[m], ly + moves.dy[m], lz + moves.dz[m]);
-                if (tx == goal.getX() && ty == goal.getY() && tz == goal.getZ()) {
-                    candidate = moves.cost[m];
-                } else if (target >= 0) {
-                    candidate = moves.cost[m] + distance[target];
-                } else if (target == OUTSIDE) {
-                    candidate = moves.cost[m] + far.at(tx, ty, tz);
-                } else {
-                    continue;
-                }
+                double candidate = stepValue(m, target, tx, ty, tz);
                 if (candidate < best) {
                     best = candidate;
                     bestMove = m;
@@ -1007,6 +994,36 @@ public final class WindowField implements CostToGo {
             z = tz;
         }
         throw new IllegalStateException("Could not descend the guide to the end: " + x + ", " + y + ", " + z);
+    }
+
+    /** 乗車で通るレールを、乗った点の次から降りる点の手前まで順に{@code trail}へ渡す。 */
+    private static void visitRide(Trail trail, Ride ride) {
+        long[] cells = ride.cells();
+        for (int k = 0; k < ride.alight(); k++) {
+            trail.visit(BlockPos.getX(cells[k]), BlockPos.getY(cells[k]), BlockPos.getZ(cells[k]));
+        }
+    }
+
+    /**
+     * 移動{@code m}で({@code tx},{@code ty},{@code tz})へ出たときの、そこから目的地までの値（移動の値段を含む）。
+     * 行き先がノードでない（殻の外）なら{@code NaN}——どの値とも比べて小さくならないので、選ばれない。
+     */
+    private double stepValue(int m, int target, int tx, int ty, int tz) {
+        if (tx == goal.getX() && ty == goal.getY() && tz == goal.getZ()) {
+            return moves.cost[m];
+        }
+        if (target >= 0) {
+            return moves.cost[m] + distance[target];
+        }
+        if (target == OUTSIDE) {
+            return moves.cost[m] + far.at(tx, ty, tz);
+        }
+        return Double.NaN;
+    }
+
+    /** 窓の縁から{@link #EDGE_SEED_BAND}の帯の中か。ここの点には外の値を直接置く。 */
+    private static boolean inSeedBand(int x, int z, int centerX, int centerZ, int radius) {
+        return Math.abs(x - centerX) > radius - EDGE_SEED_BAND || Math.abs(z - centerZ) > radius - EDGE_SEED_BAND;
     }
 
     /**
