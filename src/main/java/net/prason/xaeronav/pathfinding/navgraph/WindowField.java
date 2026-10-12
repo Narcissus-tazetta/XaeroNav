@@ -526,8 +526,7 @@ public final class WindowField implements CostToGo {
                     queue.push((int) ((distance[i] - base) / width), i);
                 }
             }
-            if (!settle(queue, settled, distance, position, start, inMove, index, moves, base, width, parallel,
-                    cancelled)) {
+            if (!settle(queue, settled, inMove, base, width, parallel, cancelled)) {
                 return false;
             }
             if (!windowRides.usable()) {
@@ -546,12 +545,177 @@ public final class WindowField implements CostToGo {
                     settled.clear(node);
                     queue.push(Math.max(0, (int) ((distance[node] - base) / width)), node);
                 }
-                if (!settle(queue, settled, distance, position, start, inMove, index, moves, base, width,
-                        parallel, cancelled)) {
+                if (!settle(queue, settled, inMove, base, width, parallel, cancelled)) {
                     return false;
                 }
             }
             return true;
+        }
+
+        /**
+         * バケットを前から空にして距離を確定させる（Dial法）。
+         *
+         * <p>大きいバケットは中のノードの緩和を並べる。辺の値段はどれもバケット幅以上なので、あるバケットのノードから
+         * 緩和した先は後ろのバケットへ行き、同じバケットの中どうしは互いの値を使わない（丸めで同じバケットへ戻った
+         * 改善は、そのバケットをもう一度回して拾う）。距離は小さくなるときだけ書くので、並べても1本で回したときと
+         * 同じ最短距離に落ち着く——各経路の値は目的地側から同じ順に足して作られるので、ビットまで一致する。
+         *
+         * @return 打ち切られたら{@code false}
+         */
+        boolean settle(BucketQueue queue, BitSet settled, char[] inMove, double base, double width,
+                       Parallel parallel, BooleanSupplier cancelled) {
+            Frontier frontier = new Frontier();
+            int cursor = 0;
+            while (cursor >= 0) {
+                frontier.drain(queue, cursor, settled, index, position, start);
+                if (frontier.size == 0) {
+                    cursor = queue.nextNonEmpty(cursor + 1);
+                    continue;
+                }
+                if (cancelled.getAsBoolean()) {
+                    return false;
+                }
+                if (!concurrent || frontier.edges < PARALLEL_BUCKET_EDGES) {
+                    relaxInOrder(frontier, cursor, queue, settled, inMove, base, width);
+                } else if (!relaxInParallel(frontier, cursor, queue, settled, inMove, base, width, parallel,
+                        cancelled)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /** 1本で回す緩和。小さいバケット、または並べないとき。 */
+        private void relaxInOrder(Frontier frontier, int bucket, BucketQueue queue, BitSet settled, char[] inMove,
+                                  double base, double width) {
+            Index index = this.index;
+            MoveTable.View moves = this.moves;
+            double[] distance = this.distance;
+            int[] position = this.position;
+            int[] start = this.start;
+            int[] nodes = frontier.nodes;
+            for (int i = 0, size = frontier.size; i < size; i++) {
+                int node = nodes[i];
+                double d = distance[node];
+                int packed = position[node];
+                int slot = packed >>> 12;
+                int lx = packed & 15;
+                int ly = packed >> 8 & 15;
+                int lz = packed >> 4 & 15;
+                SectionEdges section = index.sections[slot];
+                int offset = index.offsets[slot];
+                int own = node - offset;
+                for (int k = section.inFirst(own), end = section.inEnd(own); k < end; k++) {
+                    int move = section.inMove[k];
+                    int p = offset + section.nodeOf(lx - moves.dx[move] | lz - moves.dz[move] << 4
+                            | ly - moves.dy[move] << 8);
+                    double candidate = d + moves.cost[move];
+                    if (candidate < distance[p]) {
+                        distance[p] = candidate;
+                        // 丸めで同じバケットへ戻ってきた改善は、確定を取り消して解き直す
+                        settled.clear(p);
+                        queue.push(Math.max(bucket, (int) ((candidate - base) / width)), p);
+                    }
+                }
+                for (int k = start[node]; k < start[node + 1]; k++) {
+                    int move = inMove[k];
+                    int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
+                    double candidate = d + moves.cost[move];
+                    if (candidate < distance[p]) {
+                        distance[p] = candidate;
+                        settled.clear(p);
+                        queue.push(Math.max(bucket, (int) ((candidate - base) / width)), p);
+                    }
+                }
+            }
+        }
+
+        /**
+         * 並べて回す緩和。距離は小さくなるときだけ原子的に書き（{@link #lower}）、下げたノードは小分けごとに集めて、
+         * 全部終えてから1本でキューへ戻す。
+         *
+         * @return 打ち切られたら{@code false}
+         */
+        private boolean relaxInParallel(Frontier frontier, int bucket, BucketQueue queue, BitSet settled,
+                                        char[] inMove, double base, double width, Parallel parallel,
+                                        BooleanSupplier cancelled) {
+            Index index = this.index;
+            MoveTable.View moves = this.moves;
+            double[] distance = this.distance;
+            int[] position = this.position;
+            int[] start = this.start;
+            int[] nodes = frontier.nodes;
+            ConcurrentLinkedQueue<int[]> improved = new ConcurrentLinkedQueue<>();
+            boolean relaxed = parallel.forEach(frontier.size, NODES_PER_TASK, cancelled, (from, to) -> {
+                IntArrayList lowered = new IntArrayList();
+                for (int i = from; i < to; i++) {
+                    int node = nodes[i];
+                    double d = (double) DOUBLES.getOpaque(distance, node);
+                    int packed = position[node];
+                    int slot = packed >>> 12;
+                    int lx = packed & 15;
+                    int ly = packed >> 8 & 15;
+                    int lz = packed >> 4 & 15;
+                    SectionEdges section = index.sections[slot];
+                    int offset = index.offsets[slot];
+                    int own = node - offset;
+                    for (int k = section.inFirst(own), end = section.inEnd(own); k < end; k++) {
+                        int move = section.inMove[k];
+                        int p = offset + section.nodeOf(lx - moves.dx[move] | lz - moves.dz[move] << 4
+                                | ly - moves.dy[move] << 8);
+                        if (lower(distance, p, d + moves.cost[move])) {
+                            lowered.add(p);
+                        }
+                    }
+                    for (int k = start[node]; k < start[node + 1]; k++) {
+                        int move = inMove[k];
+                        int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
+                        if (lower(distance, p, d + moves.cost[move])) {
+                            lowered.add(p);
+                        }
+                    }
+                }
+                improved.add(lowered.toIntArray());
+                return true;
+            });
+            if (!relaxed) {
+                return false;
+            }
+            for (int[] lowered : improved) {
+                for (int p : lowered) {
+                    settled.clear(p);
+                    queue.push(Math.max(bucket, (int) ((distance[p] - base) / width)), p);
+                }
+            }
+            return true;
+        }
+    }
+
+    /** {@link Assembly#settle}が1つのバケットから取り出した、まだ確定していなかったノード。 */
+    private static final class Frontier {
+        int[] nodes = new int[1024];
+        int size;
+        /** 取り出したノードへ入る辺の本数。並べるかどうかの目安。 */
+        long edges;
+
+        /** バケット{@code cursor}を空にし、まだ確定していなかったノードを確定させて集める。 */
+        void drain(BucketQueue queue, int cursor, BitSet settled, Index index, int[] position, int[] start) {
+            size = 0;
+            edges = 0;
+            for (int node = queue.pop(cursor); node >= 0; node = queue.pop(cursor)) {
+                if (settled.get(node)) {
+                    continue;
+                }
+                settled.set(node);
+                if (size == nodes.length) {
+                    nodes = Arrays.copyOf(nodes, size * 2);
+                }
+                nodes[size++] = node;
+                int slot = position[node] >>> 12;
+                int own = node - index.offsets[slot];
+                edges += start[node + 1] - start[node] + index.sections[slot].inEnd(own)
+                        - index.sections[slot].inFirst(own);
+            }
         }
     }
 
@@ -681,131 +845,6 @@ public final class WindowField implements CostToGo {
             return far.at(BlockPos.getX(cell), BlockPos.getY(cell), BlockPos.getZ(cell));
         }
         return Double.POSITIVE_INFINITY;
-    }
-
-    /**
-     * バケットを前から空にして距離を確定させる（Dial法）。
-     *
-     * <p>大きいバケットは中のノードの緩和を並べる。辺の値段はどれもバケット幅以上なので、あるバケットのノードから
-     * 緩和した先は後ろのバケットへ行き、同じバケットの中どうしは互いの値を使わない（丸めで同じバケットへ戻った
-     * 改善は、そのバケットをもう一度回して拾う）。距離は小さくなるときだけ書くので、並べても1本で回したときと
-     * 同じ最短距離に落ち着く——各経路の値は目的地側から同じ順に足して作られるので、ビットまで一致する。
-     *
-     * @return 打ち切られたら{@code false}
-     */
-    private static boolean settle(BucketQueue queue, BitSet settled, double[] distance, int[] position, int[] start,
-                                  char[] inMove, Index index, MoveTable.View moves, double base, double width,
-                                  Parallel parallel, BooleanSupplier cancelled) {
-        boolean concurrent = parallel.workers() > 1;
-        int[] frontier = new int[1024];
-        int cursor = 0;
-        while (cursor >= 0) {
-            int size = 0;
-            long edges = 0;
-            for (int node = queue.pop(cursor); node >= 0; node = queue.pop(cursor)) {
-                if (settled.get(node)) {
-                    continue;
-                }
-                settled.set(node);
-                if (size == frontier.length) {
-                    frontier = Arrays.copyOf(frontier, size * 2);
-                }
-                frontier[size++] = node;
-                int slot = position[node] >>> 12;
-                int own = node - index.offsets[slot];
-                edges += start[node + 1] - start[node] + index.sections[slot].inEnd(own)
-                        - index.sections[slot].inFirst(own);
-            }
-            if (size == 0) {
-                cursor = queue.nextNonEmpty(cursor + 1);
-                continue;
-            }
-            if (cancelled.getAsBoolean()) {
-                return false;
-            }
-            int bucket = cursor;
-            if (!concurrent || edges < PARALLEL_BUCKET_EDGES) {
-                for (int i = 0; i < size; i++) {
-                    int node = frontier[i];
-                    double d = distance[node];
-                    int packed = position[node];
-                    int slot = packed >>> 12;
-                    int lx = packed & 15;
-                    int ly = packed >> 8 & 15;
-                    int lz = packed >> 4 & 15;
-                    SectionEdges section = index.sections[slot];
-                    int offset = index.offsets[slot];
-                    int own = node - offset;
-                    for (int k = section.inFirst(own), end = section.inEnd(own); k < end; k++) {
-                        int move = section.inMove[k];
-                        int p = offset + section.nodeOf(lx - moves.dx[move] | lz - moves.dz[move] << 4
-                                | ly - moves.dy[move] << 8);
-                        double candidate = d + moves.cost[move];
-                        if (candidate < distance[p]) {
-                            distance[p] = candidate;
-                            // 丸めで同じバケットへ戻ってきた改善は、確定を取り消して解き直す
-                            settled.clear(p);
-                            queue.push(Math.max(bucket, (int) ((candidate - base) / width)), p);
-                        }
-                    }
-                    for (int k = start[node]; k < start[node + 1]; k++) {
-                        int move = inMove[k];
-                        int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
-                        double candidate = d + moves.cost[move];
-                        if (candidate < distance[p]) {
-                            distance[p] = candidate;
-                            settled.clear(p);
-                            queue.push(Math.max(bucket, (int) ((candidate - base) / width)), p);
-                        }
-                    }
-                }
-                continue;
-            }
-            int[] nodes = frontier;
-            ConcurrentLinkedQueue<int[]> improved = new ConcurrentLinkedQueue<>();
-            boolean relaxed = parallel.forEach(size, NODES_PER_TASK, cancelled, (from, to) -> {
-                IntArrayList lowered = new IntArrayList();
-                for (int i = from; i < to; i++) {
-                    int node = nodes[i];
-                    double d = (double) DOUBLES.getOpaque(distance, node);
-                    int packed = position[node];
-                    int slot = packed >>> 12;
-                    int lx = packed & 15;
-                    int ly = packed >> 8 & 15;
-                    int lz = packed >> 4 & 15;
-                    SectionEdges section = index.sections[slot];
-                    int offset = index.offsets[slot];
-                    int own = node - offset;
-                    for (int k = section.inFirst(own), end = section.inEnd(own); k < end; k++) {
-                        int move = section.inMove[k];
-                        int p = offset + section.nodeOf(lx - moves.dx[move] | lz - moves.dz[move] << 4
-                                | ly - moves.dy[move] << 8);
-                        if (lower(distance, p, d + moves.cost[move])) {
-                            lowered.add(p);
-                        }
-                    }
-                    for (int k = start[node]; k < start[node + 1]; k++) {
-                        int move = inMove[k];
-                        int p = index.resolve(slot, lx - moves.dx[move], ly - moves.dy[move], lz - moves.dz[move]);
-                        if (lower(distance, p, d + moves.cost[move])) {
-                            lowered.add(p);
-                        }
-                    }
-                }
-                improved.add(lowered.toIntArray());
-                return true;
-            });
-            if (!relaxed) {
-                return false;
-            }
-            for (int[] lowered : improved) {
-                for (int p : lowered) {
-                    settled.clear(p);
-                    queue.push(Math.max(bucket, (int) ((distance[p] - base) / width)), p);
-                }
-            }
-        }
-        return true;
     }
 
     /** {@code distance[p]}を{@code candidate}へ下げる。下げられたら{@code true}。 */
