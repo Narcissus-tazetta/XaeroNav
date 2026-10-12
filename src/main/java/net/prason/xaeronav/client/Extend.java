@@ -415,72 +415,106 @@ final class Extend {
         CompletableFuture<PathResult> extendFuture = executor.submit(
                 AvoidedCellSource.wrap(futureTerrain, recentFailures.avoided()), from, target, limits,
                 costToGoGuideEnabled, detail.goalRadius(), carried, prepared);
-        generationGate.whenStillCurrent(extendFuture, myGeneration, TickLaps.timed("receive/extend", (result, error) -> {
-            try {
-                host.setComputing(false);
-                if (error != null) {
-                    if (!(error instanceof CancellationException)) {
-                        LOGGER.error("XaeroNav: failed to extend the path", error);
-                    }
-                    return;
+        Extension extension = new Extension(shown, currentGoal, from, target, playerAt, level, view, tuning,
+                renderRadius, navGraphGuided, goalGuide, prepared, newWaypointIndex, reachesGoal);
+        generationGate.whenStillCurrent(extendFuture, myGeneration,
+                TickLaps.timed("receive/extend", (result, error) -> receive(extension, result, error)));
+    }
+
+    /**
+     * 継ぎ足しを投げたときの入力。結果を受け取ったとき（{@link #receive}）に、まだ同じ経路へ繋いでよいかの照合と、
+     * 繋ぐ・記録するのに使う。
+     *
+     * @param newWaypointIndex 繋いだ後の経路が向かう中間目標の添字。目的地へ直接なら{@code -1}
+     * @param reachesGoal      本来の目的地そのものを狙ったか
+     */
+    private record Extension(PathfindingState.DisplayedPath shown, BlockPos currentGoal, BlockPos from, BlockPos target,
+                             BlockPos playerAt, Level level, ChunkView view, NavigationTuning tuning, int renderRadius,
+                             boolean navGraphGuided, PathfindingState.@Nullable GoalGuide goalGuide,
+                             @Nullable CostToGo prepared, int newWaypointIndex, boolean reachesGoal) {
+    }
+
+    /** 継ぎ足しの探索結果を受け取る（メインスレッド、世代が今のままのときだけ）。 */
+    private void receive(Extension extension, PathResult result, @Nullable Throwable error) {
+        PathfindingState.DisplayedPath shown = extension.shown();
+        BlockPos currentGoal = extension.currentGoal();
+        BlockPos from = extension.from();
+        BlockPos target = extension.target();
+        BlockPos playerAt = extension.playerAt();
+        Level level = extension.level();
+        ChunkView view = extension.view();
+        NavigationTuning tuning = extension.tuning();
+        int renderRadius = extension.renderRadius();
+        boolean navGraphGuided = extension.navGraphGuided();
+        PathfindingState.GoalGuide goalGuide = extension.goalGuide();
+        CostToGo prepared = extension.prepared();
+        int newWaypointIndex = extension.newWaypointIndex();
+        boolean reachesGoal = extension.reachesGoal();
+        List<PathStep> steps = shown.result().steps();
+        try {
+            host.setComputing(false);
+            if (error != null) {
+                if (!(error instanceof CancellationException)) {
+                    LOGGER.error("XaeroNav: failed to extend the path", error);
                 }
-                // 継ぎ足す先が入れ替わっていたら捨てる。世代が同じでも、目的地の変更や逸脱で
-                // displayedごと差し替わっていることがある
-                PathfindingState.DisplayedPath current = host.displayed();
-                if (current != shown || !currentGoal.equals(host.goal())) {
-                    return;
-                }
-                PathfindingState.logSearchReach(from, target, result);
-                List<PathStep> tail = result.steps();
-                if (result.complete()) {
-                    // 継ぎ足しが狙った先まで届いた＝前へ出られている。詰みの目印はここで落とす。
-                    // 届かなかったことは逆に詰みの根拠にしない——継ぎ足しの失敗はたいていその先が
-                    // まだ未ロードなだけで、表示中の経路はそのまま歩ける。「ここから目的地へ行けるか」
-                    // に答えているのはプレイヤーから引き直す側（recalculate）だけ
-                    host.noteSearchOutcome(playerAt, PathfindingState.endOf(result, from), result);
-                }
-                if (tail.isEmpty()) {
-                    // 1歩も進めなかった。手前の経路はそのまま残し、通常の再計算に委ねる
-                    blockExtend(from, playerAt);
-                    return;
-                }
-                if (!result.complete()
-                        && BlockDistance.horizontal(from, tail.get(tail.size() - 1).pos())
-                                < PathfindingState.MIN_EXTEND_PROGRESS_BLOCKS) {
-                    // 予算切れの末端からは伸ばしてよいが、ほとんど前へ出ていないならそれ以上は無駄。
-                    // selectFallbackは「始点から5ブロック以上離れた最良点」を返すので、行き止まりの
-                    // 袋小路でも毎回わずかに進んだ経路が返る——歯止めが無いと数ブロックずつ這い続ける
-                    //
-                    // 繋がずに捨てる。completeは末尾の区間のものなので、這うだけの尻尾を繋ぐと
-                    // 完走していた経路まで未到達扱いになり、「打ち切られた末端に近づいたら引き直す」に
-                    // 落ちて経路全体が作り直される。数ブロックの得のために証明済みの経路を失う
-                    blockExtend(from, playerAt);
-                    return;
-                }
-                // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
-                // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
-                // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
-                SeamRepair.Loop loop = TickLaps.measure("loop detection",
-                        () -> noteLoop(steps, tail, PathProgress.INSTANCE.indexFor(current.result()) + 1,
-                                target, result, navGraphGuided));
-                TickLaps.measure("retreat check", () -> noteRetreatingTail(from, tail.get(tail.size() - 1).pos(),
-                        currentGoal, target, result, goalGuide));
-                seamRepair.queue(from);
-                if (loop != null) {
-                    seamRepair.queueLoop(loop);
-                }
-                RouteExplain.log("extend", level, from, target, currentGoal, result, prepared,
-                        goalGuide == null ? null : goalGuide.costToGo(), view,
-                        tuning.movementOptions(), renderRadius);
-                TickLaps.measure("extend append",
-                        () -> host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal)));
-                blockedAt = null;
-                blockedFrom = null;
-                blockedGuide = null;
-            } finally {
-                onChanged.run();
+                return;
             }
-        }));
+            // 継ぎ足す先が入れ替わっていたら捨てる。世代が同じでも、目的地の変更や逸脱で
+            // displayedごと差し替わっていることがある
+            PathfindingState.DisplayedPath current = host.displayed();
+            if (current != shown || !currentGoal.equals(host.goal())) {
+                return;
+            }
+            PathfindingState.logSearchReach(from, target, result);
+            List<PathStep> tail = result.steps();
+            if (result.complete()) {
+                // 継ぎ足しが狙った先まで届いた＝前へ出られている。詰みの目印はここで落とす。
+                // 届かなかったことは逆に詰みの根拠にしない——継ぎ足しの失敗はたいていその先が
+                // まだ未ロードなだけで、表示中の経路はそのまま歩ける。「ここから目的地へ行けるか」
+                // に答えているのはプレイヤーから引き直す側（recalculate）だけ
+                host.noteSearchOutcome(playerAt, PathfindingState.endOf(result, from), result);
+            }
+            if (tail.isEmpty()) {
+                // 1歩も進めなかった。手前の経路はそのまま残し、通常の再計算に委ねる
+                blockExtend(from, playerAt);
+                return;
+            }
+            if (!result.complete()
+                    && BlockDistance.horizontal(from, tail.get(tail.size() - 1).pos())
+                            < PathfindingState.MIN_EXTEND_PROGRESS_BLOCKS) {
+                // 予算切れの末端からは伸ばしてよいが、ほとんど前へ出ていないならそれ以上は無駄。
+                // selectFallbackは「始点から5ブロック以上離れた最良点」を返すので、行き止まりの
+                // 袋小路でも毎回わずかに進んだ経路が返る——歯止めが無いと数ブロックずつ這い続ける
+                //
+                // 繋がずに捨てる。completeは末尾の区間のものなので、這うだけの尻尾を繋ぐと
+                // 完走していた経路まで未到達扱いになり、「打ち切られた末端に近づいたら引き直す」に
+                // 落ちて経路全体が作り直される。数ブロックの得のために証明済みの経路を失う
+                blockExtend(from, playerAt);
+                return;
+            }
+            // 未到達でも引けたぶんは繋ぐ。recalculate側は元々そうしている（暫定経路）。
+            // 捨ててしまうと、読み込み済みの縁まで引けていた経路を毎回無駄にすることになる
+            // 繋ぎ目はここ（手前の末端）。落ち着いてから解き直す（{@link SeamRepair}）
+            SeamRepair.Loop loop = TickLaps.measure("loop detection",
+                    () -> noteLoop(steps, tail, PathProgress.INSTANCE.indexFor(current.result()) + 1,
+                            target, result, navGraphGuided));
+            TickLaps.measure("retreat check", () -> noteRetreatingTail(from, tail.get(tail.size() - 1).pos(),
+                    currentGoal, target, result, goalGuide));
+            seamRepair.queue(from);
+            if (loop != null) {
+                seamRepair.queueLoop(loop);
+            }
+            RouteExplain.log("extend", level, from, target, currentGoal, result, prepared,
+                    goalGuide == null ? null : goalGuide.costToGo(), view,
+                    tuning.movementOptions(), renderRadius);
+            TickLaps.measure("extend append",
+                    () -> host.setDisplayed(append(current, result, newWaypointIndex, reachesGoal)));
+            blockedAt = null;
+            blockedFrom = null;
+            blockedGuide = null;
+        } finally {
+            onChanged.run();
+        }
     }
 
     /**
