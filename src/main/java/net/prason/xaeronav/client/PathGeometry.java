@@ -345,6 +345,23 @@ final class PathGeometry {
             startRaw = endRaw;
         }
 
+        Highlights h = highlights(steps);
+        return new PathGeometry(
+                Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
+                flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentInWater,
+                flatSegmentDashed,
+                h.x(), h.y(), h.z(), h.color(), h.placement(), h.step(),
+                alignToLine(boatLaunches(steps, start), outX, outZ, outEndStep, segments),
+                Math.min(fadeFromSegment, segments));
+    }
+
+    /** 経路の上で掘るセルと置くセルの強調表示。添字{@code i}が1つのセル。 */
+    private record Highlights(int[] x, int[] y, int[] z, float[] color, boolean[] placement, int[] step) {
+    }
+
+    /** 各手の掘るセル（{@link PathStep#digCells()}）と置くセル（{@link PathStep#placedBlockPos()}）を手の順に並べる。 */
+    private static Highlights highlights(List<PathStep> steps) {
+        int count = steps.size();
         // 上限は事前に数えられる（1手につきdigCells()の数＋bridging分1個）ので、ArrayList<Boolean>/
         // <Integer>のboxingを経由せずプリミティブ配列へ直接書き込む
         int highlightCapacity = 0;
@@ -389,14 +406,7 @@ final class PathGeometry {
                 highlights++;
             }
         }
-
-        return new PathGeometry(
-                Arrays.copyOf(outX, points), Arrays.copyOf(outY, points), Arrays.copyOf(outZ, points),
-                flatSegmentColor, Arrays.copyOf(outEndStep, segments), flatSegmentSunk, flatSegmentInWater,
-                flatSegmentDashed,
-                hx, hy, hz, hColor, hPlacement, hStep,
-                alignToLine(boatLaunches(steps, start), outX, outZ, outEndStep, segments),
-                Math.min(fadeFromSegment, segments));
+        return new Highlights(hx, hy, hz, hColor, hPlacement, hStep);
     }
 
     /**
