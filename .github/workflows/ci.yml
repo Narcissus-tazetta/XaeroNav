@@ -347,6 +347,18 @@ jobs:
             exit 0
           fi
 
+          # Xaero's World Mapは、ワールドを閉じる瞬間に地図のリージョンを組み立てていると固まる（地図のスレッドが
+          # ロックを持ったままメインスレッドを待ち、メインスレッドはサーバーの停止を、サーバーはそのロックを待つ）。
+          # 入ってすぐ抜けるこのテストでは確率で踏む。Xaero側の不具合なので、テスト完了後にこの形で止まったときだけ救済する
+          DUMP=run/logs/threaddump.txt
+          if [ -f "$LOG" ] && [ -f "$DUMP" ] \
+              && grep -Fq "No tests found, Successfully finished." "$LOG" \
+              && awk '/^"Server thread"/ { s = 1 } s && /^$/ { exit } s { print }' "$DUMP" \
+                  | grep -F "BLOCKED" -A2 | grep -Fq "xaero.map.file.worldsave.WorldDataHandler.onServerWorldUnload"; then
+            echo "::warning::ゲーム内テストは完了。終了時のXaero's World Mapのデッドロックだけを成功扱いにする"
+            exit 0
+          fi
+
           echo "::error::Minecraftの起動テストが完了していない (outcome=$CLIENT_OUTCOME)"
           exit 1
 
