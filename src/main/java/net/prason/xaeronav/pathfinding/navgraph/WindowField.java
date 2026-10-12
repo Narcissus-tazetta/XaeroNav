@@ -212,15 +212,78 @@ public final class WindowField implements CostToGo {
          * 窓の真ん中で下へ抜けて外の推定を読む偽の近道になるので、ノードでない所として扱う。
          */
         final int lowSectionY;
+        /** セクションの中で閉じる辺の本数（{@link SectionEdges#inSize}の和）。 */
+        final int insideEdges;
 
         Index(long[] keys, SectionEdges[] sections, Long2IntOpenHashMap slotOf, int[] offsets, int[] neighbor,
-              int lowSectionY) {
+              int lowSectionY, int insideEdges) {
             this.keys = keys;
             this.sections = sections;
             this.slotOf = slotOf;
             this.offsets = offsets;
             this.neighbor = neighbor;
             this.lowSectionY = lowSectionY;
+            this.insideEdges = insideEdges;
+        }
+
+        /** 窓の中の、組み終えたセクションに番号を振る。 */
+        static Index of(NavGraph graph, int centerX, int centerZ, int radius) {
+            LongArrayList keyList = new LongArrayList();
+            graph.forEachWindowSection(centerX, centerZ, radius, (sx, sy, sz) -> {
+                long key = NavGraph.key(sx, sy, sz);
+                if (graph.section(key) != null) {
+                    keyList.add(key);
+                }
+            });
+            long[] keys = keyList.toLongArray();
+            int slots = keys.length;
+            SectionEdges[] sections = new SectionEdges[slots];
+            Long2IntOpenHashMap slotOf = new Long2IntOpenHashMap(slots);
+            slotOf.defaultReturnValue(-1);
+            int[] offsets = new int[slots + 1];
+            int insideEdges = 0;
+            for (int s = 0; s < slots; s++) {
+                SectionEdges edges = graph.section(keys[s]);
+                // 組み立ての途中で捨てられた（チャンクの更新）なら、まだ組んでいないのと同じに扱う
+                sections[s] = edges == null ? SectionEdges.EMPTY : edges;
+                slotOf.put(keys[s], s);
+                offsets[s + 1] = offsets[s] + sections[s].nodes;
+                insideEdges += sections[s].inSize();
+            }
+            int[] neighbor = new int[slots * 27];
+            for (int s = 0; s < slots; s++) {
+                int sx = BlockPos.getX(keys[s]);
+                int sy = BlockPos.getY(keys[s]);
+                int sz = BlockPos.getZ(keys[s]);
+                for (int k = 0; k < 27; k++) {
+                    neighbor[s * 27 + k] = slotOf.get(NavGraph.key(sx + k / 9 - 1, sy + k / 3 % 3 - 1, sz + k % 3 - 1));
+                }
+            }
+            return new Index(keys, sections, slotOf, offsets, neighbor, graph.lowSectionY(), insideEdges);
+        }
+
+        int slots() {
+            return keys.length;
+        }
+
+        int nodes() {
+            return offsets[keys.length];
+        }
+
+        /** 各ノードのセクション内の位置（{@link SectionEdges#positions}）を通し番号の順に書く。 */
+        void positions(int[] position) {
+            for (int s = 0; s < keys.length; s++) {
+                sections[s].positions(position, offsets[s]);
+            }
+        }
+
+        /** 各ノードの位置に、属するセクションの番号を上位ビット（12ビット目から）に足す。 */
+        void tagSlots(int[] position) {
+            for (int s = 0; s < keys.length; s++) {
+                for (int i = offsets[s]; i < offsets[s + 1]; i++) {
+                    position[i] |= s << 12;
+                }
+            }
         }
 
         /** セクション{@code slot}の原点から({@code x},{@code y},{@code z})の点のノード番号。 */
@@ -280,69 +343,88 @@ public final class WindowField implements CostToGo {
         boolean goalInWindow = Math.abs(goal.getX() - centerX) <= radius - NavGraph.READ_MARGIN
                 && Math.abs(goal.getZ() - centerZ) <= radius - NavGraph.READ_MARGIN;
         FarField far = goalInWindow ? givenFar.whenGoalInside() : givenFar;
-        LongArrayList keyList = new LongArrayList();
-        graph.forEachWindowSection(centerX, centerZ, radius, (sx, sy, sz) -> {
-            long key = NavGraph.key(sx, sy, sz);
-            if (graph.section(key) != null) {
-                keyList.add(key);
-            }
-        });
-        long[] keys = keyList.toLongArray();
-        int slots = keys.length;
-        SectionEdges[] sections = new SectionEdges[slots];
-        Long2IntOpenHashMap slotOf = new Long2IntOpenHashMap(slots);
-        slotOf.defaultReturnValue(-1);
-        int[] offsets = new int[slots + 1];
-        int insideEdges = 0;
-        for (int s = 0; s < slots; s++) {
-            SectionEdges edges = graph.section(keys[s]);
-            // 組み立ての途中で捨てられた（チャンクの更新）なら、まだ組んでいないのと同じに扱う
-            sections[s] = edges == null ? SectionEdges.EMPTY : edges;
-            slotOf.put(keys[s], s);
-            offsets[s + 1] = offsets[s] + sections[s].nodes;
-            insideEdges += sections[s].inSize();
-        }
+        Index index = Index.of(graph, centerX, centerZ, radius);
         // 辺の移動の番号は、セクションを覚える前に表へ載っている。セクションを集め終えてから表を取れば全部引ける
         MoveTable.View moves = graph.moves().view();
-        int[] neighbor = new int[slots * 27];
-        for (int s = 0; s < slots; s++) {
-            int sx = BlockPos.getX(keys[s]);
-            int sy = BlockPos.getY(keys[s]);
-            int sz = BlockPos.getZ(keys[s]);
-            for (int k = 0; k < 27; k++) {
-                neighbor[s * 27 + k] = slotOf.get(NavGraph.key(sx + k / 9 - 1, sy + k / 3 % 3 - 1, sz + k % 3 - 1));
-            }
-        }
-        Index index = new Index(keys, sections, slotOf, offsets, neighbor, graph.lowSectionY());
         long indexed = MonotonicTime.millis();
 
-        int n = offsets[slots];
+        int n = index.nodes();
         int[] position = buffers.position(n);
-        for (int s = 0; s < slots; s++) {
-            sections[s].positions(position, offsets[s]);
-        }
+        index.positions(position);
         double[] distance = new double[n];
         Arrays.fill(distance, Double.POSITIVE_INFINITY);
         int goalId = index.resolveAbsolute(goal.getX(), goal.getY(), goal.getZ());
         if (goalId >= 0) {
             distance[goalId] = 0.0;
         }
-        AtomicBoolean goalEntered = new AtomicBoolean();
+        Assembly assembly = new Assembly(index, moves, position, distance, buffers.start(n + 2), far, goal,
+                centerX, centerZ, radius, parallel.workers() > 1, new AtomicBoolean());
 
         // 1周目: 窓の中でセクションをまたいで入る辺を行き先ごとに数え（start[行き先+2]）、窓から出る辺は種にする。
-        // セクションの中で閉じる入る辺はセクションが覚えている（SectionEdges#inFirst）。
-        // 種はセクションの自分のノードにしか書かないので、数える所だけ並べたときに原子的に足す
-        int[] start = buffers.start(n + 2);
-        boolean concurrent = parallel.workers() > 1;
-        boolean counted = parallel.forEach(slots, SLOTS_PER_TASK, cancelled, (fromSlot, toSlot) -> {
+        // セクションの中で閉じる入る辺はセクションが覚えている（SectionEdges#inFirst）
+        if (!parallel.forEach(index.slots(), SLOTS_PER_TASK, cancelled, assembly::count)) {
+            return null;
+        }
+        long countedAt = MonotonicTime.millis();
+        int[] start = assembly.start();
+        for (int i = 2; i <= n + 1; i++) {
+            start[i] += start[i - 1];
+        }
+        int m = start[n + 1];
+        char[] inMove = buffers.inMove(m);
+        // 2周目: 行き先ごとに、セクションをまたいで入ってくる辺の移動を埋める。出発点は行き先から移動を引き戻せば分かる。
+        // 並べると入る辺の並び順は変わるが、距離は変わらない
+        if (!parallel.forEach(index.slots(), SLOTS_PER_TASK, cancelled, (from, to) -> assembly.fill(from, to, inMove))) {
+            return null;
+        }
+        long filledAt = MonotonicTime.millis();
+        // 埋め終えると start[t]..start[t+1] が行き先tへ入る辺になる
+        index.tagSlots(position);
+
+        BitSet settled = new BitSet(n);
+        Int2ObjectOpenHashMap<Ride> rides = new Int2ObjectOpenHashMap<>();
+        if (!assembly.solve(inMove, settled, rides, buffers, windowRides, parallel, cancelled)) {
+            return null;
+        }
+        long finished = MonotonicTime.millis();
+        long[] phaseMillis = {indexed - began, countedAt - indexed, filledAt - countedAt, finished - filledAt};
+        return new WindowField(goal, far, index, moves, distance, m + index.insideEdges, finished - began, phaseMillis,
+                goalInWindow && !assembly.goalEntered().get(), centerX, centerZ, radius, rides);
+    }
+
+    /**
+     * 組み立て中の入力と配列。並べて回す1周目・2周目の中身と、最後の解き（{@link #settle}）をここに置く。
+     *
+     * @param start       1周目で行き先ごとの入る辺の数、2周目以降は行き先ごとの入る辺の始まり
+     * @param concurrent  並べて回すか。並べるときだけ配列へ原子的に書く
+     * @param goalEntered 目的地そのものへ入る辺が1本でもあったか
+     */
+    private record Assembly(Index index, MoveTable.View moves, int[] position, double[] distance, int[] start,
+                            FarField far, BlockPos goal, int centerX, int centerZ, int radius, boolean concurrent,
+                            AtomicBoolean goalEntered) {
+
+        /**
+         * 1周目。セクション{@code fromSlot..toSlot}について、窓の中でセクションをまたいで入る辺を行き先ごとに数え、
+         * 窓の縁の点と窓から出る辺を種にする。種はセクションの自分のノードにしか書かないので、数える所だけ
+         * 並べたときに原子的に足す。
+         */
+        boolean count(int fromSlot, int toSlot) {
+            Index index = this.index;
+            MoveTable.View moves = this.moves;
+            int[] position = this.position;
+            double[] distance = this.distance;
+            int[] start = this.start;
+            int goalX = goal.getX();
+            int goalY = goal.getY();
+            int goalZ = goal.getZ();
             for (int s = fromSlot; s < toSlot; s++) {
-                SectionEdges section = sections[s];
-                long key = keys[s];
+                SectionEdges section = index.sections[s];
+                long key = index.keys[s];
                 int baseX = BlockPos.getX(key) * SectionMoves.SIZE;
                 int baseY = BlockPos.getY(key) * SectionMoves.SIZE;
                 int baseZ = BlockPos.getZ(key) * SectionMoves.SIZE;
                 for (int i = 0; i < section.nodes; i++) {
-                    int from = offsets[s] + i;
+                    int from = index.offsets[s] + i;
                     int local = position[from];
                     int lx = local & 15;
                     int ly = local >> 8 & 15;
@@ -359,7 +441,7 @@ public final class WindowField implements CostToGo {
                         int tx = lx + moves.dx[m];
                         int ty = ly + moves.dy[m];
                         int tz = lz + moves.dz[m];
-                        if (baseX + tx == goal.getX() && baseY + ty == goal.getY() && baseZ + tz == goal.getZ()) {
+                        if (baseX + tx == goalX && baseY + ty == goalY && baseZ + tz == goalZ) {
                             // 目的地そのものは殻の外（展開しないセル）にあってもよい。そこへ入る辺は目的地までの値段そのもの
                             distance[from] = Math.min(distance[from], moves.cost[m]);
                             goalEntered.set(true);
@@ -384,23 +466,18 @@ public final class WindowField implements CostToGo {
                 }
             }
             return true;
-        });
-        if (!counted) {
-            return null;
         }
-        long countedAt = MonotonicTime.millis();
-        for (int i = 2; i <= n + 1; i++) {
-            start[i] += start[i - 1];
-        }
-        int m = start[n + 1];
-        char[] inMove = buffers.inMove(m);
-        // 2周目: 行き先ごとに、セクションをまたいで入ってくる辺の移動を埋める。出発点は行き先から移動を引き戻せば分かる。
-        // 並べると入る辺の並び順は変わるが、距離は変わらない
-        boolean filled = parallel.forEach(slots, SLOTS_PER_TASK, cancelled, (fromSlot, toSlot) -> {
+
+        /** 2周目。セクション{@code fromSlot..toSlot}から出てセクションをまたぐ辺の移動を、行き先の入る辺の欄へ埋める。 */
+        boolean fill(int fromSlot, int toSlot, char[] inMove) {
+            Index index = this.index;
+            MoveTable.View moves = this.moves;
+            int[] position = this.position;
+            int[] start = this.start;
             for (int s = fromSlot; s < toSlot; s++) {
-                SectionEdges section = sections[s];
+                SectionEdges section = index.sections[s];
                 for (int i = 0; i < section.nodes; i++) {
-                    int local = position[offsets[s] + i];
+                    int local = position[index.offsets[s] + i];
                     for (int e = section.first(i), end = section.end(i); e < end; e++) {
                         int move = section.move[e];
                         int tx = (local & 15) + moves.dx[move];
@@ -418,69 +495,64 @@ public final class WindowField implements CostToGo {
                 }
             }
             return true;
-        });
-        if (!filled) {
-            return null;
-        }
-        long filledAt = MonotonicTime.millis();
-        // 埋め終えると start[t]..start[t+1] が行き先tへ入る辺になる
-        for (int s = 0; s < slots; s++) {
-            for (int i = offsets[s]; i < offsets[s + 1]; i++) {
-                position[i] |= s << 12;
-            }
         }
 
-        double base = Double.POSITIVE_INFINITY;
-        double top = Double.NEGATIVE_INFINITY;
-        int seeds = 0;
-        for (int i = 0; i < n; i++) {
-            if (Double.isFinite(distance[i])) {
-                base = Math.min(base, distance[i]);
-                top = Math.max(top, distance[i]);
-                seeds++;
+        /**
+         * 種から目的地までの残りコストを確定させる。乗車があれば、乗り継ぎが出尽くすまで値を下げては解き直す。
+         *
+         * @return 打ち切られたら{@code false}
+         */
+        boolean solve(char[] inMove, BitSet settled, Int2ObjectOpenHashMap<Ride> rides, Buffers buffers,
+                      WindowRides windowRides, Parallel parallel, BooleanSupplier cancelled) {
+            double base = Double.POSITIVE_INFINITY;
+            double top = Double.NEGATIVE_INFINITY;
+            int seeds = 0;
+            for (double value : distance) {
+                if (Double.isFinite(value)) {
+                    base = Math.min(base, value);
+                    top = Math.max(top, value);
+                    seeds++;
+                }
             }
-        }
-        BitSet settled = new BitSet(n);
-        Int2ObjectOpenHashMap<Ride> rides = new Int2ObjectOpenHashMap<>();
-        if (Double.isFinite(base)) {
+            if (!Double.isFinite(base)) {
+                return true;
+            }
             // 振った移動の値段はどれもこの幅以上なので、バケットを前から空にするだけで確定順になる。
             // 窓の外のセクションの移動も含む最小値だが、幅が狭いぶんには正しさは変わらない
             double width = moves.minCost;
             BucketQueue queue = buffers.queue((int) ((top - base) / width) + 1, seeds);
-            for (int i = 0; i < n; i++) {
+            for (int i = 0; i < distance.length; i++) {
                 if (Double.isFinite(distance[i])) {
                     queue.push((int) ((distance[i] - base) / width), i);
                 }
             }
             if (!settle(queue, settled, distance, position, start, inMove, index, moves, base, width, parallel,
                     cancelled)) {
-                return null;
+                return false;
             }
-            if (windowRides.usable()) {
-                // 乗車は1手で何百ブロックも跳ぶので、窓の辺と同じ表には載せない。確定した値で乗る点の値を下げ、
-                // 下がったノードから解き直すのを、乗り継ぎ（乗って歩いてまた乗る）が出尽くすまで繰り返す
-                List<Boarding> boardings = boardings(windowRides, index, centerX, centerZ, radius);
-                for (int pass = 0; pass < MAX_RIDE_PASSES && !boardings.isEmpty(); pass++) {
-                    IntArrayList lowered = lowerByRides(boardings, distance, far, rides);
-                    if (lowered.isEmpty()) {
-                        break;
-                    }
-                    for (int i = 0; i < lowered.size(); i++) {
-                        int node = lowered.getInt(i);
-                        settled.clear(node);
-                        queue.push(Math.max(0, (int) ((distance[node] - base) / width)), node);
-                    }
-                    if (!settle(queue, settled, distance, position, start, inMove, index, moves, base, width,
-                            parallel, cancelled)) {
-                        return null;
-                    }
+            if (!windowRides.usable()) {
+                return true;
+            }
+            // 乗車は1手で何百ブロックも跳ぶので、窓の辺と同じ表には載せない。確定した値で乗る点の値を下げ、
+            // 下がったノードから解き直すのを、乗り継ぎ（乗って歩いてまた乗る）が出尽くすまで繰り返す
+            List<Boarding> boardings = boardings(windowRides, index, centerX, centerZ, radius);
+            for (int pass = 0; pass < MAX_RIDE_PASSES && !boardings.isEmpty(); pass++) {
+                IntArrayList lowered = lowerByRides(boardings, distance, far, rides);
+                if (lowered.isEmpty()) {
+                    break;
+                }
+                for (int i = 0; i < lowered.size(); i++) {
+                    int node = lowered.getInt(i);
+                    settled.clear(node);
+                    queue.push(Math.max(0, (int) ((distance[node] - base) / width)), node);
+                }
+                if (!settle(queue, settled, distance, position, start, inMove, index, moves, base, width,
+                        parallel, cancelled)) {
+                    return false;
                 }
             }
+            return true;
         }
-        long finished = MonotonicTime.millis();
-        long[] phaseMillis = {indexed - began, countedAt - indexed, filledAt - countedAt, finished - filledAt};
-        return new WindowField(goal, far, index, moves, distance, m + insideEdges, finished - began, phaseMillis,
-                goalInWindow && !goalEntered.get(), centerX, centerZ, radius, rides);
     }
 
     /** 乗り継ぎを解き直す回数の上限。乗って歩いてまた乗る、の段数。 */
