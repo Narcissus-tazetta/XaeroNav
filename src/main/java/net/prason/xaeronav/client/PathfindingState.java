@@ -38,7 +38,6 @@ import net.prason.xaeronav.pathfinding.async.GenerationGate;
 import net.prason.xaeronav.pathfinding.async.PathfindingExecutor;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseRouter;
-import net.prason.xaeronav.pathfinding.corridor.CorridorLegSolver;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.pathfinding.navgraph.FarField;
