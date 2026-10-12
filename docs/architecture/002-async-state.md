@@ -44,6 +44,7 @@ futureのキャンセルだけでは、完了直前の古い処理が新しい�
   探索（deep fallbackの2本目を含む）がビューを読むのをやめること
 - `DiagnosticJobRunnerTest`: 診断探索の世代管理
 - `StuckTrackerTest`: 状態機械から抽出した詰み判定
+- `CoarseRoutesTest`: 状態機械から抽出した長距離ルートの持ち主の見分け・寄せ直し・地図待ちの引き直し
 - `NavHud*Test`, `MapPathOverlayTest`, `PathGeometryTest`: 公開snapshotの利用側
 - `CliffSpliceTest`, `SeamRepairSectionTest`, `SpliceJoinTest`: 非同期結果を使う経路差し替え
 
@@ -54,6 +55,7 @@ fake scheduler/executorによる統合テストを先に追加します。
 ## Code map
 
 - `client/PathfindingState.java`
+- `client/CoarseRoutes.java`
 - `client/FlightNavState.java`
 - `pathfinding/async/PathfindingExecutor.java`
 - `pathfinding/async/DiagnosticJobRunner.java`

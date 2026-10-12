@@ -417,7 +417,7 @@ color means.
 | Costs | `pathfinding/cost/ActionCosts.java`, `DigCost.java` |
 | Reading blocks | `pathfinding/world/CellSource.java` (`ChunkView` in game, `FakeCells` in tests) |
 | Navigation graph | `pathfinding/navgraph/NavGraph.java`, `WindowField.java`, `SectionShell.java`, `client/NavGraphGuide.java` |
-| Layer 1 and the 3D coarse layer | `pathfinding/coarse/CoarseRouter.java`, `CoarseMap.java`, `VoxelTerrain.java`, `VoxelCostToGo.java` |
+| Layer 1 and the 3D coarse layer | `pathfinding/coarse/CoarseRouter.java`, `CoarseMap.java`, `VoxelTerrain.java`, `VoxelCostToGo.java`, `client/CoarseRoutes.java` |
 | Layer 2 | `pathfinding/corridor/CorridorLegSolver.java` |
 | Async execution and retries | `pathfinding/async/PathfindingExecutor.java` |
 | State machine, extend, splice | `client/PathfindingState.java`, `Extend.java`, `Splice.java`, `SeamRepair.java`, `PathValidator.java` |

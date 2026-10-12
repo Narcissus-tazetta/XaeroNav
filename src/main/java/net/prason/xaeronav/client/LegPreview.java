@@ -173,12 +173,12 @@ final class LegPreview {
         CoarseLeg before = coarse.get(to);
         int attempts = before == null ? 1 : before.attempts() + 1;
         CoarseMapWindow.Window window = CoarseMapWindow.read(from, to, CoarseMap.MAX_FLOORS);
-        PathfindingState.CoarseRead read = new PathfindingState.CoarseRead(window.map(), window.pendingRegions());
+        CoarseRoutes.CoarseRead read = new CoarseRoutes.CoarseRead(window.map(), window.pendingRegions());
         boolean boatAvailable = ChunkView.boatAvailable(Minecraft.getInstance().player);
         var rides = PathfindingState.longRouteRides();
         long myGeneration = coarseGeneration;
         solvingCoarseTo = to;
-        CompletableFuture.supplyAsync(() -> PathfindingState.solveCoarseRoute(read, from, to, boatAvailable, rides),
+        CompletableFuture.supplyAsync(() -> CoarseRoutes.solveCoarseRoute(read, from, to, boatAvailable, rides),
                         coarseExecutor)
                 .whenComplete((attempt, error) -> onMainThread.accept(() -> {
                     if (myGeneration != coarseGeneration) {
@@ -190,7 +190,7 @@ final class LegPreview {
                         return;
                     }
                     List<BlockPos> waypoints = attempt.route().reachedGoal() && !attempt.route().waypoints().isEmpty()
-                            ? PathfindingState.replaceLast(attempt.route().waypoints(), to) : List.of();
+                            ? CoarseRoutes.replaceLast(attempt.route().waypoints(), to) : List.of();
                     coarse.put(to, new CoarseLeg(from, waypoints, attempt.pendingRegions(), MonotonicTime.millis(),
                             attempts));
                 }));

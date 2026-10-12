@@ -372,7 +372,7 @@ HUD は「道が無い」ではなく「上限の内側には道が無い」と�
 | コスト | `pathfinding/cost/ActionCosts.java`, `DigCost.java` |
 | ブロックの読み取り | `pathfinding/world/CellSource.java`（本番は `ChunkView`、テストは `FakeCells`） |
 | 航法グラフ | `pathfinding/navgraph/NavGraph.java`, `WindowField.java`, `SectionShell.java`, `client/NavGraphGuide.java` |
-| 層1・3D粗層 | `pathfinding/coarse/CoarseRouter.java`, `CoarseMap.java`, `VoxelTerrain.java`, `VoxelCostToGo.java` |
+| 層1・3D粗層 | `pathfinding/coarse/CoarseRouter.java`, `CoarseMap.java`, `VoxelTerrain.java`, `VoxelCostToGo.java`, `client/CoarseRoutes.java` |
 | 層2 | `pathfinding/corridor/CorridorLegSolver.java` |
 | 非同期実行・再挑戦 | `pathfinding/async/PathfindingExecutor.java` |
 | 状態機械・継ぎ足し・合流 | `client/PathfindingState.java`, `Extend.java`, `Splice.java`, `SeamRepair.java`, `PathValidator.java` |
