@@ -17,6 +17,7 @@ import net.prason.xaeronav.pathfinding.coarse.CoarseMap;
 import net.prason.xaeronav.pathfinding.coarse.CoarseMapBuilder;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGrid;
 import net.prason.xaeronav.pathfinding.corridor.SurfaceGridBuilder;
+import net.prason.xaeronav.util.PackedXZ;
 import xaero.map.MapProcessor;
 import xaero.map.WorldMapSession;
 import xaero.map.region.MapBlock;
@@ -299,18 +300,14 @@ public final class XaeroMapReader {
         LongIterator iterator = voidCandidates.iterator();
         while (iterator.hasNext()) {
             long key = iterator.nextLong();
-            int chunkX = (int) (key >> 32);
-            int chunkZ = (int) key;
+            int chunkX = PackedXZ.x(key);
+            int chunkZ = PackedXZ.z(key);
             if (builder.floorCount(chunkX, chunkZ) > 0) {
                 continue;
             }
             builder.putFloor(chunkX, chunkZ, CoarseMap.VOID, CoarseMap.UNKNOWN_HEIGHT,
                     CoarseMap.UNKNOWN_HEIGHT, CoarseMap.UNKNOWN_HEIGHT);
         }
-    }
-
-    private static long chunkKey(int chunkX, int chunkZ) {
-        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
     private static void readLayer(MapProcessor processor, int caveLayer,
@@ -701,7 +698,7 @@ public final class XaeroMapReader {
             // このセルに床を持っているかもしれないので、ここでは覚えるだけにして判定は全レイヤーを
             // 読み終えてから行う（{@link #markVoidCells}）
             if (voidSamples > 0) {
-                voidCandidates.add(chunkKey(tile.getChunkX(), tile.getChunkZ()));
+                voidCandidates.add(PackedXZ.pack(tile.getChunkX(), tile.getChunkZ()));
             }
             return;
         }

@@ -489,115 +489,76 @@ public final class PathfindingState {
         this.onMainThread = onMainThread;
         this.legPreview = new LegPreview(onMainThread);
         this.generationGate = new GenerationGate(generation, onMainThread);
+        StateHost host = new StateHost();
         this.seamRepair = new SeamRepair(executor, generation, generationGate, this::publishNavigationView,
-                new SeamRepair.Host() {
-                    @Override
-                    public @Nullable BlockPos goal() {
-                        return goal;
-                    }
-
-                    @Override
-                    public DisplayedPath displayed() {
-                        return displayed;
-                    }
-
-                    @Override
-                    public void setDisplayed(DisplayedPath path) {
-                        displayed = path;
-                    }
-
-                    @Override
-                    public void setComputing(boolean value) {
-                        computing = value;
-                    }
-                }, recentFailures);
+                host, recentFailures);
         this.splice = new Splice(executor, generation, generationGate, this::publishNavigationView,
-                new Splice.Host() {
-                    @Override
-                    public @Nullable BlockPos goal() {
-                        return goal;
-                    }
-
-                    @Override
-                    public DisplayedPath displayed() {
-                        return displayed;
-                    }
-
-                    @Override
-                    public void setDisplayed(DisplayedPath path) {
-                        displayed = path;
-                    }
-
-                    @Override
-                    public void setComputing(boolean value) {
-                        computing = value;
-                    }
-
-                    @Override
-                    public @Nullable WindowField guide() {
-                        BlockPos currentGoal = goal;
-                        return currentGoal == null ? null : navGraphGuide.latest(currentGoal);
-                    }
-                }, seamRepair, recentFailures);
+                host, seamRepair, recentFailures);
         this.extend = new Extend(executor, generation, generationGate, this::publishNavigationView,
-                new Extend.Host() {
-                    @Override
-                    public @Nullable BlockPos goal() {
-                        return goal;
-                    }
+                host, seamRepair, recentFailures);
+    }
 
-                    @Override
-                    public DisplayedPath displayed() {
-                        return displayed;
-                    }
+    /**
+     * {@link SeamRepair}・{@link Splice}・{@link Extend}が経路を差し替えるときに通る窓口。
+     * 3つとも同じフィールドを読み書きするので、1つのインスタンスを共有する。
+     */
+    private final class StateHost implements Splice.Host, Extend.Host {
+        @Override
+        public @Nullable BlockPos goal() {
+            return goal;
+        }
 
-                    @Override
-                    public void setDisplayed(DisplayedPath path) {
-                        displayed = path;
-                    }
+        @Override
+        public DisplayedPath displayed() {
+            return displayed;
+        }
 
-                    @Override
-                    public void setComputing(boolean value) {
-                        computing = value;
-                    }
+        @Override
+        public void setDisplayed(DisplayedPath path) {
+            displayed = path;
+        }
 
-                    @Override
-                    public int coarseRoutePendingRegions(BlockPos currentGoal) {
-                        CoarseRoute route = coarseRoute;
-                        return route != null && route.goal().equals(currentGoal) ? route.pendingRegions() : -1;
-                    }
+        @Override
+        public void setComputing(boolean value) {
+            computing = value;
+        }
 
-                    @Override
-                    public DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
-                                                            int reach, boolean boatAvailable,
-                                                            boolean playerAnchored, int minWaypointIndex,
-                                                            boolean ceilingDimension, boolean navGraphGuided) {
-                        return PathfindingState.this.selectDetailTarget(start, currentGoal, renderRadius, reach,
-                                boatAvailable, playerAnchored, minWaypointIndex, ceilingDimension, navGraphGuided);
-                    }
+        @Override
+        public @Nullable WindowField guide() {
+            BlockPos currentGoal = goal;
+            return currentGoal == null ? null : navGraphGuide.latest(currentGoal);
+        }
 
-                    @Override
-                    public @Nullable GoalGuide goalGuide(Level level, Player player, BlockPos from,
-                                                         BlockPos currentGoal, int renderRadius) {
-                        return PathfindingState.this.goalGuide(level, player, from, currentGoal, renderRadius, false);
-                    }
+        @Override
+        public int coarseRoutePendingRegions(BlockPos currentGoal) {
+            CoarseRoute route = coarseRoute;
+            return route != null && route.goal().equals(currentGoal) ? route.pendingRegions() : -1;
+        }
 
-                    @Override
-                    public void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result) {
-                        PathfindingState.this.noteSearchOutcome(start, planEnd, result);
-                    }
+        @Override
+        public DetailTarget selectDetailTarget(BlockPos start, BlockPos currentGoal, int renderRadius,
+                                                int reach, boolean boatAvailable,
+                                                boolean playerAnchored, int minWaypointIndex,
+                                                boolean ceilingDimension, boolean navGraphGuided) {
+            return PathfindingState.this.selectDetailTarget(start, currentGoal, renderRadius, reach,
+                    boatAvailable, playerAnchored, minWaypointIndex, ceilingDimension, navGraphGuided);
+        }
 
-                    @Override
-                    public @Nullable WindowField guide() {
-                        BlockPos currentGoal = goal;
-                        return currentGoal == null ? null : navGraphGuide.latest(currentGoal);
-                    }
+        @Override
+        public @Nullable GoalGuide goalGuide(Level level, Player player, BlockPos from,
+                                             BlockPos currentGoal, int renderRadius) {
+            return PathfindingState.this.goalGuide(level, player, from, currentGoal, renderRadius, false);
+        }
 
-                    @Override
-                    public void noteEdgeStarved() {
-                        navGraphGuide.noteEdgeStarved();
-                    }
-                }, seamRepair, recentFailures);
+        @Override
+        public void noteSearchOutcome(BlockPos start, BlockPos planEnd, PathResult result) {
+            PathfindingState.this.noteSearchOutcome(start, planEnd, result);
+        }
+
+        @Override
+        public void noteEdgeStarved() {
+            navGraphGuide.noteEdgeStarved();
+        }
     }
 
     /** 到着時間の表示に使う、{@code goal}への出来上がっているガイド。 */

@@ -30,6 +30,7 @@ import net.prason.xaeronav.rail.RailNetwork;
 import net.prason.xaeronav.rail.RailStore;
 import net.prason.xaeronav.util.DaemonThreads;
 import net.prason.xaeronav.util.GameCompat;
+import net.prason.xaeronav.util.PackedXZ;
 
 /**
  * 読み込まれたチャンクのレールを拾い、ワールド・次元ごとに{@link RailStore}へ覚えさせる。
@@ -142,7 +143,7 @@ public final class RailMemory {
         List<Job> stale = new ArrayList<>();
         for (int chunkX = centerX - radius; chunkX <= centerX + radius; chunkX++) {
             for (int chunkZ = centerZ - radius; chunkZ <= centerZ + radius; chunkZ++) {
-                long chunkKey = seenKey(chunkX, chunkZ);
+                long chunkKey = PackedXZ.pack(chunkX, chunkZ);
                 LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
                 if (chunk == null) {
                     seen.remove(chunkKey);
@@ -157,8 +158,8 @@ public final class RailMemory {
             }
         }
         // 窓の外へ出たチャンクの記録を捨てる。持ち続けると移動した距離に比例して膨らむ
-        LongPredicate outside = chunkKey -> Math.abs((int) (chunkKey >> 32) - centerX) > radius
-                || Math.abs((int) chunkKey - centerZ) > radius;
+        LongPredicate outside = chunkKey -> Math.abs(PackedXZ.x(chunkKey) - centerX) > radius
+                || Math.abs(PackedXZ.z(chunkKey) - centerZ) > radius;
         seen.keySet().removeIf(outside);
         List<Job> jobs = new ArrayList<>(Math.min(MAX_CHUNKS_PER_PASS, fresh.size() + stale.size()));
         for (List<Job> group : List.of(fresh, stale)) {
@@ -167,14 +168,10 @@ public final class RailMemory {
                     break;
                 }
                 jobs.add(job);
-                seen.put(seenKey(job.chunkX(), job.chunkZ()), new Seen(job.chunk(), tick));
+                seen.put(PackedXZ.pack(job.chunkX(), job.chunkZ()), new Seen(job.chunk(), tick));
             }
         }
         return jobs;
-    }
-
-    private static long seenKey(int chunkX, int chunkZ) {
-        return (long) chunkX << 32 | chunkZ & 0xFFFFFFFFL;
     }
 
     /** 抜けるときに書き出して手放す。次に入ったワールドで同じ記録を使い回さないため。 */

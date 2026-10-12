@@ -23,6 +23,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import net.prason.xaeronav.util.PackedXZ;
 
 /**
  * 1つのワールドの1つの次元で見たレールを、チャンクごとに覚えてディスクへ書く。
@@ -100,7 +101,7 @@ public final class RailStore {
                         return;
                     }
                 }
-                read.put(chunkKey(chunkX, chunkZ), rails);
+                read.put(PackedXZ.pack(chunkX, chunkZ), rails);
             }
         } catch (EOFException e) {
             LOGGER.warn("XaeroNav: ignoring truncated rail data: {}", file);
@@ -117,13 +118,13 @@ public final class RailStore {
      * 中身が前と同じなら書き出しの対象にしない。
      */
     public void putChunk(int chunkX, int chunkZ, int[] rails) {
-        long key = chunkKey(chunkX, chunkZ);
+        long key = PackedXZ.pack(chunkX, chunkZ);
         int[] previous = rails.length == 0 ? chunks.remove(key) : chunks.put(key, rails);
         if (previous == null ? rails.length == 0 : Arrays.equals(previous, rails)) {
             return;
         }
         railCount += rails.length - (previous == null ? 0 : previous.length);
-        dirtyRegions.add(chunkKey(chunkX >> 5, chunkZ >> 5));
+        dirtyRegions.add(PackedXZ.pack(chunkX >> 5, chunkZ >> 5));
         changes++;
     }
 
@@ -139,7 +140,7 @@ public final class RailStore {
 
     /** 覚えているチャンクのレール。無ければ{@code null}。 */
     public int @Nullable [] chunk(int chunkX, int chunkZ) {
-        return chunks.get(chunkKey(chunkX, chunkZ));
+        return chunks.get(PackedXZ.pack(chunkX, chunkZ));
     }
 
     public int railCount() {
@@ -161,7 +162,7 @@ public final class RailStore {
         }
         Files.createDirectories(dir);
         for (long region : dirtyRegions.toLongArray()) {
-            writeRegion((int) (region >> 32), (int) region);
+            writeRegion(PackedXZ.x(region), PackedXZ.z(region));
             dirtyRegions.remove(region);
         }
     }
@@ -171,7 +172,7 @@ public final class RailStore {
         Long2ObjectMap<int[]> inRegion = new Long2ObjectOpenHashMap<>();
         for (Long2ObjectMap.Entry<int[]> entry : chunks.long2ObjectEntrySet()) {
             long key = entry.getLongKey();
-            if ((int) (key >> 32) >> 5 == regionX && (int) key >> 5 == regionZ) {
+            if (PackedXZ.x(key) >> 5 == regionX && PackedXZ.z(key) >> 5 == regionZ) {
                 inRegion.put(key, entry.getValue());
             }
         }
@@ -187,8 +188,8 @@ public final class RailStore {
             out.writeInt(inRegion.size());
             for (Long2ObjectMap.Entry<int[]> entry : inRegion.long2ObjectEntrySet()) {
                 long key = entry.getLongKey();
-                out.writeInt((int) (key >> 32));
-                out.writeInt((int) key);
+                out.writeInt(PackedXZ.x(key));
+                out.writeInt(PackedXZ.z(key));
                 out.writeInt(entry.getValue().length);
                 for (int rail : entry.getValue()) {
                     out.writeInt(rail);
@@ -196,9 +197,5 @@ public final class RailStore {
             }
         }
         Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-    }
-
-    private static long chunkKey(int chunkX, int chunkZ) {
-        return (long) chunkX << 32 | chunkZ & 0xFFFFFFFFL;
     }
 }

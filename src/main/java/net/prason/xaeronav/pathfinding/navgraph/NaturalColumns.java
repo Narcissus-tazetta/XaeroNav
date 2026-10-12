@@ -8,6 +8,7 @@ import org.jspecify.annotations.Nullable;
 
 import net.prason.xaeronav.pathfinding.world.CellData;
 import net.prason.xaeronav.pathfinding.world.CellSource;
+import net.prason.xaeronav.util.PackedXZ;
 
 /**
  * 列ごとの「掘らず・置かずに立てる高さ」のビット。チャンク単位で覚え、殻（{@link SectionShell}）の芯にする。
@@ -102,7 +103,7 @@ public final class NaturalColumns {
     private long[] chunkBits(CellSource cells, int x, int z) {
         int chunkX = Math.floorDiv(x, 16);
         int chunkZ = Math.floorDiv(z, 16);
-        long key = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+        long key = PackedXZ.pack(chunkX, chunkZ);
         long[] bits = chunks.get(key);
         if (bits == null) {
             bits = incomplete.get(key);
@@ -270,7 +271,7 @@ public final class NaturalColumns {
         if (!cells.isInBounds(x, minY, z)) {
             return NO_SHORE;
         }
-        long key = ((long) Math.floorDiv(x, 16) << 32) | (Math.floorDiv(z, 16) & 0xFFFFFFFFL);
+        long key = PackedXZ.pack(Math.floorDiv(x, 16), Math.floorDiv(z, 16));
         AtomicReferenceArray<int[]> memo = shores.computeIfAbsent(key, k -> new AtomicReferenceArray<>(256));
         int column = Math.floorMod(x, 16) + Math.floorMod(z, 16) * 16;
         int[] known = memo.get(column);
@@ -395,7 +396,7 @@ public final class NaturalColumns {
 
     /** チャンクの中身が変わった。次に引かれたときに読み直す。 */
     public void invalidateChunk(int chunkX, int chunkZ) {
-        long key = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+        long key = PackedXZ.pack(chunkX, chunkZ);
         chunks.remove(key);
         incomplete.remove(key);
         shores.clear();

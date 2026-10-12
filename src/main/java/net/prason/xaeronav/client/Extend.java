@@ -89,20 +89,8 @@ final class Extend {
      */
     private static final double RETREATING_TAIL_LOG_BLOCKS = 16.0;
 
-    /** {@link PathfindingState}が持つ、非同期完了時に読み書きする必要のある可変状態と長距離ルート選定。 */
-    interface Host {
-        /** 現在の目的地。 */
-        @Nullable BlockPos goal();
-
-        /** 現在表示中の経路。 */
-        PathfindingState.DisplayedPath displayed();
-
-        /** 表示中の経路を差し替える。 */
-        void setDisplayed(PathfindingState.DisplayedPath path);
-
-        /** 探索中フラグを立て下げする。 */
-        void setComputing(boolean computing);
-
+    /** {@link PathHost}に加えて、継ぎ足しが問い合わせる長距離ルート選定とガイド。 */
+    interface Host extends PathHost {
         /**
          * この目的地に対する長距離ルートが、地図の読み込み待ちで欠けたままか。
          * 一致する長距離ルートが無ければ{@code -1}、あれば未読み込みリージョン数

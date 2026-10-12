@@ -108,20 +108,8 @@ final class Splice {
     /** 合流に失敗した地点から、これだけ歩けばもう一度試す（ブロック）。 */
     private static final double SPLICE_RETRY_MOVE_BLOCKS = 8.0;
 
-    /** {@link PathfindingState}が持つ、非同期完了時に読み書きする必要のある可変状態。 */
-    interface Host {
-        /** 現在の目的地。 */
-        @Nullable BlockPos goal();
-
-        /** 現在表示中の経路。 */
-        PathfindingState.DisplayedPath displayed();
-
-        /** 表示中の経路を差し替える。 */
-        void setDisplayed(PathfindingState.DisplayedPath path);
-
-        /** 探索中フラグを立て下げする。 */
-        void setComputing(boolean computing);
-
+    /** {@link PathHost}に加えて、合流の採否に使う航法グラフのガイド。 */
+    interface Host extends PathHost {
         /** 目的地までの残りコスト（{@link #spliceWorthTaking}の物差し）。組み上がっていなければ{@code null}。 */
         @Nullable WindowField guide();
     }
