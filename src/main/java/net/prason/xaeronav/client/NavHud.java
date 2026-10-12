@@ -81,168 +81,15 @@ public final class NavHud {
             add(TextCompat.translatable("hud.xaeronav.via_progress", stop.index(), stop.total()), SECONDARY_COLOR);
         }
         if (view.arrived()) {
-            add(TextCompat.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
-            PathfindingState.HopArrival hop = view.hopArrival();
-            if (hop != null) {
-                add(TextCompat.translatable(hop.fromNether() ? "hud.xaeronav.arrived_hop_nether"
-                        : "hud.xaeronav.arrived_hop_overworld", hop.destination().toShortString()), SECONDARY_COLOR);
-            }
+            addArrived(view);
         } else if (view.flying() && view.skyPillar() != null) {
-            // 空の下では線を引かず、降りる地点（柱）の方角と距離だけを出す
-            BlockPos pillar = view.skyPillar();
-            boolean atGoal = pillar.getX() == view.goal().getX() && pillar.getZ() == view.goal().getZ();
-            add(TextCompat.translatable(atGoal ? "hud.xaeronav.sky_goal" : "hud.xaeronav.sky_descent",
-                    bearingArrow(mc, pillar), horizontalDistance(mc, pillar)), PRIMARY_COLOR);
-            if (!atGoal) {
-                add(TextCompat.translatable("hud.xaeronav.direct_distance",
-                        straightDistance(mc, view.goal())), SECONDARY_COLOR);
-            }
+            addSkyDescent(mc, view);
         } else if (view.flying()) {
-            // 空中経路が引けなかったこと（読み込み済みの範囲に抜け道が無い）と、そもそも案内が
-            // 出ていないことは別。前者を「経路なし」と同じ文言にすると、地上と同じ失敗に見える
-            boolean ghast = ChunkView.mount(mc.player).kind() == MountState.Kind.HAPPY_GHAST;
-            boolean noRoute = view.flightRoute().isEmpty();
-            add(TextCompat.translatable(ghast
-                    ? noRoute ? "hud.xaeronav.flying_ghast_no_route" : "hud.xaeronav.flying_ghast"
-                    : noRoute ? "hud.xaeronav.flying_no_route" : "hud.xaeronav.flying"), SECONDARY_COLOR);
-            add(TextCompat.translatable("hud.xaeronav.direct_distance",
-                    straightDistance(mc, view.goal())), SECONDARY_COLOR);
-            int climb = upcomingClimb(view.flightRoute());
-            // ハッピーガストは自分で上がれて、その時間は値段に入っている
-            if (!ghast && climb >= CLIMB_NOTICE_BLOCKS) {
-                // 上昇はプレイヤーが行動を要求される唯一の点。ロケットが無ければ速度と高度を
-                // 交換するしかなく、線だけ見て「登れ」と分かっても間に合わないことがある
-                add(TextCompat.translatable("hud.xaeronav.flight_climb", climb), WARNING_COLOR);
-            }
+            addFlying(mc, view);
         } else if (result == null || result.steps().isEmpty()) {
-            addMountChange(view.mountChange());
-            if (stuck != null) {
-                addUnreachable(stuck);
-            } else {
-                // 「経路なし」は今回の探索の結果でしかない。次の探索では出るかもしれないので、
-                // 結論（addUnreachable）とは違う言い方にする
-                add(view.computing()
-                        ? TextCompat.translatable("hud.xaeronav.searching")
-                        : TextCompat.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
-            }
-            if (stuck == null) {
-                // 経路が出る前から所要時間の目安を出す。探索は初回に数秒かかる
-                double ticks = eta.ticks(mc.player.blockPosition(), view.goal(), view.coarseRouteWaypoints());
-                add(TextCompat.translatable("hud.xaeronav.direct_distance_eta",
-                        straightDistance(mc, view.goal()), time(NavGuidance.estimateSeconds(ticks))), SECONDARY_COLOR);
-            } else {
-                add(TextCompat.translatable("hud.xaeronav.direct_distance",
-                        straightDistance(mc, view.goal())), SECONDARY_COLOR);
-            }
+            addNoPath(mc, view, stuck);
         } else {
-            // 部分経路が出ていても、それが目的地へ通じていないと分かったなら先に言う。この経路は
-            // 「行ける所まで」であって案内の続きではないので、黙って曲がり角だけ出すと、
-            // 行き止まりまで歩いてから初めて気付くことになる
-            if (stuck != null) {
-                addUnreachable(stuck);
-            }
-            boolean climbing = view.climbingToSurface();
-            if (climbing) {
-                // 本来の目的地ではなく、まず地上へ出るまでの中継経路であることを示す。
-                // 出さないと、なぜ目的地と違う方向へ案内されるのか分からなくなる
-                add(TextCompat.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
-            }
-            MountState mount = ChunkView.mount(mc.player);
-            PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
-            int from = PathProgress.INSTANCE.indexFor(result) + 1;
-            if (view.mountChange() != null) {
-                addMountChange(view.mountChange());
-            } else if (mount.ridden() && ahead.rides(from)) {
-                // 線の色は歩きと同じなので、乗り物の通れる道に変わったことはここでしか分からない
-                add(TextCompat.translatable(switch (mount.kind()) {
-                    case CAMEL -> "hud.xaeronav.riding_camel";
-                    case NAUTILUS -> "hud.xaeronav.riding_nautilus";
-                    default -> "hud.xaeronav.riding";
-                }), SECONDARY_COLOR);
-            }
-            if (view.rerouted()) {
-                // 案内が急に変わった理由を出す。出さないと、それまで歩いていた道が
-                // 突然消えたようにしか見えない
-                add(TextCompat.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
-            }
-            boolean endsAtDestination = view.currentPathEndsAtDestination();
-            // 行けないと分かった目的地までの時間は出さない。実線の終点までの時間だけにする
-            boolean estimateBeyond = !endsAtDestination && stuck == null;
-            double beyondTicks = estimateBeyond
-                    ? eta.ticks(result.steps().get(result.steps().size() - 1).pos(), view.goal(),
-                    view.coarseRouteWaypoints())
-                    : 0.0;
-            NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition(), beyondTicks);
-            PathSuffixes.Action next = ahead.nextAction(from);
-            String endpoint = guidance.nearEnd ? endpointKey(climbing, endsAtDestination, stuck != null) : null;
-            if (next != null && ahead.distanceToAction(from) <= ACTION_NOTICE_BLOCKS) {
-                boolean camel = mount.kind() == MountState.Kind.CAMEL;
-                add(TextCompat.translatable(switch (next) {
-                    case DISMOUNT -> switch (mount.kind()) {
-                        case CAMEL -> "hud.xaeronav.action_dismount_camel";
-                        case NAUTILUS -> "hud.xaeronav.action_dismount_nautilus";
-                        default -> next.key();
-                    };
-                    // ラクダのジャンプキーは突進
-                    case MOUNT_JUMP -> camel ? "hud.xaeronav.action_mount_jump_camel" : next.key();
-                    default -> next.key();
-                }), PRIMARY_COLOR);
-                endpoint = null;
-            } else if (endpoint != null) {
-                add(TextCompat.translatable(endpoint), PRIMARY_COLOR);
-            }
-            add(TextCompat.translatable(remainingKey(endsAtDestination, estimateBeyond),
-                    guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
-            // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
-            // 気付いたのでは、そこまでの案内が前提ごと成立していない。
-            // 乗っている間は出さない——すでに済んでいる支度を促し続けることになる
-            // 降りるのは乗っていては通れない所の手前。近づいてからでは、そこまで乗って来た理由が分からない
-            double toDismount = ahead.distanceToDismount(from);
-            if (Double.isFinite(toDismount) && toDismount > ACTION_NOTICE_BLOCKS && mount.ridden()) {
-                add(TextCompat.translatable(switch (mount.kind()) {
-                    case CAMEL -> "hud.xaeronav.dismount_ahead_camel";
-                    case NAUTILUS -> "hud.xaeronav.dismount_ahead_nautilus";
-                    default -> "hud.xaeronav.dismount_ahead";
-                }, (int) Math.round(toDismount)), SECONDARY_COLOR);
-            }
-            if (ahead.usesBoat(from) && !ChunkView.ridingBoat(mc.player)) {
-                add(TextCompat.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
-            }
-            // 持っていなければ、経路は線路上に置いてあるトロッコに乗るものしか無い
-            if (ahead.usesCart(from) && !ChunkView.ridingMinecart(mc.player)) {
-                add(TextCompat.translatable(ChunkView.carryingMinecart(mc.player)
-                        ? "hud.xaeronav.cart_ahead" : "hud.xaeronav.cart_ahead_parked"), SECONDARY_COLOR);
-            }
-            // 持ち物で足りない経路は、予算を外した緩和の梯子を通って出てくる（他に道が無い場合）。
-            // 足りているうちは黙っている——設置を含む経路はエンドではほぼ全てなので、常に出すと
-            // 警告として意味を失う。クリエイティブは持ち物が空でも置けるので数えない
-            if (!GameCompat.abilities(mc.player).instabuild) {
-                int needed = ahead.placements(from);
-                int available = ChunkView.countPlaceableBlocks(mc.player);
-                if (needed > available) {
-                    add(TextCompat.translatable("hud.xaeronav.blocks_short", needed, available), WARNING_COLOR);
-                }
-            }
-            if (ahead.hasRisk(from, PathRisk.DROWNING)) {
-                // 線の色だけでは「息が続かない」ことまでは伝わらない。潜る前に分かる必要がある
-                add(TextCompat.translatable("hud.xaeronav.drowning"), WARNING_COLOR);
-            }
-            if (ahead.hasRisk(from, PathRisk.MLG_REQUIRED)) {
-                // 着地の瞬間に操作が要る区間なので、辿り着いてから気付いたのでは間に合わない
-                add(TextCompat.translatable("hud.xaeronav.mlg_required"), WARNING_COLOR);
-            }
-            if (ahead.hasRisk(from, PathRisk.FALL_DAMAGE)) {
-                add(TextCompat.translatable("hud.xaeronav.fall_damage"), WARNING_COLOR);
-            }
-            if (ahead.hasRisk(from, PathRisk.SNEAK_OVER_MAGMA)) {
-                // 踏んでから気付くのでは遅い（走って乗ると即座に燃える）
-                add(TextCompat.translatable("hud.xaeronav.sneak_over_magma"), WARNING_COLOR);
-            }
-            // 詰みと判断済みなら「続きが計算される」は嘘になる（その先に道が無いと分かっているから
-            // 詰みなので）。末端の手前で「案内が続く」を出している間も、同じことを2行で言うことになる
-            if (!guidance.complete && stuck == null && !"hud.xaeronav.route_continues".equals(endpoint)) {
-                add(TextCompat.translatable("hud.xaeronav.incomplete"), SECONDARY_COLOR);
-            }
+            addPath(mc, view, result, stuck);
         }
 
         // mixinは当たっているのに地図へ描かれていないことに気付けるのはここだけ。
@@ -252,6 +99,191 @@ public final class NavHud {
         }
 
         draw(graphics, mc.font);
+    }
+
+    /** 着いた。換算した目的地なら、元の次元での最終目的地も添える。 */
+    private void addArrived(PathfindingState.NavigationView view) {
+        add(TextCompat.translatable("hud.xaeronav.arrived"), PRIMARY_COLOR);
+        PathfindingState.HopArrival hop = view.hopArrival();
+        if (hop != null) {
+            add(TextCompat.translatable(hop.fromNether() ? "hud.xaeronav.arrived_hop_nether"
+                    : "hud.xaeronav.arrived_hop_overworld", hop.destination().toShortString()), SECONDARY_COLOR);
+        }
+    }
+
+    /** 空の下を滑空している間。降りる地点（柱）の方角と距離。 */
+    private void addSkyDescent(Minecraft mc, PathfindingState.NavigationView view) {
+        // 空の下では線を引かず、降りる地点（柱）の方角と距離だけを出す
+        BlockPos pillar = view.skyPillar();
+        boolean atGoal = pillar.getX() == view.goal().getX() && pillar.getZ() == view.goal().getZ();
+        add(TextCompat.translatable(atGoal ? "hud.xaeronav.sky_goal" : "hud.xaeronav.sky_descent",
+                bearingArrow(mc, pillar), horizontalDistance(mc, pillar)), PRIMARY_COLOR);
+        if (!atGoal) {
+            add(TextCompat.translatable("hud.xaeronav.direct_distance",
+                    straightDistance(mc, view.goal())), SECONDARY_COLOR);
+        }
+    }
+
+    /** 空の下ではない所を飛んでいる間。空中経路の有無と、行動が要る上昇。 */
+    private void addFlying(Minecraft mc, PathfindingState.NavigationView view) {
+        // 空中経路が引けなかったこと（読み込み済みの範囲に抜け道が無い）と、そもそも案内が
+        // 出ていないことは別。前者を「経路なし」と同じ文言にすると、地上と同じ失敗に見える
+        boolean ghast = ChunkView.mount(mc.player).kind() == MountState.Kind.HAPPY_GHAST;
+        boolean noRoute = view.flightRoute().isEmpty();
+        add(TextCompat.translatable(ghast
+                ? noRoute ? "hud.xaeronav.flying_ghast_no_route" : "hud.xaeronav.flying_ghast"
+                : noRoute ? "hud.xaeronav.flying_no_route" : "hud.xaeronav.flying"), SECONDARY_COLOR);
+        add(TextCompat.translatable("hud.xaeronav.direct_distance",
+                straightDistance(mc, view.goal())), SECONDARY_COLOR);
+        int climb = upcomingClimb(view.flightRoute());
+        // ハッピーガストは自分で上がれて、その時間は値段に入っている
+        if (!ghast && climb >= CLIMB_NOTICE_BLOCKS) {
+            // 上昇はプレイヤーが行動を要求される唯一の点。ロケットが無ければ速度と高度を
+            // 交換するしかなく、線だけ見て「登れ」と分かっても間に合わないことがある
+            add(TextCompat.translatable("hud.xaeronav.flight_climb", climb), WARNING_COLOR);
+        }
+    }
+
+    /** 地上の経路がまだ無い（探索中・経路なし・行けない）間。 */
+    private void addNoPath(Minecraft mc, PathfindingState.NavigationView view,
+                           PathfindingState.@Nullable StuckReason stuck) {
+        addMountChange(view.mountChange());
+        if (stuck != null) {
+            addUnreachable(stuck);
+        } else {
+            // 「経路なし」は今回の探索の結果でしかない。次の探索では出るかもしれないので、
+            // 結論（addUnreachable）とは違う言い方にする
+            add(view.computing()
+                    ? TextCompat.translatable("hud.xaeronav.searching")
+                    : TextCompat.translatable("hud.xaeronav.no_route"), SECONDARY_COLOR);
+        }
+        if (stuck == null) {
+            // 経路が出る前から所要時間の目安を出す。探索は初回に数秒かかる
+            double ticks = eta.ticks(mc.player.blockPosition(), view.goal(), view.coarseRouteWaypoints());
+            add(TextCompat.translatable("hud.xaeronav.direct_distance_eta",
+                    straightDistance(mc, view.goal()), time(NavGuidance.estimateSeconds(ticks))), SECONDARY_COLOR);
+        } else {
+            add(TextCompat.translatable("hud.xaeronav.direct_distance",
+                    straightDistance(mc, view.goal())), SECONDARY_COLOR);
+        }
+    }
+
+    /** 地上の経路が出ている間。次の行動・残り・乗り物と持ち物の支度・危険。 */
+    private void addPath(Minecraft mc, PathfindingState.NavigationView view, PathResult result,
+                         PathfindingState.@Nullable StuckReason stuck) {
+        // 部分経路が出ていても、それが目的地へ通じていないと分かったなら先に言う。この経路は
+        // 「行ける所まで」であって案内の続きではないので、黙って曲がり角だけ出すと、
+        // 行き止まりまで歩いてから初めて気付くことになる
+        if (stuck != null) {
+            addUnreachable(stuck);
+        }
+        boolean climbing = view.climbingToSurface();
+        if (climbing) {
+            // 本来の目的地ではなく、まず地上へ出るまでの中継経路であることを示す。
+            // 出さないと、なぜ目的地と違う方向へ案内されるのか分からなくなる
+            add(TextCompat.translatable("hud.xaeronav.climbing_to_surface"), SECONDARY_COLOR);
+        }
+        MountState mount = ChunkView.mount(mc.player);
+        PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
+        int from = PathProgress.INSTANCE.indexFor(result) + 1;
+        if (view.mountChange() != null) {
+            addMountChange(view.mountChange());
+        } else if (mount.ridden() && ahead.rides(from)) {
+            // 線の色は歩きと同じなので、乗り物の通れる道に変わったことはここでしか分からない
+            add(TextCompat.translatable(switch (mount.kind()) {
+                case CAMEL -> "hud.xaeronav.riding_camel";
+                case NAUTILUS -> "hud.xaeronav.riding_nautilus";
+                default -> "hud.xaeronav.riding";
+            }), SECONDARY_COLOR);
+        }
+        if (view.rerouted()) {
+            // 案内が急に変わった理由を出す。出さないと、それまで歩いていた道が
+            // 突然消えたようにしか見えない
+            add(TextCompat.translatable("hud.xaeronav.rerouted"), WARNING_COLOR);
+        }
+        boolean endsAtDestination = view.currentPathEndsAtDestination();
+        // 行けないと分かった目的地までの時間は出さない。実線の終点までの時間だけにする
+        boolean estimateBeyond = !endsAtDestination && stuck == null;
+        double beyondTicks = estimateBeyond
+                ? eta.ticks(result.steps().get(result.steps().size() - 1).pos(), view.goal(),
+                view.coarseRouteWaypoints())
+                : 0.0;
+        NavGuidance guidance = NavGuidance.forPath(result, mc.player.blockPosition(), beyondTicks);
+        PathSuffixes.Action next = ahead.nextAction(from);
+        String endpoint = guidance.nearEnd ? endpointKey(climbing, endsAtDestination, stuck != null) : null;
+        if (next != null && ahead.distanceToAction(from) <= ACTION_NOTICE_BLOCKS) {
+            boolean camel = mount.kind() == MountState.Kind.CAMEL;
+            add(TextCompat.translatable(switch (next) {
+                case DISMOUNT -> switch (mount.kind()) {
+                    case CAMEL -> "hud.xaeronav.action_dismount_camel";
+                    case NAUTILUS -> "hud.xaeronav.action_dismount_nautilus";
+                    default -> next.key();
+                };
+                // ラクダのジャンプキーは突進
+                case MOUNT_JUMP -> camel ? "hud.xaeronav.action_mount_jump_camel" : next.key();
+                default -> next.key();
+            }), PRIMARY_COLOR);
+            endpoint = null;
+        } else if (endpoint != null) {
+            add(TextCompat.translatable(endpoint), PRIMARY_COLOR);
+        }
+        add(TextCompat.translatable(remainingKey(endsAtDestination, estimateBeyond),
+                guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
+        addPreparationsAndRisks(mc, mount, ahead, from);
+        // 詰みと判断済みなら「続きが計算される」は嘘になる（その先に道が無いと分かっているから
+        // 詰みなので）。末端の手前で「案内が続く」を出している間も、同じことを2行で言うことになる
+        if (!guidance.complete && stuck == null && !"hud.xaeronav.route_continues".equals(endpoint)) {
+            add(TextCompat.translatable("hud.xaeronav.incomplete"), SECONDARY_COLOR);
+        }
+    }
+
+    /** この先の区間のための支度（降りる・ボート・トロッコ・設置ブロック）と、踏む前に知るべき危険。 */
+    private void addPreparationsAndRisks(Minecraft mc, MountState mount, PathSuffixes ahead, int from) {
+        // 経路の色だけでは「ここでボートを出す」ことまでは伝わらない。岸に着いてから
+        // 気付いたのでは、そこまでの案内が前提ごと成立していない。
+        // 乗っている間は出さない——すでに済んでいる支度を促し続けることになる
+        // 降りるのは乗っていては通れない所の手前。近づいてからでは、そこまで乗って来た理由が分からない
+        double toDismount = ahead.distanceToDismount(from);
+        if (Double.isFinite(toDismount) && toDismount > ACTION_NOTICE_BLOCKS && mount.ridden()) {
+            add(TextCompat.translatable(switch (mount.kind()) {
+                case CAMEL -> "hud.xaeronav.dismount_ahead_camel";
+                case NAUTILUS -> "hud.xaeronav.dismount_ahead_nautilus";
+                default -> "hud.xaeronav.dismount_ahead";
+            }, (int) Math.round(toDismount)), SECONDARY_COLOR);
+        }
+        if (ahead.usesBoat(from) && !ChunkView.ridingBoat(mc.player)) {
+            add(TextCompat.translatable("hud.xaeronav.boat_ahead"), SECONDARY_COLOR);
+        }
+        // 持っていなければ、経路は線路上に置いてあるトロッコに乗るものしか無い
+        if (ahead.usesCart(from) && !ChunkView.ridingMinecart(mc.player)) {
+            add(TextCompat.translatable(ChunkView.carryingMinecart(mc.player)
+                    ? "hud.xaeronav.cart_ahead" : "hud.xaeronav.cart_ahead_parked"), SECONDARY_COLOR);
+        }
+        // 持ち物で足りない経路は、予算を外した緩和の梯子を通って出てくる（他に道が無い場合）。
+        // 足りているうちは黙っている——設置を含む経路はエンドではほぼ全てなので、常に出すと
+        // 警告として意味を失う。クリエイティブは持ち物が空でも置けるので数えない
+        if (!GameCompat.abilities(mc.player).instabuild) {
+            int needed = ahead.placements(from);
+            int available = ChunkView.countPlaceableBlocks(mc.player);
+            if (needed > available) {
+                add(TextCompat.translatable("hud.xaeronav.blocks_short", needed, available), WARNING_COLOR);
+            }
+        }
+        if (ahead.hasRisk(from, PathRisk.DROWNING)) {
+            // 線の色だけでは「息が続かない」ことまでは伝わらない。潜る前に分かる必要がある
+            add(TextCompat.translatable("hud.xaeronav.drowning"), WARNING_COLOR);
+        }
+        if (ahead.hasRisk(from, PathRisk.MLG_REQUIRED)) {
+            // 着地の瞬間に操作が要る区間なので、辿り着いてから気付いたのでは間に合わない
+            add(TextCompat.translatable("hud.xaeronav.mlg_required"), WARNING_COLOR);
+        }
+        if (ahead.hasRisk(from, PathRisk.FALL_DAMAGE)) {
+            add(TextCompat.translatable("hud.xaeronav.fall_damage"), WARNING_COLOR);
+        }
+        if (ahead.hasRisk(from, PathRisk.SNEAK_OVER_MAGMA)) {
+            // 踏んでから気付くのでは遅い（走って乗ると即座に燃える）
+            add(TextCompat.translatable("hud.xaeronav.sneak_over_magma"), WARNING_COLOR);
+        }
     }
 
     /** 乗り物が変わって引き直した理由。乗ったのか降りたのかで、経路の何が変わるかが違う。 */
