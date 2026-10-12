@@ -149,11 +149,37 @@ final class SectionEdges {
         if (!finished) {
             return null;
         }
-        int raw = w.size;
-        if (raw == 0) {
+        if (w.size == 0) {
             return EMPTY;
         }
-        // 出発点（4096通り）で数え上げて並べる。辺は1セクションで数万本あり、ハッシュ表に積むより速い
+        sortByOrigin(w);
+        long[] nodeBits = new long[WORDS];
+        int n = keepCheapest(w, nodeBits);
+        int nodeCount = 0;
+        for (long word : nodeBits) {
+            nodeCount += Long.bitCount(word);
+        }
+        char[] ids = internKinds(w, n, moves);
+        Shared out = shareOutgoing(w, n, ids, nodeBits, nodeCount);
+        Shared in = shareInside(w, ids, nodeBits, nodeCount);
+        return new SectionEdges(nodeBits, out.pattern(), out.start(), out.move(), n, in.pattern(), in.start(),
+                in.move(), in.edges());
+    }
+
+    /**
+     * 共有した並び。ノード{@code k}の並びは {@code move[start[pattern[k]]..start[pattern[k]+1])}。
+     *
+     * @param edges 共有する前の辺の数
+     */
+    private record Shared(char[] pattern, int[] start, char[] move, int edges) {
+    }
+
+    /**
+     * 集めた辺を出発点（4096通り）で数え上げて並べる。辺は1セクションで数万本あり、ハッシュ表に積むより速い。
+     * 並べた辺は{@code w.sortedOffset}・{@code w.sortedCost}、出発点{@code l}の辺は {@code w.count[l]..w.count[l+1]}。
+     */
+    private static void sortByOrigin(Scratch w) {
+        int raw = w.size;
         int[] count = w.count;
         Arrays.fill(count, 0);
         for (int i = 0; i < raw; i++) {
@@ -172,11 +198,21 @@ final class SectionEdges {
             offset[at] = w.offset[i];
             cost[at] = w.cost[i];
         }
-        // 出発点の中を相対座標の昇順（符号なし）に並べ、同じ行き先はいちばん安いものだけ残す。出発点あたりの辺は数十本なので挿入ソートでよい
-        long[] nodeBits = new long[WORDS];
-        int nodeCount = 0;
-        int n = 0;
+    }
+
+    /**
+     * 出発点の中を相対座標の昇順（符号なし）に並べ、同じ行き先はいちばん安いものだけ残して前へ詰める。
+     * 出発点あたりの辺は数十本なので挿入ソートでよい。辺のある出発点を{@code nodeBits}に立て、
+     * 出発点{@code l}の詰めた後の辺の終わりを{@code w.groupEnd[l]}に書く。
+     *
+     * @return 残した辺の数
+     */
+    private static int keepCheapest(Scratch w, long[] nodeBits) {
+        int[] count = w.count;
+        int[] offset = w.sortedOffset;
+        float[] cost = w.sortedCost;
         int[] groupEnd = w.groupEnd;
+        int n = 0;
         for (int l = 0; l < LOCALS; l++) {
             int from = count[l];
             int to = count[l + 1];
@@ -196,7 +232,6 @@ final class SectionEdges {
                 cost[j + 1] = c;
             }
             nodeBits[l >> 6] |= 1L << l;
-            nodeCount++;
             int groupStart = n;
             for (int i = from; i < to; i++) {
                 if (n > groupStart && offset[n - 1] == offset[i]) {
@@ -209,8 +244,18 @@ final class SectionEdges {
             }
             groupEnd[l] = n;
         }
+        return n;
+    }
 
-        // 移動の種類はセクションあたり数百なので、表へは種類ごとに1回だけ問い合わせる
+    /**
+     * 残した辺の（相対座標・値段）の組を{@link MoveTable}の番号にする。移動の種類はセクションあたり数百なので、
+     * 表へは種類ごとに1回だけ問い合わせる。辺{@code i}の種類は{@code w.edgeDistinct[i]}。
+     *
+     * @return 種類ごとの移動の番号
+     */
+    private static char[] internKinds(Scratch w, int n, MoveTable moves) {
+        int[] offset = w.sortedOffset;
+        float[] cost = w.sortedCost;
         Long2IntOpenHashMap distinct = w.distinct;
         distinct.clear();
         int[] edgeDistinct = w.edgeDistinct(n);
@@ -226,13 +271,18 @@ final class SectionEdges {
         }
         char[] ids = new char[kinds];
         moves.intern(w.kindOffset, w.kindCost, kinds, ids);
+        return ids;
+    }
 
-        // 並びを番号順に積み、同じ並びは先に積んだものを指す
+    /** 出る辺の並びをノードの番号順に積み、同じ並びは先に積んだものを指す。 */
+    private static Shared shareOutgoing(Scratch w, int n, char[] ids, long[] nodeBits, int nodeCount) {
+        int[] edgeDistinct = w.edgeDistinct;
         char[] all = w.all(n);
         for (int i = 0; i < n; i++) {
             all[i] = ids[edgeDistinct[i]];
         }
         int[] nodeEnd = w.nodeEnd;
+        int[] groupEnd = w.groupEnd;
         int node = 0;
         for (int l = 0; l < LOCALS; l++) {
             if ((nodeBits[l >> 6] & 1L << l) != 0) {
@@ -242,12 +292,20 @@ final class SectionEdges {
         char[] pattern = new char[nodeCount];
         int[] patternStart = w.patternStart(nodeCount + 1);
         int patterns = share(all, nodeEnd, nodeCount, pattern, patternStart, w.table);
-        int[] sharedStart = Arrays.copyOf(patternStart, patterns + 1);
-        char[] sharedMove = Arrays.copyOf(all, patternStart[patterns]);
+        return new Shared(pattern, Arrays.copyOf(patternStart, patterns + 1),
+                Arrays.copyOf(all, patternStart[patterns]), n);
+    }
 
-        // セクションの中で閉じる辺を行き先ごとに並べる。出発点の昇順に積むと、行き先の中では相対座標の降順になる
-        // （両端ともセクション内なら、位置の差が相対座標そのもの）ので、同じ移動の組はいつも同じ並びになる
-        int[] inCount = count;
+    /**
+     * セクションの中で閉じる辺を行き先ごとに並べ、並びを共有する。出発点の昇順に積むと、行き先の中では相対座標の降順になる
+     * （両端ともセクション内なら、位置の差が相対座標そのもの）ので、同じ移動の組はいつも同じ並びになる。
+     */
+    private static Shared shareInside(Scratch w, char[] ids, long[] nodeBits, int nodeCount) {
+        int[] offset = w.sortedOffset;
+        int[] edgeDistinct = w.edgeDistinct;
+        int[] groupEnd = w.groupEnd;
+        int[] cursor = w.cursor;
+        int[] inCount = w.count;
         Arrays.fill(inCount, 0);
         int previous = 0;
         for (int l = 0; l < LOCALS; l++) {
@@ -281,16 +339,18 @@ final class SectionEdges {
             }
             previous = groupEnd[l];
         }
-        node = 0;
+        int[] nodeEnd = w.nodeEnd;
+        int node = 0;
         for (int l = 0; l < LOCALS; l++) {
             if ((nodeBits[l >> 6] & 1L << l) != 0) {
                 nodeEnd[node++] = inCount[l + 1];
             }
         }
         char[] inPattern = new char[nodeCount];
+        int[] patternStart = w.patternStart(nodeCount + 1);
         int inPatterns = share(inAll, nodeEnd, nodeCount, inPattern, patternStart, w.table);
-        return new SectionEdges(nodeBits, pattern, sharedStart, sharedMove, n, inPattern,
-                Arrays.copyOf(patternStart, inPatterns + 1), Arrays.copyOf(inAll, patternStart[inPatterns]), inside);
+        return new Shared(inPattern, Arrays.copyOf(patternStart, inPatterns + 1),
+                Arrays.copyOf(inAll, patternStart[inPatterns]), inside);
     }
 
     /** 位置{@code from}から相対座標{@code offsetKey}へ動いた先が同じセクションのノードなら、その位置。でなければ-1。 */
