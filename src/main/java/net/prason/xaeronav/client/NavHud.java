@@ -13,6 +13,7 @@ import net.minecraft.client.gui.GuiComponent;
 *///?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.pathfinding.astar.PathResult;
@@ -162,6 +163,7 @@ public final class NavHud {
             double ticks = eta.ticks(mc.player.blockPosition(), view.goal(), view.coarseRouteWaypoints());
             add(TextCompat.translatable("hud.xaeronav.direct_distance_eta",
                     straightDistance(mc, view.goal()), time(NavGuidance.estimateSeconds(ticks))), SECONDARY_COLOR);
+            addNetherShortcut(mc, view.goal());
         } else {
             add(TextCompat.translatable("hud.xaeronav.direct_distance",
                     straightDistance(mc, view.goal())), SECONDARY_COLOR);
@@ -229,12 +231,24 @@ public final class NavHud {
         }
         add(TextCompat.translatable(remainingKey(endsAtDestination, estimateBeyond),
                 guidance.remainingBlocks, time(guidance.remainingSeconds)), SECONDARY_COLOR);
+        if (stuck == null && !climbing) {
+            addNetherShortcut(mc, view.goal());
+        }
         addPreparationsAndRisks(mc, mount, ahead, from);
         // 詰みと判断済みなら「続きが計算される」は嘘になる（その先に道が無いと分かっているから
         // 詰みなので）。末端の手前で「案内が続く」を出している間も、同じことを2行で言うことになる
         if (!guidance.complete && stuck == null && !"hud.xaeronav.route_continues".equals(endpoint)) {
             add(TextCompat.translatable("hud.xaeronav.incomplete"), SECONDARY_COLOR);
         }
+    }
+
+    /** オーバーワールドで遠い目的地なら、ネザーでの換算距離を添える。 */
+    private void addNetherShortcut(Minecraft mc, BlockPos goal) {
+        if (!XaeroNavConfig.INSTANCE.netherShortcutHintEnabled() || !Level.OVERWORLD.equals(mc.level.dimension())) {
+            return;
+        }
+        NetherShortcut.netherBlocks(horizontalDistance(mc, goal)).ifPresent(blocks ->
+                add(TextCompat.translatable("hud.xaeronav.nether_shortcut", blocks), SECONDARY_COLOR));
     }
 
     /** この先の区間のための支度（降りる・ボート・トロッコ・設置ブロック）と、踏む前に知るべき危険。 */

@@ -55,6 +55,7 @@ public final class Autopilot {
         ConfigShot.armIfRequested();
         HopCheck.armIfRequested();
         ChatCheck.armIfRequested();
+        NetherHintCheck.armIfRequested();
         String spec = System.getProperty("xaeronav.autopilot");
         if (spec == null) {
             this.dx = 0;

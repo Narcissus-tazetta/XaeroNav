@@ -139,6 +139,8 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
                 cfg.dangerDashedEnabled(), cfg::setDangerDashedEnabled));
         addBig.accept(boolOption("gui.xaeronav.config.chat_coordinate_links",
                 cfg.chatCoordinateLinksEnabled(), cfg::setChatCoordinateLinksEnabled));
+        addBig.accept(boolOption("gui.xaeronav.config.nether_shortcut_hint",
+                cfg.netherShortcutHintEnabled(), cfg::setNetherShortcutHintEnabled));
         addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.chat_coordinate_shift_via",
                 "gui.xaeronav.config.chat_coordinate_shift_via.tooltip",
                 cfg.chatCoordinateShiftViaEnabled(), cfg::setChatCoordinateShiftViaEnabled));
@@ -213,6 +215,7 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         add("gui.xaeronav.config.goal_marker_enabled", cfg::goalMarkerEnabled, cfg::setGoalMarkerEnabled);
         add("gui.xaeronav.config.danger_dashed_enabled", cfg::dangerDashedEnabled, cfg::setDangerDashedEnabled);
         add("gui.xaeronav.config.chat_coordinate_links", cfg::chatCoordinateLinksEnabled, cfg::setChatCoordinateLinksEnabled);
+        add("gui.xaeronav.config.nether_shortcut_hint", cfg::netherShortcutHintEnabled, cfg::setNetherShortcutHintEnabled);
         add("gui.xaeronav.config.chat_coordinate_shift_via", cfg::chatCoordinateShiftViaEnabled, cfg::setChatCoordinateShiftViaEnabled);
     }
 

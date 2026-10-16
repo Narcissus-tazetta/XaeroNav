@@ -92,6 +92,7 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue goalMarkerEnabled;
     private final NavConfigSpec.BoolValue dangerDashedEnabled;
     private final NavConfigSpec.BoolValue chatCoordinateLinksEnabled;
+    private final NavConfigSpec.BoolValue netherShortcutHintEnabled;
     private final NavConfigSpec.BoolValue chatCoordinateShiftViaEnabled;
 
     // package-private: 2つの保存先が同じ定義から同じ設定ファイルを作ることをテストが確かめる
@@ -412,6 +413,11 @@ public final class XaeroNavConfig {
                         "Yが今いるワールドの高さの範囲に入るときだけ。他のmodやサーバーが付けたリンクには手を付けない")
                 .define("chatCoordinateLinksEnabled", true);
 
+        netherShortcutHintEnabled = spec
+                .comment("オーバーワールドで遠い目的地へ向かうとき、ネザーを通ればその約1/8の距離になることをHUDに添えるか",
+                        "距離の換算だけを出す。ポータルの位置・行き先・ネザー内の道は見ていないので、所要時間の比較ではない")
+                .define("netherShortcutHintEnabled", true);
+
         chatCoordinateShiftViaEnabled = spec
                 .comment("座標のリンクをShift+クリックしたとき、目的地を置き換えずに経由地として足すか",
                         "falseならShift+クリックでも普通のクリックと同じく目的地にする")
@@ -692,6 +698,14 @@ public final class XaeroNavConfig {
 
     public void setChatCoordinateLinksEnabled(boolean value) {
         chatCoordinateLinksEnabled.set(value);
+    }
+
+    public boolean netherShortcutHintEnabled() {
+        return netherShortcutHintEnabled.get();
+    }
+
+    public void setNetherShortcutHintEnabled(boolean value) {
+        netherShortcutHintEnabled.set(value);
     }
 
     public boolean chatCoordinateShiftViaEnabled() {

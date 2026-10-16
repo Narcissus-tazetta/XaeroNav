@@ -329,6 +329,7 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 | `straightLineEnabled` | `true` | 経路が分からない区間を目的地までの点線で示す |
 | `goalMarkerEnabled` | `true` | 目的地を Xaero の地図上に示す（ミニマップがあれば一時ウェイポイント、無ければ XaeroNav が描くピン） |
 | `chatCoordinateLinksEnabled` | `true` | チャットに出た座標をクリックで目的地にできるリンクにする |
+| `netherShortcutHintEnabled` | `true` | オーバーワールドで遠い目的地へ向かうとき、ネザーでの換算距離（1/8）をHUDに添える |
 | `chatCoordinateShiftViaEnabled` | `false` | 座標のリンクを Shift+クリックしたとき、目的地を置き換えずに経由地として足す |
 
 </details>

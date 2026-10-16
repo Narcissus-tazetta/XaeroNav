@@ -341,6 +341,7 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 | `straightLineEnabled` | `true` | Show a dotted line to the destination for stretches with no known route |
 | `goalMarkerEnabled` | `true` | Mark the destination on Xaero's maps (a temporary waypoint with the minimap installed, otherwise a pin drawn by XaeroNav) |
 | `chatCoordinateLinksEnabled` | `true` | Turn coordinates in chat into links that set the destination when clicked |
+| `netherShortcutHintEnabled` | `true` | For far Overworld destinations, show the equivalent Nether distance (1/8) in the HUD |
 | `chatCoordinateShiftViaEnabled` | `false` | Shift+clicking a coordinate link adds it as a stop instead of replacing the destination |
 
 </details>
