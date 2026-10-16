@@ -135,7 +135,7 @@ jobs:
       # 失敗したときに、どのテストがなぜ落ちたかをログを掘らずに見られるようにする
       - name: Upload test report
         if: failure() && matrix.node.node == needs.discover.outputs.canonical_node
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-report-${{ matrix.node.node }}
           path: |
@@ -146,7 +146,7 @@ jobs:
       # PRから実際のjarを落として動作確認できるようにする
       - name: Upload mod jar
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: xaeronav-jar-${{ matrix.node.node }}
           path: versions/${{ matrix.node.node }}/build/libs/*.jar
@@ -413,7 +413,7 @@ jobs:
 
       - name: Upload client logs
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: client-log-${{ matrix.node.node }}
           path: |
@@ -498,7 +498,7 @@ jobs:
 
       - name: Upload server logs
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: server-log-${{ matrix.node.node }}
           path: |
