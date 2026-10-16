@@ -1,9 +1,51 @@
 # XaeroNav
 
+[![CurseForge Downloads](https://img.shields.io/curseforge/dt/1677485?logo=curseforge&style=flat)](https://www.curseforge.com/minecraft/mc-mods/xaeronav)
+[![Modrinth Downloads](https://img.shields.io/modrinth/dt/cCo2cAHW?logo=modrinth&style=flat)](https://modrinth.com/mod/xaeronav)
+
 [English](README.md) | 日本語
 
 目的地までの実際に歩ける経路を計算して、ワールド内・Xaero's World Map・Xaero's Minimap の
 3 箇所に描くクライアント MOD です。画面上部には次にどちらへ進むかが出ます。
+
+![Xaero's World Mapに描かれた経路](docs/images/map-image.png)
+
+## まず使う
+
+[インストール](#インストール)後、次の手順で案内を始められます。
+
+1. Xaero's World Map で目的地を右クリックし、「ここへ案内」を選ぶ。
+2. 経路が表示されたら、線と画面上部の案内に沿って進む。
+3. 終了するときは `/xaeronav clear` で経路を消す。
+
+探索には少し時間がかかることがあります。画面上部に「経路を計算中…」と表示されている間は
+計算中です。遠い目的地への経路は、計算できた区間を表示し、移動に合わせて先へ伸びていきます。
+
+移動・採掘・ブロック設置はプレイヤーが行います。
+Xaero を入れていない場合は、`/xaeronav goto <x> <y> <z>` で目的地を指定できます。
+
+## インストール
+
+- Java のヒープは 2GB 以上（公式ランチャーの既定値）。2.5GB 未満では航法グラフの範囲が狭くなります
+  （[既知の制約](#既知の制約)を参照）
+- クライアント専用。サーバー側に入れるものはありません。Forge版を誤って専用サーバーの`mods`へ
+  入れてもサーバー側の機能は持たず、起動を妨げません
+- ライセンスは MIT
+
+1. Minecraft のバージョンに合った [Forge](https://files.minecraftforge.net/)、
+   [NeoForge](https://neoforged.net/)、または [Fabric](https://fabricmc.net/) を導入する。
+   Fabric の場合は [Fabric API](https://modrinth.com/mod/fabric-api) も必要です。
+   必要なバージョンは下の「対応 Minecraft・ローダー」を確認してください。
+2. [CurseForge](https://www.curseforge.com/minecraft/mc-mods/xaeronav)、
+   [Modrinth](https://modrinth.com/mod/xaeronav)、または
+   [GitHub Releases](https://github.com/Narcissus-tazetta/XaeroNav/releases) から、使うローダーと
+   Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
+   `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
+3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。
+   必要なバージョンは下の「対応 Xaero バージョン」を確認してください。
+
+<details>
+<summary>対応 Minecraft・ローダー</summary>
 
 - Minecraft 26.3 / Forge 66.0.9 以降、または Fabric（Fabric Loader 0.19.0 以降 + Fabric API 0.161.0 以降）
 - Minecraft 26.2 / NeoForge 26.2.0.88 以降、Forge 65.1.3 以降、または Fabric（Fabric Loader 0.19.0 以降 +
@@ -36,90 +78,32 @@
 - Minecraft 1.18.2 / Forge 40 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.77.0 以降）
 - Minecraft 1.16.5 / Forge 36.2.39 以降、または Fabric（Fabric Loader 0.15.11 以降 + Fabric API 0.42.0 以降）。
   Java 8 で動きます
-- Java のヒープは 2GB 以上（公式ランチャーの既定値）。2.5GB 未満では航法グラフの範囲が狭くなります
-  （[既知の制約](#既知の制約)を参照）
-- クライアント専用。サーバー側に入れるものはありません。Forge版を誤って専用サーバーの`mods`へ
-  入れてもサーバー側の機能は持たず、起動を妨げません
-- ライセンスは MIT
 
-**[経路探索の仕組み →](docs/how-routing-works.ja.md)** 粗い地図から1歩ごとの移動まで、経路をどう見つけて
-歩きながらどう保つかを図つきで説明しています。
+</details>
 
-開発者向けの設計契約は[アーキテクチャ判断記録](docs/architecture/README.md)にまとめています。
+<details>
+<summary>対応 Xaero バージョン</summary>
 
-まだ 0.x 系で、いちばん試してほしいのは経路そのものです。遠回りする・途中で切れる・そもそも出ない・
-辿れない道を通される、といったことがあったら、その場で `/xaeronav debug` と `/xaeronav debug probe` を
-実行して、出力を添えて [Issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) を立ててください。
-いまの状態と、詳細探索がどこまで到達して何で止まったかが出るので、たいていはこちらで同じ状況を再現できます。
+1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、26.1.2・1.21.11・1.21.10・1.21.8・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
+Minimap 26.5.0 以降、26.2 なら World Map 1.46.1 以降・Minimap 26.5.1 以降、26.3 なら World Map 1.46.4 以降・Minimap 26.5.3 以降。
+1.21.3 なら World Map 1.40.6 以降・Minimap 25.3.5 以降。
+Xaero の更新が止まっている版では最後の版を使う（1.20.2・1.20.5・1.20.6 は World Map 1.39.12・Minimap 25.2.10
+（Forge 版の Minimap は 25.2.12）、1.21.6 は World Map 1.39.10・Minimap 25.2.7、1.21.7 は World Map 1.39.12・
+Minimap 25.2.10、1.21.9 は World Map 1.39.17・Minimap 25.2.15）。
+1.21 と 1.20.3（Fabric）は今の World Map が動くが、その版向けの最後の Minimap（25.3.2）とは一緒に動かない
+（World Map が拒む）。両方を入れるなら World Map 1.41.2 と Minimap 25.3.2 を組み合わせる。
 
-![Xaero's World Mapに描かれた経路](docs/images/map-image.png)
+</details>
 
-## インストール
+## よくある困りごと
 
-1. ローダーを導入する。
-   - Minecraft 26.3: [Forge](https://files.minecraftforge.net/) 66.0.9 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 以降）。
-   - Minecraft 26.2: [NeoForge](https://neoforged.net/) 26.2.0.88 以降、
-     [Forge](https://files.minecraftforge.net/) 65.1.3 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 以降）。
-   - Minecraft 26.1.2: [NeoForge](https://neoforged.net/) 26.1.2.112 以降、
-     [Forge](https://files.minecraftforge.net/) 64.1.3 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.19.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.155.3 以降）。
-     Fabric版の jar は Minecraft 26.1・26.1.1 でも動きます。
-   - Minecraft 1.21.11: [NeoForge](https://neoforged.net/) 21.11.45 以降、
-     [Forge](https://files.minecraftforge.net/) 61.2.1 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.17.3 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 以降）。
-   - Minecraft 1.21.10: [NeoForge](https://neoforged.net/) 21.10.64 以降、
-     [Forge](https://files.minecraftforge.net/) 60.1.15 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.17.0 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.138.4 以降）。
-     Fabric版の jar は Minecraft 1.21.9 でも動きます（Fabric API 0.134.1 以降）。
-   - Minecraft 1.21.8: [NeoForge](https://neoforged.net/) 21.8.54 以降、
-     [Forge](https://files.minecraftforge.net/) 58.1.22 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.16.13 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.136.1 以降）。
-     Fabric版の jar は Minecraft 1.21.6・1.21.7 でも動きます（Fabric API 0.128.2 以降）。
-   - Minecraft 1.21.5: [NeoForge](https://neoforged.net/) 21.5 以降、
-     [Forge](https://files.minecraftforge.net/) 55 以降、または [Fabric](https://fabricmc.net/)
-     （Fabric Loader 0.16.10 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.128.2 以降）。
-   - Minecraft 1.21.4: [NeoForge](https://neoforged.net/) 21.4 以降、
-     [Forge](https://files.minecraftforge.net/) 54.1.5 以降、または [Fabric](https://fabricmc.net/)
-     （Fabric Loader 0.16.9 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.119.4 以降）。
-   - Minecraft 1.21.3: [NeoForge](https://neoforged.net/) 21.3 以降、
-     [Forge](https://files.minecraftforge.net/) 53.1.2 以降、または [Fabric](https://fabricmc.net/)
-     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.114.1 以降）。
-   - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 以降、
-     [Forge](https://files.minecraftforge.net/) 52.1.16 以降、または [Fabric](https://fabricmc.net/)
-     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.102.0 以降）。
-     NeoForge 版と Fabric 版の jar は Minecraft 1.21 でも動きます。
-   - Minecraft 1.20.6: [NeoForge](https://neoforged.net/) 20.6 以降、
-     [Forge](https://files.minecraftforge.net/) 50.2.1 以降、または [Fabric](https://fabricmc.net/)
-     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.100.8 以降）。
-     Fabric版の jar は Minecraft 1.20.5 でも動きます（Fabric API 0.97.8 以降）。
-   - Minecraft 1.20.4: [NeoForge](https://neoforged.net/) 20.4 以降、
-     [Forge](https://files.minecraftforge.net/) 49.1.10 以降、または [Fabric](https://fabricmc.net/)
-     （Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.97.3 以降）。
-     Fabric版の jar は Minecraft 1.20.3 でも動きます（Fabric API 0.91.1 以降）。
-   - Minecraft 1.20.2: [Forge](https://files.minecraftforge.net/) 48 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.91.6 以降）。
-   - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api)）。
-   - Minecraft 1.19.2: [Forge](https://files.minecraftforge.net/) 43 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.77.0 以降）。
-   - Minecraft 1.18.2: [Forge](https://files.minecraftforge.net/) 40 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.77.0 以降）。
-   - Minecraft 1.16.5: [Forge](https://files.minecraftforge.net/) 36.2.39 以降、または
-     [Fabric](https://fabricmc.net/)（Fabric Loader 0.15.11 以降 + [Fabric API](https://modrinth.com/mod/fabric-api) 0.42.0 以降）。
-2. [Releasesページ](https://github.com/Narcissus-tazetta/XaeroNav/releases)から、使うローダーと
-   Minecraft のバージョンに合った jar をダウンロードし、`mods` フォルダへ入れる。jar の名前は
-   `xaeronav-<バージョン>-<ローダー>-<Minecraftのバージョン>.jar`（例: `xaeronav-0.3.0-fabric-1.20.1.jar`）。
-3. 地図と連携させたい場合は Xaero's World Map・Xaero's Minimap も入れる（任意）。必要な版は
-   1.21.1・1.21.4・1.21.5・1.20.4 なら World Map 1.44.2 以降・Minimap 26.4.2 以降、26.1.2・1.21.11・1.21.10・1.21.8・1.20.1・1.19.2・1.18.2・1.16.5 なら World Map 1.46.0 以降・
-   Minimap 26.5.0 以降、26.2 なら World Map 1.46.1 以降・Minimap 26.5.1 以降、26.3 なら World Map 1.46.4 以降・Minimap 26.5.3 以降。
-   1.21.3 なら World Map 1.40.6 以降・Minimap 25.3.5 以降。
-   Xaero の更新が止まっている版では最後の版を使う（1.20.2・1.20.5・1.20.6 は World Map 1.39.12・Minimap 25.2.10
-   （Forge 版の Minimap は 25.2.12）、1.21.6 は World Map 1.39.10・Minimap 25.2.7、1.21.7 は World Map 1.39.12・
-   Minimap 25.2.10、1.21.9 は World Map 1.39.17・Minimap 25.2.15）。
-   1.21 と 1.20.3（Fabric）は今の World Map が動くが、その版向けの最後の Minimap（25.3.2）とは一緒に動かない
-   （World Map が拒む）。両方を入れるなら World Map 1.41.2 と Minimap 25.3.2 を組み合わせる。
+| 困りごと | 確認すること |
+|---|---|
+| 目的地を指定しても、すぐに経路が出ない | 画面上部が「経路を計算中…」なら探索中です。経路が出ない状態が続く場合は、下の不具合報告の手順を確認してください。 |
+| 遠くまで経路が出ない・途中から点線になる | 詳細探索は読み込み済みチャンク内で行われます。描画距離を確認してください。長距離案内には Xaero の地図データが必要で、未探索の地域では使えません。[既知の制約](#既知の制約)も参照してください。 |
+| CPU 負荷が気になる | [設定](#設定)の `routingMode` を `BALANCED` または `LIGHT` にすると負荷を抑えられます。`LIGHT` は細かな寄り道が増えることがあります。 |
+| 掘削・ブロック設置を含む経路を避けたい | [設定](#設定)で `diggingEnabled = false`・`bridgingEnabled = false` にします。 |
+| 地図に「ここへ案内」が出ない | Xaero's World Map と XaeroNav が導入されているか、上の「対応 Xaero バージョン」を満たしているか確認してください。連携が無効になった場合はチャットに理由が出ます。 |
 
 ## 何ができるか
 
@@ -283,6 +267,9 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 
 `config/xaeronav-client.toml`、または Mods 一覧の「設定」ボタンから変更できます。
 
+<details>
+<summary>経路探索の設定 [pathfinding]</summary>
+
 ### `[pathfinding]`
 
 | 項目 | 既定 | 説明 |
@@ -329,6 +316,11 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 加工されたブロック（丸石・石レンガ・板材など）や中身を持つブロック（チェスト・かまど）は
 掘りません。未知のブロックも掘らない側に倒します。
 
+</details>
+
+<details>
+<summary>表示の設定 [display]</summary>
+
 ### `[display]`
 
 | 項目 | 既定 | 説明 |
@@ -338,6 +330,8 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 | `goalMarkerEnabled` | `true` | 目的地を Xaero の地図上に示す（ミニマップがあれば一時ウェイポイント、無ければ XaeroNav が描くピン） |
 | `chatCoordinateLinksEnabled` | `true` | チャットに出た座標をクリックで目的地にできるリンクにする |
 | `chatCoordinateShiftViaEnabled` | `false` | 座標のリンクを Shift+クリックしたとき、目的地を置き換えずに経由地として足す |
+
+</details>
 
 ## 既知の制約
 
@@ -367,6 +361,18 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
   どちらも描画距離が上限）で、組み直す前のブロックの変化は反映されません。歩くたびと、探索が前進しなく
   なったときに組み直します。組み直すあいだは、8 ブロック歩くごとに CPU コアの半分ほどが最大 2 秒ほど埋まります（`routingMode = BALANCED` なら 48 ブロックごと、`LIGHT` なら 96 ブロックごとに 1 コアだけ）。
 - Java のヒープが 2GB 未満の環境は対象外です。ゲーム本体がメモリ不足で落ちることがあります。
+
+### 不具合報告・詳しい仕組み
+
+**[経路探索の仕組み →](docs/how-routing-works.ja.md)** 粗い地図から1歩ごとの移動まで、経路をどう見つけて
+歩きながらどう保つかを図つきで説明しています。
+
+開発者向けの設計契約は[アーキテクチャ判断記録](docs/architecture/README.md)にまとめています。
+
+まだ 0.x 系で、いちばん試してほしいのは経路そのものです。遠回りする・途中で切れる・そもそも出ない・
+辿れない道を通される、といったことがあったら、その場で `/xaeronav debug` と `/xaeronav debug probe` を
+実行して、出力を添えて [Issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) を立ててください。
+いまの状態と、詳細探索がどこまで到達して何で止まったかが出るので、たいていはこちらで同じ状況を再現できます。
 
 ## ビルド
 

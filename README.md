@@ -1,10 +1,53 @@
 # XaeroNav
 
+[![CurseForge Downloads](https://img.shields.io/curseforge/dt/1677485?logo=curseforge&style=flat)](https://www.curseforge.com/minecraft/mc-mods/xaeronav)
+[![Modrinth Downloads](https://img.shields.io/modrinth/dt/cCo2cAHW?logo=modrinth&style=flat)](https://modrinth.com/mod/xaeronav)
+
 English | [日本語](README.ja.md)
 
 A client-side Minecraft mod that finds a route you can actually walk to a destination, then draws
 it in the world, on Xaero's World Map, and on Xaero's Minimap. The top of the screen tells you
 where to go next.
+
+![Route drawn on Xaero's World Map](docs/images/map-image.png)
+
+## Quick start
+
+After [installation](#installation), start navigating in three steps:
+
+1. Right-click your destination on Xaero's World Map and select "Navigate Here".
+2. Once the route appears, follow the line and the guidance at the top of the screen.
+3. Run `/xaeronav clear` when you want to stop navigating.
+
+Finding a route can take a little time. "Finding a route…" at the top of the screen means the search
+is still running. For distant destinations, the computed section is shown first and extended as you move.
+
+You move, dig, and place blocks yourself.
+Without Xaero installed, set a destination with `/xaeronav goto <x> <y> <z>`.
+
+## Installation
+
+- A Java heap of at least 2 GB, the official launcher's default. Below 2.5 GB the navigation graph
+  covers a smaller area (see [Known limitations](#known-limitations))
+- Client-only. Nothing to install on the server. If the Forge jar is accidentally placed in a
+  dedicated server's `mods` folder, it has no server-side feature and does not block startup.
+- MIT licensed
+
+1. Install [Forge](https://files.minecraftforge.net/), [NeoForge](https://neoforged.net/),
+   or [Fabric](https://fabricmc.net/) for your Minecraft version. Fabric also needs
+   [Fabric API](https://modrinth.com/mod/fabric-api). See "Supported Minecraft versions and loaders" below
+   for the required versions.
+2. Download the jar for your loader and Minecraft version from
+   [CurseForge](https://www.curseforge.com/minecraft/mc-mods/xaeronav),
+   [Modrinth](https://modrinth.com/mod/xaeronav), or
+   [GitHub Releases](https://github.com/Narcissus-tazetta/XaeroNav/releases) and drop it into your
+   `mods` folder. Jars are named `xaeronav-<version>-<loader>-<minecraft version>.jar`, for example
+   `xaeronav-0.3.0-fabric-1.20.1.jar`.
+3. For map integration, also install Xaero's World Map and/or Xaero's Minimap (optional).
+   See "Supported Xaero versions" below for the required versions.
+
+<details>
+<summary>Supported Minecraft versions and loaders</summary>
 
 - Minecraft 26.3, on Forge 66.0.9+ or Fabric (Fabric Loader 0.19.0+ and Fabric API 0.161.0+)
 - Minecraft 26.2, on NeoForge 26.2.0.88+, Forge 65.1.3+, or Fabric (Fabric Loader 0.19.0+ and
@@ -37,113 +80,35 @@ where to go next.
 - Minecraft 1.18.2, on Forge 40+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.77.0+)
 - Minecraft 1.16.5, on Forge 36.2.39+ or Fabric (Fabric Loader 0.15.11+ and Fabric API 0.42.0+).
   Runs on Java 8
-- A Java heap of at least 2 GB, the official launcher's default. Below 2.5 GB the navigation graph
-  covers a smaller area (see [Known limitations](#known-limitations))
-- Client-only. Nothing to install on the server. If the Forge jar is accidentally placed in a
-  dedicated server's `mods` folder, it has no server-side feature and does not block startup.
-- MIT licensed
 
-**[How routing works →](docs/how-routing-works.md)** A walkthrough of how the route is found and
-kept up to date, from the coarse map down to each step.
+</details>
 
-Contributor-facing design contracts are collected in the
-[architecture decision records](docs/architecture/README.md).
+<details>
+<summary>Supported Xaero versions</summary>
 
-This is still a 0.x release, and routing is the part still worth stress-testing. If a route detours,
-stops short, never appears, or sends you somewhere you cannot follow, run
-`/xaeronav debug` and `/xaeronav debug probe` where it happens and
-[open an issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) with that output —
-it shows the current state and what the search reached and why it stopped, which is usually enough
-to reproduce the problem here.
+Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, 1.21.4, 1.21.5 and 1.20.4,
+World Map 1.46.0 / Minimap 26.5.0 on 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.20.1, 1.19.2, 1.18.2 and 1.16.5,
+World Map 1.46.1 / Minimap 26.5.1 on 26.2, World Map 1.46.4 / Minimap 26.5.3 on 26.3.
+World Map 1.40.6 / Minimap 25.3.5 on 1.21.3.
+Xaero no longer updates its mods for some versions, so there the last releases work:
+World Map 1.39.12 / Minimap 25.2.10 on 1.20.2, 1.20.5 and 1.20.6 (Forge: Minimap 25.2.12),
+World Map 1.39.10 / Minimap 25.2.7 on 1.21.6, World Map 1.39.12 / Minimap 25.2.10 on 1.21.7,
+World Map 1.39.17 / Minimap 25.2.15 on 1.21.9.
+On 1.21 and 1.20.3 (Fabric) the current World Map works, but the last Minimap for them is 25.3.2,
+which the current World Map refuses to run with. To use both there, take World Map 1.41.2 with
+Minimap 25.3.2.
 
-![Route drawn on Xaero's World Map](docs/images/map-image.png)
+</details>
 
-## Installation
+## Troubleshooting
 
-1. Install a loader:
-   - Minecraft 26.3: [Forge](https://files.minecraftforge.net/) 66.0.9 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.19.0 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 or newer.
-   - Minecraft 26.2: [NeoForge](https://neoforged.net/) 26.2.0.88 or newer,
-     [Forge](https://files.minecraftforge.net/) 65.1.3 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.19.0 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 or newer.
-   - Minecraft 26.1.2: [NeoForge](https://neoforged.net/) 26.1.2.112 or newer,
-     [Forge](https://files.minecraftforge.net/) 64.1.3 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.19.0 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.155.3 or newer. The Fabric jar also runs on
-     Minecraft 26.1 and 26.1.1.
-   - Minecraft 1.21.11: [NeoForge](https://neoforged.net/) 21.11.45 or newer,
-     [Forge](https://files.minecraftforge.net/) 61.2.1 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.17.3 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.141.6 or newer.
-   - Minecraft 1.21.10: [NeoForge](https://neoforged.net/) 21.10.64 or newer,
-     [Forge](https://files.minecraftforge.net/) 60.1.15 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.17.0 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.138.4 or newer. The Fabric jar also runs on
-     Minecraft 1.21.9, with Fabric API 0.134.1 or newer.
-   - Minecraft 1.21.8: [NeoForge](https://neoforged.net/) 21.8.54 or newer,
-     [Forge](https://files.minecraftforge.net/) 58.1.22 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.16.13 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.136.1 or newer. The Fabric jar also runs on
-     Minecraft 1.21.6 and 1.21.7, with Fabric API 0.128.2 or newer.
-   - Minecraft 1.21.5: [NeoForge](https://neoforged.net/) 21.5 or newer,
-     [Forge](https://files.minecraftforge.net/) 55 or newer, or [Fabric](https://fabricmc.net/)
-     with Fabric Loader 0.16.10 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.128.2 or newer.
-   - Minecraft 1.21.4: [NeoForge](https://neoforged.net/) 21.4 or newer,
-     [Forge](https://files.minecraftforge.net/) 54.1.5 or newer, or [Fabric](https://fabricmc.net/)
-     with Fabric Loader 0.16.9 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.119.4 or newer.
-   - Minecraft 1.21.3: [NeoForge](https://neoforged.net/) 21.3 or newer,
-     [Forge](https://files.minecraftforge.net/) 53.1.2 or newer, or [Fabric](https://fabricmc.net/)
-     with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.114.1 or newer.
-   - Minecraft 1.21.1: [NeoForge](https://neoforged.net/) 21.1.228 or newer,
-     [Forge](https://files.minecraftforge.net/) 52.1.16 or newer, or [Fabric](https://fabricmc.net/)
-     with Fabric Loader 0.15.11 or newer plus [Fabric API](https://modrinth.com/mod/fabric-api) 0.102.0
-     or newer. The NeoForge and Fabric jars also run on Minecraft 1.21.
-   - Minecraft 1.20.6: [NeoForge](https://neoforged.net/) 20.6 or newer,
-     [Forge](https://files.minecraftforge.net/) 50.2.1 or newer, or [Fabric](https://fabricmc.net/)
-     with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.100.8 or newer. The Fabric jar also runs on
-     Minecraft 1.20.5, with Fabric API 0.97.8 or newer.
-   - Minecraft 1.20.4: [NeoForge](https://neoforged.net/) 20.4 or newer,
-     [Forge](https://files.minecraftforge.net/) 49.1.10 or newer, or [Fabric](https://fabricmc.net/)
-     with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.97.3 or newer. The Fabric jar also runs on
-     Minecraft 1.20.3, with Fabric API 0.91.1 or newer.
-   - Minecraft 1.20.2: [Forge](https://files.minecraftforge.net/) 48 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.91.6 or newer.
-   - Minecraft 1.20.1: [Forge](https://files.minecraftforge.net/) 47.4.23 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api).
-   - Minecraft 1.19.2: [Forge](https://files.minecraftforge.net/) 43 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.77.0 or newer.
-   - Minecraft 1.18.2: [Forge](https://files.minecraftforge.net/) 40 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.77.0 or newer.
-   - Minecraft 1.16.5: [Forge](https://files.minecraftforge.net/) 36.2.39 or newer, or
-     [Fabric](https://fabricmc.net/) with Fabric Loader 0.15.11 or newer plus
-     [Fabric API](https://modrinth.com/mod/fabric-api) 0.42.0 or newer.
-2. Download the jar for your loader and Minecraft version from the
-   [Releases page](https://github.com/Narcissus-tazetta/XaeroNav/releases) and drop it into your
-   `mods` folder. Jars are named `xaeronav-<version>-<loader>-<minecraft version>.jar`, for example
-   `xaeronav-0.3.0-fabric-1.20.1.jar`.
-3. For map integration, also install Xaero's World Map and/or Xaero's Minimap. This part is
-   optional. Minimum versions: World Map 1.44.2 / Minimap 26.4.2 on 1.21.1, 1.21.4, 1.21.5 and 1.20.4,
-   World Map 1.46.0 / Minimap 26.5.0 on 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.20.1, 1.19.2, 1.18.2 and 1.16.5,
-   World Map 1.46.1 / Minimap 26.5.1 on 26.2, World Map 1.46.4 / Minimap 26.5.3 on 26.3.
-   World Map 1.40.6 / Minimap 25.3.5 on 1.21.3.
-   Xaero no longer updates its mods for some versions, so there the last releases work:
-   World Map 1.39.12 / Minimap 25.2.10 on 1.20.2, 1.20.5 and 1.20.6 (Forge: Minimap 25.2.12),
-   World Map 1.39.10 / Minimap 25.2.7 on 1.21.6, World Map 1.39.12 / Minimap 25.2.10 on 1.21.7,
-   World Map 1.39.17 / Minimap 25.2.15 on 1.21.9.
-   On 1.21 and 1.20.3 (Fabric) the current World Map works, but the last Minimap for them is 25.3.2,
-   which the current World Map refuses to run with. To use both there, take World Map 1.41.2 with
-   Minimap 25.3.2.
+| Problem | What to check |
+|---|---|
+| No route appears immediately after choosing a destination | "Finding a route…" at the top of the screen means the search is running. If no route appears after that, see the bug-report instructions below. |
+| The route stops short or becomes a dotted line | Detailed searches cover loaded chunks. Check your render distance. Long-distance guidance needs Xaero's map data and is unavailable in unexplored areas. See [Known limitations](#known-limitations). |
+| CPU load is too high | Set `routingMode` to `BALANCED` or `LIGHT` in [Configuration](#configuration). `LIGHT` can add small detours. |
+| Routes include digging or placing blocks | Set `diggingEnabled = false` and `bridgingEnabled = false` in [Configuration](#configuration) to exclude those moves. |
+| "Navigate Here" is missing from the map | Check that Xaero's World Map and XaeroNav are installed and meet "Supported Xaero versions" above. If an integration switches off, chat shows the reason. |
 
 ## What it does
 
@@ -314,6 +279,9 @@ Other markings:
 
 `config/xaeronav-client.toml`, or the "Config" button in the Mods list.
 
+<details>
+<summary>Pathfinding settings [pathfinding]</summary>
+
 ### `[pathfinding]`
 
 | Key | Default | Description |
@@ -360,6 +328,11 @@ By default, digging only allows naturally generated terrain: stone, dirt, sand, 
 netherrack and so on. Processed blocks such as cobblestone, stone bricks and planks are never dug,
 neither are blocks with an inventory, and anything unrecognized is treated as not diggable.
 
+</details>
+
+<details>
+<summary>Display settings [display]</summary>
+
 ### `[display]`
 
 | Key | Default | Description |
@@ -369,6 +342,8 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 | `goalMarkerEnabled` | `true` | Mark the destination on Xaero's maps (a temporary waypoint with the minimap installed, otherwise a pin drawn by XaeroNav) |
 | `chatCoordinateLinksEnabled` | `true` | Turn coordinates in chat into links that set the destination when clicked |
 | `chatCoordinateShiftViaEnabled` | `false` | Shift+clicking a coordinate link adds it as a stop instead of replacing the destination |
+
+</details>
 
 ## Known limitations
 
@@ -401,6 +376,21 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
   your CPU cores busy for up to about 2 seconds every 8 blocks you walk (every 48 blocks with
   `routingMode = BALANCED`, every 96 blocks on one core with `LIGHT`).
 - A Java heap below 2 GB is not supported. The game itself can run out of memory there.
+
+### Bug reports and further reading
+
+**[How routing works →](docs/how-routing-works.md)** A walkthrough of how the route is found and
+kept up to date, from the coarse map down to each step.
+
+Contributor-facing design contracts are collected in the
+[architecture decision records](docs/architecture/README.md).
+
+This is still a 0.x release, and routing is the part still worth stress-testing. If a route detours,
+stops short, never appears, or sends you somewhere you cannot follow, run
+`/xaeronav debug` and `/xaeronav debug probe` where it happens and
+[open an issue](https://github.com/Narcissus-tazetta/XaeroNav/issues/new/choose) with that output —
+it shows the current state and what the search reached and why it stopped, which is usually enough
+to reproduce the problem here.
 
 ## Building
 
