@@ -224,7 +224,7 @@ public final class PathRenderer {
         BlockPos goal = view.goal();
         boolean hasGround = groundResult != null && !groundResult.steps().isEmpty();
         boolean hasFlight = !flight.isEmpty();
-        PathResult nextLeg = PathfindingState.INSTANCE.legPreviewPath();
+        PathResult nextLeg = view.legPreviewPath();
         boolean hasNextLeg = nextLeg != null && !nextLeg.steps().isEmpty();
         boolean arrived = view.arrived();
         // 到着表示の間は方角を示す点線を出さない。到着の判定半径(3)と点線を出し始める距離(3)は
@@ -274,7 +274,7 @@ public final class PathRenderer {
         if (hasNextLeg) {
             // 始点はプレイヤーではなく先の区間の始点（経由地）。プレイヤーにすると、経由地へ向かう余計な直線が
             // プレイヤーから生える
-            BlockPos legStart = PathfindingState.INSTANCE.legPreviewFrom();
+            BlockPos legStart = view.legPreviewFrom();
             PathGeometry geometry = nextLegGeometryCache.get(nextLeg, r -> PathGeometry.build(mc.level, r, legStart));
             renderNextLeg(bufferSource, pose, geometry, cameraPos, cullRadiusSq);
         }

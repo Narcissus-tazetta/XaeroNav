@@ -51,6 +51,7 @@ final class LegPreview {
     private static final int PREVIEW_RETRY_MOVE_BLOCKS = 64;
 
     private final Consumer<Runnable> onMainThread;
+    private final Runnable onChanged;
     private final ExecutorService coarseExecutor = DaemonThreads.singleThread("xaeronav-leg-preview");
     private final PathfindingExecutor detailExecutor = new PathfindingExecutor();
 
@@ -80,8 +81,9 @@ final class LegPreview {
     private record PreviewRequest(BlockPos from, BlockPos to, BlockPos playerAt) {
     }
 
-    LegPreview(Consumer<Runnable> onMainThread) {
+    LegPreview(Consumer<Runnable> onMainThread, Runnable onChanged) {
         this.onMainThread = onMainThread;
+        this.onChanged = onChanged;
     }
 
     /** 地図に描く区間の折れ線。各要素の先頭が区間の始点で、最後が行き先。 */
@@ -209,6 +211,7 @@ final class LegPreview {
         boolean forNextLeg = !ahead.isEmpty() && shown.to().equals(ahead.get(0));
         if (forCurrentLeg ? legHasPath : !forNextLeg) {
             preview = null;
+            onChanged.run();
         }
     }
 
@@ -251,6 +254,7 @@ final class LegPreview {
                     }
                     if (!result.steps().isEmpty()) {
                         preview = new Preview(from, next, result);
+                        onChanged.run();
                     }
                 }));
     }

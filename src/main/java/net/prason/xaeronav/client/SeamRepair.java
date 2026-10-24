@@ -43,7 +43,7 @@ import net.prason.xaeronav.util.ChangeGate;
  * 引き直しても繋ぎ目の遠回りは半分しか消えず（引き直した先にも新しい繋ぎ目ができる）、
  * 足元の線が4〜12回描き変わった。ここは1〜3回で、しかも足元ではなく先の方が変わる。
  *
- * <p>{@link PathfindingState}の目的地/経路/計算中フラグは{@link Host}経由でしか触らない
+ * <p>{@link PathfindingState}の目的地/経路/計算中フラグは{@link PathHost}経由でしか触らない
  * （{@link FlightNavState}が{@code stillFlyingTo}/{@code onChanged}で同じことをしている）。
  * 非同期完了時に読むのは<b>呼んだ時点でキャプチャした値ではなく、その時点の最新の状態</b>——
  * 目的地の変更や経路の差し替えが完了までの間に起きていれば、それを見逃さないため。

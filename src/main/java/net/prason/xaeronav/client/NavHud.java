@@ -77,7 +77,7 @@ public final class NavHud {
         colors.clear();
         PathResult result = view.currentResult();
         PathfindingState.StuckReason stuck = view.stuckReason();
-        PathfindingState.StopProgress stop = PathfindingState.INSTANCE.stopProgress();
+        PathfindingState.StopProgress stop = view.stopProgress();
         if (stop != null && !view.arrived()) {
             add(TextCompat.translatable("hud.xaeronav.via_progress", stop.index(), stop.total()), SECONDARY_COLOR);
         }

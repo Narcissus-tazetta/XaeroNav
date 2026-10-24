@@ -1,5 +1,6 @@
 package net.prason.xaeronav.client;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -242,6 +243,9 @@ final class FlightNavState {
     /** 空中経路が引けなかったときの代替。目的地への点線を山の上・横へ曲げた2〜3点。 */
     private volatile List<Vec3> guideWaypoints;
 
+    /** 点線が辿るべき中間点のキャッシュ。144Hz+の描画毎フレームでの再生成を避ける。 */
+    private volatile List<Vec3> cachedDashWaypoints = List.of();
+
     /** クライアントスレッド専用。 */
     private int ticksSinceRecalc;
 
@@ -273,17 +277,37 @@ final class FlightNavState {
      * <p>長距離ルートがあればその中間目標を返し、無ければ曲がり点線へ落ちる。呼び出し側から見て
      * 「点線をどこで折るか」という1つの問いなので、2つの供給元をここで1本にまとめる。
      */
-    List<Vec3> dashWaypoints(boolean airborne, boolean done, BlockPos currentGoal) {
-        if (!airborne) {
+    List<Vec3> dashWaypoints(boolean airborne, boolean done, @Nullable BlockPos currentGoal) {
+        if (!airborne || done || currentGoal == null) {
             return List.of();
         }
-        List<BlockPos> coarse = coarseWaypoints(airborne, done, currentGoal);
-        if (!coarse.isEmpty()) {
-            return coarse.stream().map(Vec3::atCenterOf).toList();
+        return cachedDashWaypoints;
+    }
+
+    private void updateCachedDashWaypoints(@Nullable BlockPos currentGoal) {
+        if (currentGoal == null) {
+            cachedDashWaypoints = List.of();
+            return;
+        }
+        CoarseRoute existing = coarseRoute;
+        if (existing != null && existing.goal().equals(currentGoal)) {
+            int from = passedWaypoints;
+            List<BlockPos> waypoints = existing.waypoints();
+            if (from < waypoints.size()) {
+                List<Vec3> list = new ArrayList<>(waypoints.size() - from);
+                for (int i = from; i < waypoints.size(); i++) {
+                    list.add(Vec3.atCenterOf(waypoints.get(i)));
+                }
+                cachedDashWaypoints = List.copyOf(list);
+                return;
+            }
         }
         List<Vec3> bend = guideWaypoints;
-        // findGuideLineは[始点, 曲がり点, 終点]を返すので、両端を落とす
-        return bend == null || bend.size() < 3 ? List.of() : List.copyOf(bend.subList(1, bend.size() - 1));
+        if (bend != null && bend.size() >= 3) {
+            cachedDashWaypoints = List.copyOf(bend.subList(1, bend.size() - 1));
+            return;
+        }
+        cachedDashWaypoints = List.of();
     }
 
     /** 引いてある経路だけを捨てる。着地・到着・スペクテイターのように、長距離ルートは生きている場面用。 */
@@ -291,6 +315,7 @@ final class FlightNavState {
         route = FlightRoute.NONE;
         guideWaypoints = null;
         computedFrom = null;
+        cachedDashWaypoints = List.of();
     }
 
     /** 目的地ごと捨て、実行中jobを論理的にキャンセルする。 */
@@ -305,6 +330,7 @@ final class FlightNavState {
         passedWaypoints = 0;
         extendBlockedAt = null;
         extendBlockedFrom = null;
+        cachedDashWaypoints = List.of();
     }
 
     /** 滑空中の1tick。進捗の更新と、必要なら引き直し・継ぎ足しの投入。 */
@@ -362,6 +388,7 @@ final class FlightNavState {
         // 長距離ルートは地図読みだけをここ（メインスレッド）で済ませ、解くのはワーカーで行う。
         // 解きは地図読みの数倍かかり、同期で解くと目標を切り替えるたびに描画が止まる
         CoarseRequest coarseRequest = routing ? coarseRequest(level, player, currentGoal) : CoarseRequest.NONE;
+        updateCachedDashWaypoints(currentGoal);
         int minAirY = GameCompat.minBuildHeight(level) + CEILING_MARGIN_BLOCKS;
         int maxAirY = GameCompat.maxBuildHeight(level) - 1 - CEILING_MARGIN_BLOCKS;
         FlightHorizon horizon = loadedHorizon(start, renderRadius);
@@ -398,17 +425,19 @@ final class FlightNavState {
                             LOGGER.error("XaeroNav: failed to compute the gliding route", error);
                             return;
                         }
+                        if (!current.stillFlyingTo(currentGoal, dimension)) {
+                            return;
+                        }
                         if (result.coarse() != null) {
                             // 列を作り直したので添字の意味が変わる
                             coarseRoute = new CoarseRoute(currentGoal, from, result.coarse().waypoints(),
                                     result.coarse().field());
                             passedWaypoints = 0;
                         }
-                        if (current.stillFlyingTo(currentGoal, dimension)) {
-                            route = result.route();
-                            guideWaypoints = result.bend();
-                            computedFrom = result.from();
-                        }
+                        route = result.route();
+                        guideWaypoints = result.bend();
+                        computedFrom = result.from();
+                        updateCachedDashWaypoints(currentGoal);
                     } finally {
                         onChanged.run();
                     }
@@ -473,24 +502,6 @@ final class FlightNavState {
                         config.flightHeuristicWeight()));
     }
 
-    /**
-     * 長距離ルートの中間目標——<b>まだ通っていない分だけ</b>。無ければ空リスト。
-     *
-     * <p>点線はこれを辿る。太線（読み込み済みチャンクを見る空中経路）が届く所までは確実な経路で、
-     * その先は「どちらへ向かうか」しか言えない、という区別をそのまま見た目にしてある。
-     */
-    private List<BlockPos> coarseWaypoints(boolean airborne, boolean done, BlockPos currentGoal) {
-        if (!airborne || done) {
-            return List.of();
-        }
-        CoarseRoute existing = coarseRoute;
-        if (existing == null || !existing.goal().equals(currentGoal)) {
-            return List.of();
-        }
-        int from = passedWaypoints;
-        return from >= existing.waypoints().size() ? List.of()
-                : existing.waypoints().subList(from, existing.waypoints().size());
-    }
 
     /**
      * 点線をどこから描き始めるかを進める。
@@ -511,8 +522,12 @@ final class FlightNavState {
         }
         Vec3 tail = route.tail();
         Vec3 from = tail == null ? player.position() : tail;
-        passedWaypoints = Math.max(passedWaypoints,
+        int next = Math.max(passedWaypoints,
                 nearestWaypointIndex(existing.waypoints(), from) + 1);
+        if (next != passedWaypoints) {
+            passedWaypoints = next;
+            updateCachedDashWaypoints(currentGoal);
+        }
     }
 
     /** {@code position}に最も近い中間目標の添字。空リストなら-1。 */
@@ -538,7 +553,10 @@ final class FlightNavState {
      */
     private CoarseRequest coarseRequest(Level level, Player player, BlockPos currentGoal) {
         if (!level.dimensionType().hasCeiling()) {
-            coarseRoute = null;
+            if (coarseRoute != null) {
+                coarseRoute = null;
+                updateCachedDashWaypoints(currentGoal);
+            }
             return CoarseRequest.NONE;
         }
         CoarseRoute existing = coarseRoute;

@@ -233,12 +233,12 @@ public final class PathfindingState {
     private final CoarseRoutes coarseRoutes;
     /** 詳細探索のゴールの選定。詳細は{@link DetailTargets}参照。 */
     private final DetailTargets detailTargets;
-    // 滑空中の案内。目的地と「いま滑空しているか」はこちらが持ち、その目的地への空中経路だけを
-    // 向こうが持つ。非同期結果の鮮度はstillFlyingToで問い合わせてもらう
     private final RouteStops stops = new RouteStops();
     private final LegPreview legPreview;
     /** 今の区間の終点として指定された座標（立てる高さへ寄せる前）。 */
     private @Nullable BlockPos legRequested;
+    // 滑空中の案内。目的地と「いま滑空しているか」はこちらが持ち、その目的地への空中経路だけを
+    // 向こうが持つ。非同期結果の鮮度はstillFlyingToで問い合わせてもらう
     private final FlightNavState flight = new FlightNavState(this::stillFlyingTo, this::publishNavigationView);
     /** 空の下を滑空している間の柱と矢印の案内。クライアントスレッド専用。 */
     private final SkyGuide sky = new SkyGuide();
@@ -359,7 +359,7 @@ public final class PathfindingState {
     private final Consumer<Runnable> onMainThread;
     /** 5箇所の非同期完了処理が同じ「世代チェック→メインスレッドへ戻す」を個別に書いていたので共通化する。 */
     private final GenerationGate generationGate;
-    /** 繋ぎ目の解き直し（{@link SeamRepair}参照）。goal/displayed/computingへは{@link SeamRepair.Host}経由で触る。 */
+    /** 繋ぎ目の解き直し（{@link SeamRepair}参照）。goal/displayed/computingへは{@link PathHost}経由で触る。 */
     private final SeamRepair seamRepair;
     /** 経路の帯からの逸脱に対する合流（{@link Splice}参照）。同じくHost経由でしか状態へ触らない。 */
     private final Splice splice;
@@ -374,7 +374,7 @@ public final class PathfindingState {
 
     PathfindingState(Consumer<Runnable> onMainThread) {
         this.onMainThread = onMainThread;
-        this.legPreview = new LegPreview(onMainThread);
+        this.legPreview = new LegPreview(onMainThread, this::publishNavigationView);
         this.generationGate = new GenerationGate(generation, onMainThread);
         // 新しい列では添字の意味が変わる。引き直しは今の位置を始点にするので、先頭が通過済みに
         // なることはない
@@ -468,10 +468,24 @@ public final class PathfindingState {
     }
 
     private void publishNavigationView() {
+        LegPreview.Preview preview = legPreview.preview();
+        LegPreviewSnapshot previewSnapshot = null;
+        if (preview != null && !flying) {
+            BlockPos currentGoal = goal;
+            if ((currentGoal != null && preview.from().equals(currentGoal))
+                    || (legRequested != null && preview.to().equals(legRequested))) {
+                previewSnapshot = new LegPreviewSnapshot(preview.result(), preview.from());
+            }
+        }
+        StopProgress progress = (goal == null || stops.isEmpty())
+                ? null
+                : new StopProgress(stops.passed() + 1, stops.passed() + stops.remainingStops());
+
         navigationView = new NavigationView(goal, flying, arrived, computing || awaitingNavGraph, stuckTracker.reason(), displayed,
                 coarseRoutes.route(), coarseRoutes.refined(), passedWaypoints, rerouteNoticeTicks > 0,
                 mountNoticeTicks > 0 ? mountNotice : null,
-                flying ? flight.route() : FlightRoute.NONE, skyPillar(), hopArrival());
+                flying ? flight.route() : FlightRoute.NONE, skyPillar(), hopArrival(),
+                previewSnapshot, progress);
     }
 
     /** 換算した最終目的地に着いたときの、元の次元での最終目的地。{@code fromNether}は元の次元がネザーか。 */
@@ -497,6 +511,10 @@ public final class PathfindingState {
         return sky.pillar(level, currentGoal, coarseRoutes.waypointsFor(currentGoal), coarseRoutes.mapFor(currentGoal));
     }
 
+    /** 経由地の先の区間の詳細経路と始点のsnapshot。 */
+    public record LegPreviewSnapshot(PathResult path, BlockPos from) {
+    }
+
     /**
      * {@link #navigationView()}が返す不変snapshot。フィールドを個別に読むgetterの代わりに、
      * HUD・地図/ワールド描画はこれを1フレームにつき1度だけ取得して使う。
@@ -505,11 +523,20 @@ public final class PathfindingState {
                                   StuckReason stuckReason, DisplayedPath displayed, CoarseRoutes.CoarseRoute coarseRoute,
                                   CoarseRoutes.RefinedRoute refinedRoute, int passedWaypoints, boolean rerouted,
                                   @Nullable MountState mountChange, FlightRoute flightRoute, @Nullable BlockPos skyPillar,
-                                  @Nullable HopArrival hopArrival) {
+                                  @Nullable HopArrival hopArrival,
+                                  @Nullable LegPreviewSnapshot legPreview, @Nullable StopProgress stopProgress) {
 
         private static NavigationView empty() {
             return new NavigationView(null, false, false, false, null, null, null, null, 0, false, null,
-                    FlightRoute.NONE, null, null);
+                    FlightRoute.NONE, null, null, null, null);
+        }
+
+        public @Nullable PathResult legPreviewPath() {
+            return legPreview != null ? legPreview.path() : null;
+        }
+
+        public @Nullable BlockPos legPreviewFrom() {
+            return legPreview != null ? legPreview.from() : null;
         }
 
         /** {@link PathfindingState#currentResult()}と同じ規則。 */
@@ -592,6 +619,7 @@ public final class PathfindingState {
             beginLeg(pos);
         } else {
             stops.insert(index - 1, pos);
+            publishNavigationView();
         }
         return StopResult.ADDED;
     }
@@ -606,6 +634,7 @@ public final class PathfindingState {
             return StopResult.FULL;
         }
         stops.append(pos);
+        publishNavigationView();
         return StopResult.ADDED;
     }
 
@@ -628,6 +657,7 @@ public final class PathfindingState {
             beginLeg(stops.takeFirst());
         } else {
             stops.remove(index - 1);
+            publishNavigationView();
         }
         return true;
     }
@@ -667,10 +697,7 @@ public final class PathfindingState {
 
     /** 経由地へ向かっている間の、何番目の経由地か（1始まり）と経由地の総数。経由地へ向かっていなければ{@code null}。 */
     public @Nullable StopProgress stopProgress() {
-        if (goal == null || stops.isEmpty()) {
-            return null;
-        }
-        return new StopProgress(stops.passed() + 1, stops.passed() + stops.remainingStops());
+        return navigationView.stopProgress();
     }
 
     public record StopProgress(int index, int total) {
@@ -693,18 +720,12 @@ public final class PathfindingState {
      * 今の区間の経路がまだ出ていない間の代わり。どちらでもなければ{@code null}。
      */
     public @Nullable PathResult legPreviewPath() {
-        LegPreview.Preview preview = legPreview.preview();
-        if (preview == null || flying) {
-            return null;
-        }
-        BlockPos currentGoal = goal;
-        return preview.from().equals(currentGoal) || preview.to().equals(legRequested) ? preview.result() : null;
+        return navigationView.legPreviewPath();
     }
 
     /** {@link #legPreviewPath}の始点。経路が無いときは{@code null}。 */
     public @Nullable BlockPos legPreviewFrom() {
-        LegPreview.Preview preview = legPreview.preview();
-        return preview == null ? null : preview.from();
+        return navigationView.legPreviewFrom();
     }
 
     /** 地図に描く、今の目的地より先の区間の折れ線（{@link LegPreview#mapLegs}）。 */
@@ -982,8 +1003,8 @@ public final class PathfindingState {
             ground = null;
         }
         List<Vec3> dash = flight.dashWaypoints(airborne, done, currentGoal);
-        PathResult nextLeg = legPreviewPath();
-        LegPreview.Preview preview = legPreview.preview();
+        PathResult nextLeg = view.legPreviewPath();
+        LegPreviewSnapshot previewSnapshot = view.legPreview();
         return new MapPathOverlay.Snapshot(ground,
                 currentGoal,
                 XaeroNavConfig.INSTANCE.straightLineEnabled(),
@@ -994,7 +1015,7 @@ public final class PathfindingState {
                 FlightProgress.INSTANCE.segmentFor(route) + 1,
                 dash,
                 done ? null : nextLeg,
-                nextLeg != null && preview != null && preview.from().equals(currentGoal),
+                nextLeg != null && previewSnapshot != null && previewSnapshot.from().equals(currentGoal),
                 laterLegsForMap());
     }
 
