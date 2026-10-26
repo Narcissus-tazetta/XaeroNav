@@ -37,7 +37,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 25
@@ -110,7 +110,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 25
@@ -174,7 +174,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 25
@@ -204,7 +204,7 @@ jobs:
 
       # HeadlessMCとMinecraftはこの時点のJAVA_HOMEで動く。Gradleのビルド（Java 25）が終わってから、
       # 利用者と同じJavaへ切り替える
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         if: matrix.node.java != '25'
         with:
           distribution: temurin
@@ -272,7 +272,7 @@ jobs:
         id: client
         timeout-minutes: 20
         continue-on-error: true
-        uses: headlesshq/mc-runtime-test@645691de43520240e1d1e45b4b9a4d9cd9c294a4 # 4.5.2
+        uses: headlesshq/mc-runtime-test@dfc8a2a0145f723b01abda5e1cf59eaba516d128 # 5.0.0
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: ${{ matrix.node.loader }}
@@ -298,7 +298,7 @@ jobs:
         if: steps.client.outcome == 'failure' && hashFiles('run/logs/latest.log') == ''
         timeout-minutes: 20
         continue-on-error: true
-        uses: headlesshq/mc-runtime-test@645691de43520240e1d1e45b4b9a4d9cd9c294a4 # 4.5.2
+        uses: headlesshq/mc-runtime-test@dfc8a2a0145f723b01abda5e1cf59eaba516d128 # 5.0.0
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: ${{ matrix.node.loader }}
@@ -438,7 +438,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           # Gradle 9.8.0とStonecutter 0.9.8を動かすJVM（26.xのFabric用Loomが25を要求する）。1.20.1のmod自体はtoolchainでJava 17になる。
@@ -457,7 +457,7 @@ jobs:
           cp build/server-test/${{ matrix.node.node }}/mods/*.jar run/mods/
 
       # HeadlessMCはこの時点のJAVA_HOMEをserver JVMとして登録する。Gradleとは分け、利用者と同じJavaで実行する
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: ${{ matrix.node.java }}
@@ -467,7 +467,7 @@ jobs:
       - name: Run the Forge dedicated server
         id: server
         continue-on-error: true
-        uses: headlesshq/mc-server-test@42de00da95e997b046a43eb9beb516494e542ba9 # v1.1.1
+        uses: headlesshq/mc-server-test@ae5de17e900cd7b01fa4bb08af3b595f9a873196 # v2.0.0
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: forge
@@ -483,7 +483,7 @@ jobs:
       - name: Run the Forge dedicated server (retry)
         id: server_retry
         if: steps.server.outcome == 'failure' && hashFiles('run/logs/latest.log') == ''
-        uses: headlesshq/mc-server-test@42de00da95e997b046a43eb9beb516494e542ba9 # v1.1.1
+        uses: headlesshq/mc-server-test@ae5de17e900cd7b01fa4bb08af3b595f9a873196 # v2.0.0
         with:
           mc: ${{ matrix.node.minecraft }}
           modloader: forge
