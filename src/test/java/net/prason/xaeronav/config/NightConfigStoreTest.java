@@ -52,7 +52,7 @@ class NightConfigStoreTest {
         Files.writeString(file, """
                 [pathfinding]
                 blockBudgetReserve = 9999
-                heuristicWeight = "ではない数"
+                deviationThresholdBlocks = "ではない数"
                 diggingEnabled = false
                 routingMode = "balanced"
                 """, StandardCharsets.UTF_8);
@@ -63,7 +63,7 @@ class NightConfigStoreTest {
 
         // レンジ外は丸める・型違いは既定値へ戻す・正しい値はそのまま残す
         assertEquals(512, config.blockBudgetReserve());
-        assertEquals(1.5, config.heuristicWeight());
+        assertEquals(4.0, config.deviationThresholdBlocks());
         assertEquals(false, config.diggingEnabled());
         // ModConfigSpecと同じく名前の大文字小文字は問わない
         assertEquals(RoutingMode.BALANCED, config.routingMode());

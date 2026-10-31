@@ -59,32 +59,20 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue fallDamageToleranceEnabled;
     private final NavConfigSpec.BoolValue avoidRiskyJumps;
     private final NavConfigSpec.BoolValue strictLimits;
-    private final NavConfigSpec.IntValue detailHorizonBlocks;
     private final NavConfigSpec.IntValue maxBridgeRunBlocks;
     private final NavConfigSpec.IntValue maxLavaBridgeRunBlocks;
     private final NavConfigSpec.IntValue maxVoidBridgeRunBlocks;
     private final NavConfigSpec.IntValue maxSubmergedTicks;
-    private final NavConfigSpec.IntValue searchHorizontalMargin;
-    private final NavConfigSpec.IntValue searchVerticalMargin;
     private final NavConfigSpec.DoubleValue deviationThresholdBlocks;
     private final NavConfigSpec.DoubleValue arrivalRadiusBlocks;
     private final NavConfigSpec.IntValue groundLevelY;
-    private final NavConfigSpec.IntValue recalcIntervalTicks;
-    private final NavConfigSpec.IntValue maxExpandedNodes;
-    private final NavConfigSpec.DoubleValue heuristicWeight;
     private final NavConfigSpec.BoolValue flightRoutingEnabled;
     private final NavConfigSpec.IntValue elytraFlyingMinGroundClearanceBlocks;
-    private final NavConfigSpec.IntValue flightCellBlocks;
-    private final NavConfigSpec.DoubleValue flightDeviationThresholdBlocks;
-    private final NavConfigSpec.IntValue flightRecalcIntervalTicks;
     private static final int FLIGHT_CLEARANCE_DETOUR_DEFAULT = 12;
 
     private final NavConfigSpec.IntValue flightClearanceDetourBlocks;
     /** GUIで一時的に無効化している間も、利用者が調整した非0値を失わない。 */
     private int lastFlightClearanceDetourBlocks = FLIGHT_CLEARANCE_DETOUR_DEFAULT;
-    private final NavConfigSpec.IntValue flightMaxExpandedNodes;
-    private final NavConfigSpec.IntValue flightExtendMaxExpandedNodes;
-    private final NavConfigSpec.DoubleValue flightHeuristicWeight;
     private final NavConfigSpec.StringListValue diggableBlocks;
     private final NavConfigSpec.StringListValue forbiddenBlocks;
     private final NavConfigSpec.BoolValue hudEnabled;
@@ -196,16 +184,6 @@ public final class XaeroNavConfig {
                         "途中で変えても今の経路は引き直さず、次の組み直しから効く")
                 .defineEnum("routingMode", RoutingMode.QUALITY);
 
-        detailHorizonBlocks = spec
-                .comment("詳細探索が一度に狙う最大の水平距離（ブロック）。これより遠い目的地には",
-                        "長距離ルートの中間目標を挟み、経路は末端から継ぎ足して伸ばしていく",
-                        "地形によらない固定値。かつては直近の探索が実際に引けた距離を測って使っていたが、",
-                        "プレイヤー周辺の既踏地形で測った値を末端から未踏地形へ伸ばす探索にも使うため、",
-                        "成功と失敗が交互に出て収束せず、そのたびに目標が動いて経路が引き直されていた",
-                        "既定96はネザーの実測（10万ノードで70〜90ブロック）に合わせてある。地上は",
-                        "もっと解けるので、探索を減らしたければ上げてよい")
-                .defineInRange("detailHorizonBlocks", 96, 24, 512);
-
         maxBridgeRunBlocks = spec
                 .comment("空中に足場を置いて渡る橋を、何マス連続させたら諦めて迂回するか（0で無制限）",
                         "ネザーの溶岩の海のように迂回路が長い地形では、コストの重みだけでは橋が",
@@ -253,14 +231,6 @@ public final class XaeroNavConfig {
                         "（詰むよりは息継ぎの要る潜水の方がマシ、という優先順）。その区間は警告色になる")
                 .defineInRange("maxSubmergedTicks", 250, 0, 1200);
 
-        searchHorizontalMargin = spec
-                .comment("探索範囲の水平方向マージン（ブロック数）")
-                .defineInRange("searchHorizontalMargin", 64, 8, 256);
-
-        searchVerticalMargin = spec
-                .comment("探索範囲の垂直方向マージン（ブロック数）")
-                .defineInRange("searchVerticalMargin", 32, 4, 128);
-
         deviationThresholdBlocks = spec
                 .comment("プレイヤーが経路からこの距離(ブロック)以上離れたら再計算する",
                         "この距離の中を歩いている限り経路は引き直さないので、大きいほど線が落ち着く",
@@ -282,24 +252,6 @@ public final class XaeroNavConfig {
                         "既定値60は海面の少し下")
                 .defineInRange("groundLevelY", 60, -64, 320);
 
-        recalcIntervalTicks = spec
-                .comment("経路の再確認間隔（tick）。プレイヤーが動いていない間はこの間隔で経路上のブロック変化だけを調べる")
-                .defineInRange("recalcIntervalTicks", 40, 20, 1200);
-
-        maxExpandedNodes = spec
-                .comment("1回の探索で展開するノード数の上限。届かなかったときに探索を打ち切る天井で、",
-                        "経路が見つかった時点で探索は終わるため、上げても届く経路の計算時間は変わらない",
-                        "探索はワーカースレッドで走るのでフレームレートには直接影響しない",
-                        "下げると、届くはずの経路が手前で切れるようになる")
-                .defineInRange("maxExpandedNodes", AStarPathfinder.DEFAULT_MAX_EXPANDED_NODES, 1_000, 500_000);
-
-        heuristicWeight = spec
-                .comment("経路探索の「ゴールへの近さ」を重視する度合い",
-                        "1.0は最短経路を保証するが、掘削や遊泳のように実際のコストが見積もりを大きく上回る場所では",
-                        "探索が四方に広がり、上限が数十マス先で尽きて経路が届かなくなる",
-                        "上げるほど遠くまで届くかわりに、遠回りな経路が混じりうる（海を渡る・長距離では上げると効く）")
-                .defineInRange("heuristicWeight", AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT, 1.0, 3.0);
-
         flightRoutingEnabled = spec
                 .comment("滑空・飛行中に空中の経路を計算するか",
                         "falseにすると目的地への直線（点線）だけになる（以前の挙動）",
@@ -319,28 +271,6 @@ public final class XaeroNavConfig {
                         "（本当に立てないので猶予を置く意味が無い）")
                 .defineInRange("elytraFlyingMinGroundClearanceBlocks", 4, 0, 32);
 
-        flightCellBlocks = spec
-                .comment("空中経路を解く格子の一辺（ブロック）。含むブロックが全て空のセルだけを通る",
-                        "この粗さがそのままクリアランスになる——秒速30マスで飛ぶエリトラに1マスの隙間を",
-                        "狙わせても意味が無いので、余裕を持って抜けられる空間だけを経路の候補にする",
-                        "その粗さでは抜けられる隙間が無いと判明した場合に限り、半分の粒度で解き直す",
-                        "遠くまで届かせたいときに一番効くのがここ——セル数は一辺の3乗に反比例するので、",
-                        "4→6にするだけで同じ予算が覆う体積が3.4倍になる。代わりに狭い通路は通れなくなる")
-                .defineInRange("flightCellBlocks", 6, 2, 16);
-
-        flightDeviationThresholdBlocks = spec
-                .comment("滑空中に経路からこの距離(ブロック)以上離れたら引き直す",
-                        "歩行のdeviationThresholdBlocksとは別に持つ。エリトラは常時ずれるので、",
-                        "歩行と同じ幅にすると飛んでいる間ずっと経路が引き直される",
-                        "垂直方向はこの1.5倍まで許す（上下のぶれは水平より大きい）")
-                .defineInRange("flightDeviationThresholdBlocks", 24.0, 4.0, 64.0);
-
-        flightRecalcIntervalTicks = spec
-                .comment("滑空中に経路を引き直す間隔（tick）",
-                        "エリトラは1.5ブロック/tickで飛ぶので、歩行のrecalcIntervalTicks(40)では",
-                        "引き直しの合間に60ブロック進んでしまう")
-                .defineInRange("flightRecalcIntervalTicks", 20, 5, 200);
-
         flightClearanceDetourBlocks = spec
                 .comment("周囲が完全に塞がったセルを通ることを、水平何ブロックぶんの遠回りと釣り合わせるか",
                         "「最短でも狭い所は案内しないでほしい」をこれで表す。大きいほど広い空間を選ぶ",
@@ -350,27 +280,6 @@ public final class XaeroNavConfig {
                         "地表や天井の上を余裕を持って飛んでいるだけの状態なので、ここを狭いと数えると",
                         "開けた場所でも理由なく高い所を通るようになる")
                 .defineInRange("flightClearanceDetourBlocks", FLIGHT_CLEARANCE_DETOUR_DEFAULT, 0, 128);
-
-        flightMaxExpandedNodes = spec
-                .comment("空中経路の1回の探索で展開するセル数の上限",
-                        "歩行のmaxExpandedNodesとは別に持つ。空中は3D格子で1セルあたりの隣接が26あり、",
-                        "同じ数字でも意味する探索の広さがまるで違う",
-                        "上げると遠くまで届くが1回の計算が比例して長くなる（実機: ネザーで10万・約2秒）",
-                        "計算中は投げ直さないので、長くなるぶん経路の更新間隔が伸びる")
-                .defineInRange("flightMaxExpandedNodes", 150_000, 1_000, 1_000_000);
-
-        flightExtendMaxExpandedNodes = spec
-                .comment("末端から先を継ぎ足すときの展開セル数の上限",
-                        "継ぎ足しは短い区間を何度も繋ぐので、1回にflightMaxExpandedNodesを許すと",
-                        "地形が詰まったときに毎回2秒かけて少ししか伸びず、飛ぶ速度に追いつかなくなる",
-                        "小さくすると1回の伸びは短くなるが、そのぶん頻繁に繋げる")
-                .defineInRange("flightExtendMaxExpandedNodes", 60_000, 1_000, 1_000_000);
-
-        flightHeuristicWeight = spec
-                .comment("空中経路の「ゴールへの近さ」を重視する度合い",
-                        "上げるほど探索は速くなるが、遠回りが混じる。1.0で最短",
-                        "探索は読み込み済みの範囲の縁で打ち切るので、上げても遠くまで届くようにはならない")
-                .defineInRange("flightHeuristicWeight", 1.5, 1.0, 5.0);
 
         diggableBlocks = spec
                 .comment("掘って通ってよいブロックの追加リスト（例: \"minecraft:cobblestone\"）",
@@ -440,10 +349,6 @@ public final class XaeroNavConfig {
 
     public void setBridgingEnabled(boolean value) {
         bridgingEnabled.set(value);
-    }
-
-    public int detailHorizonBlocks() {
-        return detailHorizonBlocks.get();
     }
 
     public int maxBridgeRunBlocks() {
@@ -526,14 +431,6 @@ public final class XaeroNavConfig {
         fallDamageToleranceEnabled.set(value);
     }
 
-    public int searchHorizontalMargin() {
-        return searchHorizontalMargin.get();
-    }
-
-    public int searchVerticalMargin() {
-        return searchVerticalMargin.get();
-    }
-
     public double deviationThresholdBlocks() {
         return deviationThresholdBlocks.get();
     }
@@ -546,18 +443,6 @@ public final class XaeroNavConfig {
         return groundLevelY.get();
     }
 
-    public int recalcIntervalTicks() {
-        return recalcIntervalTicks.get();
-    }
-
-    public int maxExpandedNodes() {
-        return maxExpandedNodes.get();
-    }
-
-    public double heuristicWeight() {
-        return heuristicWeight.get();
-    }
-
     public boolean flightRoutingEnabled() {
         return flightRoutingEnabled.get();
     }
@@ -568,18 +453,6 @@ public final class XaeroNavConfig {
 
     public int elytraFlyingMinGroundClearanceBlocks() {
         return elytraFlyingMinGroundClearanceBlocks.get();
-    }
-
-    public int flightCellBlocks() {
-        return flightCellBlocks.get();
-    }
-
-    public double flightDeviationThresholdBlocks() {
-        return flightDeviationThresholdBlocks.get();
-    }
-
-    public int flightRecalcIntervalTicks() {
-        return flightRecalcIntervalTicks.get();
     }
 
     public int flightClearanceDetourBlocks() {
@@ -597,18 +470,6 @@ public final class XaeroNavConfig {
         } else if (current == 0) {
             flightClearanceDetourBlocks.set(lastFlightClearanceDetourBlocks);
         }
-    }
-
-    public int flightMaxExpandedNodes() {
-        return flightMaxExpandedNodes.get();
-    }
-
-    public int flightExtendMaxExpandedNodes() {
-        return flightExtendMaxExpandedNodes.get();
-    }
-
-    public double flightHeuristicWeight() {
-        return flightHeuristicWeight.get();
     }
 
     public List<? extends String> additionalDiggableBlocks() {
@@ -640,6 +501,66 @@ public final class XaeroNavConfig {
 
     public int blockBudgetReserve() {
         return blockBudgetReserve.get();
+    }
+
+    // 以下は実測で決めた内部の調整値で、設定ファイルには出さない。変えると経路の質か探索の重さが
+    // 悪化する側にしか動かず、利用者に判断材料がないため。呼び出し側は設定値と同じ形で読む。
+
+    /** 探索が一度に狙う水平距離。ネザーの実測（10万ノードで70〜90ブロック）に合わせた固定値。 */
+    public int detailHorizonBlocks() {
+        return 96;
+    }
+
+    public int searchHorizontalMargin() {
+        return 64;
+    }
+
+    public int searchVerticalMargin() {
+        return 32;
+    }
+
+    /** 歩行中にブロック変化を確かめる間隔（tick）。 */
+    public int recalcIntervalTicks() {
+        return 40;
+    }
+
+    /** 歩行の探索で展開するノード数の上限。経路が見つかった時点で探索は終わるので、上げても届く経路は速くならない。 */
+    public int maxExpandedNodes() {
+        return AStarPathfinder.DEFAULT_MAX_EXPANDED_NODES;
+    }
+
+    /** 1.0は最短を保証するが、掘削や遊泳のように実コストが見積もりを大きく上回る場所で上限が尽きて届かなくなる。 */
+    public double heuristicWeight() {
+        return AStarPathfinder.DEFAULT_HEURISTIC_WEIGHT;
+    }
+
+    /** 空中経路を解く格子の一辺。セル数は3乗で効くので、狭い通路と到達距離のつり合いで決めた値。 */
+    public int flightCellBlocks() {
+        return 6;
+    }
+
+    /** エリトラは常時ずれるので、歩行より大きくとる。 */
+    public double flightDeviationThresholdBlocks() {
+        return 24.0;
+    }
+
+    /** エリトラは1.5ブロック/tickで飛ぶので、歩行の間隔では合間に60ブロック進んでしまう。 */
+    public int flightRecalcIntervalTicks() {
+        return 20;
+    }
+
+    /** 空中は1セルの隣接が26あり、歩行と同じ数字でも探索の広さがまるで違うため、別に持つ。 */
+    public int flightMaxExpandedNodes() {
+        return 150_000;
+    }
+
+    /** 継ぎ足しに上と同じ予算を許すと、詰まった地形で毎回2秒かけて少ししか伸びず、飛ぶ速さに追いつかない。 */
+    public int flightExtendMaxExpandedNodes() {
+        return 60_000;
+    }
+
+    public double flightHeuristicWeight() {
+        return 1.5;
     }
 
     /** 歩行の探索の打ち切り条件。時間の上限だけは設定に出していない。 */

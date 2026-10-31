@@ -299,28 +299,16 @@ Other markings:
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
 | `costToGoGuideEnabled` | `true` | Guide the detailed search with a cost-to-go estimate. This builds a navigation graph of the loaded area in the background and aims straight at the destination (uses spare CPU cores and up to about 270 MB, or about 150 MB when the Java heap limit is below 2.5 GB); until the graph is ready, the coarse route's estimate is used. `false` falls back to straight-line distance |
 | `routingMode` | `QUALITY` | Balance between CPU load and route precision while walking. `QUALITY` rebuilds the navigation graph every 8 blocks walked, `BALANCED` every 48 blocks (much less CPU, nearly the same routes), `LIGHT` every 96 blocks on a single thread (least CPU; small detours may increase slightly). The overall way and route reviews are the same in every mode. Also in the settings screen |
-| `detailHorizonBlocks` | `96` | Max horizontal distance the detailed search targets in one shot; farther destinations get intermediate waypoints |
 | `maxBridgeRunBlocks` | `96` | How many consecutive blocks a bridge over open air can run before it's abandoned for a detour (`0` = unlimited) |
 | `maxLavaBridgeRunBlocks` | `30` | Same, but specifically for bridges over lava (`0` = unlimited) |
 | `maxVoidBridgeRunBlocks` | `96` | Same, but specifically for bridges over the bottomless void (`0` = unlimited; the default matches the 47-81 block gaps measured between End islands) |
 | `maxSubmergedTicks` | `250` | How many ticks a route may keep your head underwater (`0` = unlimited) |
-| `searchHorizontalMargin` | `64` | Horizontal search margin (blocks) |
-| `searchVerticalMargin` | `32` | Vertical search margin (blocks) |
 | `deviationThresholdBlocks` | `4.0` | Recalculate once you're this far from the line; higher keeps the line steadier |
 | `arrivalRadiusBlocks` | `3.0` | Distance counted as "arrived" |
 | `groundLevelY` | `60` | Y level and above, with open sky, counted as "surface" (basis for surface-first routing; inactive in dimensions without sky) |
-| `recalcIntervalTicks` | `40` | Interval for checking block changes along the route |
-| `maxExpandedNodes` | `100000` | Cap on nodes expanded per search; higher reaches farther accurately but costs more CPU/memory |
-| `heuristicWeight` | `1.5` | How much the search favors getting close to the goal; `1.0` guarantees the shortest path but can fail to reach destinations where real cost (digging, swimming) outruns the estimate |
 | `flightRoutingEnabled` | `true` | Compute an aerial path while gliding/flying (`false` reverts to a straight line to the destination) |
 | `elytraFlyingMinGroundClearanceBlocks` | `4` | Minimum height above ground (or water) before an elytra glide counts as flying. A glide must also last half a second, so bouncing on a jump does not throw the route away |
-| `flightCellBlocks` | `6` | Side length (blocks) of the grid used to solve the aerial path; smaller fits through tighter gaps but reaches less far |
-| `flightDeviationThresholdBlocks` | `24.0` | Recalculate the aerial path once you're this far from it |
-| `flightRecalcIntervalTicks` | `20` | Recalculation interval (ticks) while gliding |
 | `flightClearanceDetourBlocks` | `12` | How many blocks of detour a tight passage is worth avoiding (`0` disables this) |
-| `flightMaxExpandedNodes` | `150000` | Cap on cells expanded per aerial search |
-| `flightExtendMaxExpandedNodes` | `60000` | Cap on cells expanded when extending the path further from its end |
-| `flightHeuristicWeight` | `1.5` | Heuristic weight for the aerial search |
 | `additionalDiggableBlocks` | `[]` | Extra block IDs allowed to dig (e.g. modded terrain blocks; example: `"minecraft:cobblestone"`) |
 | `additionalForbiddenBlocks` | `[]` | Extra block IDs forbidden to dig; takes priority over the list above (example: `"minecraft:diamond_ore"`) |
 

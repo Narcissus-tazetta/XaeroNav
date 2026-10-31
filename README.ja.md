@@ -287,28 +287,16 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 | `deepLookAheadEnabled` | `true` | 歩いている間、経路の先を読み込み済みチャンクの限界まで伸ばし続けるか |
 | `costToGoGuideEnabled` | `true` | 詳細探索に目的地までの残りコストの見積もりを使うか。読み込み済みの範囲から航法グラフを裏で組み、中間目標へ寄らず目的地をそのまま狙う（空いている CPU コアと、最大 270MB ほどのメモリを使う。ヒープ上限が 2.5GB 未満なら 150MB ほど）。組み上がるまでは粗いルートの見積もりを使う。`false` で直線距離だけに戻る |
 | `routingMode` | `QUALITY` | 歩いている間の CPU 負荷と経路の細かさの釣り合い。`QUALITY` は8ブロック歩くごとに航法グラフを組み直す。`BALANCED` は48ブロックごと（CPU が大きく減り、経路はほぼ同じ）。`LIGHT` は96ブロックごと・1スレッドで組む（CPU が最も少なく、細かな寄り道が少し増えることがある）。大まかな道筋と経路の見直しはどのモードでも同じ。設定画面からも変えられる |
-| `detailHorizonBlocks` | `96` | 詳細探索が一度に狙う最大の水平距離（ブロック）。これより遠い目的地には中間目標を挟む |
 | `maxBridgeRunBlocks` | `96` | 空中に足場を置いて渡る橋を何マス連続させたら迂回に切り替えるか（`0` で無制限） |
 | `maxLavaBridgeRunBlocks` | `30` | そのうち溶岩の上に架ける橋を何マスまで許すか（`0` で無制限） |
 | `maxVoidBridgeRunBlocks` | `96` | そのうち底の無い奈落の上に架ける橋を何マスまで許すか（`0` で無制限。既定はジ・エンドの島間の実測 47〜81 に合わせてある） |
 | `maxSubmergedTicks` | `250` | 頭を水に浸けたまま何 tick まで進む経路を許すか（`0` で無制限） |
-| `searchHorizontalMargin` | `64` | 探索範囲の水平マージン（ブロック） |
-| `searchVerticalMargin` | `32` | 探索範囲の垂直マージン（ブロック） |
 | `deviationThresholdBlocks` | `4.0` | 経路からこれだけ離れたら再計算。大きいほど線が落ち着きます |
 | `arrivalRadiusBlocks` | `3.0` | 到着とみなす距離 |
 | `groundLevelY` | `60` | この高さ以上で頭上が開けた場所を地上とみなす（地上優先ナビの基準。空の無い次元では働かない） |
-| `recalcIntervalTicks` | `40` | 経路上のブロック変化を確認する間隔 |
-| `maxExpandedNodes` | `100000` | 1 回の探索で展開するノード数の上限。大きいほど遠くまで正確ですが CPU とメモリを使います |
-| `heuristicWeight` | `1.5` | ゴールへの近さを重視する度合い。`1.0` は最短経路を保証しますが、掘削や遊泳のように実コストが見積もりを上回る場所で経路が届かなくなります |
 | `flightRoutingEnabled` | `true` | 滑空・飛行中に空中の経路を計算するか（`false` で目的地への直線だけに戻る） |
 | `elytraFlyingMinGroundClearanceBlocks` | `4` | エリトラの滑空を「飛んでいる」とみなす、足元から地面（水面を含む）までの最小の高さ（ブロック）。加えて0.5秒続くことも要るので、ジャンプで跳ねただけでは経路を捨てない |
-| `flightCellBlocks` | `6` | 空中経路を解く格子の一辺（ブロック）。値が小さいほど狭い通路も通れるが遠くまで届きにくくなる |
-| `flightDeviationThresholdBlocks` | `24.0` | 滑空中に経路からこの距離以上離れたら引き直す |
-| `flightRecalcIntervalTicks` | `20` | 滑空中に経路を引き直す間隔（tick） |
 | `flightClearanceDetourBlocks` | `12` | 狭い空間を通ることを、水平何ブロックぶんの遠回りと釣り合わせるか（`0` で無効） |
-| `flightMaxExpandedNodes` | `150000` | 空中経路の 1 回の探索で展開するセル数の上限 |
-| `flightExtendMaxExpandedNodes` | `60000` | 末端から先を継ぎ足すときの展開セル数の上限 |
-| `flightHeuristicWeight` | `1.5` | 空中経路のヒューリスティックの重み |
 | `additionalDiggableBlocks` | `[]` | 掘削を許可するブロック ID を追加（modの地形ブロックなど。例: `"minecraft:cobblestone"`） |
 | `additionalForbiddenBlocks` | `[]` | 掘削を禁止するブロック ID を追加。上のリストより優先される（例: `"minecraft:diamond_ore"`） |
 

@@ -392,7 +392,7 @@ the End have no sky, so this does not apply there.
 
 Once you start gliding, a separate search takes over (`pathfinding/flight`):
 
-- Space is split into **6-block cells** (`flightCellBlocks`), and only cells that are completely empty
+- Space is split into **6-block cells**, and only cells that are completely empty
   are flyable. The coarseness itself becomes clearance from walls.
 - A\* runs over those cells with 26 neighbors. Costs come from elytra physics: a glide gets to lose
   height for free in proportion to the horizontal distance it covers.

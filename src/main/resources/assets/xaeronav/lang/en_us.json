@@ -188,7 +188,7 @@
   "commands.xaeronav.probe_chunks_missing": "  * only %1$d of %2$d chunks in the search area are loaded (missing chunks are treated as impassable)",
   "commands.xaeronav.probe_widen_triggered": "  -> did not reach within the normal margin, retrying with the search area widened to the render distance",
   "commands.xaeronav.probe_widen_skipped": "  -> widened retry condition not met (already reached, or destination is outside the render distance)",
-  "commands.xaeronav.probe_widen_skipped_budget": "  -> did not reach because the node budget (%1$d) was exhausted. Widening the search area would hit the same cap, so no retry is attempted (try raising heuristicWeight or maxExpandedNodes)",
+  "commands.xaeronav.probe_widen_skipped_budget": "  -> did not reach because the node budget (%1$d) was exhausted. Widening the search area would hit the same cap, so no retry is attempted",
 
   "commands.xaeronav.version": "XaeroNav build: %s"
 }

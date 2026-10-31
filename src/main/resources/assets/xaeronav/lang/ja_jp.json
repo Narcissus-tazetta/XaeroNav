@@ -188,7 +188,7 @@
   "commands.xaeronav.probe_chunks_missing": "  ※探索範囲 %2$d チャンク中 %1$d チャンクしか読み込まれていません（未読み込み分は進入不可扱い）",
   "commands.xaeronav.probe_widen_triggered": "  → 通常範囲では届かなかったので、探索範囲を描画距離いっぱいまで広げて再挑戦します",
   "commands.xaeronav.probe_widen_skipped": "  → 拡大再挑戦の条件を満たしていません（到達済み、または目的地が描画距離の外）",
-  "commands.xaeronav.probe_widen_skipped_budget": "  → 展開ノード数が上限（%1$d）に達したための未到達です。探索範囲を広げても同じ上限に当たるだけなので再挑戦しません（heuristicWeightを上げる、またはmaxExpandedNodesを増やしてください）",
+  "commands.xaeronav.probe_widen_skipped_budget": "  → 展開ノード数が上限（%1$d）に達したための未到達です。探索範囲を広げても同じ上限に当たるだけなので再挑戦しません",
 
   "commands.xaeronav.version": "XaeroNavビルド: %s"
 }
