@@ -35,6 +35,8 @@ legacyForge {
             // 全ノードでroot/runを共有すると、別MC版・別ローダーのXaero jarまで同時に
             // 読み込まれてMixinが異なるMinecraftへ適用される。ノードごとに完全分離する。
             gameDirectory = rootProject.layout.projectDirectory.dir("run/${stonecutter.current.project}")
+            // `-Pxaeronav.quickPlay=<ワールド名>`でタイトル画面を飛ばして既存のワールドへ入る（手元の確認用）
+            providers.gradleProperty("xaeronav.quickPlay").orNull?.let { programArguments.addAll("--quickPlaySingleplayer", it) }
         }
     }
 
@@ -74,6 +76,12 @@ dependencies {
         xaeroModules.forEach { modRuntimeOnly(it) }
         // stageRuntimeTestModsには配布時と同じ未変換jarを渡す。
         xaeroModules.forEach { xaeroRuntimeMods(it) }
+    }
+    dioramaCoordinate("forge", mcVersion)?.let { diorama ->
+        modCompileOnly(diorama)
+        if (withDioramaProperty()) {
+            modRuntimeOnly(diorama)
+        }
     }
 
     // @WrapOperation・@ModifyReturnValueはMixin本体のAPが知らない注入なので、mixinextras-commonを

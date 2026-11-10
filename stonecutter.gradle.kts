@@ -19,6 +19,9 @@ stonecutter.parameters {
     // `//? if neoforge {` / `//? if fabric {` / `//? if forge {` が切り替わる。
     constants.match(current.project.substringAfterLast('-'), "neoforge", "fabric", "forge")
 
+    // Dioramaが配布されているノードでだけ `//? if diorama {` の連携コードを組む
+    constants.put("diorama", dioramaModrinthVersion(current.project.substringAfterLast('-'), current.version) != null)
+
     // 名前だけが変わったクラスは、使う箇所ごとに`//?`で分けず、ソース全体の置換で吸収する。
     // 置換は双方向（ノードを戻すと元の名前へ戻る）なので、置換後の名前をソースに直接書かないこと
     replacements {

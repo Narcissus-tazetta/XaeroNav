@@ -4,6 +4,7 @@ import java.util.List;
 
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.MutableComponent;
+import net.prason.xaeronav.diorama.DioramaPresence;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.platform.ModPresence;
 import net.prason.xaeronav.util.ChangeGate;
@@ -95,15 +96,28 @@ public final class ClientTickHandler {
         if (missing.isEmpty()) {
             return;
         }
+        tellMissingHooks(player, missing, false, "hud.xaeronav.hook_missing");
+        tellMissingHooks(player, missing, true, "hud.xaeronav.hook_missing_diorama");
+    }
+
+    /** 当たらなかった連携を、連携先のMODごとに1通にまとめて知らせる。 */
+    private static void tellMissingHooks(LocalPlayer player, List<XaeroHooks.Hook> missing, boolean diorama,
+                                         String messageKey) {
         MutableComponent features = TextCompat.empty();
         for (XaeroHooks.Hook hook : missing) {
+            if (DioramaPresence.MOD_ID.equals(hook.modId()) != diorama) {
+                continue;
+            }
             if (!features.getSiblings().isEmpty()) {
                 features.append(" / ");
             }
             features.append(TextCompat.translatable(hook.nameKey()));
-            XaeroNav.LOGGER.warn("XaeroNav: Xaero integration mixin is not applied ({} / {})."
-                    + " The installed Xaero version may be outside the supported range", hook.modId(), hook.className());
+            XaeroNav.LOGGER.warn("XaeroNav: map integration mixin is not applied ({} / {})."
+                    + " The installed version of that mod may be outside the supported range",
+                    hook.modId(), hook.className());
         }
-        GameCompat.tell(player, TextCompat.translatable("hud.xaeronav.hook_missing", features), false);
+        if (!features.getSiblings().isEmpty()) {
+            GameCompat.tell(player, TextCompat.translatable(messageKey, features), false);
+        }
     }
 }

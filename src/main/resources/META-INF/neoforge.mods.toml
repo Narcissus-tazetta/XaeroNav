@@ -51,3 +51,11 @@ type="optional"
 versionRange="[${xaero_minimap_min_version},)"
 ordering="AFTER"
 side="CLIENT"
+
+# Dioramaの世界地図・ミニマップへの連携もオプション。下限は注入先を配布jarで確かめた版
+[[dependencies.${mod_id}]]
+modId="diorama"
+type="optional"
+versionRange="[${diorama_min_version},)"
+ordering="AFTER"
+side="CLIENT"

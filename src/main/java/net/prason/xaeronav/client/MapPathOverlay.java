@@ -67,6 +67,13 @@ public final class MapPathOverlay {
         default void dot(int blockX, int blockZ, float red, float green, float blue) {
             rect(blockX, blockZ, blockX + 1, blockZ + 1, red, green, blue);
         }
+
+        /**
+         * これから置く点・矩形の高さ（ブロック）。真上から見下ろす地図は高さで位置が変わらないので何もしない。
+         * 斜めから見る地図（Diorama）は同じXZでも高さで画面上の位置がずれるので、これを受け取って合わせる。
+         */
+        default void height(int blockY) {
+        }
     }
 
     /**
@@ -128,6 +135,14 @@ public final class MapPathOverlay {
      */
     public static Snapshot snapshot() {
         XaeroHookHealth.hookRan();
+        return read();
+    }
+
+    /**
+     * {@link #snapshot()}と同じものを、Xaero側の「注入点を通った」の記録を付けずに読む。Xaero以外の地図が使う——
+     * そちらの描画でも記録してしまうと、Xaeroの世界地図へ描けていないことを見つけられなくなる。
+     */
+    public static Snapshot read() {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
             return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of(), null, false,
@@ -137,17 +152,23 @@ public final class MapPathOverlay {
     }
 
     public static void draw(Snapshot snapshot, QuadSink sink, double pixelsPerBlock) {
+        drawRoute(snapshot, sink);
+
+        // 目印は最後。経路や点線と重なる位置に来るので、後から置いて上に乗せる
+        BlockPos goal = snapshot.goal();
+        if (goal != null && snapshot.goalMarker()) {
+            sink.height(goal.getY());
+            drawGoalMarker(sink, goal, pixelsPerBlock);
+        }
+    }
+
+    /** 目的地の目印を除いた、経路と点線だけ。目印を自前の形で描く地図が使う。 */
+    public static void drawRoute(Snapshot snapshot, QuadSink sink) {
         MapDots dots = drawGroundPath(sink, snapshot);
         BlockPos lastCoarseWaypoint = drawCoarseRoute(sink, snapshot, dots);
         Vec3 flightTail = drawFlightRoute(sink, snapshot);
         drawStraightLine(sink, snapshot, dots, lastCoarseWaypoint, flightTail);
         drawLaterLegs(sink, snapshot);
-
-        // 目印は最後。経路や点線と重なる位置に来るので、後から置いて上に乗せる
-        BlockPos goal = snapshot.goal();
-        if (goal != null && snapshot.goalMarker()) {
-            drawGoalMarker(sink, goal, pixelsPerBlock);
-        }
     }
 
     /** 詳細経路の点。描いた点の並びを返す（経路が無ければ{@code null}）——続きの点線はその末端から引く。 */
@@ -159,6 +180,7 @@ public final class MapPathOverlay {
             // 地図に残り続け、線が際限なく増えていくように見える
             int first = dots.firstDotFrom(PathProgress.INSTANCE.indexFor(snapshot.ground()));
             for (int i = first; i < dots.count; i++) {
+                sink.height(dots.y[i]);
                 sink.dot(dots.x[i], dots.z[i],
                         dots.color[i * 3], dots.color[i * 3 + 1], dots.color[i * 3 + 2]);
             }
@@ -177,20 +199,23 @@ public final class MapPathOverlay {
         List<BlockPos> coarseWaypoints = snapshot.coarseWaypoints();
         if (!coarseWaypoints.isEmpty()) {
             int previousX;
+            int previousY;
             int previousZ;
             if (dots != null && dots.count > 0) {
                 previousX = dots.x[dots.count - 1];
+                previousY = dots.y[dots.count - 1];
                 previousZ = dots.z[dots.count - 1];
             } else {
                 previousX = snapshot.playerPos().getX();
+                previousY = snapshot.playerPos().getY();
                 previousZ = snapshot.playerPos().getZ();
             }
             for (int i = firstAheadWaypoint(coarseWaypoints, previousX, previousZ); i < coarseWaypoints.size(); i++) {
                 BlockPos next = coarseWaypoints.get(i);
-                StraightDots.forEach(previousX, previousZ, next.getX(), next.getZ(),
-                        (x, z) -> sink.dot(x, z,
-                                PathColors.COARSE_ROUTE[0], PathColors.COARSE_ROUTE[1], PathColors.COARSE_ROUTE[2]));
+                straightDots(sink, previousX, previousY, previousZ, next.getX(), next.getY(), next.getZ(),
+                        PathColors.COARSE_ROUTE);
                 previousX = next.getX();
+                previousY = next.getY();
                 previousZ = next.getZ();
             }
         }
@@ -204,6 +229,7 @@ public final class MapPathOverlay {
         List<Vec3> flightRoute = snapshot.flightRoute();
         if (!flightRoute.isEmpty()) {
             int previousX = snapshot.playerPos().getX();
+            int previousY = snapshot.playerPos().getY();
             int previousZ = snapshot.playerPos().getZ();
             // 通り過ぎた区間は描かない（ワールド内のrenderFlightRouteと同じ添字を使うこと）。
             // 先頭は計算した時点のプレイヤー位置なので捨て、今の位置から引く
@@ -211,11 +237,11 @@ public final class MapPathOverlay {
                     i < flightRoute.size(); i++) {
                 Vec3 next = flightRoute.get(i);
                 int nextX = (int) Math.floor(next.x);
+                int nextY = (int) Math.floor(next.y);
                 int nextZ = (int) Math.floor(next.z);
-                StraightDots.forEach(previousX, previousZ, nextX, nextZ,
-                        (x, z) -> sink.dot(x, z,
-                                PathColors.FLIGHT[0], PathColors.FLIGHT[1], PathColors.FLIGHT[2]));
+                straightDots(sink, previousX, previousY, previousZ, nextX, nextY, nextZ, PathColors.FLIGHT);
                 previousX = nextX;
+                previousY = nextY;
                 previousZ = nextZ;
             }
         }
@@ -231,30 +257,37 @@ public final class MapPathOverlay {
             // まだ無いならプレイヤー自身から引く。粗いルートの終点が目的地そのものに置き換わっている
             // ときはfrom=toで長さ0になり、StraightDots側が何も描かず自然に消える
             int fromX;
+            int fromY;
             int fromZ;
             if (flightTail != null) {
                 // 空中経路が引けている区間の先だけを点線で繋ぐ
                 fromX = (int) Math.floor(flightTail.x);
+                fromY = (int) Math.floor(flightTail.y);
                 fromZ = (int) Math.floor(flightTail.z);
             } else if (lastCoarseWaypoint != null) {
                 fromX = lastCoarseWaypoint.getX();
+                fromY = lastCoarseWaypoint.getY();
                 fromZ = lastCoarseWaypoint.getZ();
             } else if (dots != null && dots.count > 0) {
                 fromX = dots.x[dots.count - 1];
+                fromY = dots.y[dots.count - 1];
                 fromZ = dots.z[dots.count - 1];
             } else {
                 fromX = snapshot.playerPos().getX();
+                fromY = snapshot.playerPos().getY();
                 fromZ = snapshot.playerPos().getZ();
             }
             // 滑空中は長距離ルートの中間目標を辿る（無ければ曲がり点線、それも無ければ直線）
             for (Vec3 point : snapshot.flightDash()) {
                 int nextX = (int) Math.floor(point.x);
+                int nextY = (int) Math.floor(point.y);
                 int nextZ = (int) Math.floor(point.z);
-                straightDots(sink, fromX, fromZ, nextX, nextZ, PathColors.STRAIGHT);
+                straightDots(sink, fromX, fromY, fromZ, nextX, nextY, nextZ, PathColors.STRAIGHT);
                 fromX = nextX;
+                fromY = nextY;
                 fromZ = nextZ;
             }
-            straightDots(sink, fromX, fromZ, goal.getX(), goal.getZ(), PathColors.STRAIGHT);
+            straightDots(sink, fromX, fromY, fromZ, goal.getX(), goal.getY(), goal.getZ(), PathColors.STRAIGHT);
         }
     }
 
@@ -267,6 +300,7 @@ public final class MapPathOverlay {
                 ? null : MapDots.forPath(snapshot.nextLeg());
         if (next != null) {
             for (int i = 0; i < next.count; i++) {
+                sink.height(next.y[i]);
                 sink.dot(next.x[i], next.z[i], next.color[i * 3], next.color[i * 3 + 1], next.color[i * 3 + 2]);
             }
         }
@@ -274,17 +308,21 @@ public final class MapPathOverlay {
         for (int leg = 0; leg < legs.size(); leg++) {
             List<BlockPos> line = legs.get(leg);
             int previousX = line.get(0).getX();
+            int previousY = line.get(0).getY();
             int previousZ = line.get(0).getZ();
             int first = 1;
             if (leg == 0 && next != null && snapshot.nextLegContinues() && next.count > 0) {
                 previousX = next.x[next.count - 1];
+                previousY = next.y[next.count - 1];
                 previousZ = next.z[next.count - 1];
                 first = Math.max(1, firstAheadWaypoint(line, previousX, previousZ));
             }
             for (int i = first; i < line.size(); i++) {
                 BlockPos point = line.get(i);
-                straightDots(sink, previousX, previousZ, point.getX(), point.getZ(), PathColors.COARSE_ROUTE);
+                straightDots(sink, previousX, previousY, previousZ, point.getX(), point.getY(), point.getZ(),
+                        PathColors.COARSE_ROUTE);
                 previousX = point.getX();
+                previousY = point.getY();
                 previousZ = point.getZ();
             }
         }
@@ -426,12 +464,15 @@ public final class MapPathOverlay {
         return (int) Math.round(pixels / pixelsPerBlock);
     }
 
-    private static void straightDots(QuadSink sink, int fromX, int fromZ, int toX, int toZ) {
-        straightDots(sink, fromX, fromZ, toX, toZ, PathColors.STRAIGHT);
-    }
-
-    private static void straightDots(QuadSink sink, int fromX, int fromZ, int toX, int toZ, float[] color) {
-        StraightDots.forEach(fromX, fromZ, toX, toZ,
-                (x, z) -> sink.dot(x, z, color[0], color[1], color[2]));
+    /** 点線。高さは両端の間を進んだ割合で補う（間の地形の高さはここでは分からない）。 */
+    private static void straightDots(QuadSink sink, int fromX, int fromY, int fromZ, int toX, int toY, int toZ,
+                                     float[] color) {
+        int span = Math.max(Math.abs(toX - fromX), Math.abs(toZ - fromZ));
+        StraightDots.forEach(fromX, fromZ, toX, toZ, (x, z) -> {
+            double progress = span == 0 ? 0.0
+                    : Math.max(Math.abs(x - fromX), Math.abs(z - fromZ)) / (double) span;
+            sink.height((int) Math.round(fromY + (toY - fromY) * progress));
+            sink.dot(x, z, color[0], color[1], color[2]);
+        });
     }
 }

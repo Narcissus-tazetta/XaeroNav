@@ -22,15 +22,18 @@ final class MapDots {
 
     final int[] x;
     final int[] z;
+    /** その点の足元の高さ。高さで位置が変わる地図（斜めから見るDiorama）が使う。 */
+    final int[] y;
     /** 点ごとのRGB（点数 × 3）。 */
     final float[] color;
     /** 点ごとの元の{@link PathStep}の添字（昇順）。通り過ぎた点を飛ばすために要る。 */
     private final int[] stepIndex;
     final int count;
 
-    private MapDots(int[] x, int[] z, float[] color, int[] stepIndex, int count) {
+    private MapDots(int[] x, int[] z, int[] y, float[] color, int[] stepIndex, int count) {
         this.x = x;
         this.z = z;
+        this.y = y;
         this.color = color;
         this.stepIndex = stepIndex;
         this.count = count;
@@ -64,6 +67,7 @@ final class MapDots {
         List<PathStep> steps = result.steps();
         int[] x = new int[steps.size()];
         int[] z = new int[steps.size()];
+        int[] y = new int[steps.size()];
         float[] color = new float[steps.size() * 3];
         int[] stepIndex = new int[steps.size()];
         int count = 0;
@@ -78,6 +82,7 @@ final class MapDots {
             float[] stepColor = PathColors.forStep(step);
             x[count] = stepX;
             z[count] = stepZ;
+            y[count] = step.pos().getY();
             color[count * 3] = stepColor[0];
             color[count * 3 + 1] = stepColor[1];
             color[count * 3 + 2] = stepColor[2];
@@ -85,7 +90,7 @@ final class MapDots {
             count++;
         }
 
-        return new MapDots(Arrays.copyOf(x, count), Arrays.copyOf(z, count),
+        return new MapDots(Arrays.copyOf(x, count), Arrays.copyOf(z, count), Arrays.copyOf(y, count),
                 Arrays.copyOf(color, count * 3), Arrays.copyOf(stepIndex, count), count);
     }
 }

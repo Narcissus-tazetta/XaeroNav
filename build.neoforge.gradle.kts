@@ -69,6 +69,8 @@ neoForge {
             providers.gradleProperty("xaeronav.chatCheck").orNull?.let { systemProperty("xaeronav.chatCheck", it) }
             // `-Pxaeronav.netherHintCheck=<名前>`でHUDのネザー換算距離の行を場面ごとに撮る（devmodのNetherHintCheck）
             providers.gradleProperty("xaeronav.netherHintCheck").orNull?.let { systemProperty("xaeronav.netherHintCheck", it) }
+            // `-Pxaeronav.dioramaCheck=<名前> -Pwith_diorama=true`でDiorama連携を通しで確かめる（devmodのDioramaCheck）
+            providers.gradleProperty("xaeronav.dioramaCheck").orNull?.let { systemProperty("xaeronav.dioramaCheck", it) }
             // `-Pxaeronav.configShot=<名前>`で設定画面を開いてスクリーンショットを撮る（devmodのConfigShot）
             providers.gradleProperty("xaeronav.configShot").orNull?.let { systemProperty("xaeronav.configShot", it) }
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
@@ -120,6 +122,13 @@ dependencies {
     xaeroModules.forEach { compileOnly(it) }
     if (withXaero) {
         xaeroModules.forEach { xaeroRuntimeMods(it) }
+    }
+    dioramaCoordinate("neoforge", minecraftVersion)?.let { diorama ->
+        compileOnly(diorama)
+        devSourceSet?.let { add(it.compileOnlyConfigurationName, diorama) }
+        if (withDioramaProperty()) {
+            xaeroRuntimeMods(diorama)
+        }
     }
 }
 

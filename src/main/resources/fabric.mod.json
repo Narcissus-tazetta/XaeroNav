@@ -27,6 +27,7 @@
   },
   "suggests": {
     "xaeroworldmap": ">=${xaero_worldmap_min_version}",
-    "xaerominimap": ">=${xaero_minimap_min_version}"
+    "xaerominimap": ">=${xaero_minimap_min_version}",
+    "diorama": ">=${diorama_min_version}"
   }
 }
