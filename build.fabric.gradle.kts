@@ -3,7 +3,7 @@ import xyz.wagyourtail.jvmdg.gradle.task.ShadeJar
 
 plugins {
     id("xaeronav.common")
-    id("fabric-loom") version "1.17.20"
+    id("fabric-loom") version "1.18.4"
     id("xyz.wagyourtail.jvmdowngrader") version "2.0.1" apply false
 }
 
