@@ -38,6 +38,8 @@
   "hud.xaeronav.hook_world_map": "route drawing on the world map",
   "hud.xaeronav.hook_waypoint_menu": "the waypoint right-click menu",
   "hud.xaeronav.hook_minimap": "route drawing on the minimap",
+  "hud.xaeronav.hook_missing_diorama": "XaeroNav: could not hook into Diorama, so %s is disabled. Your Diorama version may be newer than this build supports — please report it with the output of /xaeronav version.",
+  "hud.xaeronav.hook_map_menu": "the world map right-click menu",
   "hud.xaeronav.rerouted": "Route recalculated (the way ahead is no longer passable)",
   "hud.xaeronav.flying": "Gliding — following the air route",
   "hud.xaeronav.flying_no_route": "Gliding — no air route found",

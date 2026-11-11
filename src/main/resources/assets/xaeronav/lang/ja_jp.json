@@ -38,6 +38,8 @@
   "hud.xaeronav.hook_world_map": "世界地図への経路描画",
   "hud.xaeronav.hook_waypoint_menu": "ウェイポイントの右クリックメニュー",
   "hud.xaeronav.hook_minimap": "ミニマップへの経路描画",
+  "hud.xaeronav.hook_missing_diorama": "XaeroNav: Diorama への連携に失敗したため、%sが無効です。Diorama がこのビルドの対応範囲より新しい可能性があります — /xaeronav version の結果を添えて報告してください。",
+  "hud.xaeronav.hook_map_menu": "世界地図の右クリックメニュー",
   "hud.xaeronav.rerouted": "経路を引き直しました（この先が通れなくなりました）",
   "hud.xaeronav.flying": "滑空ルートを案内中",
   "hud.xaeronav.flying_no_route": "滑空ルートが見つかりません",

@@ -104,6 +104,42 @@ private fun xaeroCoordinate(xaeroModule: String, modrinthProject: String, versio
     if (version.startsWith("modrinth:")) "maven.modrinth:$modrinthProject:${version.removePrefix("modrinth:")}"
     else "$xaeroModule:$version"
 
+/** Dioramaの版。連携のmixinはこの版の配布jarで注入先を確かめてある。 */
+const val DIORAMA_VERSION = "0.8.1"
+
+/**
+ * DioramaのModrinth上の版名。そのローダー・Minecraft版向けの配布が無ければ`null`
+ * （＝そのノードではDiorama連携をビルドしない）。
+ *
+ * <p>Fabric向けは1つのjarが複数のMinecraft版を受け持ち、版名にその範囲が入る。
+ */
+fun dioramaModrinthVersion(loader: String, minecraftVersion: String): String? {
+    val target = when (loader) {
+        "fabric" -> when (minecraftVersion) {
+            "1.20.1", "1.21.4", "1.21.5", "1.21.11", "26.2", "26.3" -> minecraftVersion
+            "1.21.1" -> "1.21-1.21.1"
+            "1.21.3" -> "1.21.2-1.21.3"
+            "1.21.8" -> "1.21.6-1.21.8"
+            "1.21.10" -> "1.21.9-1.21.10"
+            "26.1.2" -> "26.1"
+            else -> null
+        }
+        "neoforge" -> minecraftVersion.takeIf {
+            it in setOf("1.21.1", "1.21.3", "1.21.4", "1.21.5", "1.21.8", "1.21.10", "1.21.11", "26.1.2", "26.2")
+        }?.let { "neoforge-$it" }
+        "forge" -> minecraftVersion.takeIf { it == "1.20.1" }?.let { "forge-$it" }
+        else -> null
+    }
+    return target?.let { "$DIORAMA_VERSION+$it" }
+}
+
+/** Dioramaの依存座標（ModrinthのMaven）。配布が無いノードでは`null`。 */
+fun dioramaCoordinate(loader: String, minecraftVersion: String): String? =
+    dioramaModrinthVersion(loader, minecraftVersion)?.let { "maven.modrinth:diorama-map:$it" }
+
+/** `./gradlew runClient -Pwith_diorama=true` でDioramaを開発実行へ載せる。既定では載せない。 */
+fun Project.withDioramaProperty(): Boolean = (findProperty("with_diorama") as String?)?.toBoolean() ?: false
+
 /** `./gradlew runClient -Pwith_xaero=false` でXaeroを外せるようにする開発実行の共通判定。 */
 fun Project.withXaeroProperty(): Boolean = (findProperty("with_xaero") as String?)?.toBoolean() ?: true
 
@@ -228,6 +264,7 @@ fun Project.commonNodeResourceProperties(
 ): Map<String, String> = modResourceProperties() + minecraftRangeProperties(minecraftVersion, name) + mapOf(
     "xaero_worldmap_min_version" to worldmapMinVersion,
     "xaero_minimap_min_version" to minimapMinVersion,
+    "diorama_min_version" to DIORAMA_VERSION,
     "mixin_compatibility_level" to mixinCompatibilityLevel,
     "pack_format_fields" to packFormatFields(packFormat),
 )

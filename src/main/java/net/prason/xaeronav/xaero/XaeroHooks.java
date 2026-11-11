@@ -6,7 +6,7 @@ import java.util.List;
 import net.prason.xaeronav.platform.ModPresence;
 
 /**
- * Xaero連携のmixinが実際に当たったかを、注入先のクラスに付く{@link XaeroHookMarker}で確かめる。
+ * 地図MOD（Xaero・Diorama）との連携のmixinが実際に当たったかを、注入先のクラスに付く{@link XaeroHookMarker}で確かめる。
  *
  * <p>このクラス自体は{@code xaero.*}を参照しない（{@link XaeroPresence}と同じ理由）。注入先は
  * クラス名の文字列でだけ指す。
@@ -17,7 +17,10 @@ public final class XaeroHooks {
     public enum Hook {
         WORLD_MAP("xaeroworldmap", "xaero.map.gui.GuiMap", "hud.xaeronav.hook_world_map"),
         WAYPOINT_MENU("xaeroworldmap", "xaero.map.mods.gui.WaypointReader", "hud.xaeronav.hook_waypoint_menu"),
-        MINIMAP("xaerominimap", "xaero.common.minimap.render.MinimapFBORenderer", "hud.xaeronav.hook_minimap");
+        MINIMAP("xaerominimap", "xaero.common.minimap.render.MinimapFBORenderer", "hud.xaeronav.hook_minimap"),
+        DIORAMA_MENU("diorama", "dev.diorama.MapScreen", "hud.xaeronav.hook_map_menu"),
+        DIORAMA_MAP("diorama", "dev.diorama.waypoint.WaypointOverlay", "hud.xaeronav.hook_world_map"),
+        DIORAMA_MINIMAP("diorama", "dev.diorama.MinimapHud", "hud.xaeronav.hook_minimap");
 
         private final String modId;
         private final String className;

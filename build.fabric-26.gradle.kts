@@ -83,6 +83,12 @@ dependencies {
     if (withXaero) {
         xaeroModules.forEach { xaeroRuntimeMods(it) }
     }
+    dioramaCoordinate("fabric", minecraftVersion)?.let { diorama ->
+        compileOnly(diorama)
+        if (withDioramaProperty()) {
+            xaeroRuntimeMods(diorama)
+        }
+    }
 }
 
 // Syncではなくコピーにして、手で入れた他のMODを消さない。

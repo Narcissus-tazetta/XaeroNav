@@ -15,7 +15,7 @@ where to go next.
 
 After [installation](#installation), start navigating in three steps:
 
-1. Right-click your destination on Xaero's World Map and select "Navigate Here".
+1. Right-click your destination on Xaero's World Map (or Diorama's world map) and select "Navigate Here".
 2. Once the route appears, follow the line and the guidance at the top of the screen.
 3. Run `/xaeronav clear` when you want to stop navigating.
 
@@ -23,7 +23,7 @@ Finding a route can take a little time. "Finding a route…" at the top of the s
 is still running. For distant destinations, the computed section is shown first and extended as you move.
 
 You move, dig, and place blocks yourself.
-Without Xaero installed, set a destination with `/xaeronav goto <x> <y> <z>`.
+Without a map mod installed, set a destination with `/xaeronav goto <x> <y> <z>`.
 
 ## Installation
 
@@ -45,6 +45,8 @@ Without Xaero installed, set a destination with `/xaeronav goto <x> <y> <z>`.
    `xaeronav-0.3.0-fabric-1.20.1.jar`.
 3. For map integration, also install Xaero's World Map and/or Xaero's Minimap (optional).
    See "Supported Xaero versions" below for the required versions.
+   [Diorama](https://modrinth.com/mod/diorama-map) (0.8.1 or later) is supported too; see
+   "Diorama integration" below for what it covers.
 
 <details>
 <summary>Supported Minecraft versions and loaders</summary>
@@ -108,7 +110,7 @@ Minimap 25.3.2.
 | The route stops short or becomes a dotted line | Detailed searches cover loaded chunks. Check your render distance. Long-distance guidance needs Xaero's map data and is unavailable in unexplored areas. See [Known limitations](#known-limitations). |
 | CPU load is too high | Set `routingMode` to `BALANCED` or `LIGHT` in [Configuration](#configuration). `LIGHT` can add small detours. |
 | Routes include digging or placing blocks | Set `diggingEnabled = false` and `bridgingEnabled = false` in [Configuration](#configuration) to exclude those moves. |
-| "Navigate Here" is missing from the map | Check that Xaero's World Map and XaeroNav are installed and meet "Supported Xaero versions" above. If an integration switches off, chat shows the reason. |
+| "Navigate Here" is missing from the map | Check that Xaero's World Map (or Diorama) and XaeroNav are installed and meet "Supported Xaero versions" above (Diorama: 0.8.1 or later). If an integration switches off, chat shows the reason. |
 
 ## What it does
 
@@ -152,6 +154,19 @@ walking, so drifting a few blocks off the line does not redraw it and the guidan
 Without Xaero installed, only the map drawing and the right-click menu go away. In-world rendering
 and the HUD work as usual.
 
+### Diorama integration
+
+With [Diorama](https://modrinth.com/mod/diorama-map) 0.8.1 or later installed you get:
+
+- "Navigate Here", adding stops and clearing the route from the world map's right-click menu (on the
+  ground and on waypoints)
+- The route drawn on the world map and the minimap
+- The destination and stops shown as temporary Diorama waypoints
+
+Long-distance guidance uses Xaero's map data, so with Diorama alone XaeroNav guides you within
+loaded chunks and extends the route as you move. It works wherever Diorama is published: Fabric
+1.20.1, 1.21 to 1.21.11 and 26.1 to 26.3, NeoForge 1.21.1 to 26.2, and Forge 1.20.1.
+
 ## Setting a destination
 
 | Method | Action |
@@ -184,7 +199,8 @@ headed without following the line to its end. With Xaero's Minimap installed it 
 temporary Xaero waypoint: upright on a rotating minimap, pinned to the edge with a distance
 readout once it goes off screen, and visible in the world like any other waypoint. It is never
 written to disk and disappears when you clear the route. Without the minimap, XaeroNav draws its
-own pin on the world map, which keeps the same on-screen size however far you zoom out.
+own pin on the world map, which keeps the same on-screen size however far you zoom out. With Diorama
+the destination is registered as a temporary Diorama waypoint in the same way.
 
 Clear the route with `/xaeronav clear` or its keybind.
 

@@ -3,7 +3,7 @@ import xyz.wagyourtail.jvmdg.gradle.task.ShadeJar
 
 plugins {
     id("xaeronav.common")
-    id("fabric-loom") version "1.17.20"
+    id("fabric-loom") version "1.18.4"
     id("xyz.wagyourtail.jvmdowngrader") version "2.0.1" apply false
 }
 
@@ -79,6 +79,8 @@ loom {
         named("client") {
             client()
             configName = "Fabric Client (${stonecutter.current.project})"
+            // `-Pxaeronav.quickPlay=<ワールド名>`でタイトル画面を飛ばして既存のワールドへ入る（手元の確認用）
+            providers.gradleProperty("xaeronav.quickPlay").orNull?.let { programArgs("--quickPlaySingleplayer", it) }
             // NeoForgeノードと同じ口（CIのruntime hook probeを手元で走らせるときなど）
             providers.gradleProperty("xaeronav.clientJvmArgs").orNull?.split(" ")?.filter { it.isNotBlank() }
                 ?.forEach { vmArg(it) }
@@ -138,6 +140,12 @@ dependencies {
     xaeroModules.forEach { modCompileOnly(it) }
     if (withXaero) {
         xaeroModules.forEach { xaeroRuntimeMods(it) }
+    }
+    dioramaCoordinate("fabric", minecraftVersion)?.let { diorama ->
+        modCompileOnly(diorama)
+        if (withDioramaProperty()) {
+            xaeroRuntimeMods(diorama)
+        }
     }
 }
 
