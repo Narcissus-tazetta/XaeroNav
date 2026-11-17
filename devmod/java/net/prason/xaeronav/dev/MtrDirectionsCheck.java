@@ -124,6 +124,11 @@ final class MtrDirectionsCheck {
     private void onTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
         IntegratedServer server = mc.getSingleplayerServer();
+        if (mc.level != null && mc.player != null && server == null && name.startsWith("mp")) {
+            ticks++;
+            multiplayer(mc);
+            return;
+        }
         if (mc.level == null || mc.player == null || server == null) {
             return;
         }
@@ -209,6 +214,12 @@ final class MtrDirectionsCheck {
                 if (name.startsWith("ride") || name.startsWith("manual")) {
                     server.execute(() -> buildStations(server));
                     stage = 20;
+                    ticks = 0;
+                    return;
+                }
+                if (name.startsWith("silent") || name.startsWith("refused")) {
+                    server.execute(() -> buildStations(server));
+                    stage = 40;
                     ticks = 0;
                     return;
                 }
@@ -370,6 +381,26 @@ final class MtrDirectionsCheck {
                 }
             }
             case 30 -> watchManual(mc);
+            case 40 -> {
+                if (ticks < 60) {
+                    return;
+                }
+                int port = name.startsWith("silent") ? silentPort() : refusedPort();
+                setMtrPort(port);
+                rideGoal = PathfindingState.INSTANCE.setGoal(new BlockPos(ox + B + 70, oy + 1, oz + 3));
+                log("unavailable: MTR port now {} ({}), goal {} from {}", MtrLink.port(), name, rideGoal,
+                        mc.player.blockPosition());
+                next();
+            }
+            case 41 -> checkUnavailable(mc, 600, "first goal");
+            case 42 -> {
+                BlockPos second = PathfindingState.INSTANCE.setGoal(new BlockPos(ox + B + 70, oy + 1, oz - 300));
+                rideGoal = second;
+                log("unavailable: second goal {}", second);
+                next();
+            }
+            case 43 -> checkUnavailable(mc, 400, "second goal");
+            case 44 -> finish(mc, "unavailable: done");
             default -> {
             }
         }
@@ -414,6 +445,217 @@ final class MtrDirectionsCheck {
             shot(mc, "arrived");
         }
         watchedArrived = arrived;
+    }
+
+    /**
+     * 専用サーバーへつないだとき（名前が{@code mp}で始まる）。サーバーのワールドは、シングルで{@code silent}などを回して
+     * 路線と駅を作ったワールドの複製で、原点は{@code xaeronav.mtrOrigin=x,y,z}（そのときのログの{@code origin}）。
+     * 駅Aの手前へ移って（要OP）目的地を置き、MTRの中継を通った提案が出て、承認でホームへの案内に切り替わるかを見る。
+     */
+    private void multiplayer(Minecraft mc) {
+        switch (stage) {
+            case 0 -> {
+                if (ticks < 100) {
+                    return;
+                }
+                mc.options.pauseOnLostFocus = false;
+                String[] origin = System.getProperty("xaeronav.mtrOrigin").split(",");
+                ox = Integer.parseInt(origin[0]);
+                oy = Integer.parseInt(origin[1]);
+                oz = Integer.parseInt(origin[2]);
+                mc.player.connection.sendCommand(String.format("tp @s %.1f %d %.1f -90 0", ox + 72.5, oy + 1, oz + 3.5));
+                log("mp: port {}, teleporting next to station A", MtrLink.port());
+                if (name.startsWith("mpprobe")) {
+                    probeRelay(MtrLink.port());
+                }
+                next();
+            }
+            case 1 -> {
+                if (ticks < 60) {
+                    return;
+                }
+                if (name.startsWith("mpsilent")) {
+                    // サーバー側の地図サーバーが無効なときと同じく、中継が何も返さない
+                    setMtrPort(silentPort());
+                }
+                rideGoal = PathfindingState.INSTANCE.setGoal(new BlockPos(ox + B + 70, oy + 1, oz + 3));
+                log("mp: goal {} from {}", rideGoal, mc.player.blockPosition());
+                if (name.startsWith("mpsilent")) {
+                    stage = 41;
+                    ticks = 0;
+                    return;
+                }
+                next();
+            }
+            case 2 -> {
+                if (ticks % 20 != 0) {
+                    return;
+                }
+                if (TransitGuide.INSTANCE.accept()) {
+                    log("mp: PASS offer accepted after {} ticks", ticks);
+                    shot(mc, "accepted");
+                    next();
+                } else if (ticks > 600) {
+                    finish(mc, "mp: FAIL no offer within 600 ticks");
+                }
+            }
+            case 3 -> {
+                PathfindingState.NavigationView view = PathfindingState.INSTANCE.navigationView();
+                if (ticks == 100) {
+                    boolean toPlatform = view.goal() != null && !view.goal().equals(rideGoal)
+                            && Math.abs(view.goal().getX() - (ox + 120)) <= 21;
+                    shot(mc, "to-platform");
+                    finish(mc, "mp: " + (toPlatform ? "PASS" : "FAIL") + " leg goal " + view.goal()
+                            + " (station A is " + (ox + 100) + ".." + (ox + 140) + "), walking line="
+                            + (view.currentResult() != null));
+                }
+            }
+            case 41 -> checkUnavailable(mc, 600, "first goal");
+            case 42 -> {
+                rideGoal = PathfindingState.INSTANCE.setGoal(new BlockPos(ox + B + 70, oy + 1, oz - 300));
+                log("unavailable: second goal {}", rideGoal);
+                next();
+            }
+            case 43 -> checkUnavailable(mc, 400, "second goal");
+            case 44 -> finish(mc, "unavailable: done");
+            default -> {
+            }
+        }
+    }
+
+    /** 中継口へ同じ要求を投げ方を変えて順に送り、どれが返るかを見る。 */
+    private void probeRelay(int port) {
+        Thread thread = new Thread(() -> {
+            String path = "/mtr/api/map/stations-and-routes?dimension=0";
+            for (String host : new String[] {"localhost", "127.0.0.1"}) {
+                long started = System.nanoTime();
+                try {
+                    HttpResponse<String> response = http.send(HttpRequest.newBuilder(URI.create("http://" + host + ":" + port + path))
+                            .timeout(Duration.ofSeconds(8)).header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+                    log("mp probe: java.net.http {} -> {} in {} ms", host, response.statusCode(), (System.nanoTime() - started) / 1_000_000);
+                } catch (IOException | InterruptedException e) {
+                    log("mp probe: java.net.http {} -> {} in {} ms", host, e, (System.nanoTime() - started) / 1_000_000);
+                }
+                for (boolean contentType : new boolean[] {true, false}) {
+                    started = System.nanoTime();
+                    try {
+                        java.net.HttpURLConnection c = (java.net.HttpURLConnection) URI.create("http://" + host + ":" + port + path)
+                                .toURL().openConnection();
+                        c.setConnectTimeout(3000);
+                        c.setReadTimeout(8000);
+                        c.setRequestMethod("POST");
+                        if (contentType) {
+                            c.setRequestProperty("Content-Type", "application/json");
+                        }
+                        c.setDoOutput(true);
+                        try (java.io.OutputStream o = c.getOutputStream()) {
+                            o.write("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        }
+                        int status = c.getResponseCode();
+                        int length = c.getInputStream().readAllBytes().length;
+                        log("mp probe: HttpURLConnection {} contentType={} -> {} ({} bytes) in {} ms", host, contentType, status,
+                                length, (System.nanoTime() - started) / 1_000_000);
+                    } catch (IOException e) {
+                        log("mp probe: HttpURLConnection {} contentType={} -> {} in {} ms", host, contentType, e,
+                                (System.nanoTime() - started) / 1_000_000);
+                    }
+                }
+            }
+        }, "mtr-relay-probe");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private int noticesSeen;
+    private int firstNoticeTick = -1;
+
+    /**
+     * 返事が来ないとき: 理由の通知がワールドの間に1回だけ出て、歩きの案内（区間の終点・線）が元の目的地のままかを見る。
+     * {@code waitTicks}の終わりに判定する。
+     */
+    private void checkUnavailable(Minecraft mc, int waitTicks, String label) {
+        int notices = countChat(mc, net.minecraft.network.chat.Component.translatable(
+                "commands.xaeronav.transit_unavailable").getString());
+        if (notices != noticesSeen) {
+            noticesSeen = notices;
+            if (firstNoticeTick < 0) {
+                firstNoticeTick = ticks;
+            }
+            log("unavailable: notice #{} in chat at tick {} ({})", notices, ticks, label);
+            shot(mc, "notice-" + notices);
+        }
+        if (ticks < waitTicks) {
+            return;
+        }
+        PathfindingState.NavigationView view = PathfindingState.INSTANCE.navigationView();
+        boolean legIsGoal = rideGoal.equals(view.goal());
+        boolean line = view.currentResult() != null;
+        log("unavailable: {} {} after {} ticks: notices={} (first at tick {}), leg goal {} (is the goal: {}), walking line={}",
+                notices == 1 && legIsGoal && line ? "PASS" : "FAIL", label, ticks, notices, firstNoticeTick,
+                view.goal(), legIsGoal, line);
+        shot(mc, label.replace(' ', '-'));
+        next();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static int countChat(Minecraft mc, String text) {
+        try {
+            java.lang.reflect.Field field = net.minecraft.client.gui.components.ChatComponent.class
+                    .getDeclaredField("allMessages");
+            field.setAccessible(true);
+            int count = 0;
+            for (net.minecraft.client.GuiMessage message
+                    : (List<net.minecraft.client.GuiMessage>) field.get(mc.gui.getChat())) {
+                if (message.content().getString().contains(text)) {
+                    count++;
+                }
+            }
+            return count;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** 接続は受けるが何も返さない口。マルチでサーバー側の地図サーバーが無効なとき、MTRの中継が黙るのと同じ形。 */
+    private static int silentPort() {
+        try {
+            java.net.ServerSocket socket = new java.net.ServerSocket(0);
+            List<java.net.Socket> held = Collections.synchronizedList(new ArrayList<>());
+            Thread thread = new Thread(() -> {
+                while (true) {
+                    try {
+                        held.add(socket.accept());
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                }
+            }, "mtr-silent-port");
+            thread.setDaemon(true);
+            thread.start();
+            return socket.getLocalPort();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** 誰も待っていない口（接続を拒まれる）。 */
+    private static int refusedPort() {
+        try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static void setMtrPort(int port) {
+        try {
+            java.lang.reflect.Field field = MTRClient.class.getDeclaredField("serverPort");
+            field.setAccessible(true);
+            field.setInt(null, port);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private void shot(Minecraft mc, String label) {

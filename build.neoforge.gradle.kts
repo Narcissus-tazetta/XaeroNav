@@ -60,6 +60,9 @@ neoForge {
             gameDirectory = runDir
             // `-Pxaeronav.quickPlay=<ワールド名>`でタイトル画面を飛ばして既存のワールドへ入る（手元の確認用）
             providers.gradleProperty("xaeronav.quickPlay").orNull?.let { programArguments.addAll("--quickPlaySingleplayer", it) }
+            // `-Pxaeronav.quickPlayServer=<host:port>`で手元のサーバーへ直接つなぐ
+            providers.gradleProperty("xaeronav.quickPlayServer").orNull?.let { programArguments.addAll("--quickPlayMultiplayer", it) }
+            providers.gradleProperty("xaeronav.mtrOrigin").orNull?.let { systemProperty("xaeronav.mtrOrigin", it) }
             // `-Pxaeronav.autopilot=dx,dz`で経路をなぞって歩かせる（devmodのAutopilot、計測用）
             providers.gradleProperty("xaeronav.autopilot").orNull?.let { systemProperty("xaeronav.autopilot", it) }
             providers.gradleProperty("xaeronav.autopilotMinutes").orNull?.let { systemProperty("xaeronav.autopilotMinutes", it) }

@@ -248,7 +248,10 @@ public final class TransitGuide {
         String worldId = GameCompat.dimensionId(mc.level.dimension()).replace(':', '/');
         XaeroNav.LOGGER.debug("XaeroNav: asking MTR directions ({}) from {} to {}", purpose,
                 mc.player.blockPosition(), to);
-        service.ask(port, worldId, mc.player.blockPosition(), to, outcome -> answers.add(new Answer(asked, outcome)));
+        // シングル（LANで開いている側を含む）はシミュレーターの地図サーバーそのもの、それ以外はサーバーへの中継
+        boolean relayed = mc.getSingleplayerServer() == null;
+        service.ask(port, relayed, worldId, mc.player.blockPosition(), to,
+                outcome -> answers.add(new Answer(asked, outcome)));
         return true;
     }
 
@@ -273,7 +276,9 @@ public final class TransitGuide {
             case ACCEPT -> {
                 if (itinerary == null) {
                     toIdle();
-                    GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.transit_gone"), false);
+                    if (outcome.failure() == null) {
+                        GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.transit_gone"), false);
+                    }
                 } else {
                     activate(mc, state, itinerary);
                 }

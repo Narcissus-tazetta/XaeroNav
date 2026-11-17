@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
@@ -30,8 +31,19 @@ import org.jspecify.annotations.Nullable;
  */
 public final class TransitService {
 
-    /** サーバー側の地図サーバーが無効だと、中継は返事をしないまま切れない。これで見切る。 */
+    /** シングル（シミュレーターの地図サーバーへ直接）の待ち。 */
     private static final int READ_TIMEOUT_MILLIS = 10_000;
+    /**
+     * マルチの中継の待ち。サーバー側の中継は自分の地図サーバーを2秒しか待たず、時間切れの要求には何も返さない
+     * （MTR 4.0.5・4.1.0-beta.2の{@code RequestHelper}）。返事が来るならこの内に来る。サーバー側の地図サーバーが
+     * 無効なときも、中継は返事をしないまま切れない。
+     */
+    private static final int RELAY_READ_TIMEOUT_MILLIS = 4_000;
+    /**
+     * 中継へ同じ要求を投げる回数。しばらく空いた後の最初の乗り換え案内はシミュレーターで約2.6秒かかり中継に捨てられるが、
+     * 続けて投げると約1.3秒で返る（実測、試験の路線）。
+     */
+    private static final int RELAY_ATTEMPTS = 3;
     private static final int CONNECT_TIMEOUT_MILLIS = 3_000;
     /** 駅・路線の一覧を使い回す時間。MTR側も30秒キャッシュしている。 */
     private static final long NETWORK_TTL_MILLIS = 60_000L;
@@ -58,13 +70,14 @@ public final class TransitService {
 
     /**
      * @param worldId {@code minecraft/overworld}の形（MTRの次元の書き方）
+     * @param relayed {@code port}がサーバーへの中継の口か（マルチ）
      * @param result  workerスレッドから呼ばれる
      */
-    public void ask(int port, String worldId, BlockPos from, BlockPos to, Consumer<Outcome> result) {
+    public void ask(int port, boolean relayed, String worldId, BlockPos from, BlockPos to, Consumer<Outcome> result) {
         worker.execute(() -> {
             Outcome outcome;
             try {
-                outcome = new Outcome(directions(port, worldId, from, to), null);
+                outcome = new Outcome(directions(new Endpoint(port, relayed), worldId, from, to), null);
             } catch (IOException | JsonParseException | TransitFormatException e) {
                 XaeroNav.LOGGER.warn("XaeroNav: MTR directions request failed: {}", e.toString());
                 outcome = new Outcome(null, e.toString());
@@ -73,8 +86,11 @@ public final class TransitService {
         });
     }
 
-    private @Nullable Itinerary directions(int port, String worldId, BlockPos from, BlockPos to) throws IOException {
-        boolean cached = network != null && networkPort == port && worldId.equals(networkWorld)
+    private record Endpoint(int port, boolean relayed) {
+    }
+
+    private @Nullable Itinerary directions(Endpoint port, String worldId, BlockPos from, BlockPos to) throws IOException {
+        boolean cached = network != null && networkPort == port.port() && worldId.equals(networkWorld)
                 && System.currentTimeMillis() - networkFetchedMillis < NETWORK_TTL_MILLIS;
         if (!cached) {
             fetchNetwork(port, worldId);
@@ -100,7 +116,7 @@ public final class TransitService {
         }
     }
 
-    private void fetchNetwork(int port, String worldId) throws IOException {
+    private void fetchNetwork(Endpoint port, String worldId) throws IOException {
         network = null;
         // 次元の並びはどの次元に聞いても同じものが返る。番号が分かるまでは0番に聞く
         TransitNetwork first = TransitNetwork.parse(data(post(port, "stations-and-routes", 0, "{}")));
@@ -110,7 +126,7 @@ public final class TransitService {
         }
         network = dimension == 0 ? first
                 : TransitNetwork.parse(data(post(port, "stations-and-routes", dimension, "{}")));
-        networkPort = port;
+        networkPort = port.port();
         networkWorld = worldId;
         networkDimension = dimension;
         networkFetchedMillis = System.currentTimeMillis();
@@ -124,13 +140,31 @@ public final class TransitService {
         return data.getAsJsonObject();
     }
 
+    private static JsonObject post(Endpoint port, String endpoint, int dimension, String body) throws IOException {
+        if (!port.relayed()) {
+            return post(port.port(), READ_TIMEOUT_MILLIS, endpoint, dimension, body);
+        }
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return post(port.port(), RELAY_READ_TIMEOUT_MILLIS, endpoint, dimension, body);
+            } catch (SocketTimeoutException dropped) {
+                if (attempt >= RELAY_ATTEMPTS) {
+                    throw new SocketTimeoutException("no reply through MTR's relay after " + attempt + " attempts ("
+                            + endpoint + "); the server's MTR map web server may be disabled");
+                }
+                XaeroNav.LOGGER.debug("XaeroNav: MTR relay dropped {} (attempt {}), asking again", endpoint, attempt);
+            }
+        }
+    }
+
     @SuppressWarnings("deprecation") // 1.16.5が同梱するGsonにはJsonParser.parseStringが無い
-    private static JsonObject post(int port, String endpoint, int dimension, String body) throws IOException {
+    private static JsonObject post(int port, int readTimeoutMillis, String endpoint, int dimension, String body)
+            throws IOException {
         HttpURLConnection connection = (HttpURLConnection) URI.create(
                 "http://localhost:" + port + "/mtr/api/map/" + endpoint + "?dimension=" + dimension).toURL().openConnection();
         try {
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            connection.setReadTimeout(readTimeoutMillis);
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setDoOutput(true);
