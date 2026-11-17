@@ -81,6 +81,13 @@ public final class NavHud {
         if (stop != null && !view.arrived()) {
             add(TextCompat.translatable("hud.xaeronav.via_progress", stop.index(), stop.total()), SECONDARY_COLOR);
         }
+        // 電車に乗っている・ホームで待っている間は、歩きの経路の行を出さない
+        boolean transitOnly = TransitGuide.INSTANCE.addHud(mc,
+                (line, primary) -> add(line, primary ? PRIMARY_COLOR : SECONDARY_COLOR));
+        if (transitOnly) {
+            draw(graphics, mc.font);
+            return;
+        }
         if (view.arrived()) {
             addArrived(view);
         } else if (view.flying() && view.skyPillar() != null) {
@@ -513,7 +520,7 @@ public final class NavHud {
         return (int) Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz));
     }
 
-    private static Component time(int seconds) {
+    static Component time(int seconds) {
         return seconds >= 60
                 ? TextCompat.translatable("hud.xaeronav.minutes_seconds", seconds / 60, seconds % 60)
                 : TextCompat.translatable("hud.xaeronav.seconds", seconds);

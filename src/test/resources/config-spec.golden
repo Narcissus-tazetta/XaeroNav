@@ -29,4 +29,5 @@ display.goalMarkerEnabled | class=ValueSpec | type=Boolean | default=true | rang
 display.dangerDashedEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=危険区間（溶岩・奈落・溺水・落下ダメージ等）の線を破線で強調するか\n色だけでは色覚特性や画面の色調補正で判別しづらい場面があるための、色以外の識別手段
 display.chatCoordinateLinksEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=チャットに出た「90 64 -120」のような座標を、押すと目的地になるリンクにするか\n拾うのは数字がちょうど3つ並んだもの（「x:90 y:64 z:-120」「90, 64, -120」の形も）で、\nYが今いるワールドの高さの範囲に入るときだけ。他のmodやサーバーが付けたリンクには手を付けない
 display.netherShortcutHintEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=オーバーワールドで遠い目的地へ向かうとき、ネザーを通ればその約1/8の距離になることをHUDに添えるか\n距離の換算だけを出す。ポータルの位置・行き先・ネザー内の道は見ていないので、所要時間の比較ではない
+display.transitSuggestionsEnabled | class=ValueSpec | type=Boolean | default=true | range=- | comment=Minecraft Transit Railway（MTR）の電車を使う方が歩くより速いとき、乗り換え案内を提案するか\n目的地を決めたときと電車を降りたときに、MTRの地図サーバーへ問い合わせる。MTRが無ければ何もしない\nサーバー側でMTRの地図サーバー（webserverPort）が無効だと使えない
 display.chatCoordinateShiftViaEnabled | class=ValueSpec | type=Boolean | default=false | range=- | comment=座標のリンクをShift+クリックしたとき、目的地を置き換えずに経由地として足すか\nfalseならShift+クリックでも普通のクリックと同じく目的地にする

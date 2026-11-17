@@ -104,6 +104,10 @@ public final class ChatCoordinateLinks {
             return false;
         }
         String command = runCommandOf(style.getClickEvent());
+        if (TransitGuide.ACCEPT_COMMAND.equals(command)) {
+            TransitGuide.INSTANCE.accept();
+            return true;
+        }
         if (command == null || !command.startsWith(COMMAND_PREFIX)) {
             return false;
         }
@@ -176,7 +180,7 @@ public final class ChatCoordinateLinks {
         };
     }
 
-    private static ClickEvent runCommand(String command) {
+    static ClickEvent runCommand(String command) {
         //? if >=1.21.5 {
         /*return new ClickEvent.RunCommand(command);
         *///?} else {
@@ -184,7 +188,7 @@ public final class ChatCoordinateLinks {
         //?}
     }
 
-    private static HoverEvent showText(Component text) {
+    static HoverEvent showText(Component text) {
         //? if >=1.21.5 {
         /*return new HoverEvent.ShowText(text);
         *///?} else {

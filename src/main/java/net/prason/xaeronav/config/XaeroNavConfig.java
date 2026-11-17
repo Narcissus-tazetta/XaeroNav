@@ -81,6 +81,7 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue dangerDashedEnabled;
     private final NavConfigSpec.BoolValue chatCoordinateLinksEnabled;
     private final NavConfigSpec.BoolValue netherShortcutHintEnabled;
+    private final NavConfigSpec.BoolValue transitSuggestionsEnabled;
     private final NavConfigSpec.BoolValue chatCoordinateShiftViaEnabled;
 
     // package-private: 2つの保存先が同じ定義から同じ設定ファイルを作ることをテストが確かめる
@@ -326,6 +327,12 @@ public final class XaeroNavConfig {
                 .comment("オーバーワールドで遠い目的地へ向かうとき、ネザーを通ればその約1/8の距離になることをHUDに添えるか",
                         "距離の換算だけを出す。ポータルの位置・行き先・ネザー内の道は見ていないので、所要時間の比較ではない")
                 .define("netherShortcutHintEnabled", true);
+
+        transitSuggestionsEnabled = spec
+                .comment("Minecraft Transit Railway（MTR）の電車を使う方が歩くより速いとき、乗り換え案内を提案するか",
+                        "目的地を決めたときと電車を降りたときに、MTRの地図サーバーへ問い合わせる。MTRが無ければ何もしない",
+                        "サーバー側でMTRの地図サーバー（webserverPort）が無効だと使えない")
+                .define("transitSuggestionsEnabled", true);
 
         chatCoordinateShiftViaEnabled = spec
                 .comment("座標のリンクをShift+クリックしたとき、目的地を置き換えずに経由地として足すか",
@@ -627,6 +634,14 @@ public final class XaeroNavConfig {
 
     public void setNetherShortcutHintEnabled(boolean value) {
         netherShortcutHintEnabled.set(value);
+    }
+
+    public boolean transitSuggestionsEnabled() {
+        return transitSuggestionsEnabled.get();
+    }
+
+    public void setTransitSuggestionsEnabled(boolean value) {
+        transitSuggestionsEnabled.set(value);
     }
 
     public boolean chatCoordinateShiftViaEnabled() {

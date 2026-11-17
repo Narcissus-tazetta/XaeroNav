@@ -221,6 +221,23 @@ next stop, the path beyond it appears in the world too, so the line carries on p
 "Navigate Here" and "Clear Route" replace or clear the stops too. Stops are not saved and are gone
 when you leave the world.
 
+### Minecraft Transit Railway trains
+
+With [Minecraft Transit Railway](https://modrinth.com/mod/minecraft-transit-railway) (MTR) installed, XaeroNav asks
+MTR for directions in the background when the destination is 200 blocks or more away in a straight line. If the train
+is faster than walking, a suggestion appears in chat and in the HUD; click "Go by train" in chat or run
+`/xaeronav transit` to switch. If you do nothing, the walking route stays.
+
+| When | Guidance |
+|---|---|
+| After switching | A walking route to the platform, with the line and the time until departure in the HUD |
+| On the train | The walking route is paused and the HUD shows where to get off |
+| After getting off | Directions are fetched again from where you are, leading to the next platform or to your destination |
+
+MTR gives no answer when the start or the destination is more than 500 blocks from every platform, so no suggestion
+appears. It also needs MTR's map web server (`webserverPort`) enabled on the server; if it is not, a chat message says
+so once. Escalators are only used in the direction they move.
+
 ### Commands
 
 | Command | What it does |
@@ -230,6 +247,7 @@ when you leave the world.
 | `/xaeronav via append <x> <y> <z>` | Add a stop at the end |
 | `/xaeronav via list` | List the stops and the destination |
 | `/xaeronav via remove <number>` | Remove a stop |
+| `/xaeronav transit` | Switch to the suggested train route (Minecraft Transit Railway) |
 | `/xaeronav clear` | Clear the route |
 | `/xaeronav version` | Print the running build (include this in bug reports) |
 | `/xaeronav debug` | Print the current state for a bug report (versions, dimension, seed, position, destination, route, Xaero hooks, key settings); also copied to the clipboard and written to `latest.log` |
@@ -346,6 +364,7 @@ neither are blocks with an inventory, and anything unrecognized is treated as no
 | `goalMarkerEnabled` | `true` | Mark the destination on Xaero's maps (a temporary waypoint with the minimap installed, otherwise a pin drawn by XaeroNav) |
 | `chatCoordinateLinksEnabled` | `true` | Turn coordinates in chat into links that set the destination when clicked |
 | `netherShortcutHintEnabled` | `true` | For far Overworld destinations, show the equivalent Nether distance (1/8) in the HUD |
+| `transitSuggestionsEnabled` | `true` | Suggest a train when Minecraft Transit Railway is faster than walking |
 | `chatCoordinateShiftViaEnabled` | `false` | Shift+clicking a coordinate link adds it as a stop instead of replacing the destination |
 
 </details>

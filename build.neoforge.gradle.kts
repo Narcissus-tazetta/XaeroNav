@@ -73,6 +73,8 @@ neoForge {
             providers.gradleProperty("xaeronav.dioramaCheck").orNull?.let { systemProperty("xaeronav.dioramaCheck", it) }
             // `-Pxaeronav.escalatorCheck=<名前> -Pwith_mtr=true`でMTRのエスカレーターの速さと判定を測る（devmodのEscalatorCheck）
             providers.gradleProperty("xaeronav.escalatorCheck").orNull?.let { systemProperty("xaeronav.escalatorCheck", it) }
+            // `-Pxaeronav.mtrDirectionsCheck=<名前> -Pwith_mtr=true`でMTRに試験の路線を登録し、乗り換え案内を引けるか測る（devmodのMtrDirectionsCheck）
+            providers.gradleProperty("xaeronav.mtrDirectionsCheck").orNull?.let { systemProperty("xaeronav.mtrDirectionsCheck", it) }
             // `-Pxaeronav.configShot=<名前>`で設定画面を開いてスクリーンショットを撮る（devmodのConfigShot）
             providers.gradleProperty("xaeronav.configShot").orNull?.let { systemProperty("xaeronav.configShot", it) }
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
@@ -133,9 +135,12 @@ dependencies {
         }
     }
     // `-Pwith_mtr=true`でMTRを開発実行へ載せる（エスカレーターの計測用、devmodのEscalatorCheck）。連携はIDとブロックの状態の
-    // 名前だけで行うのでコンパイルには要らない
+    // 名前だけで行うので、本体のコンパイルには要らない
+    val mtr = "maven.modrinth:minecraft-transit-railway:NEOFORGE-4.1.0-beta.2+1.21.1"
+    // devmodのMtrDirectionsCheckだけがMTRのクラス（データ登録・中継パケット）を直接呼ぶ
+    devSourceSet?.let { add(it.compileOnlyConfigurationName, mtr) }
     if (minecraftVersion == "1.21.1" && (findProperty("with_mtr") as String?).toBoolean()) {
-        xaeroRuntimeMods("maven.modrinth:minecraft-transit-railway:NEOFORGE-4.1.0-beta.2+1.21.1")
+        xaeroRuntimeMods(mtr)
     }
 }
 

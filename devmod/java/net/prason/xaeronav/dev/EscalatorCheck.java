@@ -440,7 +440,7 @@ final class EscalatorCheck {
     private static java.lang.reflect.Field geometryZ;
 
     /** 本番の描画と同じ{@code PathGeometry.build}で作った線のX・Z。PathGeometryはclientパッケージの内部なのでリフレクションで呼ぶ。 */
-    private static double[][] drawnLine(Minecraft mc, PathResult result) {
+    static double[][] drawnLine(Minecraft mc, PathResult result) {
         try {
             if (geometryBuild == null) {
                 Class<?> type = Class.forName("net.prason.xaeronav.client.PathGeometry");
@@ -460,7 +460,7 @@ final class EscalatorCheck {
     }
 
     /** 折れ線上で現在地に一番近い点から{@code ahead}だけ先の点。 */
-    private static double[] pursue(double[] xs, double[] zs, double px, double pz, double ahead) {
+    static double[] pursue(double[] xs, double[] zs, double px, double pz, double ahead) {
         if (xs.length == 1) {
             return new double[] {xs[0], zs[0]};
         }
