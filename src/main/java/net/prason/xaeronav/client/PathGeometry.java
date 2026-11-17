@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -82,6 +83,13 @@ final class PathGeometry {
 
     /** プレイヤーの当たり判定の半幅（バニラ0.6）。 */
     private static final double PLAYER_HALF_WIDTH = 0.3;
+
+    /**
+     * エスカレーターの段の上で、線を列の中心からエスカレーターの中央側へずらす量。手すりは各列の外側1/4を塞ぐので、
+     * 列の中心を体の幅0.6で進むと0.05だけ掛かって乗り口で止まる（実機で確認）。0.25ずらすと手すりから0.2離れ、
+     * 2列を行き来する手でも点が重ならない。
+     */
+    private static final double ESCALATOR_LINE_SHIFT = 0.25;
 
     /** 区間の端点。要素数は「区間数 + 1」。 */
     final double[] pointX;
@@ -569,7 +577,8 @@ final class PathGeometry {
 
     private static boolean walkableColumn(Level level, BlockPos.MutableBlockPos cursor, int x, int y, int z) {
         long floor = CellData.flagsOf(level.getBlockState(cursor.set(x, y - 1, z)));
-        if (!CellData.standable(floor) || CellData.hazard(floor)) {
+        // 段の上の手すりのセルは体を置ける扱いなので、弦が手すりを斜めに横切っても下の判定では止まらない
+        if (!CellData.standable(floor) || CellData.hazard(floor) || CellData.escalator(floor)) {
             return false;
         }
         for (int dy = 0; dy <= 1; dy++) {
@@ -623,6 +632,15 @@ final class PathGeometry {
         double offset = step != null && step.movement().ridesOnLand() ? 1.0 : 0.5;
         outX[index] = pos.getX() + offset;
         outZ[index] = pos.getZ() + offset;
+        if (CellData.escalatorsExist()) {
+            long floor = CellData.flagsOf(level.getBlockState(pos.below()));
+            if (CellData.escalator(floor)) {
+                Direction facing = CellData.escalatorFacing(floor);
+                Direction inward = CellData.escalatorRightSide(floor) ? facing.getCounterClockWise() : facing.getClockWise();
+                outX[index] += inward.getStepX() * ESCALATOR_LINE_SHIFT;
+                outZ[index] += inward.getStepZ() * ESCALATOR_LINE_SHIFT;
+            }
+        }
         if (!isWaterSurface(level, pos)) {
             outY[index] = pos.getY() + 0.55;
             return false;

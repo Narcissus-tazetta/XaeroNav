@@ -335,7 +335,8 @@ final class EscalatorCheck {
             case 0 -> {
                 release(mc);
                 state.clear();
-                teleport(server, route.startLane(), route.startX(), route.startY(), route.startX() < 0 ? -90f : 90f);
+                // 人が乗り口に立つ位置（列の中心）から始める。レーンの中央から始めると、手すりに掛かる線でも通れてしまう
+                teleport(server, route.startLane(), route.startX(), route.startY(), route.startX() < 0 ? -90f : 90f, 1.5);
                 routeStage = 1;
                 ticks = 0;
             }
@@ -418,29 +419,92 @@ final class EscalatorCheck {
             release(mc);
             return;
         }
-        List<PathStep> steps = result.steps();
-        int nearest = 0;
-        double best = Double.MAX_VALUE;
-        for (int i = 0; i < steps.size(); i++) {
-            double d = mc.player.position().distanceToSqr(net.minecraft.world.phys.Vec3.atBottomCenterOf(steps.get(i).pos()));
-            if (d < best) {
-                best = d;
-                nearest = i;
-            }
+        // 人が描かれた線をなぞる場合を見るため、経路のセルではなく本番のPathGeometryの折れ線を追う
+        double[][] line = drawnLine(mc, result);
+        double[] aim = pursue(line[0], line[1], mc.player.getX(), mc.player.getZ(), LOOKAHEAD_BLOCKS);
+        if (walkTicks == 1) {
+            logLine(route, line);
         }
-        BlockPos target = steps.get(Math.min(nearest + 1, steps.size() - 1)).pos();
-        double dx = target.getX() + 0.5 - mc.player.getX();
-        double aimZ = target.getZ() + 0.5;
-        int tx = target.getX() - base.getX();
-        int tz = target.getZ() - base.getZ();
-        // 手すりは各列の外側1/4を塞ぐので、列の中心（幅0.6の体）を進むと0.05だけ掛かって止まる。段の上ではレーンの中央を進む
-        if (tx >= -1 && tx <= 16 && tz >= 0 && tz % LANE_GAP < 2) {
-            aimZ = base.getZ() + tz / LANE_GAP * LANE_GAP + 1.0;
-        }
-        double dz = aimZ - mc.player.getZ();
+        double dx = aim[0] - mc.player.getX();
+        double dz = aim[1] - mc.player.getZ();
         mc.player.setYRot((float) Math.toDegrees(Math.atan2(-dx, dz)));
         mc.options.keyUp.setDown(true);
         mc.options.keySprint.setDown(true);
+    }
+
+    /** 先読みの距離。小さいほど角で線から外れない（体が線の上にいる）。 */
+    private static final double LOOKAHEAD_BLOCKS = 0.6;
+
+    private static java.lang.reflect.Method geometryBuild;
+    private static java.lang.reflect.Field geometryX;
+    private static java.lang.reflect.Field geometryZ;
+
+    /** 本番の描画と同じ{@code PathGeometry.build}で作った線のX・Z。PathGeometryはclientパッケージの内部なのでリフレクションで呼ぶ。 */
+    private static double[][] drawnLine(Minecraft mc, PathResult result) {
+        try {
+            if (geometryBuild == null) {
+                Class<?> type = Class.forName("net.prason.xaeronav.client.PathGeometry");
+                geometryBuild = type.getDeclaredMethod("build", net.minecraft.world.level.Level.class, PathResult.class,
+                        BlockPos.class);
+                geometryBuild.setAccessible(true);
+                geometryX = type.getDeclaredField("pointX");
+                geometryX.setAccessible(true);
+                geometryZ = type.getDeclaredField("pointZ");
+                geometryZ.setAccessible(true);
+            }
+            Object geometry = geometryBuild.invoke(null, mc.level, result, result.steps().get(0).pos());
+            return new double[][] {(double[]) geometryX.get(geometry), (double[]) geometryZ.get(geometry)};
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("cannot build PathGeometry", e);
+        }
+    }
+
+    /** 折れ線上で現在地に一番近い点から{@code ahead}だけ先の点。 */
+    private static double[] pursue(double[] xs, double[] zs, double px, double pz, double ahead) {
+        if (xs.length == 1) {
+            return new double[] {xs[0], zs[0]};
+        }
+        int bestSegment = 0;
+        double bestT = 0;
+        double best = Double.MAX_VALUE;
+        for (int i = 0; i + 1 < xs.length; i++) {
+            double sx = xs[i + 1] - xs[i];
+            double sz = zs[i + 1] - zs[i];
+            double len2 = sx * sx + sz * sz;
+            double t = len2 == 0 ? 0 : Math.max(0, Math.min(1, ((px - xs[i]) * sx + (pz - zs[i]) * sz) / len2));
+            double qx = xs[i] + sx * t - px;
+            double qz = zs[i] + sz * t - pz;
+            double d = qx * qx + qz * qz;
+            if (d < best) {
+                best = d;
+                bestSegment = i;
+                bestT = t;
+            }
+        }
+        double left = ahead;
+        double cx = xs[bestSegment] + (xs[bestSegment + 1] - xs[bestSegment]) * bestT;
+        double cz = zs[bestSegment] + (zs[bestSegment + 1] - zs[bestSegment]) * bestT;
+        for (int i = bestSegment; i + 1 < xs.length; i++) {
+            double ex = xs[i + 1] - cx;
+            double ez = zs[i + 1] - cz;
+            double len = Math.hypot(ex, ez);
+            if (len >= left) {
+                return new double[] {cx + ex / len * left, cz + ez / len * left};
+            }
+            left -= len;
+            cx = xs[i + 1];
+            cz = zs[i + 1];
+        }
+        return new double[] {xs[xs.length - 1], zs[zs.length - 1]};
+    }
+
+    /** 線の点を基準からの相対座標で出す（エスカレーターの上では列の中心からずれているか見る）。 */
+    private void logLine(Route route, double[][] line) {
+        StringBuilder points = new StringBuilder();
+        for (int i = 0; i < line[0].length; i++) {
+            points.append(String.format(Locale.ROOT, " %.2f,%.2f", line[0][i] - base.getX(), line[1][i] - base.getZ()));
+        }
+        log("route {}: drawn line (x,z):{}", route.label(), points);
     }
 
     private void nextRoute() {
@@ -456,7 +520,11 @@ final class EscalatorCheck {
     }
 
     private void teleport(IntegratedServer server, Lane lane, double x, double y, float yaw) {
-        double z = base.getZ() + lane.ordinal() * LANE_GAP + 1.0;
+        teleport(server, lane, x, y, yaw, 1.0);
+    }
+
+    private void teleport(IntegratedServer server, Lane lane, double x, double y, float yaw, double dz) {
+        double z = base.getZ() + lane.ordinal() * LANE_GAP + dz;
         double worldX = base.getX() + x;
         server.execute(() -> {
             ServerPlayer player = server.getPlayerList().getPlayers().get(0);
