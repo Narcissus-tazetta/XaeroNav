@@ -71,6 +71,8 @@ neoForge {
             providers.gradleProperty("xaeronav.netherHintCheck").orNull?.let { systemProperty("xaeronav.netherHintCheck", it) }
             // `-Pxaeronav.dioramaCheck=<名前> -Pwith_diorama=true`でDiorama連携を通しで確かめる（devmodのDioramaCheck）
             providers.gradleProperty("xaeronav.dioramaCheck").orNull?.let { systemProperty("xaeronav.dioramaCheck", it) }
+            // `-Pxaeronav.escalatorCheck=<名前> -Pwith_mtr=true`でMTRのエスカレーターの速さと判定を測る（devmodのEscalatorCheck）
+            providers.gradleProperty("xaeronav.escalatorCheck").orNull?.let { systemProperty("xaeronav.escalatorCheck", it) }
             // `-Pxaeronav.configShot=<名前>`で設定画面を開いてスクリーンショットを撮る（devmodのConfigShot）
             providers.gradleProperty("xaeronav.configShot").orNull?.let { systemProperty("xaeronav.configShot", it) }
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
@@ -129,6 +131,11 @@ dependencies {
         if (withDioramaProperty()) {
             xaeroRuntimeMods(diorama)
         }
+    }
+    // `-Pwith_mtr=true`でMTRを開発実行へ載せる（エスカレーターの計測用、devmodのEscalatorCheck）。連携はIDとブロックの状態の
+    // 名前だけで行うのでコンパイルには要らない
+    if (minecraftVersion == "1.21.1" && (findProperty("with_mtr") as String?).toBoolean()) {
+        xaeroRuntimeMods("maven.modrinth:minecraft-transit-railway:NEOFORGE-4.1.0-beta.2+1.21.1")
     }
 }
 

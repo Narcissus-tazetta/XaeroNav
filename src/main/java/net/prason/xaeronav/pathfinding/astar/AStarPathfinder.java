@@ -1308,6 +1308,11 @@ public final class AStarPathfinder {
         if (from.boating && !boating) {
             edgeCost += ActionCosts.BOAT_STOW_TICKS;
         }
+        double escalatorCost = EscalatorRules.edgeCost(view, from, x, y, z, edgeCost, kind);
+        if (escalatorCost != edgeCost && Double.isInfinite(escalatorCost)) {
+            return;
+        }
+        edgeCost = escalatorCost;
         if (edgeSink != null) {
             edgeSink.edge(from.x, from.y, from.z, from.boating, x, y, z, boating, edgeCost, kind);
         }

@@ -56,6 +56,7 @@ public final class Autopilot {
         HopCheck.armIfRequested();
         ChatCheck.armIfRequested();
         NetherHintCheck.armIfRequested();
+        EscalatorCheck.armIfRequested();
         if (System.getProperty("xaeronav.dioramaCheck") != null) {
             // Dioramaのクラスを参照するので、Dioramaを載せた実行でだけ読み込む
             DioramaCheck.armIfRequested();

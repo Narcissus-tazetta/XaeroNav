@@ -10,6 +10,12 @@ public final class ActionCosts {
 
     public static final double WALK_ONE_BLOCK = 20.0 / 4.317;
     public static final double SPRINT_ONE_BLOCK = 20.0 / 5.612;
+    /**
+     * 動いているMTRのエスカレーターを、押す向きへ疾走して水平1ブロック進む時間。1.21.1＋MTR 4.1.0-beta.2の実測で、
+     * 平ら・坂とも約8 m/s（上の平らは10 m/s）。坂も水平の距離で数える。疾走より速いので{@link #SPRINT_ONE_BLOCK}を
+     * 下限に置く見積もりはここで割れる（氷と同じく局所的なので許す）。
+     */
+    public static final double ESCALATOR_ONE_BLOCK = 20.0 / 8.0;
 
     /**
      * 水中を泳いで1マス進む。{@code LivingEntity#travel}の水中分岐は

@@ -2,6 +2,7 @@ package net.prason.xaeronav.pathfinding.world;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.EmptyBlockGetter;
@@ -30,10 +31,12 @@ import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.WebBlock;
 import net.minecraft.world.level.block.WitherRoseBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jspecify.annotations.Nullable;
 
 /**
  * 1ブロック分の探索用データを{@code long}に詰めた表現。
@@ -87,6 +90,19 @@ public final class CellData {
 
     private static final long OCCUPIABLE = PASSABLE_EMPTY | WATER | CLIMBABLE;
 
+    /** MTRのエスカレーターの段（{@link Mtr}）。以下の4つと向き（{@link #ESCALATOR_FACING_SHIFT}）はこれが立つときだけ意味を持つ。 */
+    static final long ESCALATOR = 1L << 24;
+    static final long ESCALATOR_RUNNING = 1L << 25;
+    /** 動いているとき、段の向き（facing）の側へ押す。立っていなければ逆へ押す。 */
+    static final long ESCALATOR_PUSH_FORWARD = 1L << 26;
+    /** 2列の右の列（facingから見て時計回りの側）。手すりはそれぞれの列の外側にある。 */
+    static final long ESCALATOR_RIGHT = 1L << 27;
+    /** {@link Direction#get2DDataValue}を置く2ビット。 */
+    private static final int ESCALATOR_FACING_SHIFT = 28;
+
+    // 探索スレッドが読むのでvolatile。古い偽を読むと、そのセルのエスカレーターの規則が黙って外れる
+    private static volatile boolean escalatorSeen;
+
     /**
      * 移動速度の倍率（{@link #travelSpeedFactor}）を100倍した値を置く位置。
      * 0は「未設定＝等速」を表す（{@link #ABSENT}のセルもここが0になるので辻褄が合う）。
@@ -133,6 +149,19 @@ public final class CellData {
         if (harmful(state)) {
             // 触れた時点で事故になるセル。進入も足場も許さず、掘って通す対象にもしない
             return PRESENT | HAZARD;
+        }
+
+        if (Mtr.STEP != null) {
+            Block block = state.getBlock();
+            if (block == Mtr.STEP) {
+                return escalatorStepFlags(state);
+            }
+            if (block == Mtr.SIDE) {
+                // 手すりは段の真上のセルにあり、当たり判定は列の外側の1/4だけ。段に立つ体はこのセルに入るので、
+                // 当たり判定どおりに「体を置けない」とするとエスカレーターに乗れない（実機で確認）。
+                // 外側へ抜ける手は手すりに阻まれるので、それは移動の側（EscalatorRules）で止める
+                return PRESENT | PASSABLE_EMPTY;
+            }
         }
 
         if (state.getBlock().hasDynamicShape()) {
@@ -263,6 +292,56 @@ public final class CellData {
                 || state.is(Blocks.POWDER_SNOW_CAULDRON)
                 //?}
                 ;
+    }
+
+    /**
+     * エスカレーターの段。傾斜・継ぎ目・踊り場の段は当たり判定が列の幅より細く（1/16〜15/16）、{@link #walkableTop}から
+     * 外れるが、実際には上に立って歩ける。向きと押す向きはブロックの状態から読む——当たり判定は周りの段を見て決まるので、
+     * levelを持たないここでは形からは分からない。
+     */
+    private static long escalatorStepFlags(BlockState state) {
+        escalatorSeen = true;
+        long flags = PRESENT | STANDABLE | ESCALATOR;
+        if (Boolean.TRUE.equals(state.getValue(Mtr.STATUS))) {
+            flags |= ESCALATOR_RUNNING;
+        }
+        if (Boolean.TRUE.equals(state.getValue(Mtr.DIRECTION))) {
+            flags |= ESCALATOR_PUSH_FORWARD;
+        }
+        if ("right".equals(valueName(state, Mtr.SIDE_PROPERTY))) {
+            flags |= ESCALATOR_RIGHT;
+        }
+        Direction facing = (Direction) state.getValue(Mtr.FACING);
+        return flags | (long) facing.get2DDataValue() << ESCALATOR_FACING_SHIFT;
+    }
+
+    private static <T extends Comparable<T>> String valueName(BlockState state, Property<T> property) {
+        return property.getName(state.getValue(property));
+    }
+
+    /**
+     * MTR（Minecraft Transit Railway）のエスカレーターのブロックとその状態。MTRには依存せず、IDと状態の名前で引く
+     * （1.16.5〜1.21.4のMTR 4.0.x・4.1.xで同じ名前）。初めて{@link #flagsOf}が呼ばれた時点、つまりレジストリが固まった後に引く。
+     */
+    private static final class Mtr {
+        static final Block STEP = BlockRegistryCompat.byId(ResourceLocation.tryParse("mtr:escalator_step"));
+        static final Block SIDE = BlockRegistryCompat.byId(ResourceLocation.tryParse("mtr:escalator_side"));
+        static final Property<?> FACING = property("facing");
+        static final Property<?> STATUS = property("status");
+        static final Property<?> DIRECTION = property("direction");
+        static final Property<?> SIDE_PROPERTY = property("side");
+
+        private static Property<?> property(String name) {
+            if (STEP == null) {
+                return null;
+            }
+            Property<?> property = STEP.getStateDefinition().getProperty(name);
+            if (property == null) {
+                throw new IllegalStateException("MTR escalator step has no '" + name + "' property: "
+                        + STEP.getStateDefinition().getProperties());
+            }
+            return property;
+        }
     }
 
     /** このブロックの上を進むときの速度倍率を100倍して詰める。等速（1.0）なら詰めない。 */
@@ -398,6 +477,40 @@ public final class CellData {
     /** その上を進むにはスニークが要る床か（マグマブロック）。 */
     public static boolean lowJump(long cell) {
         return (cell & LOW_JUMP) != 0;
+    }
+
+    /**
+     * エスカレーターの段を一度でも判定したか。偽なら{@link #ESCALATOR}の立ったセルは存在しない。{@link Mtr}を直接見ないのは、
+     * レジストリを起動しないテストの探索からも呼ばれるため。
+     */
+    public static boolean escalatorsExist() {
+        return escalatorSeen;
+    }
+
+    /** MTRのエスカレーターの段か。以下の{@code escalator*}はこれが真のときだけ意味を持つ。 */
+    public static boolean escalator(long cell) {
+        return (cell & ESCALATOR) != 0;
+    }
+
+    public static boolean escalatorRunning(long cell) {
+        return (cell & ESCALATOR_RUNNING) != 0;
+    }
+
+    public static boolean escalatorRightSide(long cell) {
+        return (cell & ESCALATOR_RIGHT) != 0;
+    }
+
+    public static Direction escalatorFacing(long cell) {
+        return Direction.from2DDataValue((int) (cell >>> ESCALATOR_FACING_SHIFT & 3));
+    }
+
+    /** 動いている段が体を押す向き。止まっていれば{@code null}。 */
+    public static @Nullable Direction escalatorPush(long cell) {
+        if (!escalatorRunning(cell)) {
+            return null;
+        }
+        Direction facing = escalatorFacing(cell);
+        return (cell & ESCALATOR_PUSH_FORWARD) != 0 ? facing : facing.getOpposite();
     }
 
     public static boolean sneakRequired(long cell) {
