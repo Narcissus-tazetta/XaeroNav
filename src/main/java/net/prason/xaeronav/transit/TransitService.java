@@ -48,13 +48,6 @@ public final class TransitService {
     /** 駅・路線の一覧を使い回す時間。MTR側も30秒キャッシュしている。 */
     private static final long NETWORK_TTL_MILLIS = 60_000L;
 
-    /**
-     * 問い合わせの結果。{@code itinerary}があれば電車に乗る答え。{@code failure}があれば返事を読めなかった
-     * （原因の英語の説明）。どちらも無ければ、返事は来たが電車に乗る区間が無い。
-     */
-    public record Outcome(@Nullable Itinerary itinerary, @Nullable String failure) {
-    }
-
     private final ExecutorService worker = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "XaeroNav-transit");
         thread.setDaemon(true);
@@ -73,14 +66,14 @@ public final class TransitService {
      * @param relayed {@code port}がサーバーへの中継の口か（マルチ）
      * @param result  workerスレッドから呼ばれる
      */
-    public void ask(int port, boolean relayed, String worldId, BlockPos from, BlockPos to, Consumer<Outcome> result) {
+    public void ask(int port, boolean relayed, String worldId, BlockPos from, BlockPos to, Consumer<TransitOutcome> result) {
         worker.execute(() -> {
-            Outcome outcome;
+            TransitOutcome outcome;
             try {
-                outcome = new Outcome(directions(new Endpoint(port, relayed), worldId, from, to), null);
+                outcome = new TransitOutcome(directions(new Endpoint(port, relayed), worldId, from, to), null);
             } catch (IOException | JsonParseException | TransitFormatException e) {
                 XaeroNav.LOGGER.warn("XaeroNav: MTR directions request failed: {}", e.toString());
-                outcome = new Outcome(null, e.toString());
+                outcome = new TransitOutcome(null, e.toString());
             }
             result.accept(outcome);
         });

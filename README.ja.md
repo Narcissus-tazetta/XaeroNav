@@ -208,11 +208,13 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 先の地点に先に着くと、次の地点への案内に切り替わります。「ここへ案内」と「案内を終了」は
 経由地もまとめて置き換え・消去します。経由地は保存されず、ワールドを出ると消えます。
 
-### Minecraft Transit Railway の電車
+### 電車（Minecraft Transit Railway・Create）
 
-[Minecraft Transit Railway](https://modrinth.com/mod/minecraft-transit-railway)（MTR）を入れていると、
-目的地が直線で200ブロック以上先のとき、MTR の乗り換え案内を裏で引きます。歩くより速ければチャットと HUD に
+[Minecraft Transit Railway](https://modrinth.com/mod/minecraft-transit-railway)（MTR）か
+[Create Railways Navigator](https://modrinth.com/mod/create-railways-navigator)（CRN、Create の電車用）を入れていると、
+目的地が直線で200ブロック以上先のとき、乗り換え案内を裏で引きます。歩くより速ければチャットと HUD に
 提案が出るので、チャットの「電車で行く」を押すか `/xaeronav transit` で切り替えます。切り替えなければ歩きの案内のままです。
+両方入っていれば、早く着く方を提案します。
 
 | 場面 | 案内 |
 |---|---|
@@ -224,6 +226,9 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 サーバー側で MTR の地図サーバー（`webserverPort`）が無効な場合も使えず、その旨を一度だけチャットに出します。
 エスカレーターは、動いている向きにだけ経路に使います。
 
+Create の電車には、サーバーとクライアントの両方に CRN 0.10 以降が要ります（Create だけでは運行予定がクライアントに届きません）。
+出発地と目的地それぞれに一番近い駅を使い、駅のブロックまで案内します。列車の座席に座っている間を乗車中として扱います。
+
 ### コマンド
 
 | コマンド | 内容 |
@@ -233,7 +238,7 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 | `/xaeronav via append <x> <y> <z>` | 最後に追加 |
 | `/xaeronav via list` | 経由地と目的地を一覧 |
 | `/xaeronav via remove <番号>` | 経由地を外す |
-| `/xaeronav transit` | 提案された電車の案内に切り替える（Minecraft Transit Railway） |
+| `/xaeronav transit` | 提案された電車の案内に切り替える（Minecraft Transit Railway・Create Railways Navigator） |
 | `/xaeronav clear` | 経路をクリア |
 | `/xaeronav version` | 動作中のビルドを表示（不具合報告に添えてください） |
 | `/xaeronav debug` | 不具合報告用に、いまの状態（版・次元・シード・現在地・目的地・経路・Xaero 連携・主な設定）を出す。チャットに加えてクリップボードと `latest.log` にも書き出す |
@@ -350,7 +355,7 @@ Xaero を入れていない場合に使えなくなるのは、地図への描�
 | `goalMarkerEnabled` | `true` | 目的地を Xaero の地図上に示す（ミニマップがあれば一時ウェイポイント、無ければ XaeroNav が描くピン） |
 | `chatCoordinateLinksEnabled` | `true` | チャットに出た座標をクリックで目的地にできるリンクにする |
 | `netherShortcutHintEnabled` | `true` | オーバーワールドで遠い目的地へ向かうとき、ネザーでの換算距離（1/8）をHUDに添える |
-| `transitSuggestionsEnabled` | `true` | Minecraft Transit Railway の電車を使う方が歩くより速いとき、乗り換えを提案する |
+| `transitSuggestionsEnabled` | `true` | Minecraft Transit Railway か Create Railways Navigator の電車を使う方が歩くより速いとき、乗り換えを提案する |
 | `chatCoordinateShiftViaEnabled` | `false` | 座標のリンクを Shift+クリックしたとき、目的地を置き換えずに経由地として足す |
 
 </details>
