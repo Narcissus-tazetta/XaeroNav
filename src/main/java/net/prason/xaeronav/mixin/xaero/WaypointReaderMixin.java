@@ -7,11 +7,15 @@ import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
+import net.prason.xaeronav.client.ClientCompat;
 import net.prason.xaeronav.client.PathfindingState;
 import net.prason.xaeronav.xaero.XaeroHookMarker;
 import net.prason.xaeronav.xaero.XaeroHookProbe;
+import net.prason.xaeronav.xaero.XaeroMapCoords;
+import xaero.map.gui.GuiMap;
 import xaero.map.gui.IRightClickableElement;
 import xaero.map.gui.dropdown.rightclick.RightClickOption;
 import xaero.map.mods.gui.Waypoint;
@@ -38,6 +42,11 @@ public abstract class WaypointReaderMixin implements XaeroHookMarker {
         XaeroHookProbe.record(XaeroHookProbe.Point.WAYPOINT_MENU);
         if (original == null) {
             return null;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (ClientCompat.screen(mc) instanceof GuiMap map
+                && !XaeroMapCoords.isViewingPlayerDimension(map.getMapProcessor(), mc.level)) {
+            return original;
         }
         original.add(new RightClickOption("gui.xaeronav_goto_waypoint", original.size(), target) {
             @Override

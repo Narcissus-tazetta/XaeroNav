@@ -201,10 +201,15 @@ def section_blocks(section):
         return None
     palette = [entry['Name'] for entry in states['palette']]
     data = states.get('data')
-    if not data or len(palette) == 1:
+    if len(palette) == 1:
         return palette[0]
+    if not palette:
+        raise ValueError('section has an empty block palette')
     bits = max(4, (len(palette) - 1).bit_length())
     per_long = 64 // bits
+    expected = math.ceil(4096 / per_long)
+    if data is None or len(data) != expected:
+        raise ValueError(f'section {section["Y"]} requires {expected} packed block-state longs')
     mask = (1 << bits) - 1
     out = []
     for packed in data:
@@ -232,13 +237,18 @@ def main():
     args = parser.parse_args()
 
     band_low, band_high = (int(v) for v in args.band.split(','))
+    if not os.path.isdir(args.region_dir):
+        parser.error(f'region directory does not exist: {args.region_dir}')
+    if args.min_x > args.max_x or args.min_z > args.max_z or band_low > band_high:
+        parser.error('minimum coordinates must not exceed maximum coordinates')
     columns = {}
     for region_x in range(args.min_x >> 9, (args.max_x >> 9) + 1):
         for region_z in range(args.min_z >> 9, (args.max_z >> 9) + 1):
             path = os.path.join(args.region_dir, 'r.%d.%d.mca' % (region_x, region_z))
             if not os.path.exists(path):
                 continue
-            region = open(path, 'rb').read()
+            with open(path, 'rb') as region_file:
+                region = region_file.read()
             for cx in range(region_x * 32, region_x * 32 + 32):
                 for cz in range(region_z * 32, region_z * 32 + 32):
                     if cx * 16 > args.max_x or cx * 16 + 15 < args.min_x:
@@ -304,6 +314,8 @@ def main():
         lines.append('%d %d %s' % (x, z, ' '.join(
             '%s%d,%d' % (kind, low, high) for kind, low, high in runs)))
 
+    if not lines:
+        min_y, max_y = band_low, band_high
     header = '%d %d %d %d %d %d' % (args.min_x - 16, min_y - 8, args.min_z - 16,
                                     args.max_x + 16, max_y + 24, args.max_z + 16)
     with gzip.open(args.out, 'wt', encoding='utf-8') as out:

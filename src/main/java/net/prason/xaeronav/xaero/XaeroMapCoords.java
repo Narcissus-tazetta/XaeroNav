@@ -3,6 +3,8 @@ package net.prason.xaeronav.xaero;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import org.jspecify.annotations.Nullable;
+import xaero.map.MapProcessor;
 
 /**
  * {@code GuiMapRightClickMixin}・{@code GuiMapKeyMixin}が共有する、地図上の座標にまつわる小さな判定。
@@ -29,6 +31,11 @@ public final class XaeroMapCoords {
      */
     public static boolean isSameDimensionAsPlayer(ResourceKey<Level> mapDim, Level playerLevel) {
         return mapDim == null || mapDim == playerLevel.dimension();
+    }
+
+    public static boolean isViewingPlayerDimension(MapProcessor processor, @Nullable Level level) {
+        return level != null && processor.isMapWorldUsable()
+                && level.dimension().equals(processor.getMapWorld().getCurrentDimensionId());
     }
 
     /** 高さが分からない座標はプレイヤーと同じ高さを狙う（探索範囲は上下にも広がるため近くまでは届く）。 */

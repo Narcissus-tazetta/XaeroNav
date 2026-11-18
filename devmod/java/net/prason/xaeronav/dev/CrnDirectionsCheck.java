@@ -276,7 +276,9 @@ final class CrnDirectionsCheck {
                 if (ticks < 20) {
                     return;
                 }
-                rideGoal = PathfindingState.INSTANCE.setGoal(new BlockPos(ox + SPAN + 30, oy, oz + 2));
+                // 未読み込みの駅側では地図の仮の高さになる。合否は試験で置いた通路の高さで見る
+                rideGoal = new BlockPos(ox + SPAN + 30, oy, oz + 2);
+                PathfindingState.INSTANCE.setGoal(rideGoal);
                 log("ride: goal {} from {}", rideGoal, mc.player.blockPosition());
                 next();
             }

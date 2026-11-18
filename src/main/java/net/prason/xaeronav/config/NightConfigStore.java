@@ -9,7 +9,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -17,6 +19,8 @@ import java.util.stream.Collectors;
 
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.file.FileNotFoundAction;
+import com.electronwill.nightconfig.core.CommentedConfig;
+import com.electronwill.nightconfig.core.io.ParsingException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.Nullable;
@@ -39,6 +43,7 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
     private final CommentedFileConfig file;
     private final Path path;
     private final List<Definition> definitions = new ArrayList<>();
+    private final Map<List<String>, String> sections = new LinkedHashMap<>();
     private final Deque<String> section = new ArrayDeque<>();
 
     private String pendingComment;
@@ -61,9 +66,15 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
     public void build() {
         try {
             file.load();
-        } catch (RuntimeException parseError) {
+        } catch (ParsingException parseError) {
             recoverBrokenFile(parseError);
         }
+        sections.forEach((path, comment) -> {
+            if (!(file.get(path) instanceof CommentedConfig)) {
+                file.set(path, file.createSubConfig());
+            }
+            file.setComment(path, comment);
+        });
         for (Definition definition : definitions) {
             file.set(definition.path(), definition.correct(file.get(definition.path())));
             file.setComment(definition.path(), definition.comment());
@@ -72,7 +83,7 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
     }
 
     /** 構文が壊れた元ファイルを残したまま、既定値で再生成できる空の設定へ戻す。 */
-    private void recoverBrokenFile(RuntimeException parseError) {
+    private void recoverBrokenFile(ParsingException parseError) {
         Path broken = path.resolveSibling(path.getFileName() + ".broken-" + System.currentTimeMillis());
         try {
             Files.move(path, broken, StandardCopyOption.REPLACE_EXISTING);
@@ -98,11 +109,7 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
     @Override
     public NavConfigSpec push(String name) {
         section.addLast(name);
-        List<String> path = List.copyOf(section);
-        if (!file.contains(path)) {
-            file.set(path, file.createSubConfig());
-        }
-        file.setComment(path, takeComment());
+        sections.put(List.copyOf(section), takeComment());
         return this;
     }
 
@@ -149,7 +156,8 @@ public final class NightConfigStore implements NavConfigStore, NavConfigSpec {
     @Override
     public DoubleValue defineInRange(String name, double defaultValue, double min, double max) {
         List<String> path = define(name, defaultValue, rangeComment(takeComment(), defaultValue, min + " ~ " + max),
-                value -> value instanceof Number number ? MathSupport.clamp(number.doubleValue(), min, max) : defaultValue);
+                value -> value instanceof Number number && !Double.isNaN(number.doubleValue())
+                        ? MathSupport.clamp(number.doubleValue(), min, max) : defaultValue);
         return () -> ((Number) file.get(path)).doubleValue();
     }
 

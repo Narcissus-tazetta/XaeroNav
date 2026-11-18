@@ -16,6 +16,10 @@ final class MtrTransit implements TransitProvider {
 
     private final TransitService service = new TransitService();
 
+    void onLoggingOut() {
+        service.reset();
+    }
+
     @Override
     public String name() {
         return "MTR";

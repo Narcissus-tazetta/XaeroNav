@@ -77,6 +77,25 @@ final class RouteStops {
         return next;
     }
 
+    static int indexOfMarker(List<BlockPos> stops, BlockPos marker) {
+        int exact = stops.indexOf(marker);
+        if (exact >= 0) {
+            return exact;
+        }
+        // XaeroはYを持たない印も返す。同じ列に経由地が複数あるときは高さ無しで特定できない
+        int matchingColumn = -1;
+        for (int i = 0; i < stops.size(); i++) {
+            BlockPos stop = stops.get(i);
+            if (stop.getX() == marker.getX() && stop.getZ() == marker.getZ()) {
+                if (matchingColumn >= 0) {
+                    return -1;
+                }
+                matchingColumn = i;
+            }
+        }
+        return matchingColumn;
+    }
+
     /**
      * {@code route}（今の目的地から最終目的地まで）のどこへ{@code stop}を入れると、{@code from}から辿る直線距離の合計の
      * 増え方が一番小さいか。返す添字の位置へ入れる（0なら今の目的地の手前）。最終目的地の後ろには入れない。

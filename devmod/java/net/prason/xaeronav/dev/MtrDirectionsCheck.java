@@ -258,7 +258,9 @@ final class MtrDirectionsCheck {
                 if (ticks < 60) {
                     return;
                 }
-                rideGoal = PathfindingState.INSTANCE.setGoal(new BlockPos(ox + B + 70, oy + 1, oz + 3));
+                // 未読み込みの駅側では地図の仮の高さになる。合否は試験で置いた通路の高さで見る
+                rideGoal = new BlockPos(ox + B + 70, oy + 1, oz + 3);
+                PathfindingState.INSTANCE.setGoal(rideGoal);
                 log("ride: goal {} from {}", rideGoal, mc.player.blockPosition());
                 if (name.startsWith("manual")) {
                     // ここから先は人が操作する。閉じるのも人。見たことだけログとスクリーンショットに残す

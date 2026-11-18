@@ -13,6 +13,7 @@ import org.apache.logging.log4j.LogManager;
 import org.jspecify.annotations.Nullable;
 import org.apache.logging.log4j.Logger;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
@@ -410,49 +411,57 @@ final class NavGraphGuide {
         CompletableFuture.supplyAsync(() -> {
                     long began = MonotonicTime.millis();
                     NavGraph.Refreshed refreshed = refresh(key, view, at, minY, maxY, farMap, invalidateAround, workers,
-                            () -> generation.get() != myGeneration, !waiting ? null : ahead -> {
-                                if (generation.get() == myGeneration) {
+                            () -> generation.get() != myGeneration, !waiting ? null : ahead ->
+                                    Minecraft.getInstance().execute(() -> {
+                                if (generation.get() == myGeneration && building) {
                                     built = new Built(key, at, ahead);
                                 }
-                            });
+                            }));
                     load.record(began, MonotonicTime.millis(), captureMillis, refreshed);
                     if (refreshed != null) {
                         farScale.observe(refreshed.field(), at);
                         if (farMap != null && farMap.learns()) {
                             learned.record(refreshed.field());
                         }
+                        if (generation.get() == myGeneration && LOGGER.isDebugEnabled()
+                                && logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
+                            logBuild(refreshed, key, at, farMap, workers);
+                        }
                     }
                     return refreshed;
                 }, coordinator)
-                .whenComplete((refreshed, error) -> {
-                    if (error != null) {
-                        // 打ち切りは例外でなくnullで返るので、世代が古い回でもこれは本物の失敗
-                        fail(error);
-                    }
+                .whenComplete((refreshed, error) -> Minecraft.getInstance().execute(() -> {
                     if (generation.get() != myGeneration) {
-                        // 新しい組み立てが始まっている。その印を落とすと、組み立てが重なる
+                        if (error != null) {
+                            LOGGER.warn("XaeroNav: an obsolete nav graph build failed", error);
+                        }
                         return;
                     }
                     building = false;
+                    if (error != null) {
+                        fail(error);
+                        return;
+                    }
                     if (refreshed == null) {
                         return;
                     }
                     failures = 0;
                     built = new Built(key, at, refreshed.field());
                     retargeted = false;
-                    if (LOGGER.isDebugEnabled() && logGate.changed(true, MonotonicTime.millis(), LOG_INTERVAL_MILLIS)) {
-                        NavGraph current = graph;
-                        LOGGER.debug("XaeroNav: nav graph (sections built={}, build {}ms, guide {}ms, edges={}, nodes={}, "
-                                        + "graph {}MB, guide {}MB, window {} (max heap {}MB), workers {}, outside window={}, "
-                                        + "outside-window scale by arrival time={}, learned points={}, value origin at center {}={})",
-                                refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
-                                refreshed.field().edges(), refreshed.field().nodes(),
-                                current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
-                                key.window(), Runtime.getRuntime().maxMemory() >> 20, workers,
-                                farMap == null ? "straight line" : farMap.name(), "%.2f".formatted(farScale.scale()),
-                                learned.size(), at.toShortString(), origin(refreshed.field(), at));
-                    }
-                });
+                }));
+    }
+
+    private void logBuild(NavGraph.Refreshed refreshed, Key key, BlockPos at, @Nullable Far farMap, int workers) {
+        NavGraph current = graph;
+        LOGGER.debug("XaeroNav: nav graph (sections built={}, build {}ms, guide {}ms, edges={}, nodes={}, "
+                        + "graph {}MB, guide {}MB, window {} (max heap {}MB), workers {}, outside window={}, "
+                        + "outside-window scale by arrival time={}, learned points={}, value origin at center {}={})",
+                refreshed.sectionsBuilt(), refreshed.buildMillis(), refreshed.field().buildMillis(),
+                refreshed.field().edges(), refreshed.field().nodes(),
+                current == null ? 0 : current.bytes() >> 20, refreshed.field().bytes() >> 20,
+                key.window(), Runtime.getRuntime().maxMemory() >> 20, workers,
+                farMap == null ? "straight line" : farMap.name(), "%.2f".formatted(farScale.scale()),
+                learned.size(), at.toShortString(), origin(refreshed.field(), at));
     }
 
     /**
@@ -465,7 +474,7 @@ final class NavGraphGuide {
         retryAfterMillis = MonotonicTime.millis() + FAILURE_BACKOFF_MILLIS;
         LOGGER.error("XaeroNav: failed to build the nav graph ({} times in a row). Navigating without it for {}s",
                 failures, FAILURE_BACKOFF_MILLIS / 1000, error);
-        // 完了済みの回にwhenCompleteを付けるとメインスレッドで呼ばれるので、グラフは段取りの1本で手放す
+        // グラフを組んでいる段取りのスレッドと所有権を揃える
         coordinator.execute(this::forgetGraph);
     }
 

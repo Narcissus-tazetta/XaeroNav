@@ -41,6 +41,16 @@ class DimensionHopTest {
     }
 
     @Test
+    void restoresBothOriginalsWhenPointsRoundToTheSameNetherBlock() {
+        List<BlockPos> original = List.of(new BlockPos(1000, 70, 0), new BlockPos(1007, 70, 0));
+        DimensionHop.Converted converted = DimensionHop.leave(original, TO_NETHER, NETHER_MIN_Y, NETHER_MAX_Y, false);
+
+        assertEquals(converted.points().get(0), converted.points().get(1));
+        assertEquals(original, converted.hop().back(converted.points(), OVERWORLD_MIN_Y, OVERWORLD_MAX_Y));
+        assertEquals(original.get(1), converted.hop().originOf(converted.points().get(1)));
+    }
+
+    @Test
     void stopAddedInTheNetherComesBackScaledUp() {
         DimensionHop.Converted converted = DimensionHop.leave(List.of(new BlockPos(1000, 70, 0)),
                 TO_NETHER, NETHER_MIN_Y, NETHER_MAX_Y, false);

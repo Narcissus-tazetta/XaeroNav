@@ -12,7 +12,9 @@ import org.joml.Matrix4f;
 /*import com.mojang.math.Matrix4f;
 *///?}
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import net.minecraft.client.Minecraft;
 
 //? if >=1.21.11 {
 /*import xaero.lib.client.graphics.XaeroBufferProvider;
@@ -22,6 +24,8 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.prason.xaeronav.client.MapPathOverlay;
 import net.prason.xaeronav.xaero.XaeroHookMarker;
 import net.prason.xaeronav.xaero.XaeroHookProbe;
+import net.prason.xaeronav.xaero.XaeroMapCoords;
+import xaero.map.MapProcessor;
 import xaero.map.graphics.CustomRenderTypes;
 import xaero.map.graphics.MapRenderHelper;
 import xaero.map.gui.GuiMap;
@@ -46,6 +50,9 @@ import xaero.map.gui.GuiMap;
 public abstract class GuiMapMixin implements XaeroHookMarker {
 
     private static final float DOT_ALPHA = 0.9f;
+
+    @Shadow(remap = false)
+    public abstract MapProcessor getMapProcessor();
 
     @WrapOperation(
             // 26.1でScreen#renderがextractRenderStateへ改名された
@@ -73,6 +80,10 @@ public abstract class GuiMapMixin implements XaeroHookMarker {
             @Local(name = "flooredCameraX") int flooredCameraX,
             @Local(name = "flooredCameraZ") int flooredCameraZ) {
         XaeroHookProbe.record(XaeroHookProbe.Point.WORLD_MAP_RENDER);
+        if (!XaeroMapCoords.isViewingPlayerDimension(getMapProcessor(), Minecraft.getInstance().level)) {
+            original.call(renderTypeBuffers);
+            return;
+        }
         MapPathOverlay.Snapshot snapshot = MapPathOverlay.snapshot();
         if (!snapshot.isEmpty()) {
             VertexConsumer overlayBuffer = renderTypeBuffers.getBuffer(CustomRenderTypes.MAP_COLOR_OVERLAY);

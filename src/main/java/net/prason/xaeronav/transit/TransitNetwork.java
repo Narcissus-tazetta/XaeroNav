@@ -39,19 +39,19 @@ public final class TransitNetwork {
     public static TransitNetwork parse(JsonObject data) {
         List<String> dimensions = new ArrayList<>();
         for (JsonElement dimension : array(data, "dimensions")) {
-            dimensions.add(dimension.getAsString());
+            dimensions.add(stringValue(dimension, "dimensions entry"));
         }
         Map<String, String> stationNames = new HashMap<>();
         for (JsonElement element : array(data, "stations")) {
-            JsonObject station = element.getAsJsonObject();
+            JsonObject station = object(element, "station");
             stationNames.put(string(station, "id"), string(station, "name"));
         }
         Map<String, Route> routes = new HashMap<>();
         for (JsonElement element : array(data, "routes")) {
-            JsonObject route = element.getAsJsonObject();
+            JsonObject route = object(element, "route");
             List<Platform> platforms = new ArrayList<>();
             for (JsonElement stop : array(route, "stations")) {
-                JsonObject platform = stop.getAsJsonObject();
+                JsonObject platform = object(stop, "platform");
                 platforms.add(new Platform(string(platform, "id"), string(platform, "name"),
                         new BlockPos(integer(platform, "x"), integer(platform, "y"), integer(platform, "z"))));
             }
@@ -101,9 +101,19 @@ public final class TransitNetwork {
     }
 
     static String string(JsonObject object, String key) {
-        JsonElement value = object.get(key);
-        if (value == null || !value.isJsonPrimitive()) {
-            throw new TransitFormatException("missing '" + key + "'");
+        return stringValue(object.get(key), key);
+    }
+
+    static JsonObject object(@Nullable JsonElement value, String key) {
+        if (value == null || !value.isJsonObject()) {
+            throw new TransitFormatException("expected an object for '" + key + "'");
+        }
+        return value.getAsJsonObject();
+    }
+
+    private static String stringValue(@Nullable JsonElement value, String key) {
+        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+            throw new TransitFormatException("expected a string for '" + key + "'");
         }
         return value.getAsString();
     }
@@ -113,10 +123,18 @@ public final class TransitNetwork {
         if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
             throw new TransitFormatException("missing number '" + key + "'");
         }
-        return value.getAsLong();
+        try {
+            return value.getAsBigDecimal().longValueExact();
+        } catch (NumberFormatException | ArithmeticException invalidNumber) {
+            throw new TransitFormatException("expected an integer for '" + key + "'");
+        }
     }
 
     private static int integer(JsonObject object, String key) {
-        return (int) integer64(object, key);
+        long number = integer64(object, key);
+        if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) {
+            throw new TransitFormatException("integer out of range for '" + key + "'");
+        }
+        return (int) number;
     }
 }

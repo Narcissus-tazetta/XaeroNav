@@ -57,7 +57,7 @@ public final class DioramaRouteCanvas {
     }
 
     public static void draw(GuiGraphics graphics, MapViewport.View view) {
-        MapPathOverlay.Snapshot snapshot = MapPathOverlay.read();
+        MapPathOverlay.Snapshot snapshot = MapPathOverlay.snapshotForDiorama();
         if (snapshot.isEmpty()) {
             return;
         }

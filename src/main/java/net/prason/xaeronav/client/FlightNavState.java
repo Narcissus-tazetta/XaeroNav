@@ -312,6 +312,10 @@ final class FlightNavState {
 
     /** 引いてある経路だけを捨てる。着地・到着・スペクテイターのように、長距離ルートは生きている場面用。 */
     void dropRoute() {
+        jobGeneration++;
+        computing = false;
+        // 実行中のsupplierが中断点に着く前に、待機中の旧jobも走り始めるのを防ぐ
+        executor.getQueue().clear();
         route = FlightRoute.NONE;
         guideWaypoints = null;
         computedFrom = null;
@@ -320,17 +324,12 @@ final class FlightNavState {
 
     /** 目的地ごと捨て、実行中jobを論理的にキャンセルする。 */
     void reset() {
-        jobGeneration++;
-        computing = false;
-        // 実行中のsupplierは安全な中断点まで走り得るが、待機中の旧jobは全て捨てて最新だけを残す。
-        executor.getQueue().clear();
         dropRoute();
         coarseRoute = null;
         bestRerouteDistance = Double.POSITIVE_INFINITY;
         passedWaypoints = 0;
         extendBlockedAt = null;
         extendBlockedFrom = null;
-        cachedDashWaypoints = List.of();
     }
 
     /** 滑空中の1tick。進捗の更新と、必要なら引き直し・継ぎ足しの投入。 */

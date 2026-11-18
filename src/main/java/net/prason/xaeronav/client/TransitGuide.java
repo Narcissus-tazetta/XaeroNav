@@ -61,7 +61,7 @@ public final class TransitGuide {
         OFFER, ACCEPT, CONTINUE, REFRESH
     }
 
-    private record Answer(int sequence, TransitProvider from, TransitOutcome outcome) {
+    private record Answer(int sequence, TransitProvider from, TransitOutcome outcome, long receivedMillis) {
     }
 
     /** HUDの行の受け口。{@code primary}は次の行動を表す行。 */
@@ -69,7 +69,8 @@ public final class TransitGuide {
         void add(Component line, boolean primary);
     }
 
-    private final List<TransitProvider> providers = List.of(new MtrTransit(), new CrnTransit());
+    private final MtrTransit mtr = new MtrTransit();
+    private final List<TransitProvider> providers = List.of(mtr, new CrnTransit());
     private final Queue<Answer> answers = new ConcurrentLinkedQueue<>();
     /** 今の問い合わせ（{@link #sequence}）で返事を待っている数と、届いた返事。 */
     private int awaiting;
@@ -107,11 +108,16 @@ public final class TransitGuide {
     }
 
     public void onLoggingOut() {
-        toIdle();
-        askedFor = null;
+        onLegChanged();
+        mtr.onLoggingOut();
         unavailable.clear();
         available = null;
         provider = null;
+    }
+
+    void onLegChanged() {
+        toIdle();
+        askedFor = null;
     }
 
     public void onClientTick() {
@@ -135,10 +141,16 @@ public final class TransitGuide {
         TransitProvider vehicle = ridingOn(mc.player);
         boolean riding = vehicle != null;
         offTicks = riding ? 0 : offTicks + 1;
-        if (state.goal() == null) {
-            toIdle();
-            askedFor = null;
+        if (!state.hasGoalIn(mc.level)) {
+            onLegChanged();
             return;
+        }
+        if (riding && phase != Phase.RIDING) {
+            board(state, vehicle);
+            return;
+        }
+        if ((phase == Phase.ASKING || phase == Phase.OFFERED) && !canOffer(state)) {
+            toIdle();
         }
         for (Answer answer = answers.poll(); answer != null; answer = answers.poll()) {
             if (answer.sequence() == sequence && pending != null) {
@@ -150,18 +162,9 @@ public final class TransitGuide {
                 }
             }
         }
-        if (riding && phase != Phase.RIDING) {
-            board(state, vehicle);
-            return;
-        }
         BlockPos leg = state.legDestination();
         switch (phase) {
             case IDLE -> considerAsking(mc, state, leg);
-            case ASKING, OFFERED -> {
-                if (!leg.equals(askedFor) || state.inDetour()) {
-                    toIdle();
-                }
-            }
             case TO_PLATFORM -> walkToPlatform(mc.level, state);
             case WAITING -> waitOnPlatform(mc, state);
             case RIDING -> {
@@ -169,15 +172,19 @@ public final class TransitGuide {
                     alight(mc, state);
                 }
             }
-            case AFTER_RIDE -> {
+            case ASKING, OFFERED, AFTER_RIDE -> {
                 // 返事待ち。返事が来なければ案内の元の時間切れが失敗として返る
             }
         }
     }
 
+    private static boolean canOffer(PathfindingState state) {
+        return XaeroNavConfig.INSTANCE.transitSuggestionsEnabled() && !state.flying()
+                && !state.arrived() && !state.inDetour();
+    }
+
     private void considerAsking(Minecraft mc, PathfindingState state, BlockPos leg) {
-        if (!XaeroNavConfig.INSTANCE.transitSuggestionsEnabled() || leg.equals(askedFor) || state.flying()
-                || state.arrived() || state.inDetour()) {
+        if (!canOffer(state) || leg.equals(askedFor)) {
             settleTicks = 0;
             return;
         }
@@ -248,6 +255,10 @@ public final class TransitGuide {
         sequence++;
         pending = null;
         offer = null;
+        received.clear();
+        if (provider != vehicle) {
+            active = null;
+        }
         phase = Phase.RIDING;
         provider = vehicle;
         state.suspendForRide();
@@ -286,7 +297,7 @@ public final class TransitGuide {
             XaeroNav.LOGGER.debug("XaeroNav: asking {} directions ({}) from {} to {}", candidate.name(), purpose,
                     mc.player.blockPosition(), to);
             String refused = candidate.ask(mc, mc.player.blockPosition(), to,
-                    outcome -> answers.add(new Answer(asked, candidate, outcome)));
+                    outcome -> answers.add(new Answer(asked, candidate, outcome, MonotonicTime.millis())));
             if (refused != null) {
                 noteUnavailable(mc.player, candidate, refused);
             } else {
@@ -304,52 +315,59 @@ public final class TransitGuide {
     }
 
     /**
-     * 届いた返事のうち一番早く着く答え。その答えを出した案内の元を{@link #provider}にする。電車の答えが1つも無く、
-     * どれかが返事を読めなかったなら、失敗として返す（全部が「電車なし」なら失敗ではない）。
+     * 届いた返事のうち、まだ発車していない便で一番早く着く答え。
      */
-    private TransitOutcome best(Player player, Purpose purpose) {
+    private @Nullable Answer best(Player player, Purpose purpose) {
         Answer best = null;
-        String failure = null;
+        Answer failure = null;
+        long now = MonotonicTime.millis();
         for (Answer answer : received) {
             TransitOutcome outcome = answer.outcome();
             if (outcome.failure() != null) {
                 noteUnavailable(player, answer.from(), outcome.failure());
-                failure = outcome.failure();
+                failure = answer;
             } else if (outcome.itinerary() == null) {
                 XaeroNav.LOGGER.info("XaeroNav: {} directions ({}) have no train ride, walking only",
                         answer.from().name(), purpose);
-            } else if (best == null || outcome.itinerary().totalMillis() < best.outcome().itinerary().totalMillis()) {
+            } else if (beforeDeparture(outcome.itinerary(), answer.receivedMillis(), now)
+                    && (best == null || arrivalMillis(answer) < arrivalMillis(best))) {
                 best = answer;
             }
         }
         received.clear();
-        if (best == null) {
-            return new TransitOutcome(null, failure);
-        }
-        provider = best.from();
-        return best.outcome();
+        return best == null ? failure : best;
     }
 
-    private void handle(Minecraft mc, PathfindingState state, Purpose purpose, TransitOutcome outcome) {
-        Itinerary itinerary = outcome.itinerary();
+    private static long arrivalMillis(Answer answer) {
+        return answer.receivedMillis() + answer.outcome().itinerary().totalMillis();
+    }
+
+    static boolean beforeDeparture(Itinerary itinerary, long receivedMillis, long now) {
+        return now - receivedMillis < itinerary.first().departInMillis();
+    }
+
+    private void handle(Minecraft mc, PathfindingState state, Purpose purpose, @Nullable Answer answer) {
+        Itinerary itinerary = answer == null ? null : answer.outcome().itinerary();
+        boolean failed = answer != null && answer.outcome().failure() != null;
         switch (purpose) {
             case OFFER -> {
                 phase = Phase.IDLE;
-                if (itinerary != null && fasterThanWalking(mc, state, itinerary)) {
+                if (itinerary != null && fasterThanWalking(mc, state, answer)) {
+                    provider = answer.from();
                     offer = itinerary;
-                    offerMillis = MonotonicTime.millis();
+                    offerMillis = answer.receivedMillis();
                     phase = Phase.OFFERED;
                     GameCompat.tell(mc.player, offerMessage(itinerary), false);
                 }
             }
             case ACCEPT -> {
-                if (itinerary == null) {
+                if (itinerary == null || !fasterThanWalking(mc, state, answer)) {
                     toIdle();
-                    if (outcome.failure() == null) {
+                    if (!failed) {
                         GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.transit_gone"), false);
                     }
                 } else {
-                    activate(mc, state, itinerary);
+                    activate(mc, state, answer.from(), itinerary, answer.receivedMillis());
                 }
             }
             case CONTINUE -> {
@@ -357,11 +375,11 @@ public final class TransitGuide {
                     toIdle();
                     state.endDetour();
                 } else {
-                    activate(mc, state, itinerary);
+                    activate(mc, state, answer.from(), itinerary, answer.receivedMillis());
                 }
             }
             case REFRESH -> {
-                if (outcome.failure() != null) {
+                if (failed) {
                     // 返事が読めないだけで、電車が無くなったとは限らない。待たせたままにする
                     return;
                 }
@@ -369,23 +387,24 @@ public final class TransitGuide {
                     toIdle();
                     state.endDetour();
                     GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.transit_gone"), false);
-                } else if (itinerary.first().board().equals(active.first().board())) {
+                } else if (answer.from() == provider && itinerary.first().board().equals(active.first().board())) {
                     active = itinerary;
-                    activeMillis = MonotonicTime.millis();
+                    activeMillis = answer.receivedMillis();
                 } else {
-                    activate(mc, state, itinerary);
+                    activate(mc, state, answer.from(), itinerary, answer.receivedMillis());
                 }
             }
         }
     }
 
-    private boolean fasterThanWalking(Minecraft mc, PathfindingState state, Itinerary itinerary) {
+    private boolean fasterThanWalking(Minecraft mc, PathfindingState state, Answer answer) {
         double walkTicks = eta.ticks(mc.player.blockPosition(), state.goal(),
                 state.navigationView().coarseRouteWaypoints());
         int walkSeconds = NavGuidance.estimateSeconds(walkTicks);
-        long trainSeconds = itinerary.totalMillis() / 1000L;
+        Itinerary itinerary = answer.outcome().itinerary();
+        long trainSeconds = (arrivalMillis(answer) - MonotonicTime.millis()) / 1000L;
         XaeroNav.LOGGER.info("XaeroNav: {} directions take {} s with {} ride(s), walking is estimated at {} s",
-                provider.name(), trainSeconds, itinerary.rides().size(), walkSeconds);
+                answer.from().name(), trainSeconds, itinerary.rides().size(), walkSeconds);
         return trainSeconds < walkSeconds * FASTER_RATIO;
     }
 
@@ -393,7 +412,13 @@ public final class TransitGuide {
     public boolean accept() {
         Minecraft mc = Minecraft.getInstance();
         Player player = mc.player;
-        if (player == null) {
+        if (player == null || mc.level == null) {
+            return false;
+        }
+        PathfindingState state = PathfindingState.INSTANCE;
+        if (!state.hasGoalIn(mc.level) || !canOffer(state)
+                || (available != null && ridingOn(player) != null)) {
+            GameCompat.tell(player, TextCompat.translatable("commands.xaeronav.transit_no_offer"), false);
             return false;
         }
         if (pending == Purpose.ACCEPT) {
@@ -405,9 +430,9 @@ public final class TransitGuide {
             GameCompat.tell(player, TextCompat.translatable("commands.xaeronav.transit_no_offer"), false);
             return false;
         }
-        PathfindingState state = PathfindingState.INSTANCE;
-        if (MonotonicTime.millis() - offerMillis <= OFFER_FRESH_MILLIS) {
-            activate(mc, state, offered);
+        long now = MonotonicTime.millis();
+        if (now - offerMillis <= OFFER_FRESH_MILLIS && beforeDeparture(offered, offerMillis, now)) {
+            activate(mc, state, provider, offered, offerMillis);
         } else if (ask(mc, Purpose.ACCEPT, state.legDestination())) {
             phase = Phase.ASKING;
         } else {
@@ -417,9 +442,11 @@ public final class TransitGuide {
         return true;
     }
 
-    private void activate(Minecraft mc, PathfindingState state, Itinerary itinerary) {
+    private void activate(Minecraft mc, PathfindingState state, TransitProvider from, Itinerary itinerary,
+                          long receivedMillis) {
+        provider = from;
         active = itinerary;
-        activeMillis = MonotonicTime.millis();
+        activeMillis = receivedMillis;
         offer = null;
         BlockPos railMiddle = itinerary.first().board();
         spotResolved = provider.spotLoaded(mc.level, railMiddle);
@@ -436,6 +463,8 @@ public final class TransitGuide {
         phase = Phase.IDLE;
         sequence++;
         pending = null;
+        received.clear();
+        answers.clear();
         offer = null;
         active = null;
         spot = null;

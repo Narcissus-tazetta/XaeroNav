@@ -135,20 +135,24 @@ public final class MapPathOverlay {
      */
     public static Snapshot snapshot() {
         XaeroHookHealth.hookRan();
-        return read();
+        return read(GoalWaypoint.placedInXaero());
     }
 
     /**
      * {@link #snapshot()}と同じものを、Xaero側の「注入点を通った」の記録を付けずに読む。Xaero以外の地図が使う——
      * そちらの描画でも記録してしまうと、Xaeroの世界地図へ描けていないことを見つけられなくなる。
      */
-    public static Snapshot read() {
+    public static Snapshot snapshotForDiorama() {
+        return read(GoalWaypoint.placedInDiorama());
+    }
+
+    private static Snapshot read(boolean externalMarkerPlaced) {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) {
             return new Snapshot(null, null, false, false, null, List.of(), List.of(), 0, List.of(), null, false,
                     List.of());
         }
-        return PathfindingState.INSTANCE.mapOverlaySnapshot(player.blockPosition());
+        return PathfindingState.INSTANCE.mapOverlaySnapshot(player.blockPosition(), externalMarkerPlaced);
     }
 
     public static void draw(Snapshot snapshot, QuadSink sink, double pixelsPerBlock) {

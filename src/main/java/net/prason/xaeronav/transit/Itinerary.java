@@ -37,8 +37,8 @@ public record Itinerary(List<Ride> rides, long totalMillis) {
      * @throws TransitFormatException 応答の形が違う、または{@code network}に無い路線・ホームを指している
      */
     public static @Nullable Itinerary parse(JsonObject response, TransitNetwork network) {
-        JsonElement code = response.get("code");
-        if (code == null || !code.isJsonPrimitive() || code.getAsInt() != 200) {
+        long code = TransitNetwork.integer64(response, "code");
+        if (code != 200) {
             throw new TransitFormatException("response code " + code);
         }
         long now = TransitNetwork.integer64(response, "currentTime");
@@ -49,7 +49,7 @@ public record Itinerary(List<Ride> rides, long totalMillis) {
         List<Ride> rides = new ArrayList<>();
         long end = now;
         for (JsonElement element : TransitNetwork.array(data.getAsJsonObject(), "connections")) {
-            JsonObject connection = element.getAsJsonObject();
+            JsonObject connection = TransitNetwork.object(element, "connection");
             end = Math.max(end, TransitNetwork.integer64(connection, "endTime"));
             String routeId = TransitNetwork.string(connection, "routeId");
             if (routeId.isEmpty()) {

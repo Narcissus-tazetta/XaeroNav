@@ -87,6 +87,19 @@ class ItineraryTest {
     }
 
     @Test
+    void rejectsMalformedValuesAsTransitFailures() {
+        TransitNetwork network = network();
+        assertThrows(TransitFormatException.class,
+                () -> Itinerary.parse(json("{\"code\":\"not a number\"}"), network));
+        assertThrows(TransitFormatException.class,
+                () -> Itinerary.parse(json(TOO_FAR.replace("[]", "[null]")), network));
+        assertThrows(TransitFormatException.class,
+                () -> TransitNetwork.parse(json("{\"stations\":[null]}")));
+        assertThrows(TransitFormatException.class,
+                () -> TransitNetwork.parse(json(NETWORK.replace("-38", "4294967296"))));
+    }
+
+    @Test
     void rejectsARideOnAPlatformTheNetworkDoesNotKnow() {
         TransitNetwork empty = TransitNetwork.parse(json("{\"dimensions\":[\"minecraft/overworld\"]}"));
         assertThrows(TransitFormatException.class, () -> Itinerary.parse(json(WITH_TRAIN), empty));

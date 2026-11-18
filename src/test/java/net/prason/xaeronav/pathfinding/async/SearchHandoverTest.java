@@ -8,6 +8,7 @@ import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
@@ -52,6 +53,7 @@ class SearchHandoverTest {
     private final AtomicLong generation = new AtomicLong();
     private final GenerationGate gate = new GenerationGate(generation, Runnable::run);
     private final List<String> delivered = new CopyOnWriteArrayList<>();
+    private final CountDownLatch applied = new CountDownLatch(1);
 
     /** 対照。消さなければ読み続けること——これが崩れると下のテストは何も確かめていない。 */
     @Test
@@ -79,6 +81,7 @@ class SearchHandoverTest {
         PathResult result = fresh.get(AWAIT_SECONDS, TimeUnit.SECONDS);
         assertTrue(result.complete(), "新しい目的地へ届かない: " + result.termination());
         assertTrue(stale.isDone(), "古い探索が新しい探索の後も残っている");
+        assertTrue(applied.await(AWAIT_SECONDS, TimeUnit.SECONDS), "新しい経路が届かない");
         assertEquals(List.of("新しい目的地"), delivered);
     }
 
@@ -135,6 +138,7 @@ class SearchHandoverTest {
         CompletableFuture<PathResult> afterLanding = request(executor, field(), NEAR, "着地後");
 
         assertTrue(afterLanding.get(AWAIT_SECONDS, TimeUnit.SECONDS).complete());
+        assertTrue(applied.await(AWAIT_SECONDS, TimeUnit.SECONDS), "着地後の経路が届かない");
         assertEquals(List.of("着地後"), delivered);
     }
 
@@ -146,6 +150,7 @@ class SearchHandoverTest {
         gate.whenStillCurrent(future, myGeneration, (result, error) -> {
             if (error == null) {
                 delivered.add(label);
+                applied.countDown();
             }
         });
         return future;

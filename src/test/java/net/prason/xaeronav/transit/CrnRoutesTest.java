@@ -91,4 +91,16 @@ class CrnRoutesTest {
         assertThrows(TransitFormatException.class,
                 () -> CrnRoutes.choose(List.of(unknown), NOW, new BlockPos(5, 116, 14), new BlockPos(460, 116, 14), STATIONS));
     }
+
+    @Test
+    void aJourneyWithAnUnknownStationDoesNotHideAUsableTrain() {
+        CrnRoutes.Journey unknown = new CrnRoutes.Journey(List.of(new CrnRoutes.Leg("T", "",
+                new CrnRoutes.Stop("Alpha", "Alpha", "", 8344, 8344), new CrnRoutes.Stop("Nowhere", "Nowhere", "", 8797, 8797))));
+
+        Itinerary itinerary = CrnRoutes.choose(List.of(unknown, run(9449, 9902)), NOW,
+                new BlockPos(5, 116, 14), new BlockPos(460, 116, 14), STATIONS);
+
+        assertNotNull(itinerary);
+        assertEquals("Bravo", itinerary.first().toStation());
+    }
 }

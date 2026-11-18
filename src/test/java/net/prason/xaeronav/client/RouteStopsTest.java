@@ -41,4 +41,15 @@ class RouteStopsTest {
         assertEquals(2, stops.passed());
         assertEquals(List.of(new BlockPos(3, 64, 0)), stops.ahead());
     }
+
+    @Test
+    void aWaypointAtAnotherHeightDoesNotRemoveTheFirstStopInTheColumn() {
+        BlockPos lower = new BlockPos(10, 64, 20);
+        BlockPos upper = new BlockPos(10, 94, 20);
+        BlockPos unknownHeight = new BlockPos(10, 32767, 20);
+
+        assertEquals(1, RouteStops.indexOfMarker(List.of(lower, upper), upper));
+        assertEquals(-1, RouteStops.indexOfMarker(List.of(lower, upper), unknownHeight));
+        assertEquals(0, RouteStops.indexOfMarker(List.of(lower), unknownHeight));
+    }
 }

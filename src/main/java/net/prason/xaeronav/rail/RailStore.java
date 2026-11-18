@@ -61,9 +61,19 @@ public final class RailStore {
         try (DirectoryStream<Path> files = Files.newDirectoryStream(dir, "r.*" + SUFFIX)) {
             for (Path file : files) {
                 Matcher name = FILE_NAME.matcher(file.getFileName().toString());
-                if (name.matches()) {
-                    store.readRegion(file, Integer.parseInt(name.group(1)), Integer.parseInt(name.group(2)));
+                if (!name.matches()) {
+                    continue;
                 }
+                int regionX;
+                int regionZ;
+                try {
+                    regionX = Integer.parseInt(name.group(1));
+                    regionZ = Integer.parseInt(name.group(2));
+                } catch (NumberFormatException badCoordinates) {
+                    LOGGER.warn("XaeroNav: ignoring rail data with invalid region coordinates: {}", file);
+                    continue;
+                }
+                store.readRegion(file, regionX, regionZ);
             }
         }
         return store;
@@ -84,6 +94,10 @@ public final class RailStore {
                 return;
             }
             int chunkCount = in.readInt();
+            if (chunkCount < 0 || chunkCount > 32 * 32) {
+                LOGGER.warn("XaeroNav: ignoring corrupted rail data ({} chunks): {}", chunkCount, file);
+                return;
+            }
             for (int i = 0; i < chunkCount; i++) {
                 int chunkX = in.readInt();
                 int chunkZ = in.readInt();

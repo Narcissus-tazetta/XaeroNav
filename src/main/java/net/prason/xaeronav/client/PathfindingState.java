@@ -500,7 +500,7 @@ public final class PathfindingState {
     private @Nullable HopArrival hopArrival() {
         DimensionHop current = hop;
         BlockPos requested = legRequested;
-        if (current == null || !arrived || !stops.isEmpty() || requested == null) {
+        if (current == null || !arrived || detourOrigin != null || !stops.isEmpty() || requested == null) {
             return null;
         }
         return new HopArrival(current.originOf(requested), current.fromNether());
@@ -608,7 +608,6 @@ public final class PathfindingState {
 
     /** 経由地を最終目的地は変えずに、寄り道が一番短くなる位置へ差し込む。目的地が無ければ目的地にする。 */
     public StopResult addStop(BlockPos pos) {
-        dropDetour();
         BlockPos current = goal;
         Player player = Minecraft.getInstance().player;
         if (current == null || player == null) {
@@ -617,6 +616,7 @@ public final class PathfindingState {
         if (refuseWhenFull(player)) {
             return StopResult.FULL;
         }
+        dropDetour();
         List<BlockPos> route = new ArrayList<>(stops.remainingStops() + 1);
         route.add(legRequested);
         route.addAll(stops.ahead());
@@ -633,7 +633,6 @@ public final class PathfindingState {
 
     /** 今の最終目的地の先へ足す（今の最終目的地は経由地になる）。目的地が無ければ目的地にする。 */
     public StopResult appendStop(BlockPos pos) {
-        dropDetour();
         Player player = Minecraft.getInstance().player;
         if (goal == null || player == null) {
             return setGoal(pos) != null ? StopResult.STARTED : StopResult.NO_WORLD;
@@ -641,6 +640,7 @@ public final class PathfindingState {
         if (refuseWhenFull(player)) {
             return StopResult.FULL;
         }
+        dropDetour();
         stops.append(pos);
         publishNavigationView();
         return StopResult.ADDED;
@@ -656,12 +656,14 @@ public final class PathfindingState {
 
     /** 経由地を外す。{@code marker}は経由地の印（{@link #stopsInOrder}の要素）。外したなら{@code true}。 */
     public boolean removeStop(BlockPos marker) {
-        dropDetour();
-        List<BlockPos> ordered = stopsInOrder();
-        int index = indexOfMarker(ordered, marker);
-        if (index < 0) {
+        return removeStopAt(RouteStops.indexOfMarker(stopsInOrder(), marker));
+    }
+
+    boolean removeStopAt(int index) {
+        if (index < 0 || index >= stops.remainingStops()) {
             return false;
         }
+        dropDetour();
         if (index == 0) {
             beginLeg(stops.takeFirst());
         } else {
@@ -673,17 +675,7 @@ public final class PathfindingState {
 
     /** {@code marker}が経由地の印か。地図のウェイポイントの右クリックで「外す」を出すかに使う。 */
     public boolean isStopMarker(BlockPos marker) {
-        return indexOfMarker(stopsInOrder(), marker) >= 0;
-    }
-
-    private static int indexOfMarker(List<BlockPos> ordered, BlockPos marker) {
-        // 地図のウェイポイントのYは置いた印と同じとは限らない（Xaeroが高さを持たない印として扱うことがある）
-        for (int i = 0; i < ordered.size(); i++) {
-            if (ordered.get(i).getX() == marker.getX() && ordered.get(i).getZ() == marker.getZ()) {
-                return i;
-            }
-        }
-        return -1;
+        return RouteStops.indexOfMarker(stopsInOrder(), marker) >= 0;
     }
 
     /** まだ通っていない経由地を通る順に。今の目的地が経由地ならそれが先頭。最終目的地は含めない。 */
@@ -764,6 +756,11 @@ public final class PathfindingState {
      * 区間の終点を設定する。経由地の列はそのまま残す。
      */
     private @Nullable BlockPos beginLeg(BlockPos goal) {
+        TransitGuide.INSTANCE.onLegChanged();
+        return restartLeg(goal);
+    }
+
+    private @Nullable BlockPos restartLeg(BlockPos goal) {
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
         Player player = mc.player;
@@ -866,7 +863,7 @@ public final class PathfindingState {
         LOGGER.info("XaeroNav: goal column loaded, moved the goal to a standable height ({} -> {})",
                 current.toShortString(), resolved.toShortString());
         if (flying) {
-            beginLeg(requested);
+            restartLeg(requested);
         } else {
             retargetGoal(resolved);
         }
@@ -907,14 +904,18 @@ public final class PathfindingState {
         if (detourOrigin == null) {
             detourOrigin = legRequested;
         }
-        beginLeg(spot);
+        restartLeg(spot);
     }
 
     /** {@link #detour}で差し替えた終点を元へ戻し、今いる所から引き直す。 */
     void endDetour() {
         BlockPos origin = detourOrigin;
         detourOrigin = null;
-        beginLeg(origin);
+        restartLeg(origin);
+    }
+
+    boolean hasGoalIn(Level level) {
+        return goal != null && level.dimension().equals(goalDimension);
     }
 
     boolean inDetour() {
@@ -924,6 +925,7 @@ public final class PathfindingState {
     /** 経由地の操作など、区間の並びを変える操作の前に差し替えを解く。 */
     private void dropDetour() {
         if (detourOrigin != null) {
+            TransitGuide.INSTANCE.onLegChanged();
             endDetour();
         }
     }
@@ -939,16 +941,20 @@ public final class PathfindingState {
         executor.cancelAll();
         computing = false;
         displayed = null;
+        flying = false;
+        flight.dropRoute();
+        sky.reset();
         publishNavigationView();
     }
 
     /** 電車を降りた。今の区間を今いる所から引き直す。 */
     void resumeAfterRide() {
-        beginLeg(legRequested);
+        restartLeg(legRequested);
     }
 
     /** 案内を終える。経由地も消す。 */
     public void clear() {
+        TransitGuide.INSTANCE.onLegChanged();
         stops.clear();
         hop = null;
         detourOrigin = null;
@@ -1053,7 +1059,7 @@ public final class PathfindingState {
      * 参照する既存の作りを残しており、この部分の相互整合はここでは保証しない
      * （空になるとき限定の代替経路同士なので、混ざっても見た目の破綻は小さい）。
      */
-    public MapPathOverlay.Snapshot mapOverlaySnapshot(BlockPos playerPos) {
+    MapPathOverlay.Snapshot mapOverlaySnapshot(BlockPos playerPos, boolean externalMarkerPlaced) {
         NavigationView view = navigationView();
         boolean airborne = view.flying();
         boolean done = view.arrived();
@@ -1070,7 +1076,7 @@ public final class PathfindingState {
         return new MapPathOverlay.Snapshot(ground,
                 currentGoal,
                 XaeroNavConfig.INSTANCE.straightLineEnabled(),
-                XaeroNavConfig.INSTANCE.goalMarkerEnabled() && !GoalWaypoint.placed(),
+                XaeroNavConfig.INSTANCE.goalMarkerEnabled() && !externalMarkerPlaced,
                 playerPos,
                 view.coarseRouteWaypoints(),
                 route.points(),
@@ -1574,7 +1580,9 @@ public final class PathfindingState {
         }
         if (flying) {
             // 滑空中は地上の経路追従・A*の再計算を止め、空中経路だけを見る
-            checkArrival(player, currentGoal, null);
+            if (checkArrival(player, currentGoal, null)) {
+                return true;
+            }
             if (sky.tick(level, player)) {
                 if (sky.active()) {
                     // 走っている探索の結果も捨てる。後から届くと、柱と並んで空中経路が出る

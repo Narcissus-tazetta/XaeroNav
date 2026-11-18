@@ -45,19 +45,29 @@ public final class CrnRoutes {
      * 乗る便を選ぶ。出発地から乗る駅まで歩いて間に合う便が無ければ{@code null}。
      *
      * @param now CRNの時計の今
-     * @throws TransitFormatException 答えの駅がクライアントの線路の網に無い
+     * @throws TransitFormatException 使える便が無く、答えにクライアントの線路の網に無い駅が含まれる
      */
     public static @Nullable Itinerary choose(List<Journey> journeys, long now, BlockPos from, BlockPos to,
                                              Stations stations) {
         Itinerary best = null;
+        TransitFormatException unresolved = null;
         for (Journey journey : journeys) {
             if (journey.legs().isEmpty()) {
                 continue;
             }
-            Itinerary candidate = toItinerary(journey, now, from, to, stations);
+            Itinerary candidate;
+            try {
+                candidate = toItinerary(journey, now, from, to, stations);
+            } catch (TransitFormatException missingStation) {
+                unresolved = missingStation;
+                continue;
+            }
             if (candidate != null && (best == null || candidate.totalMillis() < best.totalMillis())) {
                 best = candidate;
             }
+        }
+        if (best == null && unresolved != null) {
+            throw unresolved;
         }
         return best;
     }

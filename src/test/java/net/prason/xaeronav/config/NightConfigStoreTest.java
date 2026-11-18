@@ -70,6 +70,31 @@ class NightConfigStoreTest {
     }
 
     @Test
+    void replacesScalarSectionsAndKeepsOtherSettings(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("xaeronav-client.toml");
+        Files.writeString(file, "pathfinding = false\n[display]\nhudEnabled = false\n");
+        NightConfigStore store = new NightConfigStore(file);
+        XaeroNavConfig config = new XaeroNavConfig(store.spec());
+
+        store.build();
+
+        assertTrue(config.diggingEnabled());
+        assertEquals(false, config.hudEnabled());
+    }
+
+    @Test
+    void restoresDefaultWhenArrivalRadiusIsNotANumber(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("xaeronav-client.toml");
+        Files.writeString(file, "[pathfinding]\narrivalRadiusBlocks = nan\n");
+        NightConfigStore store = new NightConfigStore(file);
+        XaeroNavConfig config = new XaeroNavConfig(store.spec());
+
+        store.build();
+
+        assertEquals(3.0, config.arrivalRadiusBlocks());
+    }
+
+    @Test
     void keepsChangesAcrossSaveAndReload(@TempDir Path dir) {
         Path file = dir.resolve("xaeronav-client.toml");
         NightConfigStore store = new NightConfigStore(file);

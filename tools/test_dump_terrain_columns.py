@@ -1,6 +1,10 @@
 """Regression checks for preserving impassable terrain in navigation fixtures."""
 import gzip
+from pathlib import Path
 import struct
+import subprocess
+import sys
+import tempfile
 import unittest
 import zlib
 
@@ -164,6 +168,14 @@ class ReadChunkGoldenTest(unittest.TestCase):
         self.assertEqual('minecraft:air', blocks[16])
         self.assertEqual('minecraft:air', blocks[256])  # z=1行目は空気のまま
 
+    def test_missing_packed_data_cannot_turn_a_mixed_section_into_air(self):
+        section = {'Y': 0, 'block_states': {'palette': [
+            {'Name': 'minecraft:air'}, {'Name': 'minecraft:stone'},
+        ]}}
+
+        with self.assertRaisesRegex(ValueError, 'packed block-state longs'):
+            section_blocks(section)
+
     def test_missing_chunk_returns_none(self):
         region = bytes(4096 + 4096)  # header全ゼロ＝どのチャンクも未生成
         self.assertIsNone(read_chunk(region, 0, 0))
@@ -181,6 +193,20 @@ class ReadChunkGoldenTest(unittest.TestCase):
         region = _region_with_single_chunk(0, 0, 2, compressed[:len(compressed) // 2])
         with self.assertRaises(zlib.error):
             read_chunk(region, 0, 0)
+
+    def test_dump_of_air_keeps_a_valid_vertical_range(self):
+        nbt = _chunk_nbt([_section(0, ['minecraft:air'])])
+        region = _region_with_single_chunk(0, 0, 2, zlib.compress(nbt))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'r.0.0.mca').write_bytes(region)
+            output = root / 'terrain.txt.gz'
+            script = Path(__file__).with_name('dump_terrain_columns.py')
+            subprocess.run([sys.executable, str(script), str(root), '0', '0', '15', '15',
+                            '--band=-64,319', '--out', str(output)], check=True, capture_output=True)
+
+            with gzip.open(output, 'rt', encoding='utf-8') as fixture:
+                self.assertEqual('-16 -72 -16 31 343 31\n', fixture.readline())
 
 
 if __name__ == '__main__':

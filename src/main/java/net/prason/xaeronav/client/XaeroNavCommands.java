@@ -124,12 +124,10 @@ public final class XaeroNavCommands {
     }
 
     private static int removeStop(NavCommandSink out, int number) {
-        List<BlockPos> stops = PathfindingState.INSTANCE.stopsInOrder();
-        if (number > stops.size()) {
+        if (!PathfindingState.INSTANCE.removeStopAt(number - 1)) {
             out.failure(TextCompat.translatable("commands.xaeronav.stop_not_found", number));
             return 0;
         }
-        PathfindingState.INSTANCE.removeStop(stops.get(number - 1));
         return listStops(out);
     }
 

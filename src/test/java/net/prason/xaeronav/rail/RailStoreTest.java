@@ -87,4 +87,15 @@ class RailStoreTest {
 
         assertEquals(0, store.chunkCount());
     }
+
+    @Test
+    void aRegionWithUnrepresentableCoordinatesDoesNotHideValidRegions() throws IOException {
+        int[] rails = {RailCell.pack(0, 64, 0, TrackShape.NORTH_SOUTH, RailKind.RAIL, false)};
+        RailStore store = RailStore.open(dir);
+        store.putChunk(0, 0, rails);
+        store.flush();
+        Files.write(dir.resolve("r.9999999999.0.rails"), new byte[] {1, 2, 3});
+
+        assertArrayEquals(rails, RailStore.open(dir).chunk(0, 0));
+    }
 }

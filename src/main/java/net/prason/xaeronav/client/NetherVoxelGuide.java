@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.apache.logging.log4j.Logger;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -301,11 +302,11 @@ final class NetherVoxelGuide {
         long myGeneration = generation.incrementAndGet();
         CompletableFuture.supplyAsync(() ->
                         VoxelCostToGo.build(terrain, goal, () -> generation.get() != myGeneration), worker)
-                .whenComplete((guide, error) -> {
-                    building = false;
+                .whenComplete((guide, error) -> Minecraft.getInstance().execute(() -> {
                     if (generation.get() != myGeneration) {
                         return;
                     }
+                    building = false;
                     if (error != null) {
                         LOGGER.error("XaeroNav: failed to build the 3D coarse layer", error);
                         return;
@@ -328,7 +329,7 @@ final class NetherVoxelGuide {
                             floors == 0 ? "unreadable" : range.lowest + ".." + range.highest, rememberedCount,
                             regions.loaded(), regions.inRange(), regions.pendingLoad(), requested,
                             read, MonotonicTime.millis() - began - read);
-                });
+                }));
     }
 
     /**

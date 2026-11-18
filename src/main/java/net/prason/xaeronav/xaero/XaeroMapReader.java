@@ -592,7 +592,8 @@ public final class XaeroMapReader {
     }
 
     private static MapProcessor processor() {
-        if (!Minecraft.getInstance().isSameThread()) {
+        Minecraft mc = Minecraft.getInstance();
+        if (!mc.isSameThread()) {
             throw new IllegalStateException("XaeroMapReader must be called from the main thread");
         }
         WorldMapSession session = WorldMapSession.getCurrentSession();
@@ -600,8 +601,8 @@ public final class XaeroMapReader {
             return null;
         }
         MapProcessor processor = session.getMapProcessor();
-        // 地図のワールドが確定するまでリージョンの座標系そのものが定まらない
-        return processor != null && processor.isMapWorldUsable() ? processor : null;
+        // Xaeroのリージョン取得は、プレイヤーの次元でなく開いている地図の次元を参照する
+        return processor != null && XaeroMapCoords.isViewingPlayerDimension(processor, mc.level) ? processor : null;
     }
 
     /**

@@ -14,6 +14,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import net.minecraft.core.BlockPos;
 import net.prason.xaeronav.XaeroNav;
@@ -53,13 +54,20 @@ public final class TransitService {
         thread.setDaemon(true);
         return thread;
     });
+    private final AtomicLong session = new AtomicLong();
 
     // 以下はworkerスレッドだけが触る
     private @Nullable TransitNetwork network;
+    private long networkSession;
     private int networkPort;
     private @Nullable String networkWorld;
     private int networkDimension;
     private long networkFetchedMillis;
+
+    /** 接続を替えると、同じポートと次元でも別の駅・路線になる。 */
+    public void reset() {
+        session.incrementAndGet();
+    }
 
     /**
      * @param worldId {@code minecraft/overworld}の形（MTRの次元の書き方）
@@ -67,10 +75,15 @@ public final class TransitService {
      * @param result  workerスレッドから呼ばれる
      */
     public void ask(int port, boolean relayed, String worldId, BlockPos from, BlockPos to, Consumer<TransitOutcome> result) {
+        long requestedSession = session.get();
         worker.execute(() -> {
+            if (requestedSession != session.get()) {
+                return;
+            }
             TransitOutcome outcome;
             try {
-                outcome = new TransitOutcome(directions(new Endpoint(port, relayed), worldId, from, to), null);
+                outcome = new TransitOutcome(directions(new Endpoint(port, relayed), requestedSession, worldId, from, to),
+                        null);
             } catch (IOException | JsonParseException | TransitFormatException e) {
                 XaeroNav.LOGGER.warn("XaeroNav: MTR directions request failed: {}", e.toString());
                 outcome = new TransitOutcome(null, e.toString());
@@ -82,11 +95,14 @@ public final class TransitService {
     private record Endpoint(int port, boolean relayed) {
     }
 
-    private @Nullable Itinerary directions(Endpoint port, String worldId, BlockPos from, BlockPos to) throws IOException {
-        boolean cached = network != null && networkPort == port.port() && worldId.equals(networkWorld)
+    private @Nullable Itinerary directions(Endpoint port, long requestedSession, String worldId, BlockPos from,
+                                            BlockPos to) throws IOException {
+        boolean cached = network != null && networkSession == requestedSession
+                && networkPort == port.port() && worldId.equals(networkWorld)
                 && System.currentTimeMillis() - networkFetchedMillis < NETWORK_TTL_MILLIS;
         if (!cached) {
             fetchNetwork(port, worldId);
+            networkSession = requestedSession;
         }
         JsonObject body = new JsonObject();
         body.addProperty("startPositionX", from.getX());
@@ -126,11 +142,7 @@ public final class TransitService {
     }
 
     private static JsonObject data(JsonObject response) {
-        JsonElement data = response.get("data");
-        if (data == null || !data.isJsonObject()) {
-            throw new TransitFormatException("no 'data' in the response");
-        }
-        return data.getAsJsonObject();
+        return TransitNetwork.object(response.get("data"), "data");
     }
 
     private static JsonObject post(Endpoint port, String endpoint, int dimension, String body) throws IOException {
@@ -176,10 +188,7 @@ public final class TransitService {
                 }
             }
             JsonElement parsed = new JsonParser().parse(new String(bytes.toByteArray(), StandardCharsets.UTF_8));
-            if (!parsed.isJsonObject()) {
-                throw new TransitFormatException("MTR " + endpoint + " did not return an object");
-            }
-            return parsed.getAsJsonObject();
+            return TransitNetwork.object(parsed, "MTR " + endpoint + " response");
         } finally {
             connection.disconnect();
         }

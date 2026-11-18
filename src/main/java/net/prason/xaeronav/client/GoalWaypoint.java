@@ -37,9 +37,12 @@ final class GoalWaypoint {
     private GoalWaypoint() {
     }
 
-    /** 地図MODのウェイポイントで目的地を示せているか。自前のピンを出すかどうかの判断に使う。 */
-    static boolean placed() {
-        return !xaeroPlacedAt.isEmpty() || !dioramaPlacedAt.isEmpty();
+    static boolean placedInXaero() {
+        return !xaeroPlacedAt.isEmpty();
+    }
+
+    static boolean placedInDiorama() {
+        return !dioramaPlacedAt.isEmpty();
     }
 
     /**

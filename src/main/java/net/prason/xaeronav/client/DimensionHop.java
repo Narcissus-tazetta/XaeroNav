@@ -1,7 +1,7 @@
 package net.prason.xaeronav.client;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
@@ -35,12 +35,13 @@ final class DimensionHop {
      * {@code [minY, maxY]}へ収める。
      */
     static Converted leave(List<BlockPos> points, double scale, int minY, int maxY, boolean fromNether) {
-        Map<BlockPos, BlockPos> originals = new HashMap<>();
+        // 経由地と最終目的地が同じネザー座標に丸められても、経路が保持する各地点から個別の元座標を引けるようにする
+        Map<BlockPos, BlockPos> originals = new IdentityHashMap<>();
         List<BlockPos> converted = new ArrayList<>(points.size());
         for (BlockPos point : points) {
             BlockPos to = convert(point, scale, minY, maxY);
             converted.add(to);
-            originals.putIfAbsent(to, point);
+            originals.put(to, point);
         }
         return new Converted(converted, new DimensionHop(originals, 1.0 / scale, fromNether));
     }

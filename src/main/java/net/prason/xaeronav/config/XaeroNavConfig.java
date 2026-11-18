@@ -14,6 +14,9 @@ import net.prason.xaeronav.pathfinding.world.MovementOptions;
  */
 public final class XaeroNavConfig {
 
+    private static final double DEFAULT_DEVIATION_THRESHOLD_BLOCKS = 4.0;
+    private static final double DEFAULT_ARRIVAL_RADIUS_BLOCKS = 3.0;
+
     public static final XaeroNavConfig INSTANCE;
 
     private static final NavConfigStore STORE;
@@ -236,12 +239,12 @@ public final class XaeroNavConfig {
                 .comment("プレイヤーが経路からこの距離(ブロック)以上離れたら再計算する",
                         "この距離の中を歩いている限り経路は引き直さないので、大きいほど線が落ち着く",
                         "既定値は線の横2〜3マスのずれを許す値")
-                .defineInRange("deviationThresholdBlocks", 4.0, 1.0, 16.0);
+                .defineInRange("deviationThresholdBlocks", DEFAULT_DEVIATION_THRESHOLD_BLOCKS, 1.0, 16.0);
 
         arrivalRadiusBlocks = spec
                 .comment("目的地からこの距離(ブロック)以内に来たら到着とみなす（水平・垂直とも）",
                         "掘っても辿り着けない目的地では、実際に辿り着けた地点を基準にする")
-                .defineInRange("arrivalRadiusBlocks", 3.0, 1.0, 16.0);
+                .defineInRange("arrivalRadiusBlocks", DEFAULT_ARRIVAL_RADIUS_BLOCKS, 1.0, 16.0);
 
         groundLevelY = spec
                 .comment("この高さ(Y座標)以上で、かつ頭上が開けている場所を地上とみなす",
@@ -439,11 +442,13 @@ public final class XaeroNavConfig {
     }
 
     public double deviationThresholdBlocks() {
-        return deviationThresholdBlocks.get();
+        double value = deviationThresholdBlocks.get();
+        return Double.isNaN(value) ? DEFAULT_DEVIATION_THRESHOLD_BLOCKS : value;
     }
 
     public double arrivalRadiusBlocks() {
-        return arrivalRadiusBlocks.get();
+        double value = arrivalRadiusBlocks.get();
+        return Double.isNaN(value) ? DEFAULT_ARRIVAL_RADIUS_BLOCKS : value;
     }
 
     public int groundLevelY() {

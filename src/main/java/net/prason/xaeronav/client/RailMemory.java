@@ -70,6 +70,7 @@ public final class RailMemory {
     // ここから下のメインスレッド側の状態は、メインスレッドだけが触る
     private final Long2ObjectMap<Seen> seen = new Long2ObjectOpenHashMap<>();
     private @Nullable String currentKey;
+    private @Nullable Level currentLevel;
     private long tick;
 
     // ワーカー側の状態
@@ -79,9 +80,7 @@ public final class RailMemory {
 
     // /xaeronav debug 用にワーカーが書く
     private volatile String status = "not started";
-    /** 経路に使う写し。ワーカーが組み、どのスレッドから読んでもよい。 */
-    private volatile RailNetwork network = RailNetwork.EMPTY;
-    /** {@link #network}から組んだ層1の乗車。線路網と同じ写しから組むので、必ず組で入れ替える。 */
+    /** 線路網と層1の乗車は同じ写しとして公開する。 */
     private volatile CoarseRides coarseRides = CoarseRides.EMPTY;
     private long networkChanges = -1;
     private long networkVersion;
@@ -111,6 +110,7 @@ public final class RailMemory {
             return;
         }
         tick++;
+        currentLevel = level;
         String key = worldKey(mc) + "/" + GameCompat.dimensionId(level.dimension());
         if (!key.equals(currentKey)) {
             currentKey = key;
@@ -177,6 +177,7 @@ public final class RailMemory {
     /** 抜けるときに書き出して手放す。次に入ったワールドで同じ記録を使い回さないため。 */
     public void onLoggingOut() {
         currentKey = null;
+        currentLevel = null;
         seen.clear();
         worker.execute(() -> switchTo(null, "not in a world"));
     }
@@ -190,21 +191,20 @@ public final class RailMemory {
      * 切り替え終えるまで前の次元の写しが残っているので、見分けが合わなければ空を返す。
      */
     public RailNetwork network() {
-        RailNetwork current = network;
-        return current.key().equals(currentKey) ? current : RailNetwork.EMPTY;
+        return coarseRides().network();
     }
 
     /** {@link #network}と同じく、いまのワールド・次元の層1の乗車。<b>メインスレッドから呼ぶこと。</b> */
     public CoarseRides coarseRides() {
         CoarseRides current = coarseRides;
-        return current.network().key().equals(currentKey) ? current : CoarseRides.EMPTY;
+        return currentLevel == Minecraft.getInstance().level && current.network().key().equals(currentKey)
+                ? current : CoarseRides.EMPTY;
     }
 
     private void switchTo(@Nullable Path dir, String key) {
         flush();
         store = null;
         storeKey = key;
-        network = RailNetwork.EMPTY;
         coarseRides = CoarseRides.EMPTY;
         networkChanges = -1;
         if (dir == null) {
@@ -249,10 +249,7 @@ public final class RailMemory {
         lastPublishMillis = System.currentTimeMillis();
         networkChanges = current.changes();
         RailNetwork built = new RailNetwork(storeKey, ++networkVersion, current.chunks());
-        // 乗車の辺を先に組んでから2つを出す。片方だけ新しい間に読まれると、地図の線とガイドが違う線路を見る
-        CoarseRides rides = CoarseRides.of(built);
-        network = built;
-        coarseRides = rides;
+        coarseRides = CoarseRides.of(built);
     }
 
     private void flush() {
