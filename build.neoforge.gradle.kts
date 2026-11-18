@@ -78,6 +78,8 @@ neoForge {
             providers.gradleProperty("xaeronav.escalatorCheck").orNull?.let { systemProperty("xaeronav.escalatorCheck", it) }
             // `-Pxaeronav.mtrDirectionsCheck=<名前> -Pwith_mtr=true`でMTRに試験の路線を登録し、乗り換え案内を引けるか測る（devmodのMtrDirectionsCheck）
             providers.gradleProperty("xaeronav.mtrDirectionsCheck").orNull?.let { systemProperty("xaeronav.mtrDirectionsCheck", it) }
+            // `-Pxaeronav.crnDirectionsCheck=<名前> -Pwith_create=true`でCreateの試験路線を組み、CRNの経路検索を引けるか測る（devmodのCrnDirectionsCheck）
+            providers.gradleProperty("xaeronav.crnDirectionsCheck").orNull?.let { systemProperty("xaeronav.crnDirectionsCheck", it) }
             // `-Pxaeronav.configShot=<名前>`で設定画面を開いてスクリーンショットを撮る（devmodのConfigShot）
             providers.gradleProperty("xaeronav.configShot").orNull?.let { systemProperty("xaeronav.configShot", it) }
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
@@ -144,6 +146,32 @@ dependencies {
     devSourceSet?.let { add(it.compileOnlyConfigurationName, mtr) }
     if (minecraftVersion == "1.21.1" && (findProperty("with_mtr") as String?).toBoolean()) {
         xaeroRuntimeMods(mtr)
+    }
+    // `-Pwith_create=true`でCreate＋CRN（Create Railways Navigator）を開発実行へ載せる。devmodのCrnDirectionsCheckだけが
+    // Createのクラス（線路・駅・列車の組み立て）を直接呼ぶ。CRNへの問い合わせはリフレクションで行う
+    val createMods = listOf(
+        "maven.modrinth:create:6.0.10+mc1.21.1",
+        "maven.modrinth:create-railways-navigator:1.21.1-beta-0.10.0-C6",
+        // 版番号はFabric版と同じ文字列なので、NeoForge版をバージョンIDで指す
+        "maven.modrinth:dragonlib:x376YU9w",
+    )
+    devSourceSet?.let { dev ->
+        add(dev.compileOnlyConfigurationName, createMods[0])
+        // Createの型の親（Registrate・Ponder・Catnip）はCreateのjarの中（jar-in-jar）にしか無く、コンパイルには取り出して渡す
+        val createJar = configurations.detachedConfiguration(dependencies.create(createMods[0])).apply { isTransitive = false }
+        val extractCreateLibs = tasks.register<Copy>("extractCreateLibs") {
+            from({ zipTree(createJar.singleFile) }) {
+                include("META-INF/jarjar/*.jar")
+                eachFile { path = name }
+            }
+            into(layout.buildDirectory.dir("create-libs"))
+            includeEmptyDirs = false
+        }
+        add(dev.compileOnlyConfigurationName,
+            fileTree(layout.buildDirectory.dir("create-libs")) { include("*.jar") }.builtBy(extractCreateLibs))
+    }
+    if (minecraftVersion == "1.21.1" && (findProperty("with_create") as String?).toBoolean()) {
+        createMods.forEach { xaeroRuntimeMods(it) }
     }
 }
 

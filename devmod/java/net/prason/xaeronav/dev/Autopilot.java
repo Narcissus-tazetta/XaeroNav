@@ -65,6 +65,10 @@ public final class Autopilot {
             // MTRのクラスを参照するので、MTRを載せた実行でだけ読み込む
             MtrDirectionsCheck.armIfRequested();
         }
+        if (System.getProperty("xaeronav.crnDirectionsCheck") != null) {
+            // Createのクラスを参照するので、Createを載せた実行でだけ読み込む
+            CrnDirectionsCheck.armIfRequested();
+        }
         String spec = System.getProperty("xaeronav.autopilot");
         if (spec == null) {
             this.dx = 0;
