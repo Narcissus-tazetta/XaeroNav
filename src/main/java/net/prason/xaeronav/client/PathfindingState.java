@@ -254,6 +254,11 @@ public final class PathfindingState {
     private @Nullable DimensionType goalDimensionType;
     // 地上⇄ネザーで目的地を換算して持ち越している間だけ非null。元の次元へ戻ったら正確な座標へ戻す。クライアントスレッド専用
     private @Nullable DimensionHop hop;
+    /**
+     * 電車に乗るために今の区間の終点をホームへ差し替えている間の、元の終点（指定されたままの座標）。
+     * 差し替えている間は、着いても次の区間へ進まない（{@link TransitGuide}が続きを決める）。
+     */
+    private @Nullable BlockPos detourOrigin;
     // 目的地の列が未読み込みのまま設定されたときの、指定そのままの座標。読み込まれたら立てる高さへ寄せ直す
     // （resolveGoalStandable）。寄せ終えたらnull
     private volatile @Nullable BlockPos unresolvedGoal;
@@ -597,11 +602,13 @@ public final class PathfindingState {
         }
         stops.clear();
         hop = null;
+        detourOrigin = null;
         return beginLeg(goal);
     }
 
     /** 経由地を最終目的地は変えずに、寄り道が一番短くなる位置へ差し込む。目的地が無ければ目的地にする。 */
     public StopResult addStop(BlockPos pos) {
+        dropDetour();
         BlockPos current = goal;
         Player player = Minecraft.getInstance().player;
         if (current == null || player == null) {
@@ -626,6 +633,7 @@ public final class PathfindingState {
 
     /** 今の最終目的地の先へ足す（今の最終目的地は経由地になる）。目的地が無ければ目的地にする。 */
     public StopResult appendStop(BlockPos pos) {
+        dropDetour();
         Player player = Minecraft.getInstance().player;
         if (goal == null || player == null) {
             return setGoal(pos) != null ? StopResult.STARTED : StopResult.NO_WORLD;
@@ -648,6 +656,7 @@ public final class PathfindingState {
 
     /** 経由地を外す。{@code marker}は経由地の印（{@link #stopsInOrder}の要素）。外したなら{@code true}。 */
     public boolean removeStop(BlockPos marker) {
+        dropDetour();
         List<BlockPos> ordered = stopsInOrder();
         int index = indexOfMarker(ordered, marker);
         if (index < 0) {
@@ -684,7 +693,7 @@ public final class PathfindingState {
             return List.of();
         }
         List<BlockPos> ordered = new ArrayList<>(stops.remainingStops());
-        ordered.add(current);
+        ordered.add(detourOrigin != null ? detourOrigin : current);
         List<BlockPos> ahead = stops.ahead();
         ordered.addAll(ahead.subList(0, ahead.size() - 1));
         return ordered;
@@ -692,7 +701,10 @@ public final class PathfindingState {
 
     /** 最終目的地。経由地が無ければ今の目的地。 */
     public @Nullable BlockPos finalGoal() {
-        return stops.isEmpty() ? goal : stops.ahead().get(stops.ahead().size() - 1);
+        if (stops.isEmpty()) {
+            return detourOrigin != null ? detourOrigin : goal;
+        }
+        return stops.ahead().get(stops.ahead().size() - 1);
     }
 
     /** 経由地へ向かっている間の、何番目の経由地か（1始まり）と経由地の総数。経由地へ向かっていなければ{@code null}。 */
@@ -738,11 +750,12 @@ public final class PathfindingState {
         if (currentGoal == null) {
             return List.of();
         }
-        if (stops.isEmpty()) {
-            return List.of(currentGoal);
-        }
-        List<BlockPos> points = new ArrayList<>(stops.remainingStops() + 1);
+        List<BlockPos> points = new ArrayList<>(stops.remainingStops() + 2);
         points.add(currentGoal);
+        // ホームへ向かっている間も、元の行き先の印は地図に残す
+        if (detourOrigin != null) {
+            points.add(detourOrigin);
+        }
         points.addAll(stops.ahead());
         return points;
     }
@@ -886,10 +899,59 @@ public final class PathfindingState {
                 && CellData.occupiableWithoutDigging(CellData.flagsOf(level.getBlockState(new BlockPos(x, y + 1, z))));
     }
 
+    /**
+     * 今の区間の終点を{@code spot}（電車に乗るホーム）へ差し替える。元の終点と経由地は残し、{@link #endDetour}で戻す。
+     * 差し替えたまま別のホームへ差し替え直してもよい。目的地が無いときは呼ばないこと。
+     */
+    void detour(BlockPos spot) {
+        if (detourOrigin == null) {
+            detourOrigin = legRequested;
+        }
+        beginLeg(spot);
+    }
+
+    /** {@link #detour}で差し替えた終点を元へ戻し、今いる所から引き直す。 */
+    void endDetour() {
+        BlockPos origin = detourOrigin;
+        detourOrigin = null;
+        beginLeg(origin);
+    }
+
+    boolean inDetour() {
+        return detourOrigin != null;
+    }
+
+    /** 経由地の操作など、区間の並びを変える操作の前に差し替えを解く。 */
+    private void dropDetour() {
+        if (detourOrigin != null) {
+            endDetour();
+        }
+    }
+
+    /** {@link #detour}で差し替える前の終点（指定されたままの座標）。差し替えていなければ今の区間の終点。 */
+    @Nullable BlockPos legDestination() {
+        return detourOrigin != null ? detourOrigin : legRequested;
+    }
+
+    /** MTRの電車に乗った。走っている探索と出ている線を捨てる（{@link TransitGuide#holdsRoute}の間は引き直さない）。 */
+    void suspendForRide() {
+        generation.incrementAndGet();
+        executor.cancelAll();
+        computing = false;
+        displayed = null;
+        publishNavigationView();
+    }
+
+    /** 電車を降りた。今の区間を今いる所から引き直す。 */
+    void resumeAfterRide() {
+        beginLeg(legRequested);
+    }
+
     /** 案内を終える。経由地も消す。 */
     public void clear() {
         stops.clear();
         hop = null;
+        detourOrigin = null;
         legPreview.clear();
         resetLeg();
     }
@@ -1158,6 +1220,10 @@ public final class PathfindingState {
                 }
                 return;
             }
+            if (TransitGuide.INSTANCE.holdsRoute()) {
+                // 電車が運んでいる間は歩きの経路に意味がない。引くと、動くたびに「経路から外れた」と引き直し続ける
+                return;
+            }
             if (resolveGoalOnceLoaded(mc.level)) {
                 return;
             }
@@ -1242,7 +1308,7 @@ public final class PathfindingState {
         // 地図を開いている間も回す。経由地を足すのはたいてい地図の上なので、閉じる前に先の区間を出したい
         DisplayedPath leg = displayed;
         legPreview.tick(mc.level, mc.player, goal, legRequested,
-                leg != null && !leg.result().steps().isEmpty(), stops.ahead(),
+                leg != null && !leg.result().steps().isEmpty(), detourOrigin != null ? List.of() : stops.ahead(),
                 leg != null && leg.mode() == PathMode.GOAL && leg.result().complete(), flying);
         StuckReason notice = stuckTracker.takePendingNotice();
         if (notice != null) {
@@ -1259,7 +1325,8 @@ public final class PathfindingState {
         }
         arrivedTicks++;
         // 換算した目的地は通過点にすぎない。消すとポータルをくぐった先で元の目的地へ戻せない
-        if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS && hop == null) {
+        // ホームに着いただけなら、電車を降りた先で元の目的地へ戻す
+        if (arrivedTicks >= ARRIVAL_DISPLAY_TICKS && hop == null && detourOrigin == null) {
             clear();
         }
         return true;
@@ -1690,7 +1757,7 @@ public final class PathfindingState {
      * <p>先の地点は区間の終点になる前で、高さを寄せていない（地図の高さは木の上のことがある）。それで上下は広めに見る。
      */
     private boolean nextLegAfterStop(Player player) {
-        if (stops.isEmpty()) {
+        if (stops.isEmpty() || detourOrigin != null) {
             return false;
         }
         if (arrived) {
@@ -1723,10 +1790,11 @@ public final class PathfindingState {
         ResourceKey<Level> from = goalDimension;
         DimensionType fromType = goalDimensionType;
         ResourceKey<Level> to = level.dimension();
-        BlockPos requested = legRequested;
+        BlockPos requested = detourOrigin != null ? detourOrigin : legRequested;
         if (from == null || fromType == null || requested == null || !overworldNetherPair(from, to)) {
             return false;
         }
+        detourOrigin = null;
         int minY = GameCompat.minBuildHeight(level) + 1;
         // 論理高さで切らないと、ネザーの天井の岩盤の上が立てる所として選ばれる
         int maxY = GameCompat.minBuildHeight(level) + level.dimensionType().logicalHeight() - 2;

@@ -34,6 +34,8 @@ public final class ClientTickHandler {
         long startMillis = MonotonicTime.millis();
         TickLaps.begin();
         TickLaps.measure("key input", () -> XaeroNavKeys.handleInput());
+        // 経路の状態より先に。乗車中かどうかで、経路の状態がこのtickに引き直すかが決まる
+        TickLaps.measure("transit", () -> TransitGuide.INSTANCE.onClientTick());
         TickLaps.measure("route state", () -> PathfindingState.INSTANCE.onClientTick());
         TickLaps.measure("pace sampling", () -> NavPace.INSTANCE.onClientTick());
         TickLaps.measure("Xaero hook check", () -> XaeroHookHealth.onClientTick());
@@ -64,6 +66,7 @@ public final class ClientTickHandler {
      */
     public void onLoggingOut() {
         PathfindingState.INSTANCE.clear();
+        TransitGuide.INSTANCE.onLoggingOut();
         RailMemory.INSTANCE.onLoggingOut();
     }
 

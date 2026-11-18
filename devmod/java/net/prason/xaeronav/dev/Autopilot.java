@@ -61,6 +61,10 @@ public final class Autopilot {
             // Dioramaのクラスを参照するので、Dioramaを載せた実行でだけ読み込む
             DioramaCheck.armIfRequested();
         }
+        if (System.getProperty("xaeronav.mtrDirectionsCheck") != null) {
+            // MTRのクラスを参照するので、MTRを載せた実行でだけ読み込む
+            MtrDirectionsCheck.armIfRequested();
+        }
         String spec = System.getProperty("xaeronav.autopilot");
         if (spec == null) {
             this.dx = 0;

@@ -63,6 +63,8 @@ public final class XaeroNavCommands {
                                                 IntegerArgumentType.integer(1, RouteStops.MAX_STOPS))
                                         .executes(ctx -> removeStop(sink.apply(ctx),
                                                 IntegerArgumentType.getInteger(ctx, "number"))))))
+                .then(XaeroNavCommands.<S>literal("transit")
+                        .executes(ctx -> TransitGuide.INSTANCE.accept() ? 1 : 0))
                 .then(XaeroNavCommands.<S>literal("clear")
                         .executes(ctx -> {
                             PathfindingState.INSTANCE.clear();
