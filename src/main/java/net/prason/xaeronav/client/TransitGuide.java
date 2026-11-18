@@ -1,6 +1,10 @@
 package net.prason.xaeronav.client;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -12,16 +16,16 @@ import net.minecraft.world.level.Level;
 import net.prason.xaeronav.XaeroNav;
 import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.transit.Itinerary;
-import net.prason.xaeronav.transit.MtrLink;
-import net.prason.xaeronav.transit.TransitService;
+import net.prason.xaeronav.transit.TransitOutcome;
 import net.prason.xaeronav.util.GameCompat;
 import net.prason.xaeronav.util.MonotonicTime;
 import org.jspecify.annotations.Nullable;
 
 /**
- * MTRの電車を使う案内。歩きの経路（{@link PathfindingState}）の上に乗る層で、経路探索そのものには手を入れない。
+ * 電車を使う案内。歩きの経路（{@link PathfindingState}）の上に乗る層で、経路探索そのものには手を入れない。
+ * 案内そのものは電車のMOD（{@link TransitProvider}）から引く。複数入っていれば全部に聞き、一番早く着く答えを使う。
  *
- * <p>流れ: 区間の終点が決まるとMTRに乗り換え案内を問い合わせ、歩くより速ければ提案する。承認されたら区間の終点を
+ * <p>流れ: 区間の終点が決まると乗り換え案内を問い合わせ、歩くより速ければ提案する。承認されたら区間の終点を
  * 乗るホームへ差し替える（{@link PathfindingState#detour}）。乗っている間は歩きの経路を止め、降りたら今いる所から
  * 問い合わせ直す——乗り換え・乗り過ごし・違う電車に乗った場合も、同じ問い合わせ直しで拾う。
  *
@@ -57,7 +61,7 @@ public final class TransitGuide {
         OFFER, ACCEPT, CONTINUE, REFRESH
     }
 
-    private record Answer(int sequence, TransitService.Outcome outcome) {
+    private record Answer(int sequence, TransitProvider from, TransitOutcome outcome) {
     }
 
     /** HUDの行の受け口。{@code primary}は次の行動を表す行。 */
@@ -65,8 +69,11 @@ public final class TransitGuide {
         void add(Component line, boolean primary);
     }
 
-    private final TransitService service = new TransitService();
+    private final List<TransitProvider> providers = List.of(new MtrTransit(), new CrnTransit());
     private final Queue<Answer> answers = new ConcurrentLinkedQueue<>();
+    /** 今の問い合わせ（{@link #sequence}）で返事を待っている数と、届いた返事。 */
+    private int awaiting;
+    private final List<Answer> received = new ArrayList<>();
     private final GoalEta eta = new GoalEta();
 
     private Phase phase = Phase.IDLE;
@@ -84,8 +91,12 @@ public final class TransitGuide {
     private @Nullable BlockPos spot;
     private boolean spotResolved;
     private long lastRefreshMillis;
-    /** この接続の間、MTRから返事を読めなかった。直るまで待たせ続けないよう、入り直すまで問い合わせない。 */
-    private boolean unavailable;
+    /** このクライアントで使える案内の元。ワールドに入ってから初めてのtickで決める。 */
+    private @Nullable List<TransitProvider> available;
+    /** 今の提案・案内を出した案内の元（乗る場所の探し方が違う）。乗っている間は、乗っている乗り物の元。 */
+    private @Nullable TransitProvider provider;
+    /** この接続の間に返事を読めなかった案内の元。直るまで待たせ続けないよう、入り直すまで問い合わせない。 */
+    private final Set<TransitProvider> unavailable = new HashSet<>();
 
     private TransitGuide() {
     }
@@ -98,16 +109,31 @@ public final class TransitGuide {
     public void onLoggingOut() {
         toIdle();
         askedFor = null;
-        unavailable = false;
+        unavailable.clear();
+        available = null;
+        provider = null;
     }
 
     public void onClientTick() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null || !MtrLink.present()) {
+        if (mc.level == null || mc.player == null) {
+            return;
+        }
+        if (available == null) {
+            List<TransitProvider> present = new ArrayList<>();
+            for (TransitProvider candidate : providers) {
+                if (candidate.present()) {
+                    present.add(candidate);
+                }
+            }
+            available = List.copyOf(present);
+        }
+        if (available.isEmpty()) {
             return;
         }
         PathfindingState state = PathfindingState.INSTANCE;
-        boolean riding = MtrLink.riding();
+        TransitProvider vehicle = ridingOn(mc.player);
+        boolean riding = vehicle != null;
         offTicks = riding ? 0 : offTicks + 1;
         if (state.goal() == null) {
             toIdle();
@@ -116,13 +142,16 @@ public final class TransitGuide {
         }
         for (Answer answer = answers.poll(); answer != null; answer = answers.poll()) {
             if (answer.sequence() == sequence && pending != null) {
-                Purpose purpose = pending;
-                pending = null;
-                handle(mc, state, purpose, answer.outcome());
+                received.add(answer);
+                if (received.size() == awaiting) {
+                    Purpose purpose = pending;
+                    pending = null;
+                    handle(mc, state, purpose, best(mc.player, purpose));
+                }
             }
         }
         if (riding && phase != Phase.RIDING) {
-            board(state);
+            board(state, vehicle);
             return;
         }
         BlockPos leg = state.legDestination();
@@ -141,7 +170,7 @@ public final class TransitGuide {
                 }
             }
             case AFTER_RIDE -> {
-                // 返事待ち。返事が来なければTransitServiceの時間切れが失敗として返る
+                // 返事待ち。返事が来なければ案内の元の時間切れが失敗として返る
             }
         }
     }
@@ -172,9 +201,9 @@ public final class TransitGuide {
             return;
         }
         BlockPos railMiddle = active.first().board();
-        if (!spotResolved && BoardingSpot.loaded(level, railMiddle)) {
+        if (!spotResolved && provider.spotLoaded(level, railMiddle)) {
             spotResolved = true;
-            BlockPos found = BoardingSpot.find(level, railMiddle);
+            BlockPos found = provider.boardingSpot(level, railMiddle);
             if (!found.equals(spot)) {
                 spot = found;
                 state.detour(found);
@@ -205,18 +234,28 @@ public final class TransitGuide {
         }
     }
 
-    private void board(PathfindingState state) {
+    private @Nullable TransitProvider ridingOn(Player player) {
+        for (TransitProvider candidate : available) {
+            if (candidate.riding(player)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private void board(PathfindingState state, TransitProvider vehicle) {
         // 乗る前に投げた問い合わせの答えは、乗った後では使えない
         sequence++;
         pending = null;
         offer = null;
         phase = Phase.RIDING;
+        provider = vehicle;
         state.suspendForRide();
-        XaeroNav.LOGGER.info("XaeroNav: boarded an MTR vehicle, holding the walking route");
+        XaeroNav.LOGGER.info("XaeroNav: boarded an {} vehicle, holding the walking route", provider.name());
     }
 
     private void alight(Minecraft mc, PathfindingState state) {
-        XaeroNav.LOGGER.info("XaeroNav: got off the MTR vehicle");
+        XaeroNav.LOGGER.info("XaeroNav: got off the {} vehicle", provider.name());
         if (state.inDetour() && XaeroNavConfig.INSTANCE.transitSuggestionsEnabled()
                 && ask(mc, Purpose.CONTINUE, state.legDestination())) {
             phase = Phase.AFTER_RIDE;
@@ -233,36 +272,66 @@ public final class TransitGuide {
         }
     }
 
-    /** 問い合わせを投げたなら{@code true}。MTRの地図サーバーが使えなければ、一度だけ知らせて{@code false}。 */
+    /**
+     * 使える案内の元すべてへ問い合わせを投げたなら{@code true}。どれも使えなければ（使えないものは一度だけ知らせて）
+     * {@code false}。
+     */
     private boolean ask(Minecraft mc, Purpose purpose, BlockPos to) {
-        if (unavailable) {
+        int asked = sequence + 1;
+        int sent = 0;
+        for (TransitProvider candidate : available) {
+            if (unavailable.contains(candidate)) {
+                continue;
+            }
+            XaeroNav.LOGGER.debug("XaeroNav: asking {} directions ({}) from {} to {}", candidate.name(), purpose,
+                    mc.player.blockPosition(), to);
+            String refused = candidate.ask(mc, mc.player.blockPosition(), to,
+                    outcome -> answers.add(new Answer(asked, candidate, outcome)));
+            if (refused != null) {
+                noteUnavailable(mc.player, candidate, refused);
+            } else {
+                sent++;
+            }
+        }
+        if (sent == 0) {
             return false;
         }
-        int port = MtrLink.port();
-        if (port <= 0) {
-            noteUnavailable(mc.player, "MTR's map web server is not running");
-            return false;
-        }
-        int asked = ++sequence;
+        sequence = asked;
         pending = purpose;
-        String worldId = GameCompat.dimensionId(mc.level.dimension()).replace(':', '/');
-        XaeroNav.LOGGER.debug("XaeroNav: asking MTR directions ({}) from {} to {}", purpose,
-                mc.player.blockPosition(), to);
-        // シングル（LANで開いている側を含む）はシミュレーターの地図サーバーそのもの、それ以外はサーバーへの中継
-        boolean relayed = mc.getSingleplayerServer() == null;
-        service.ask(port, relayed, worldId, mc.player.blockPosition(), to,
-                outcome -> answers.add(new Answer(asked, outcome)));
+        awaiting = sent;
+        received.clear();
         return true;
     }
 
-    private void handle(Minecraft mc, PathfindingState state, Purpose purpose, TransitService.Outcome outcome) {
-        if (outcome.failure() != null) {
-            noteUnavailable(mc.player, outcome.failure());
+    /**
+     * 届いた返事のうち一番早く着く答え。その答えを出した案内の元を{@link #provider}にする。電車の答えが1つも無く、
+     * どれかが返事を読めなかったなら、失敗として返す（全部が「電車なし」なら失敗ではない）。
+     */
+    private TransitOutcome best(Player player, Purpose purpose) {
+        Answer best = null;
+        String failure = null;
+        for (Answer answer : received) {
+            TransitOutcome outcome = answer.outcome();
+            if (outcome.failure() != null) {
+                noteUnavailable(player, answer.from(), outcome.failure());
+                failure = outcome.failure();
+            } else if (outcome.itinerary() == null) {
+                XaeroNav.LOGGER.info("XaeroNav: {} directions ({}) have no train ride, walking only",
+                        answer.from().name(), purpose);
+            } else if (best == null || outcome.itinerary().totalMillis() < best.outcome().itinerary().totalMillis()) {
+                best = answer;
+            }
         }
+        received.clear();
+        if (best == null) {
+            return new TransitOutcome(null, failure);
+        }
+        provider = best.from();
+        return best.outcome();
+    }
+
+    private void handle(Minecraft mc, PathfindingState state, Purpose purpose, TransitOutcome outcome) {
         Itinerary itinerary = outcome.itinerary();
-        if (itinerary == null && outcome.failure() == null) {
-            XaeroNav.LOGGER.info("XaeroNav: MTR directions ({}) have no train ride, walking only", purpose);
-        }
         switch (purpose) {
             case OFFER -> {
                 phase = Phase.IDLE;
@@ -315,8 +384,8 @@ public final class TransitGuide {
                 state.navigationView().coarseRouteWaypoints());
         int walkSeconds = NavGuidance.estimateSeconds(walkTicks);
         long trainSeconds = itinerary.totalMillis() / 1000L;
-        XaeroNav.LOGGER.info("XaeroNav: MTR directions take {} s with {} ride(s), walking is estimated at {} s",
-                trainSeconds, itinerary.rides().size(), walkSeconds);
+        XaeroNav.LOGGER.info("XaeroNav: {} directions take {} s with {} ride(s), walking is estimated at {} s",
+                provider.name(), trainSeconds, itinerary.rides().size(), walkSeconds);
         return trainSeconds < walkSeconds * FASTER_RATIO;
     }
 
@@ -353,14 +422,14 @@ public final class TransitGuide {
         activeMillis = MonotonicTime.millis();
         offer = null;
         BlockPos railMiddle = itinerary.first().board();
-        spotResolved = BoardingSpot.loaded(mc.level, railMiddle);
-        // 読み込み前は線路の中点へ向かい、読み込まれたらホームの床へ寄せ直す
-        spot = spotResolved ? BoardingSpot.find(mc.level, railMiddle) : railMiddle;
+        spotResolved = provider.spotLoaded(mc.level, railMiddle);
+        // 読み込み前は案内が教える位置へ向かい、読み込まれたら床へ寄せ直す
+        spot = spotResolved ? provider.boardingSpot(mc.level, railMiddle) : railMiddle;
         phase = Phase.TO_PLATFORM;
         state.detour(spot);
         Itinerary.Ride ride = itinerary.first();
         GameCompat.tell(mc.player, TextCompat.translatable("commands.xaeronav.transit_started", ride.routeName(),
-                ride.fromStation(), ride.fromPlatform(), ride.toStation()), false);
+                boardingAt(ride), ride.toStation()), false);
     }
 
     private void toIdle() {
@@ -373,10 +442,11 @@ public final class TransitGuide {
         settleTicks = 0;
     }
 
-    private void noteUnavailable(Player player, String reason) {
-        XaeroNav.LOGGER.warn("XaeroNav: MTR train directions are unavailable for this session: {}", reason);
-        unavailable = true;
-        GameCompat.tell(player, TextCompat.translatable("commands.xaeronav.transit_unavailable"), false);
+    private void noteUnavailable(Player player, TransitProvider from, String reason) {
+        XaeroNav.LOGGER.warn("XaeroNav: {} train directions are unavailable for this session: {}", from.name(), reason);
+        if (unavailable.add(from)) {
+            GameCompat.tell(player, TextCompat.translatable(from.unavailableMessageKey()), false);
+        }
     }
 
     private static Component offerMessage(Itinerary itinerary) {
@@ -384,10 +454,10 @@ public final class TransitGuide {
         Itinerary.Ride last = itinerary.rides().get(itinerary.rides().size() - 1);
         Component time = NavHud.time((int) (itinerary.totalMillis() / 1000L));
         Component text = itinerary.rides().size() == 1
-                ? TextCompat.translatable("commands.xaeronav.transit_offer", first.routeName(), first.fromStation(),
-                        first.fromPlatform(), last.toStation(), time)
+                ? TextCompat.translatable("commands.xaeronav.transit_offer", first.routeName(), boardingAt(first),
+                        last.toStation(), time)
                 : TextCompat.translatable("commands.xaeronav.transit_offer_transfers", first.routeName(),
-                        first.fromStation(), first.fromPlatform(), last.toStation(), time, itinerary.rides().size() - 1);
+                        boardingAt(first), last.toStation(), time, itinerary.rides().size() - 1);
         Component button = TextCompat.translatable("commands.xaeronav.transit_offer_accept").setStyle(Style.EMPTY
                 .withClickEvent(ChatCoordinateLinks.runCommand(ACCEPT_COMMAND))
                 .withHoverEvent(ChatCoordinateLinks.showText(TextCompat.translatable("gui.xaeronav.transit_link.hover")))
@@ -412,8 +482,8 @@ public final class TransitGuide {
             }
             case TO_PLATFORM -> {
                 Itinerary.Ride ride = active.first();
-                out.add(TextCompat.translatable("hud.xaeronav.transit_to_platform", ride.fromStation(),
-                        ride.fromPlatform(), ride.routeName()), false);
+                out.add(TextCompat.translatable("hud.xaeronav.transit_to_platform", boardingAt(ride), ride.routeName()),
+                        false);
                 addDeparture(out, ride, now);
                 return false;
             }
@@ -447,6 +517,12 @@ public final class TransitGuide {
                 return false;
             }
         }
+    }
+
+    /** 乗る駅とホーム。ホームの名前が無い駅（CRNでホームを設定していない駅など）は駅名だけ。 */
+    private static Component boardingAt(Itinerary.Ride ride) {
+        return ride.fromPlatform().isEmpty() ? TextCompat.literal(ride.fromStation())
+                : TextCompat.translatable("hud.xaeronav.transit_station_platform", ride.fromStation(), ride.fromPlatform());
     }
 
     private void addDeparture(HudSink out, Itinerary.Ride ride, long now) {

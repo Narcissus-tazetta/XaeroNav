@@ -933,7 +933,7 @@ public final class PathfindingState {
         return detourOrigin != null ? detourOrigin : legRequested;
     }
 
-    /** MTRの電車に乗った。走っている探索と出ている線を捨てる（{@link TransitGuide#holdsRoute}の間は引き直さない）。 */
+    /** 電車に乗った。走っている探索と出ている線を捨てる（{@link TransitGuide#holdsRoute}の間は引き直さない）。 */
     void suspendForRide() {
         generation.incrementAndGet();
         executor.cancelAll();
