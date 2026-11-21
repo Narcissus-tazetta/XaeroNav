@@ -113,6 +113,9 @@ jobs:
     permissions:
       contents: read
     strategy:
+      # Forgeノードは並列でJDK 8を取りに行き、どれかが一時的に落ちる。既定のfail-fastだと残りが
+      # 巻き添えで中断され、再実行しても1ノードずつしか進まない
+      fail-fast: false
       matrix:
         node: ${{ fromJson(needs.discover.outputs.nodes) }}
     name: build (${{ matrix.node.node }})
