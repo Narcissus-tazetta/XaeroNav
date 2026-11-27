@@ -55,6 +55,7 @@ public final class XaeroNavConfig {
     private final NavConfigSpec.BoolValue blockBudgetEnabled;
     private final NavConfigSpec.IntValue blockBudgetReserve;
     private final NavConfigSpec.IntValue mountLeaveBehindTicks;
+    private final NavConfigSpec.IntValue vehicleWidthBlocks;
     private final NavConfigSpec.BoolValue lavaBridgingEnabled;
     private final NavConfigSpec.BoolValue deepLookAheadEnabled;
     private final NavConfigSpec.BoolValue costToGoGuideEnabled;
@@ -125,10 +126,17 @@ public final class XaeroNavConfig {
                 .defineInRange("blockBudgetReserve", 0, 0, 512);
 
         mountLeaveBehindTicks = spec
-                .comment("馬・ラクダに乗っているとき、降りて乗り物を置いていく経路に足す割増（tick、20で1秒）",
+                .comment("馬・ラクダ・車（Create Aeronautics）に乗っているとき、降りて乗り物を置いていく経路に足す割増（tick、20で1秒）",
                         "この時間ぶんの遠回りまでは乗ったまま行く。0なら少しでも早ければ降りる",
                         "乗ったままでは通れない場所（1マス幅の通路・水など）の手前で降りる案内が出る")
                 .defineInRange("mountLeaveBehindTicks", 200, 0, 6000);
+
+        vehicleWidthBlocks = spec
+                .comment("Create Aeronauticsの車の幅（ブロック）。この幅×幅の足場が通れる道を、乗ったまま行く経路にする",
+                        "0なら車輪（Offroadの車輪台）の付き方から自動で測る",
+                        "自動で測った幅が7を超える車は歩きの経路になる（HUDで知らせる）。ここで幅を決めればその幅で引く",
+                        "車輪の無い構造物（飛行機・船）には使わない")
+                .defineInRange("vehicleWidthBlocks", 0, 0, 7);
 
         jumpGapEnabled = spec
                 .comment("隙間を飛び越える移動を経路に含めることを許可するか（最大3マスの隙間まで）",
@@ -411,6 +419,14 @@ public final class XaeroNavConfig {
 
     public boolean jumpGapEnabled() {
         return jumpGapEnabled.get();
+    }
+
+    public int vehicleWidthBlocks() {
+        return vehicleWidthBlocks.get();
+    }
+
+    public void setVehicleWidthBlocks(int value) {
+        vehicleWidthBlocks.set(value);
     }
 
     public void setJumpGapEnabled(boolean value) {

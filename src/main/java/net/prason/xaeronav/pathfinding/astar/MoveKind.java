@@ -55,6 +55,8 @@ enum MoveKind {
     MOUNT_FALL(MovementType.MOUNT),
     /** オウムガイに乗ったまま水中を進む（{@link NautilusMoves}）。 */
     MOUNT_SWIM(MovementType.MOUNT_SWIM),
+    /** 車で走る・1段上がる・1段下りる（{@link VehicleMoves}）。 */
+    DRIVE(MovementType.DRIVE),
     /** 乗り物を降りる。乗っている足場から、そこで立てる・泳げるセルへ。 */
     DISMOUNT(MovementType.DISMOUNT);
 

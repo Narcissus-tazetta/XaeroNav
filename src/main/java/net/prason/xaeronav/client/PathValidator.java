@@ -234,6 +234,20 @@ final class PathValidator {
         return false;
     }
 
+    private static boolean driveFooting(Level level, PathStep step, BlockPos.MutableBlockPos cursor) {
+        int y = step.pos().getY();
+        for (BlockPos cell : step.bodyCells()) {
+            if (cell.getY() != y) {
+                continue;
+            }
+            cursor.set(cell.getX(), y - 1, cell.getZ());
+            if (!readable(level, cursor) || CellData.standable(CellData.flagsOf(level.getBlockState(cursor)))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static CellFailure cellFailure(Level level, PathStep step, int i, BlockPos.MutableBlockPos cursor,
                                            Set<BlockPos> plannedDigs, Predicate<BlockPos> pendingPlacement) {
         BlockPos pos = step.pos();
@@ -265,6 +279,14 @@ final class PathValidator {
             if (!mountFooting(level, pos, cursor)) {
                 BlockPos footing = pos.below();
                 return new CellFailure(footing, "step %d (%s): no footing under the mount pos=%s"
+                        .formatted(i, step.movement(), pos.toShortString()));
+            }
+        } else if (step.movement() == MovementType.DRIVE) {
+            // 車の足場は幅×幅で、真ん中の列に床が無くても立てる。足場の列（体の通るセルの一番下の段）のどこかに床があればよい。
+            // 象限ごとの支えまでは見直さない——崩れて立てなくなったら、車が傾いて逸脱で引き直しになる
+            if (!driveFooting(level, step, cursor)) {
+                BlockPos footing = pos.below();
+                return new CellFailure(footing, "step %d (%s): no footing under the vehicle pos=%s"
                         .formatted(i, step.movement(), pos.toShortString()));
             }
         } else if (!step.bridging()) {

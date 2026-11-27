@@ -37,6 +37,7 @@ import net.prason.xaeronav.pathfinding.flight.FlightTuning;
 import net.prason.xaeronav.pathfinding.flight.TurnBack;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.MountState;
+import net.prason.xaeronav.sable.SableVehicles;
 import net.prason.xaeronav.pathfinding.world.MovementOptions;
 import net.prason.xaeronav.pathfinding.world.SearchBounds;
 import net.prason.xaeronav.util.GameCompat;
@@ -909,6 +910,11 @@ final class FlightNavState {
      * ここの真偽で経路の高度の取り方がはっきり変わる。
      */
     static FlightModel flightModel(Player player) {
+        // Create Aeronauticsの飛行機は推進器で上がれる。速さは作り次第で読めないので、ロケット花火を持った
+        // エリトラ（上昇の値段が安い側）と同じに扱う
+        if (SableVehicles.ride(player) != null) {
+            return FlightModel.elytra(true);
+        }
         MountState mount = ChunkView.mount(player);
         if (mount.kind() == MountState.Kind.HAPPY_GHAST) {
             return FlightModel.happyGhast(mount.movementSpeed());

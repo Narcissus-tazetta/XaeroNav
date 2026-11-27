@@ -478,6 +478,7 @@ public final class AStarPathfinder {
         // 1ブロックあたりの実コストは終端速度へ近づいて安くなるので、元の下限のままでは
         // ヒューリスティックが実コストを上回りうる（＝非許容）
         this.mountMoves = view.mount().walks() ? new MountMoves(this, view.mount())
+                : view.mount().drives() ? new VehicleMoves(this, view.mount())
                 : view.mount().swims() ? new NautilusMoves(this, view.mount()) : null;
         // 乗り物は徒歩より深く無傷で落ちられる（6マス、ダメージも半分）。徒歩の落差で決めた下限のままでは
         // 乗り物の落下が下限を割る
@@ -1048,8 +1049,10 @@ public final class AStarPathfinder {
      */
     private double mountedGuide(int x, int y, int z) {
         double best = Double.NaN;
-        for (int cx = x; cx < x + mountMoves.span(); cx++) {
-            for (int cz = z; cz < z + mountMoves.span(); cz++) {
+        int lowX = mountMoves.low(x);
+        int lowZ = mountMoves.low(z);
+        for (int cx = lowX; cx < lowX + mountMoves.span(); cx++) {
+            for (int cz = lowZ; cz < lowZ + mountMoves.span(); cz++) {
                 double guide = costToGo.searchEstimate(cx, y, cz);
                 if (!Double.isNaN(guide) && (Double.isNaN(best) || guide < best)) {
                     best = guide;

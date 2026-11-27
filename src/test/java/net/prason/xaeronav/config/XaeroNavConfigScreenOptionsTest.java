@@ -31,9 +31,14 @@ class XaeroNavConfigScreenOptionsTest {
         store.build();
 
         List<OptionInstance<?>> collected = new ArrayList<>();
-        assertDoesNotThrow(() -> XaeroNavConfigScreen.addAllOptions(cfg, collected::add));
+        assertDoesNotThrow(() -> XaeroNavConfigScreen.addAllOptions(cfg, collected::add, false));
         // XaeroNavConfigScreen.addAllOptions内のaddBig.accept呼び出し数と一致させること。
         // 項目を増減したときにここが検知する。
         assertEquals(19, collected.size());
+
+        // 車幅はCreate Aeronauticsが入っているときだけ並ぶ
+        List<OptionInstance<?>> withVehicle = new ArrayList<>();
+        assertDoesNotThrow(() -> XaeroNavConfigScreen.addAllOptions(cfg, withVehicle::add, true));
+        assertEquals(20, withVehicle.size());
     }
 }

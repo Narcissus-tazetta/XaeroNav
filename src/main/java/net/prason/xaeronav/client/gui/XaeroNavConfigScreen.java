@@ -1,6 +1,7 @@
 package net.prason.xaeronav.client.gui;
 
 //? if >=1.19.3 {
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -22,6 +23,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.prason.xaeronav.client.NavGraphWindow;
 import net.prason.xaeronav.config.RoutingMode;
 import net.prason.xaeronav.config.XaeroNavConfig;
+import net.prason.xaeronav.sable.SableVehicles;
 //?} else {
 /*import com.mojang.blaze3d.vertex.PoseStack;
 import java.util.ArrayList;
@@ -106,6 +108,14 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
     // cfgを引数化しているのはテスト用（XaeroNavConfigScreenTest）——本番はXaeroNavConfig.INSTANCEを渡すだけ。
     // publicなのは、load済みのXaeroNavConfigをNightConfigStore経由で作るテストがconfigパッケージ側にあるため
     public static void addAllOptions(XaeroNavConfig cfg, Consumer<OptionInstance<?>> addBig) {
+        addAllOptions(cfg, addBig, SableVehicles.present());
+    }
+
+    /**
+     * @param vehicleWidth 車幅の項目を出すか。Create Aeronautics（Sable）が入っているときだけ意味があるので、
+     *                     入っていない環境の画面には並べない
+     */
+    public static void addAllOptions(XaeroNavConfig cfg, Consumer<OptionInstance<?>> addBig, boolean vehicleWidth) {
         addBig.accept(routingModeOption(cfg));
         addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.digging_enabled",
                 "gui.xaeronav.config.digging_enabled.tooltip", cfg.diggingEnabled(), cfg::setDiggingEnabled));
@@ -146,6 +156,22 @@ public final class XaeroNavConfigScreen extends OptionsSubScreen {
         addBig.accept(boolOptionWithTooltip("gui.xaeronav.config.chat_coordinate_shift_via",
                 "gui.xaeronav.config.chat_coordinate_shift_via.tooltip",
                 cfg.chatCoordinateShiftViaEnabled(), cfg::setChatCoordinateShiftViaEnabled));
+        if (vehicleWidth) {
+            addBig.accept(vehicleWidthOption(cfg));
+        }
+    }
+
+    /** 押すたびに自動→1→…→7→自動と回る。 */
+    private static OptionInstance<Integer> vehicleWidthOption(XaeroNavConfig cfg) {
+        List<Integer> widths = new ArrayList<>();
+        for (int width = 0; width <= SableVehicles.MAX_VEHICLE_WIDTH; width++) {
+            widths.add(width);
+        }
+        return new OptionInstance<>("gui.xaeronav.config.vehicle_width",
+                OptionInstance.cachedConstantTooltip(Component.translatable("gui.xaeronav.config.vehicle_width.tooltip")),
+                (caption, width) -> width == 0 ? Component.translatable("gui.xaeronav.config.vehicle_width.auto")
+                        : Component.literal(Integer.toString(width)),
+                new OptionInstance.Enum<>(widths, Codec.INT), cfg.vehicleWidthBlocks(), cfg::setVehicleWidthBlocks);
     }
 
     private static OptionInstance<Boolean> boolOption(String key, boolean initial, Consumer<Boolean> setter) {
