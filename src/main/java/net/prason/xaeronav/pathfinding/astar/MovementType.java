@@ -31,6 +31,11 @@ public enum MovementType {
     MOUNT_JUMP,
     /** オウムガイに乗ったまま水中を進む区間。{@link PathStep#pos}はオウムガイのいる水のセルで、乗り手はその上2マス。 */
     MOUNT_SWIM,
+    /**
+     * Create Aeronauticsの車で走る区間。{@link PathStep#pos}は幅×幅の足場の真ん中の列（幅が偶数なら真ん中の
+     * 2列のうち大きい側）で、足場の高さにある。
+     */
+    DRIVE,
     /** 乗り物を降りて置いていく。{@link PathStep#pos}は降りて立つセルで、この先は歩く。 */
     DISMOUNT;
 
@@ -41,6 +46,6 @@ public enum MovementType {
 
     /** 乗り物に乗ったまま進む区間か。 */
     public boolean rides() {
-        return ridesOnLand() || this == MOUNT_SWIM;
+        return ridesOnLand() || this == MOUNT_SWIM || this == DRIVE;
     }
 }

@@ -8,7 +8,7 @@ import net.minecraft.core.BlockPos;
 
 /**
  * 乗り物に乗ったままの移動候補（{@link PathNode#mounted}のノード）。ノードの座標が何を指すかは乗り物ごとに違い、
- * 足場が{@link #span()}×{@link #span()}の列のうち{@code (x, z)}を角とする。
+ * 足場は{@link #span()}×{@link #span()}の列で、各軸で{@link #low}から始まる。
  */
 interface RiddenMoves {
 
@@ -32,8 +32,14 @@ interface RiddenMoves {
     /** 移動で体が通るセル。 */
     List<BlockPos> bodyCells(PathNode from, PathNode to);
 
+    /** ノードの座標{@code coordinate}の足場が始まる列。既定はノードの座標が足場の角。 */
+    default int low(int coordinate) {
+        return coordinate;
+    }
+
     /** ゴールとの距離・ガイドを引くときに使う、足場の列のうち{@code target}に一番近い列。 */
-    default int nearest(int corner, int target) {
-        return Math.max(corner, Math.min(corner + span() - 1, target));
+    default int nearest(int coordinate, int target) {
+        int low = low(coordinate);
+        return Math.max(low, Math.min(low + span() - 1, target));
     }
 }

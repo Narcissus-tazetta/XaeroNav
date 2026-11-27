@@ -21,6 +21,8 @@ import net.prason.xaeronav.pathfinding.astar.PathRisk;
 import net.prason.xaeronav.pathfinding.astar.MovementType;
 import net.prason.xaeronav.pathfinding.world.ChunkView;
 import net.prason.xaeronav.pathfinding.world.MountState;
+import net.prason.xaeronav.sable.SableRide;
+import net.prason.xaeronav.sable.SableVehicles;
 import net.prason.xaeronav.pathfinding.astar.PathStep;
 import net.prason.xaeronav.pathfinding.flight.FlightRoute;
 import net.prason.xaeronav.xaero.XaeroHookHealth;
@@ -137,15 +139,19 @@ public final class NavHud {
         // 空中経路が引けなかったこと（読み込み済みの範囲に抜け道が無い）と、そもそも案内が
         // 出ていないことは別。前者を「経路なし」と同じ文言にすると、地上と同じ失敗に見える
         boolean ghast = ChunkView.mount(mc.player).kind() == MountState.Kind.HAPPY_GHAST;
+        // Create Aeronauticsの飛行機は自分で上がれる。滑空・ロケット花火の文言は当てはまらない
+        boolean aircraft = SableVehicles.ride(mc.player) != null;
         boolean noRoute = view.flightRoute().isEmpty();
         add(TextCompat.translatable(ghast
                 ? noRoute ? "hud.xaeronav.flying_ghast_no_route" : "hud.xaeronav.flying_ghast"
+                : aircraft
+                ? noRoute ? "hud.xaeronav.flying_vehicle_no_route" : "hud.xaeronav.flying_vehicle"
                 : noRoute ? "hud.xaeronav.flying_no_route" : "hud.xaeronav.flying"), SECONDARY_COLOR);
         add(TextCompat.translatable("hud.xaeronav.direct_distance",
                 straightDistance(mc, view.goal())), SECONDARY_COLOR);
         int climb = upcomingClimb(view.flightRoute());
-        // ハッピーガストは自分で上がれて、その時間は値段に入っている
-        if (!ghast && climb >= CLIMB_NOTICE_BLOCKS) {
+        // ハッピーガスト・飛行機は自分で上がれて、その時間は値段に入っている
+        if (!ghast && !aircraft && climb >= CLIMB_NOTICE_BLOCKS) {
             // 上昇はプレイヤーが行動を要求される唯一の点。ロケットが無ければ速度と高度を
             // 交換するしかなく、線だけ見て「登れ」と分かっても間に合わないことがある
             add(TextCompat.translatable("hud.xaeronav.flight_climb", climb), WARNING_COLOR);
@@ -156,6 +162,7 @@ public final class NavHud {
     private void addNoPath(Minecraft mc, PathfindingState.NavigationView view,
                            PathfindingState.@Nullable StuckReason stuck) {
         addMountChange(view.mountChange());
+        addVehicleTooWide(mc);
         if (stuck != null) {
             addUnreachable(stuck);
         } else {
@@ -195,6 +202,7 @@ public final class NavHud {
         MountState mount = ChunkView.mount(mc.player);
         PathSuffixes ahead = suffixes.get(result, PathSuffixes::new);
         int from = PathProgress.INSTANCE.indexFor(result) + 1;
+        addVehicleTooWide(mc);
         if (view.mountChange() != null) {
             addMountChange(view.mountChange());
         } else if (mount.ridden() && ahead.rides(from)) {
@@ -202,6 +210,7 @@ public final class NavHud {
             add(TextCompat.translatable(switch (mount.kind()) {
                 case CAMEL -> "hud.xaeronav.riding_camel";
                 case NAUTILUS -> "hud.xaeronav.riding_nautilus";
+                case VEHICLE -> "hud.xaeronav.riding_vehicle";
                 default -> "hud.xaeronav.riding";
             }), SECONDARY_COLOR);
         }
@@ -226,6 +235,7 @@ public final class NavHud {
                 case DISMOUNT -> switch (mount.kind()) {
                     case CAMEL -> "hud.xaeronav.action_dismount_camel";
                     case NAUTILUS -> "hud.xaeronav.action_dismount_nautilus";
+                    case VEHICLE -> "hud.xaeronav.action_dismount_vehicle";
                     default -> next.key();
                 };
                 // ラクダのジャンプキーは突進
@@ -307,6 +317,18 @@ public final class NavHud {
         }
     }
 
+    /**
+     * 車輪から測った車幅が案内できる上限を超えたので、歩きの経路にしていること。知らせないと、車に乗って
+     * いるのに人しか通れない道へ案内される理由が分からない。
+     */
+    private void addVehicleTooWide(Minecraft mc) {
+        SableRide ride = SableVehicles.ride(mc.player);
+        if (ride != null && SableVehicles.tooWide(ride, XaeroNavConfig.INSTANCE.vehicleWidthBlocks())) {
+            add(TextCompat.translatable("hud.xaeronav.vehicle_too_wide", ride.wheelSpan(), SableVehicles.MAX_VEHICLE_WIDTH),
+                    WARNING_COLOR);
+        }
+    }
+
     /** 乗り物が変わって引き直した理由。乗ったのか降りたのかで、経路の何が変わるかが違う。 */
     private void addMountChange(@Nullable MountState now) {
         if (now == null) {
@@ -316,6 +338,7 @@ public final class NavHud {
             case HORSE -> "hud.xaeronav.mount_changed_horse";
             case CAMEL -> "hud.xaeronav.mount_changed_camel";
             case NAUTILUS -> "hud.xaeronav.mount_changed_nautilus";
+            case VEHICLE -> "hud.xaeronav.mount_changed_vehicle";
             // ハッピーガストに乗ったときは飛行の行が出る
             case HAPPY_GHAST, NONE -> "hud.xaeronav.mount_changed_off";
         }), SECONDARY_COLOR);

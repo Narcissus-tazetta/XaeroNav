@@ -133,6 +133,13 @@ Only naturally generated terrain is dug (stone, dirt, sand, ores, leaves, nether
 bricks, planks and anything with an inventory are left alone. Bridging is capped by **the number of
 blocks you actually carry**; a route that needs more is only offered when there is no other way.
 
+While riding, the node is the mount's footing instead: 2×2 columns for horses and camels, and a
+width×width square centered on the node for Create Aeronautics cars (`VehicleMoves`). A car stands where
+each quarter of that square has ground under it (the middle row and column count for neither side, so a
+wide car never balances on a one-block bridge), steps up or down one block at a time, never enters
+water, and can get out to continue on foot. On a Sable vehicle the start, arrival and deviation checks
+use the ground below you rather than your feet on the seat or deck (`VehicleGuide`).
+
 ### Estimating what is left (the heuristic)
 
 A\* expands the node with the smallest sum of "cost so far" (g) and "estimated cost to go" (h). Two
@@ -400,6 +407,10 @@ Once you start gliding, a separate search takes over (`pathfinding/flight`):
 - The staircase from the grid is pulled into straight segments wherever they fit (string pulling). If
   only a tight gap exists and nothing is found, the grid is halved and solved again.
 - After you touch down near the destination, walking guidance to the same destination takes over again.
+- On a Create Aeronautics vehicle, flight starts once the structure has been more than 3.5 blocks above
+  the ground for half a second, and ends when it is back within 3 blocks (`VehicleAirTrigger`). Wheels
+  hang below the structure's bounding box, so a parked car still reads about one block. Costs use the
+  elytra model with rockets, since the vehicle can climb under its own power.
 
 ## Safety annotations
 

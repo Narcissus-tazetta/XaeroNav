@@ -31,8 +31,21 @@ val devSourceSet = if (stonecutter.current.project == "1.21.1-neoforge") {
     null
 }
 
+// `-Pwith_aeronautics=true`でCreate Aeronautics（とSable・Create）を開発実行へ載せる（devmodのAeronauticsCheck）。
+// Sable 2.0.6はNeoForge 21.1.247以上を要るので、そのときだけ開発実行のNeoForgeを上げる。配布jarの下限は変えない
+val withAeronautics = stonecutter.current.project == "1.21.1-neoforge" &&
+    (findProperty("with_aeronautics") as String?).toBoolean()
+
+repositories {
+    // Sable Companion（MIT）だけをここから取る
+    exclusiveContent {
+        forRepository { maven("https://maven.ryanhcode.dev/releases") { name = "ryanhcode" } }
+        filter { includeGroup("dev.ryanhcode.sable-companion") }
+    }
+}
+
 neoForge {
-    version = dep("neoforge")
+    version = if (withAeronautics) "21.1.247" else dep("neoforge")
 
     mods {
         create(modProperty("mod_id")) {
@@ -80,6 +93,8 @@ neoForge {
             providers.gradleProperty("xaeronav.mtrDirectionsCheck").orNull?.let { systemProperty("xaeronav.mtrDirectionsCheck", it) }
             // `-Pxaeronav.crnDirectionsCheck=<名前> -Pwith_create=true`でCreateの試験路線を組み、CRNの経路検索を引けるか測る（devmodのCrnDirectionsCheck）
             providers.gradleProperty("xaeronav.crnDirectionsCheck").orNull?.let { systemProperty("xaeronav.crnDirectionsCheck", it) }
+            // `-Pxaeronav.aeronauticsCheck=<名前> -Pwith_aeronautics=true`でSableの車と浮いた台を組み、乗ったときの値を測る（devmodのAeronauticsCheck）
+            providers.gradleProperty("xaeronav.aeronauticsCheck").orNull?.let { systemProperty("xaeronav.aeronauticsCheck", it) }
             // `-Pxaeronav.configShot=<名前>`で設定画面を開いてスクリーンショットを撮る（devmodのConfigShot）
             providers.gradleProperty("xaeronav.configShot").orNull?.let { systemProperty("xaeronav.configShot", it) }
             // 既定のINFOだと生成されるlog4j設定のRootがINFOになり、配布版のNeoForgeなら debug.log に出る
@@ -172,6 +187,18 @@ dependencies {
     }
     if (minecraftVersion == "1.21.1" && (findProperty("with_create") as String?).toBoolean()) {
         createMods.forEach { xaeroRuntimeMods(it) }
+    }
+    // Sableの乗り物の検出はCompanion（MIT）のAPIだけで行う。Companionの実体はSableのjarに同梱されていて、
+    // Sableが無い環境ではクラスに触れない（SablePresence）ので、配布jarにも実行時依存にも含めない
+    if (stonecutter.current.project == "1.21.1-neoforge") {
+        val companion = "dev.ryanhcode.sable-companion:sable-companion-common-1.21.1:1.6.0"
+        compileOnly(companion)
+        devSourceSet?.let { add(it.compileOnlyConfigurationName, companion) }
+    }
+    if (withAeronautics) {
+        xaeroRuntimeMods(createMods[0])
+        xaeroRuntimeMods("maven.modrinth:sable:fg9dTRz9")
+        xaeroRuntimeMods("maven.modrinth:create-aeronautics:demX2roU")
     }
 }
 

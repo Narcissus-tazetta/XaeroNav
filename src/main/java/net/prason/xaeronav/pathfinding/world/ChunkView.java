@@ -57,7 +57,10 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.prason.xaeronav.config.XaeroNavConfig;
 import net.prason.xaeronav.rail.CartRide;
+import net.prason.xaeronav.sable.SableRide;
+import net.prason.xaeronav.sable.SableVehicles;
 import net.prason.xaeronav.rail.RailBlocks;
 import net.prason.xaeronav.util.GameCompat;
 import net.prason.xaeronav.pathfinding.cost.ActionCosts;
@@ -229,6 +232,10 @@ public final class ChunkView implements CellSource {
 
     /** いま乗っている操れる乗り物（{@link MountState}参照）。メインスレッド専用。 */
     public static MountState mount(Player player) {
+        SableRide ride = SableVehicles.ride(player);
+        if (ride != null) {
+            return SableVehicles.mount(ride, XaeroNavConfig.INSTANCE.vehicleWidthBlocks());
+        }
         Entity vehicle = player.getVehicle();
         //? if >=1.21.6 {
         /*if (vehicle instanceof HappyGhast ghast) {

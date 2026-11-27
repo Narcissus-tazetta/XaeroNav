@@ -46,6 +46,8 @@ import net.prason.xaeronav.pathfinding.navgraph.WindowRides;
 import net.prason.xaeronav.pathfinding.world.MinecartState;
 import net.prason.xaeronav.pathfinding.world.MountState;
 import net.prason.xaeronav.rail.RailNetwork;
+import net.prason.xaeronav.sable.SableRide;
+import net.prason.xaeronav.sable.SableVehicles;
 import net.prason.xaeronav.pathfinding.navgraph.RouteReview;
 import net.prason.xaeronav.pathfinding.navgraph.WindowField;
 import net.prason.xaeronav.pathfinding.world.AvoidedCellSource;
@@ -290,6 +292,7 @@ public final class PathfindingState {
     private volatile boolean flying;
     /** エリトラの滑空を飛行とみなすかの判定（時間と高さのヒステリシス）。 */
     private final ElytraTrigger elytraTrigger = new ElytraTrigger();
+    private final VehicleAirTrigger vehicleAirTrigger = new VehicleAirTrigger();
     /**
      * 経路の降りる段からこの水平距離までで降りたなら、予定どおり降りたとみなす（ブロック）。バニラは乗り物の横の
      * 空いた所へ降ろすので、降りる段そのものに立つとは限らない。
@@ -1431,7 +1434,7 @@ public final class PathfindingState {
             }
         }
         if (ticksSinceRecalc >= XaeroNavConfig.INSTANCE.recalcIntervalTicks()
-                && !result.complete() && nearPathEnd(mc.player.position(), result)
+                && !result.complete() && nearPathEnd(trackedPosition(mc.player), result)
                 && retryTruncatedNow(mc.player)) {
             // 打ち切られた末端に近づいた。ここから先は新しく読み込まれたチャンクを使って伸ばせる
             recalculate("approaching truncated end");
@@ -1456,7 +1459,7 @@ public final class PathfindingState {
             int validationHorizon = ClientCompat.renderDistance(mc.options) * 16;
             PathValidator.Failure failure = TickLaps.measure("path validation",
                     () -> PathValidator.firstFailureFrom(mc.level, result,
-                            PathProgress.INSTANCE.indexFor(result), mc.player.blockPosition(), validationHorizon));
+                            PathProgress.INSTANCE.indexFor(result), VehicleGuide.block(mc.player), validationHorizon));
             if (failure != null) {
                 noteUnusableCell(failure);
                 handleBlockedPath(mc.level, mc.player, shown, failure);
@@ -1466,9 +1469,13 @@ public final class PathfindingState {
 
     /**
      * 経路と比べる位置。乗り物に乗っていれば乗り物の足元——経路の高さは乗り物が立つ高さで、
-     * 乗り手の足はその上にある。
+     * 乗り手の足はその上にある。Create Aeronauticsの乗り物は乗り手の真下の地面（{@link VehicleGuide}）。
+     * 座席の実体はワールドの遠く（plot）にいるので{@code getVehicle().position()}は使えない。
      */
     private static Vec3 trackedPosition(Player player) {
+        if (SableVehicles.ride(player) != null) {
+            return VehicleGuide.position(player);
+        }
         Entity vehicle = player.getVehicle();
         return vehicle != null && ChunkView.mount(player).ridden() ? vehicle.position() : player.position();
     }
@@ -1478,6 +1485,10 @@ public final class PathfindingState {
      * （{@code MountMoves}がノードの座標にする角）。探索はこの角を最初に試す。オウムガイならオウムガイのいるセル。
      */
     private BlockPos searchStart(Player player) {
+        // Create Aeronauticsの乗り物は乗り手の真下の地面から。車なら探索がそこを真ん中にした足場から寄せる
+        if (SableVehicles.ride(player) != null) {
+            return VehicleGuide.block(player);
+        }
         Entity vehicle = player.getVehicle();
         if (vehicle != null && mount.swims()) {
             return vehicle.blockPosition();
@@ -1703,7 +1714,7 @@ public final class PathfindingState {
      * 終端を見ておかないと、そこに立ったまま次の区間へ進めなくなる。
      */
     private boolean surfaceLegDone(Level level, Player player, BlockPos currentGoal, DisplayedPath shown) {
-        BlockPos at = player.blockPosition();
+        BlockPos at = VehicleGuide.block(player);
         if (!shouldClimbToSurface(level, at, currentGoal, surfaceReferenceY(level, at))) {
             return true;
         }
@@ -1750,7 +1761,7 @@ public final class PathfindingState {
 
     private static boolean near(Player player, BlockPos pos, double radius) {
         return horizontalDistanceSq(player, pos) <= radius * radius
-                && Math.abs(pos.getY() - player.blockPosition().getY()) <= radius;
+                && Math.abs(pos.getY() - VehicleGuide.block(player).getY()) <= radius;
     }
 
     private static double horizontalDistanceSq(Player player, BlockPos pos) {
@@ -1779,7 +1790,7 @@ public final class PathfindingState {
         for (int i = ahead.size() - 1; i >= 0; i--) {
             BlockPos pos = ahead.get(i);
             if (horizontalDistanceSq(player, pos) <= radius * radius
-                    && Math.abs(pos.getY() - player.blockPosition().getY()) <= radius + PASSED_STOP_EXTRA_HEIGHT) {
+                    && Math.abs(pos.getY() - VehicleGuide.block(player).getY()) <= radius + PASSED_STOP_EXTRA_HEIGHT) {
                 LOGGER.info("XaeroNav: reached a later route point first, skipping {} stop(s)", i + 1);
                 // 着いた地点を区間の終点にすれば、次のtickの到着判定がその地点の鐘と次の区間への移行を受け持つ
                 beginLeg(stops.advanceTo(i));
@@ -2001,8 +2012,16 @@ public final class PathfindingState {
     private boolean airborne(Level level, Player player) {
         if (GameCompat.abilities(player).flying || flies(ChunkView.mount(player))) {
             elytraTrigger.reset();
+            vehicleAirTrigger.reset();
             return true;
         }
+        // Create Aeronauticsの乗り物は構造物と地面の隙間で見る。乗り手の接地判定は座っている間ずっとfalseで使えない
+        SableRide ride = SableVehicles.ride(player);
+        if (ride != null) {
+            elytraTrigger.reset();
+            return vehicleAirTrigger.update(ride.clearance());
+        }
+        vehicleAirTrigger.reset();
         if (!player.isFallFlying()) {
             return elytraTrigger.update(false, 0, 0);
         }
@@ -2406,7 +2425,7 @@ public final class PathfindingState {
         // 持っている間の再計算だけなので、debugゲート無しでも並ばない
         boolean tracked = PathProgress.INSTANCE.tracking(result);
         double offPath = tracked ? offPathDistance(level, player, result)
-                : distanceToPath(result, player.position());
+                : distanceToPath(result, trackedPosition(player));
         String dropped = null;
         // 「地形が変わった」は内訳まで出す。どのステップの何が不成立になったのかが分からないと、
         // 渡り切った直後に完走ルートが手放されるような症状の原因を追えない
@@ -2418,7 +2437,7 @@ public final class PathfindingState {
         } else if (reachedPathEnd(player, shown)) {
             dropped = "reached the end";
         } else if ((validationFailure = PathValidator.firstFailureFrom(level, result,
-                PathProgress.INSTANCE.indexFor(result), player.blockPosition(),
+                PathProgress.INSTANCE.indexFor(result), VehicleGuide.block(player),
                 ClientCompat.renderDistance(Minecraft.getInstance().options) * 16)) != null) {
             // もう歩き終えた区間の変化では手放さない。渡ってきた橋を後ろから壊しても、
             // これから通る道が使えることの証明は失われない
