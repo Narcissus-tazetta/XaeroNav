@@ -69,6 +69,10 @@ public final class Autopilot {
             // Createのクラスを参照するので、Createを載せた実行でだけ読み込む
             CrnDirectionsCheck.armIfRequested();
         }
+        if (System.getProperty("xaeronav.aeronauticsCheck") != null) {
+            // Create・Sable Companionのクラスを参照するので、Aeronauticsを載せた実行でだけ読み込む
+            AeronauticsCheck.armIfRequested();
+        }
         String spec = System.getProperty("xaeronav.autopilot");
         if (spec == null) {
             this.dx = 0;
