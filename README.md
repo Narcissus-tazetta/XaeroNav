@@ -244,6 +244,22 @@ For Create trains, CRN 0.10 or later is needed on both the server and the client
 schedules with the client. XaeroNav uses the station nearest to the start and the one nearest to the destination,
 guides you to the station block, and counts you as riding while you sit in a seat on the train.
 
+### Create Aeronautics vehicles
+
+With [Create Aeronautics](https://modrinth.com/mod/create-aeronautics) (NeoForge 1.21.1) installed, sitting in a seat
+of a vehicle or standing on it changes the guidance:
+
+| When | Guidance |
+|---|---|
+| On the ground, with Offroad wheels | The route stays on ground as wide as the car, climbs or drops one block at a time, keeps out of water, and says where to get out and walk when the car cannot go on |
+| On the ground, without wheels | A walking route from the ground below you |
+| In the air | The same guidance as gliding with an elytra; it goes back to ground guidance after landing |
+
+The car width is measured from where the wheels are, up to 7 blocks. Wider cars get a walking route and a HUD note;
+set `vehicleWidthBlocks` (also in the settings screen) to choose the width yourself. Routes never jump, dig or place
+blocks while driving, and a car is treated as a square as wide as it is, so it may need room to turn where the route
+bends sharply.
+
 ### Commands
 
 | Command | What it does |
@@ -279,7 +295,7 @@ Movement:
 
 | Color | Meaning |
 |---|---|
-| Green | Walking (also riding a horse or camel) |
+| Green | Walking (also riding a horse, camel or car) |
 | Yellow | Climbing up |
 | Blue | Climbing or stepping down |
 | Dark blue | Swimming |
@@ -333,7 +349,8 @@ Other markings:
 | `avoidRiskyJumps` | `true` | Avoid jumps over the void or a fatal drop (opened only when no way around exists at all) |
 | `blockBudgetEnabled` | `true` | Cap the total blocks a route may place at how many you carry (lifted when no route fits, with a shortage warning; never applied in creative) |
 | `blockBudgetReserve` | `0` | Blocks held back from that budget |
-| `mountLeaveBehindTicks` | `200` | While riding a horse or camel, extra cost (ticks, 20 per second) on routes that get off and leave it behind; detours up to this long stay mounted |
+| `mountLeaveBehindTicks` | `200` | While riding a horse, camel or car (Create Aeronautics), extra cost (ticks, 20 per second) on routes that get off and leave it behind; detours up to this long stay mounted |
+| `vehicleWidthBlocks` | `0` | Car width in blocks for Create Aeronautics (1 to 7). `0` measures it from the wheels |
 | `fallDamageToleranceEnabled` | `false` | Allow descents that deal fall damage (up to 1/3 of health at search time; with a water bucket, MLG descents are also considered) |
 | `strictLimits` | `false` | Never loosen the limits on bridge length, time underwater, fall damage, risky jumps and carried blocks, even when there is no other way. `false` loosens them only when no route fits and shows the result with warnings; `true` shows no route and says no way exists within the limits |
 | `deepLookAheadEnabled` | `true` | Keep extending the route ahead as far as loaded chunks allow while walking |
